@@ -90,7 +90,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={cn(
-        "min-h-screen bg-background font-sans antialiased",
+        "min-h-dvh bg-background font-sans antialiased",
         inter.variable,
         jetbrainsMono.variable
       )}>
@@ -101,6 +101,8 @@ export default function RootLayout({
         <ThemeProvider
           defaultTheme="system"
           storageKey="weaver-theme"
+          enableSystem
+          enableColorScheme
         >
           <I18nProvider>
             <main id="main-content">

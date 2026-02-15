@@ -33,7 +33,7 @@
 
     /* Glass effect */
     --glass-bg: rgba(255, 255, 255, 0.8);
-    --glass-blur: 20px;
+    --glass-blur: 14px;
     --glass-border: rgba(255, 255, 255, 0.3);
 
     /* Accent colors for UI elements */
@@ -95,10 +95,20 @@
   @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/40 transition-colors;
 }
 
+/* Firefox scrollbar */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+}
+
 /* Typography Utilities */
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  .text-pretty {
+    text-wrap: pretty;
   }
 }
 
@@ -140,50 +150,76 @@
   }
 }
 
+/* Safe-area utilities (iOS notches / home indicator) */
+@layer utilities {
+  .safe-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .safe-pb-6 {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
+  }
+
+  .safe-pt {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
 /* Glass Effect Utilities */
 @layer utilities {
   .glass {
     background: var(--glass-bg);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
     border: 1px solid var(--glass-border);
   }
 
   .glass-subtle {
     background: var(--glass-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--glass-border);
   }
 
   .glass-strong {
     background: var(--glass-bg);
-    backdrop-filter: blur(30px) saturate(180%);
-    -webkit-backdrop-filter: blur(30px) saturate(180%);
     border: 1px solid var(--glass-border);
+  }
+
+  @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .glass {
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+    }
+
+    .glass-subtle {
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .glass-strong {
+      backdrop-filter: blur(24px) saturate(170%);
+      -webkit-backdrop-filter: blur(24px) saturate(170%);
+    }
   }
 }
 
 /* Glow Effects */
 @layer utilities {
   .glow {
-    box-shadow: 0 0 20px hsla(var(--accent-purple), 0.3);
+    box-shadow: 0 0 20px hsl(var(--accent-purple) / 0.3);
   }
 
   .glow-sm {
-    box-shadow: 0 0 10px hsla(var(--accent-purple), 0.2);
+    box-shadow: 0 0 10px hsl(var(--accent-purple) / 0.2);
   }
 
   .glow-lg {
-    box-shadow: 0 0 40px hsla(var(--accent-purple), 0.4);
+    box-shadow: 0 0 40px hsl(var(--accent-purple) / 0.4);
   }
 
   .glow-blue {
-    box-shadow: 0 0 20px hsla(var(--accent-blue), 0.3);
+    box-shadow: 0 0 20px hsl(var(--accent-blue) / 0.3);
   }
 
   .glow-pink {
-    box-shadow: 0 0 20px hsla(var(--accent-pink), 0.3);
+    box-shadow: 0 0 20px hsl(var(--accent-pink) / 0.3);
   }
 }
 
@@ -213,6 +249,7 @@
 
   .animate-pulse-glow {
     animation: pulseGlow 2s ease-in-out infinite;
+    will-change: transform, opacity;
   }
 
   .animate-shimmer {
@@ -281,14 +318,15 @@
 }
 
 @keyframes pulseGlow {
-
   0%,
   100% {
-    box-shadow: 0 0 20px hsla(var(--accent-purple), 0.3);
+    opacity: 0.25;
+    transform: scale(0.985);
   }
 
   50% {
-    box-shadow: 0 0 40px hsla(var(--accent-purple), 0.5);
+    opacity: 0.45;
+    transform: scale(1.015);
   }
 }
 
@@ -377,8 +415,12 @@
   }
 
   .sidebar-item.active {
-    @apply bg-gradient-to-r from-blue-500/10 to-purple-500/10;
-    @apply text-foreground border-l-2 border-blue-500;
+    @apply text-foreground border-l-2 border-primary;
+    background: linear-gradient(
+      90deg,
+      hsl(var(--accent-blue) / 0.12),
+      hsl(var(--accent-purple) / 0.06)
+    );
   }
 }
 
@@ -411,11 +453,11 @@
 
 /* Selection styling */
 ::selection {
-  background: hsla(var(--accent-purple), 0.3);
+  background: hsl(var(--accent-purple) / 0.3);
 }
 
 .dark ::selection {
-  background: hsla(var(--accent-blue), 0.3);
+  background: hsl(var(--accent-blue) / 0.3);
 }
 
 /* ==============================================================
@@ -425,8 +467,7 @@
 /* Focus-visible ring — clear keyboard focus indicator */
 @layer base {
   *:focus-visible {
-    @apply outline-none ring-2 ring-offset-2 ring-offset-background;
-    ring-color: hsl(var(--ring));
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
 }
 
@@ -447,7 +488,7 @@
 @layer components {
   .skip-to-content {
     @apply sr-only focus:not-sr-only;
-    @apply fixed top-4 left-4 z-[9999] px-4 py-2 rounded-lg;
+    @apply fixed top-4 left-4 z-50 px-4 py-2 rounded-lg;
     @apply bg-primary text-primary-foreground font-medium text-sm;
     @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2;
     transition: transform 0.2s;

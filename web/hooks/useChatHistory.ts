@@ -126,8 +126,9 @@ export function useChatHistory() {
       if (existingIndex !== -1) {
         // Update existing session
         const updatedHistory = [...prev]
+        const existingSession = updatedHistory[existingIndex]!
         updatedHistory[existingIndex] = {
-          ...updatedHistory[existingIndex],
+          ...existingSession,
           updatedAt: timestamp,
           // Update title if it's still the default "New Conversation" or generic
           // (Logic can be refined, here we just update timestamp primarily)

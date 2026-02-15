@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { ChevronDown, Loader2, BrainCircuit, Globe, Code, FileText, CheckCircle2, Circle } from 'lucide-react'
+import { ChevronDown, Loader2, BrainCircuit, Globe, Code, FileText, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ToolInvocation } from '@/types/chat'
 import { Button } from '@/components/ui/button'
@@ -77,8 +77,8 @@ export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
               {/* Connecting Line */}
               <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-[2px] bg-muted z-0 rounded-full" />
               <div
-                  className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] bg-primary transition-all duration-700 ease-in-out z-0 rounded-full"
-                  style={{ width: `${(activeStep / (steps.length - 1)) * 100}%` }}
+                  className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] w-full bg-primary transition-transform duration-700 ease-in-out origin-left z-0 rounded-full"
+                  style={{ transform: `scaleX(${activeStep / (steps.length - 1)})` }}
               />
 
               {steps.map((step, index) => {
@@ -116,8 +116,8 @@ export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
         <div className="border-t border-border/50 bg-muted/10 animate-in slide-in-from-top-2 duration-300">
             <ScrollArea className="h-[240px]">
                 <div className="p-3 space-y-2">
-                    {tools.map((tool, i) => (
-                        <LogItem key={tool.toolCallId} tool={tool} index={i} />
+                    {tools.map((tool) => (
+                        <LogItem key={tool.toolCallId} tool={tool} />
                     ))}
                 </div>
             </ScrollArea>
@@ -127,8 +127,11 @@ export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
   )
 }
 
-function LogItem({ tool, index }: { tool: ToolInvocation, index: number }) {
+function LogItem({ tool }: { tool: ToolInvocation }) {
   const isRunning = tool.state === 'running'
+  const query = typeof tool.args?.query === 'string' ? tool.args.query : null
+  const code = typeof tool.args?.code === 'string' ? tool.args.code : null
+  const hasPreview = !!(query || code)
 
   return (
     <div className="group flex gap-3 p-2.5 rounded-lg hover:bg-muted/40 border border-transparent hover:border-border/40 transition-all duration-200">
@@ -163,10 +166,10 @@ function LogItem({ tool, index }: { tool: ToolInvocation, index: number }) {
                </span>
            </div>
 
-           {(tool.args?.query || tool.args?.code) && (
+           {hasPreview && (
                <div className="mt-1.5 p-2 rounded bg-muted/40 border border-border/40 font-mono text-[10px] text-muted-foreground overflow-x-auto whitespace-pre-wrap break-all">
-                   {tool.toolName === 'tavily_search' ? `Query: "${tool.args.query}"` :
-                    tool.toolName === 'execute_python_code' ? tool.args.code?.slice(0, 100) + (tool.args.code?.length > 100 ? '...' : '') :
+                   {tool.toolName === 'tavily_search' && query ? `Query: "${query}"` :
+                    tool.toolName === 'execute_python_code' && code ? code.slice(0, 100) + (code.length > 100 ? '...' : '') :
                     JSON.stringify(tool.args)}
                </div>
            )}

@@ -5,7 +5,7 @@ import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { FileText, Code, BarChart, Download, Maximize2, Minimize2, ChevronRight, ChevronLeft, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { FileText, Code, BarChart, Download, Maximize2, Minimize2, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Artifact } from '@/types/chat'
@@ -75,7 +75,7 @@ export function ArtifactsPanel({ artifacts, isOpen = true, onToggle }: Artifacts
 
   // Ensure active index is valid
   const currentIndex = Math.min(activeIndex, artifacts.length - 1)
-  const activeArtifact = artifacts[currentIndex]
+  const activeArtifact = artifacts[currentIndex]!
 
   // If collapsed (and not fullscreen), render slim bar
   if (!isOpen && !isFullscreen) {
@@ -96,7 +96,7 @@ export function ArtifactsPanel({ artifacts, isOpen = true, onToggle }: Artifacts
   // If fullscreen, render as a fixed overlay (show all artifacts)
   if (isFullscreen) {
     return (
-      <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
+      <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between p-4 border-b">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center text-primary-foreground font-bold">
@@ -235,7 +235,7 @@ function ArtifactCard({ artifact, isFullscreen }: { artifact: Artifact, isFullsc
                     )
                   }
                   return (
-                    <CodeBlock language={match ? match[1] : 'text'} value={content} />
+                    <CodeBlock language={match?.[1] ?? 'text'} value={content} />
                   )
                 }
               }}

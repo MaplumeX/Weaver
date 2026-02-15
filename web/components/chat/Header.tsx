@@ -1,11 +1,17 @@
 'use client'
 
-import React, { useState, useRef, useEffect, useMemo, memo } from 'react'
+import React, { useMemo, memo } from 'react'
 import { Button } from '@/components/ui/button'
-import { PanelLeft, Sun, Moon, ChevronDown, Check, LayoutPanelLeft, Settings } from 'lucide-react'
+import { PanelLeft, Sun, Moon, LayoutPanelLeft, Settings } from 'lucide-react'
 import { useTheme } from '@/components/theme-provider'
 import { useI18n } from '@/lib/i18n/i18n-context'
-import { cn } from '@/lib/utils'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface HeaderProps {
   sidebarOpen: boolean
@@ -26,37 +32,13 @@ export const Header = memo(function Header({
   onToggleArtifacts,
   hasArtifacts
 }: HeaderProps) {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, resolvedTheme } = useTheme()
   const { t } = useI18n()
-  const [isModelOpen, setIsModelOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const toggleTheme = () => {
-    if (theme === 'dark') setTheme('light')
-    else setTheme('dark')
+    const currentTheme = resolvedTheme || theme
+    setTheme(currentTheme === 'dark' ? 'light' : 'dark')
   }
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    if (!isModelOpen) return
-
-    function handleClickOutside(event: PointerEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsModelOpen(false)
-      }
-    }
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setIsModelOpen(false)
-      }
-    }
-    document.addEventListener('pointerdown', handleClickOutside)
-    document.addEventListener('keydown', handleEscape)
-    return () => {
-      document.removeEventListener('pointerdown', handleClickOutside)
-      document.removeEventListener('keydown', handleEscape)
-    }
-  }, [isModelOpen])
 
   const models = useMemo(
     () => [
@@ -82,7 +64,7 @@ export const Header = memo(function Header({
   )
 
   return (
-    <header className="flex h-16 items-center justify-between border-b px-4 bg-background/80 backdrop-blur-md sticky top-0 z-30 transition-all">
+    <header className="flex h-16 items-center justify-between border-b px-4 bg-background/80 backdrop-blur-md sticky top-0 z-30 transition-colors duration-200">
       <div className="flex items-center gap-3">
         {!sidebarOpen && (
             <Button
@@ -109,45 +91,29 @@ export const Header = memo(function Header({
              </Button>
          )}
 
-                  {/* Custom Model Dropdown - Refreshed */}
-                  <div className="relative" ref={dropdownRef}>
-                     <button
-                       onClick={() => setIsModelOpen(!isModelOpen)}
-                       className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-muted/20 hover:bg-muted/50 text-sm font-medium transition-colors"
-                     >
-                       <span>{currentModelName}</span>
-                       <ChevronDown className={cn("h-3.5 w-3.5 opacity-50 transition-transform", isModelOpen && "rotate-180")} />
-                     </button>
-
-                     {isModelOpen && (
-                       <div className="absolute right-0 top-full mt-2 w-56 max-h-80 overflow-y-auto rounded-xl border bg-popover p-1 shadow-lg animate-in fade-in zoom-in-95 z-50">
-                         {models.map((model) => (
-                           <button
-                             key={model.id}
-                             onClick={() => {
-                               onModelChange(model.id)
-                               setIsModelOpen(false)
-                             }}
-                             className={cn(
-                               "flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm transition-colors hover:bg-muted",
-                               selectedModel === model.id && "bg-muted font-medium text-primary"
-                             )}
-                           >
-                             {model.name}
-                             {selectedModel === model.id && <Check className="h-3.5 w-3.5" />}
-                           </button>
-                         ))}
-                       </div>
-                     )}
-                  </div>
+        <Select value={selectedModel} onValueChange={onModelChange}>
+          <SelectTrigger
+            aria-label="Select model"
+            className="h-9 w-auto rounded-full border bg-muted/20 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/50 focus:ring-offset-0"
+          >
+            <SelectValue placeholder={currentModelName} />
+          </SelectTrigger>
+          <SelectContent className="w-64 max-h-80 rounded-xl">
+            {models.map((model) => (
+              <SelectItem key={model.id} value={model.id}>
+                {model.name} ({model.provider})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
                   <Button
                     variant="ghost"           size="icon"
            onClick={toggleTheme}
            className="rounded-full hover:bg-muted/50"
          >
-            <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+            <Sun className="h-5 w-5 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
             <span className="sr-only">Toggle theme</span>
          </Button>
 

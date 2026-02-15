@@ -4,10 +4,8 @@ import React, { useState, useMemo, useCallback, memo } from 'react'
 import { Check, Copy, ChevronDown, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { showSuccess } from '@/lib/toast-utils'
-import { toast } from 'sonner' // Keep toast for other usages if any, but actually CodeBlock only uses success? Check.
 import dynamic from 'next/dynamic'
 import { Virtuoso } from 'react-virtuoso'
-import { cn } from '@/lib/utils'
 
 // Lazy-load SyntaxHighlighter to reduce initial bundle (~200KB savings)
 const SyntaxHighlighter = dynamic(
@@ -74,7 +72,7 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
   const itemContent = useCallback((index: number) => (
     <CodeLine
       key={index}
-      line={lines[index]}
+      line={lines[index] ?? ''}
       lineNumber={index + 1}
       language={language}
     />

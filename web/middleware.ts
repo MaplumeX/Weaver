@@ -12,6 +12,7 @@ import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
     const response = NextResponse.next()
+    void request
 
     // --- Content Security Policy ---
     // Allow self-hosted resources, inline styles (required by Tailwind / next-themes),

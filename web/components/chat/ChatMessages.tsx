@@ -41,7 +41,7 @@ export function ChatMessages({
 
   // Memoized renderer for Virtuoso
   const itemContent = useCallback((index: number, message: Message) => (
-    <MessageWrapper key={message.id} message={message} onEdit={onEditMessage} />
+    <MessageWrapper key={`${message.id}-${index}`} message={message} onEdit={onEditMessage} />
   ), [onEditMessage])
 
   // Handle scroll position changes
@@ -50,18 +50,6 @@ export function ChatMessages({
     lastAtBottom.current = atBottom
     onAtBottomChange?.(atBottom)
   }, [onAtBottomChange])
-
-  // Scroll to bottom method exposed via ref
-  const scrollToBottom = useCallback(() => {
-    const idx = messages.length - 1
-    if (idx >= 0) {
-      virtuosoRef.current?.scrollToIndex({
-        index: idx,
-        align: 'end',
-        behavior: 'smooth'
-      })
-    }
-  }, [messages.length])
 
   // Footer component showing loading status
   const Footer = useCallback(() => (

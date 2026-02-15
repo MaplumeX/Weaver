@@ -28,7 +28,9 @@ export function useIntersectionObserver<T extends Element>(
     if (freezeOnceVisible && isVisible) return
 
     const observer = new IntersectionObserver(
-      ([entry]) => {
+      (entries) => {
+        const entry = entries[0]
+        if (!entry) return
         const visible = entry.isIntersecting
         if (visible) {
           setIsVisible(true)

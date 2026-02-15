@@ -8,7 +8,7 @@ import { LoadingSkeleton } from '@/components/ui/loading'
  */
 export function ChatSkeleton() {
   return (
-    <div className="flex h-screen">
+    <div className="flex h-dvh">
       {/* Sidebar skeleton */}
       <div className="w-64 border-r p-4 space-y-3 hidden md:block">
         <LoadingSkeleton className="h-10 w-full rounded-lg" />

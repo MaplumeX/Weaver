@@ -226,7 +226,8 @@ export function Chat() {
     if (index === -1) return
 
     const previousMessages = messages.slice(0, index)
-    const updatedMessage: Message = { ...messages[index], content: newContent }
+    const messageToUpdate = messages[index]!
+    const updatedMessage: Message = { ...messageToUpdate, content: newContent }
     const newHistory = [...previousMessages, updatedMessage]
     setMessages(newHistory)
 

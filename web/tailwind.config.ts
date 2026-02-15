@@ -67,10 +67,10 @@ const config = {
         sm: "calc(var(--radius) - 4px)",
       },
       boxShadow: {
-        glow: "0 0 20px hsla(var(--accent-purple), 0.3)",
-        "glow-sm": "0 0 10px hsla(var(--accent-purple), 0.2)",
-        "glow-lg": "0 0 40px hsla(var(--accent-purple), 0.4)",
-        "glow-blue": "0 0 20px hsla(var(--accent-blue), 0.3)",
+        glow: "0 0 20px hsl(var(--accent-purple) / 0.3)",
+        "glow-sm": "0 0 10px hsl(var(--accent-purple) / 0.2)",
+        "glow-lg": "0 0 40px hsl(var(--accent-purple) / 0.4)",
+        "glow-blue": "0 0 20px hsl(var(--accent-blue) / 0.3)",
       },
       keyframes: {
         "accordion-down": {

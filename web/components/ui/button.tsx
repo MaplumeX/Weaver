@@ -20,7 +20,7 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
         // New gradient variant
         gradient:
-          "bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700 shadow-md hover:shadow-lg",
+          "gradient-accent text-white shadow-sm hover:opacity-90 hover:shadow-md",
         // Glass variant
         glass:
           "glass hover:bg-white/20 dark:hover:bg-white/10 text-foreground backdrop-blur-md",

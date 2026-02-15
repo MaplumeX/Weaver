@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import type { MarkdownWorkerData, MarkdownWorkerResult } from '../lib/workers/markdown.worker'
+import type { MarkdownWorkerResult } from '../lib/workers/markdown.worker'
 
 interface UseMarkdownWorkerReturn {
     processedContent: string

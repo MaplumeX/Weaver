@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { Plug, Server, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Plug, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
 
 export function McpConfigDialog() {

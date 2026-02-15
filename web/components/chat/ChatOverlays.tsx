@@ -15,7 +15,7 @@ interface ScrollButtonProps {
 export function ScrollToBottomButton({ visible, onClick }: ScrollButtonProps) {
   return (
     <div className={cn(
-      "absolute bottom-24 right-6 z-30 transition-all duration-500",
+      "absolute bottom-24 right-6 z-30 transition duration-300 ease-out",
       visible
         ? "translate-y-0 opacity-100"
         : "translate-y-10 opacity-0 pointer-events-none"

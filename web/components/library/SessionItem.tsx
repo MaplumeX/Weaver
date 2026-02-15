@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { ChatSession } from '@/types/chat'
-import { MessageSquare, MoreVertical, Pencil, Trash2, Pin, PinOff, Tag as TagIcon, Clock } from 'lucide-react'
+import { MessageSquare, MoreVertical, Pencil, Trash2, Pin, PinOff, Clock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

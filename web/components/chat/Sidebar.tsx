@@ -4,7 +4,7 @@ import React, { useMemo, useState, useCallback, memo } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n/i18n-context'
-import { Plus, Compass, LayoutGrid, FolderOpen, MessageSquare, PanelLeft, Trash2, Settings, Pin, PinOff } from 'lucide-react'
+import { Plus, Compass, LayoutGrid, FolderOpen, MessageSquare, PanelLeft, Trash2, Pin, PinOff } from 'lucide-react'
 import { Virtuoso } from 'react-virtuoso'
 import { ChatSession } from '@/types/chat'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -28,21 +28,20 @@ interface SidebarProps {
   isLoading?: boolean
 }
 
-export const Sidebar = memo(function Sidebar({
-  isOpen,
-  onToggle,
-  onNewChat,
-  onSelectChat,
-  onDeleteChat,
-  onTogglePin,
-  onRenameChat,
-  onClearHistory,
-  onOpenSettings,
-  activeView,
-  onViewChange,
-  history,
-  isLoading = false
-}: SidebarProps) {
+export const Sidebar = memo(function Sidebar(props: SidebarProps) {
+  const {
+    isOpen,
+    onToggle,
+    onNewChat,
+    onSelectChat,
+    onDeleteChat,
+    onTogglePin,
+    onClearHistory,
+    activeView,
+    onViewChange,
+    history,
+    isLoading = false,
+  } = props
   const { t } = useI18n()
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
@@ -64,8 +63,8 @@ export const Sidebar = memo(function Sidebar({
       else if (time >= yesterday) key = 'Yesterday'
       else if (time >= sevenDaysAgo) key = 'Previous 7 Days'
 
-      if (!groups[key]) groups[key] = []
-      groups[key].push(item)
+      const group = (groups[key] ??= [])
+      group.push(item)
     })
     return groups
   }, [unpinnedItems])
@@ -92,7 +91,7 @@ export const Sidebar = memo(function Sidebar({
 
   // Virtuoso item renderer
   const renderFlatItem = useCallback((index: number) => {
-    const entry = flatItems[index]
+    const entry = flatItems[index]!
     if (entry.type === 'header') {
       return (
         <div className={cn(
@@ -148,7 +147,7 @@ export const Sidebar = memo(function Sidebar({
       {/* Sidebar Container */}
       <div
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex flex-col sidebar transition-all duration-300 ease-out md:relative",
+          "fixed inset-y-0 left-0 z-50 flex flex-col sidebar transition-[transform,width] duration-300 ease-out md:relative",
           isOpen ? "w-[260px] translate-x-0" : "-translate-x-full w-0 md:translate-x-0 md:w-0 md:border-r-0 overflow-hidden"
         )}
       >
@@ -178,7 +177,7 @@ export const Sidebar = memo(function Sidebar({
           <div className="mb-2">
             <Button
               className={cn(
-                "w-full justify-start gap-2 h-10 shadow-sm transition-all font-medium text-sm",
+                "w-full justify-start gap-2 h-10 shadow-sm transition font-medium text-sm",
                 !isOpen && "px-2"
               )}
               variant="gradient"
@@ -291,12 +290,12 @@ function SidebarChatItem({
       <button
         onClick={() => onSelect(item.id)}
         aria-label={`Open chat: ${item.title}`}
-        className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-all duration-200 text-muted-foreground hover:bg-muted/60 hover:text-foreground text-left pr-12"
+        className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-colors duration-200 text-muted-foreground hover:bg-muted/60 hover:text-foreground text-left pr-12"
       >
         <MessageSquare className="h-4 w-4 shrink-0 transition-colors group-hover:text-primary" aria-hidden="true" />
         <span className="truncate">{item.title}</span>
       </button>
-      <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center transition-all bg-gradient-to-l from-muted/60 pl-2">
+      <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center transition-opacity duration-200 bg-gradient-to-l from-muted/60 pl-2">
         <button
           onClick={(e) => {
             e.stopPropagation()
@@ -305,7 +304,7 @@ function SidebarChatItem({
           aria-label={item.isPinned ? `Unpin ${item.title}` : `Pin ${item.title}`}
           aria-pressed={item.isPinned}
           className={cn(
-            "p-1 text-muted-foreground hover:text-primary transition-all",
+            "p-1 text-muted-foreground hover:text-primary transition-colors",
             item.isPinned && "text-primary"
           )}
         >
@@ -317,7 +316,7 @@ function SidebarChatItem({
             onDelete(item.id)
           }}
           aria-label={`Delete ${item.title}`}
-          className="p-1 text-muted-foreground hover:text-destructive transition-all"
+          className="p-1 text-muted-foreground hover:text-destructive transition-colors"
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
@@ -336,7 +335,7 @@ function SidebarItem({ icon: Icon, label, active, onClick }: { icon: any, label:
         "sidebar-item",
         active && "active"
       )}>
-      <Icon className={cn("h-4 w-4 transition-colors", active ? "text-blue-500" : "text-muted-foreground group-hover:text-foreground")} aria-hidden="true" />
+      <Icon className={cn("h-4 w-4 transition-colors", active ? "text-primary" : "text-muted-foreground group-hover:text-foreground")} aria-hidden="true" />
       <span className="truncate">{label}</span>
     </button>
   )

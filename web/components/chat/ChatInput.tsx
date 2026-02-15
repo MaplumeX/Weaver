@@ -196,7 +196,7 @@ export const ChatInput = memo(function ChatInput({
   const mcpLabel = searchMode === 'mcp' ? 'MCP...' : t('askAnything')
 
   return (
-    <div className="relative z-20 mx-auto w-full max-w-5xl px-4 pb-6 pt-2 md:pt-0 safe-pb">
+    <div className="relative z-20 mx-auto w-full max-w-5xl px-4 safe-pb-6 pt-2 md:pt-0">
       <div className="flex flex-col gap-2">
         {/* Command Menu */}
         {showCommandMenu ? (
@@ -216,7 +216,7 @@ export const ChatInput = memo(function ChatInput({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={cn(
-            "relative group rounded-3xl border bg-background shadow-lg shadow-black/5 transition-all duration-300 overflow-hidden",
+            "relative group rounded-3xl border bg-background shadow-lg shadow-black/5 transition duration-300 overflow-hidden",
             isFocused ? "ring-2 ring-primary/20 border-primary shadow-xl shadow-primary/5 scale-[1.005]" : "border-border/50 hover:border-primary/30",
             isDragging ? "ring-2 ring-primary border-primary bg-primary/5" : "",
             isLoading && "opacity-80"
@@ -314,7 +314,7 @@ export const ChatInput = memo(function ChatInput({
                 disabled={!input.trim() && attachments.length === 0}
                 aria-label="Send message"
                 className={cn(
-                  "h-8 w-8 rounded-full transition-all duration-300 shadow-sm",
+                  "h-8 w-8 rounded-full transition duration-300 shadow-sm",
                   (input.trim() || attachments.length > 0)
                     ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:scale-110"
                     : "bg-muted text-muted-foreground"

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
  */
 export default function NotFound() {
     return (
-        <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+        <div className="flex min-h-dvh flex-col items-center justify-center bg-background px-4">
             {/* Animated 404 glyph */}
             <motion.div
                 initial={{ opacity: 0, scale: 0.8 }}

@@ -250,7 +250,7 @@ export function useBrowserEvents({
     }
   }, [threadId])
 
-  const latestScreenshot = screenshots.length > 0 ? screenshots[screenshots.length - 1] : null
+  const latestScreenshot = screenshots.at(-1) ?? null
 
   return {
     screenshots,

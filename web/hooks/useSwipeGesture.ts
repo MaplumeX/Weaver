@@ -19,11 +19,15 @@ export function useSwipeGesture(
 
         const handleTouchStart = (e: TouchEvent) => {
             touchEnd.current = null
-            touchStart.current = e.targetTouches[0].clientX
+            const firstTouch = e.targetTouches.item(0)
+            if (!firstTouch) return
+            touchStart.current = firstTouch.clientX
         }
 
         const handleTouchMove = (e: TouchEvent) => {
-            touchEnd.current = e.targetTouches[0].clientX
+            const firstTouch = e.targetTouches.item(0)
+            if (!firstTouch) return
+            touchEnd.current = firstTouch.clientX
         }
 
         const handleTouchEnd = () => {

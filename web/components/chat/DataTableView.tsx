@@ -5,7 +5,6 @@ import Papa from 'papaparse'
 import { Download, Table as TableIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { cn } from '@/lib/utils'
 
 interface DataTableViewProps {
   data: string

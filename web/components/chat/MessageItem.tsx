@@ -8,12 +8,12 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import dynamic from 'next/dynamic'
 import { cn } from '@/lib/utils'
-import { Bot, Check, Copy, Pencil, Volume2, VolumeX, Loader2, FolderPlus } from 'lucide-react'
+import { Check, Copy, Pencil, Volume2, VolumeX, Loader2, FolderPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DataTableView } from './DataTableView'
 import { ErrorBoundary } from 'react-error-boundary'
 import { toast } from 'sonner'
-import { Message, Artifact } from '@/types/chat'
+import { Message } from '@/types/chat'
 import { ThinkingProcess } from './message/ThinkingProcess'
 import { CodeBlock } from './message/CodeBlock'
 import { CitationBadge } from './message/CitationBadge'
@@ -250,7 +250,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
           </div>
         ) : (
           <div className={cn(
-            "relative px-5 py-3.5 shadow-sm transition-all duration-300",
+            "relative px-5 py-3.5 shadow-sm transition-shadow duration-200",
             isUser
               ? "message-user"
               : "message-assistant hover:shadow-glow-sm"
@@ -273,11 +273,12 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                           return parts.map((part, i) => {
                             const match = part.match(/^\[(\d+)\]$/)
                             if (match) {
+                              const citationNum = match[1]!
                               return (
                                 <CitationBadge
                                   key={i}
-                                  num={match[1]}
-                                  active={activeCitation === match[1]}
+                                  num={citationNum}
+                                  active={activeCitation === citationNum}
                                   onClick={handleCitationClick}
                                 />
                               )
@@ -324,7 +325,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                     }
 
                     return (
-                      <CodeBlock language={match ? match[1] : 'text'} value={content} />
+                      <CodeBlock language={match?.[1] ?? 'text'} value={content} />
                     )
                   },
                   a: ({ node, ...props }) => (
@@ -348,7 +349,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                           unoptimized
                           loading="lazy"
                           decoding="async"
-                          className="w-full h-auto max-h-40 object-cover bg-white blur-sm transition-all duration-300"
+                          className="w-full h-auto max-h-40 object-cover bg-white blur-sm transition duration-300"
                           onLoad={(e) => e.currentTarget.classList.remove('blur-sm')}
                         />
                       ) : (
