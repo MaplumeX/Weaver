@@ -110,22 +110,22 @@ export function ExportDialog({ threadId, isOpen, onClose, className }: ExportDia
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="export-dialog-title"
         className={cn(
-          "w-full max-w-lg mx-4 rounded-2xl glass-strong p-6 shadow-2xl animate-scale-in",
+          "w-full max-w-lg mx-4 rounded-2xl border border-border/60 bg-card p-6 shadow-lg",
           className
         )}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg gradient-accent">
-              <Download className="h-5 w-5 text-white" />
+            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+              <Download className="h-5 w-5" />
             </div>
             <div>
               <h3 id="export-dialog-title" className="font-semibold text-lg">Export Report</h3>
@@ -153,7 +153,7 @@ export function ExportDialog({ threadId, isOpen, onClose, className }: ExportDia
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl bg-muted/50 border border-muted focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            className="w-full px-4 py-2.5 rounded-xl bg-background border border-border/60 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             placeholder="Enter report title..."
           />
         </div>
@@ -169,18 +169,19 @@ export function ExportDialog({ threadId, isOpen, onClose, className }: ExportDia
               return (
                 <button
                   key={f.id}
+                  type="button"
                   onClick={() => setFormat(f.id)}
                   aria-label={`Export as ${f.name}: ${f.description}`}
                   className={cn(
-                    "flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-colors duration-200",
+                    "flex flex-col items-center gap-1.5 p-3 rounded-xl border border-border/60 transition-colors duration-200",
                     format === f.id
-                      ? "border-blue-500/50 bg-blue-500/10"
-                      : "border-muted hover:border-muted-foreground/30"
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "hover:bg-accent"
                   )}
                 >
                   <Icon className={cn(
                     "h-5 w-5",
-                    format === f.id ? "text-blue-500" : "text-muted-foreground"
+                    format === f.id ? "text-primary" : "text-muted-foreground"
                   )} />
                   <span className="text-xs font-medium">{f.name}</span>
                 </button>
@@ -198,13 +199,14 @@ export function ExportDialog({ threadId, isOpen, onClose, className }: ExportDia
             {TEMPLATES.map(t => (
               <button
                 key={t.id}
+                type="button"
                 onClick={() => setTemplate(t.id)}
                 aria-label={`Template: ${t.name} — ${t.description}`}
                 className={cn(
-                  "flex items-center gap-3 p-3 rounded-xl border transition-colors duration-200 text-left",
+                  "flex items-center gap-3 p-3 rounded-xl border border-border/60 transition-colors duration-200 text-left",
                   template === t.id
-                    ? "border-purple-500/50 bg-purple-500/10"
-                    : "border-muted hover:border-muted-foreground/30"
+                    ? "border-primary/30 bg-primary/10"
+                    : "hover:bg-accent"
                 )}
               >
                 <span className="text-2xl">{t.preview}</span>
@@ -215,7 +217,7 @@ export function ExportDialog({ threadId, isOpen, onClose, className }: ExportDia
                   </div>
                 </div>
                 {template === t.id && (
-                  <Check className="h-4 w-4 text-purple-500 flex-shrink-0" />
+                  <Check className="h-4 w-4 text-primary flex-shrink-0" />
                 )}
               </button>
             ))}

@@ -97,16 +97,16 @@ export function VersionHistory({ threadId, isOpen, onClose, onRestore, className
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className={cn(
-        "w-full max-w-lg mx-4 rounded-2xl glass-strong p-6 shadow-2xl animate-scale-in max-h-[80vh] flex flex-col",
+        "w-full max-w-lg mx-4 rounded-2xl border border-border/60 bg-card p-6 shadow-lg max-h-[80vh] flex flex-col",
         className
       )}>
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-gradient-to-r from-green-500/20 to-emerald-500/20">
-              <History className="h-5 w-5 text-green-500" />
+            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+              <History className="h-5 w-5" />
             </div>
             <div>
               <h3 className="font-semibold text-lg">Version History</h3>
@@ -148,7 +148,7 @@ export function VersionHistory({ threadId, isOpen, onClose, onRestore, className
             versions.slice().reverse().map((version) => (
               <div
                 key={version.id}
-                className="p-4 rounded-xl border bg-gradient-to-r from-muted/20 to-transparent hover:from-muted/40 transition-colors duration-200 group"
+                className="p-4 rounded-xl border border-border/60 bg-muted/20 hover:bg-muted/30 transition-colors duration-200 group"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">

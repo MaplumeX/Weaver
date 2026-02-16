@@ -76,22 +76,22 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-dialog-title"
         className={cn(
-          "w-full max-w-md mx-4 rounded-2xl glass-strong p-6 shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto",
+          "w-full max-w-md mx-4 rounded-2xl border border-border/60 bg-card p-6 shadow-lg max-h-[90vh] overflow-y-auto",
           className
         )}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg gradient-accent">
-              <Link className="h-5 w-5 text-white" />
+            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+              <Link className="h-5 w-5" />
             </div>
             <div>
               <h3 id="share-dialog-title" className="font-semibold text-lg">Share Research</h3>
@@ -117,10 +117,10 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
               type="button"
               onClick={() => setPermissions('view')}
               className={cn(
-                "flex-1 flex items-center gap-2 p-3 rounded-xl border transition-colors duration-200",
+                "flex-1 flex items-center gap-2 p-3 rounded-xl border border-border/60 transition-colors duration-200",
                 permissions === 'view'
-                  ? "border-blue-500/50 bg-blue-500/10"
-                  : "border-muted hover:border-muted-foreground/30"
+                  ? "border-primary/30 bg-primary/10 text-primary"
+                  : "hover:bg-accent"
               )}
             >
               <Eye className="h-4 w-4" />
@@ -130,10 +130,10 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
               type="button"
               onClick={() => setPermissions('comment')}
               className={cn(
-                "flex-1 flex items-center gap-2 p-3 rounded-xl border transition-colors duration-200",
+                "flex-1 flex items-center gap-2 p-3 rounded-xl border border-border/60 transition-colors duration-200",
                 permissions === 'comment'
-                  ? "border-purple-500/50 bg-purple-500/10"
-                  : "border-muted hover:border-muted-foreground/30"
+                  ? "border-primary/30 bg-primary/10 text-primary"
+                  : "hover:bg-accent"
               )}
             >
               <Lock className="h-4 w-4" />
@@ -147,7 +147,7 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
             <select
               value={expiresHours}
               onChange={(e) => setExpiresHours(Number(e.target.value))}
-              className="bg-muted/50 border border-muted rounded-lg px-2 py-1 text-sm"
+              className="bg-background border border-border/60 rounded-lg px-2 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <option value={24}>24 hours</option>
               <option value={72}>3 days</option>
@@ -176,7 +176,7 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
             {shareLinks.map(link => (
               <div
                 key={link.id}
-                className="flex items-center gap-2 p-2 rounded-lg bg-muted/30 border border-muted/50"
+                className="flex items-center gap-2 p-2 rounded-lg bg-muted/20 border border-border/60"
               >
                 <Link className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                 <span className="text-xs text-muted-foreground truncate flex-1">
@@ -190,7 +190,7 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
                   onClick={() => copyLink(link.id)}
                   aria-label="Copy share link"
                   title="Copy link"
-                  className="p-1 hover:bg-muted/50 rounded transition-colors"
+                  className="p-1 rounded transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   {copied === link.id ? (
                     <Check className="h-3.5 w-3.5 text-green-500" />
@@ -203,7 +203,7 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
                   onClick={() => deleteLink(link.id)}
                   aria-label="Delete share link"
                   title="Delete link"
-                  className="p-1 hover:bg-destructive/10 rounded transition-colors"
+                  className="p-1 hover:bg-destructive/10 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   <X className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
                 </button>
