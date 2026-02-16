@@ -72,6 +72,7 @@ export const Header = memo(function Header({
               size="icon"
               onClick={onToggleSidebar}
               className="hidden md:flex hover:bg-muted/50 rounded-full"
+              aria-label="Open sidebar"
             >
               <PanelLeft className="h-5 w-5 text-muted-foreground" />
             </Button>
@@ -86,6 +87,7 @@ export const Header = memo(function Header({
                 size="icon"
                 onClick={onToggleArtifacts}
                 className="xl:hidden hover:bg-muted/50 rounded-full text-orange-500"
+                aria-label="Toggle artifacts"
              >
                 <LayoutPanelLeft className="h-5 w-5" />
              </Button>
@@ -94,7 +96,7 @@ export const Header = memo(function Header({
         <Select value={selectedModel} onValueChange={onModelChange}>
           <SelectTrigger
             aria-label="Select model"
-            className="h-9 w-auto rounded-full border bg-muted/20 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/50 focus:ring-offset-0"
+            className="h-9 w-auto rounded-full border border-border/60 bg-muted/20 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/50 transition-colors duration-200 focus:ring-offset-0"
           >
             <SelectValue placeholder={currentModelName} />
           </SelectTrigger>
