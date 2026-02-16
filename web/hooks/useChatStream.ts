@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Message, Artifact, ToolInvocation, ImageAttachment, PendingInterrupt, StreamEvent } from '@/types/chat'
-import { getApiBaseUrl } from '@/lib/api'
+import { getApiBaseUrl, getChatStreamProtocol, getChatStreamUrl } from '@/lib/api'
 import { createAppError } from '@/lib/errors'
 
 interface UseChatStreamProps {
@@ -96,8 +96,9 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
       abortControllerRef.current = new AbortController()
 
       try {
+        const streamProtocol = getChatStreamProtocol()
         const response = await fetch(
-          `${getApiBaseUrl()}/api/chat`,
+          getChatStreamUrl(),
           {
             method: 'POST',
             headers: {
@@ -177,70 +178,141 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
           }
         }
 
+        const handleStreamEvent = (data: StreamEvent) => {
+          if (data.type === 'status') {
+            throttledSetStatus(data.data.text)
+          } else if (data.type === 'text') {
+            assistantMessage.content += data.data.content
+            scheduleAssistantFlush()
+          } else if (data.type === 'message') {
+            assistantMessage.content = data.data.content
+            flushAssistantMessage()
+          } else if (data.type === 'interrupt') {
+            flushAssistantMessage()
+            interrupted = true
+            setPendingInterrupt(data.data)
+            const msg = data.data?.message || data.data?.prompts?.[0]?.message
+            setCurrentStatus(msg || 'Approval required before continuing')
+            setMessages((prev: Message[]) => [
+              ...prev,
+              {
+                id: `interrupt-${Date.now()}`,
+                role: 'assistant',
+                content: msg || 'Approval required before running a tool.',
+              },
+            ])
+          } else if (data.type === 'tool') {
+            const toolInvocation: ToolInvocation = {
+              toolCallId: `tool-${Date.now()}-${Math.random()}`,
+              toolName: data.data.name,
+              state: data.data.status === 'completed' ? 'completed' : 'running',
+              args: data.data.query ? { query: data.data.query } : {},
+            }
+
+            assistantMessage.toolInvocations = [
+              ...(assistantMessage.toolInvocations || []),
+              toolInvocation,
+            ]
+
+            flushAssistantMessage()
+          } else if (data.type === 'completion') {
+            assistantMessage.content = data.data.content
+            flushAssistantMessage()
+          } else if (data.type === 'artifact') {
+            const newArtifact = data.data as Artifact
+            if (!artifactIdsRef.current.has(newArtifact.id)) {
+              artifactIdsRef.current.add(newArtifact.id)
+              setArtifacts((prev: Artifact[]) => [...prev, newArtifact])
+            }
+          } else if (data.type === 'error') {
+            const message = data.data.message || 'An error occurred.'
+            flushAssistantMessage()
+            setCurrentStatus(message)
+            setMessages((prev: Message[]) => [
+              ...prev,
+              {
+                id: `error-${Date.now()}`,
+                role: 'assistant',
+                content: message,
+                isError: true,
+                retryable: false,
+              } as Message,
+            ])
+          } else if (data.type === 'done') {
+            flushAssistantMessage()
+          }
+        }
+
+        const parseSseFrame = (frame: string): StreamEvent | null => {
+          const lines = frame.split('\n').map((l) => l.trimEnd())
+          let eventName = ''
+          const dataLines: string[] = []
+
+          for (const line of lines) {
+            if (!line) continue
+            if (line.startsWith(':')) continue // comment/keepalive
+
+            if (line.startsWith('event:')) {
+              eventName = line.slice('event:'.length).trim()
+            } else if (line.startsWith('data:')) {
+              dataLines.push(line.slice('data:'.length).trimStart())
+            }
+          }
+
+          if (dataLines.length === 0) return null
+          const dataText = dataLines.join('\n')
+
+          let parsed: unknown
+          try {
+            parsed = JSON.parse(dataText) as unknown
+          } catch {
+            return null
+          }
+
+          // Prefer the legacy envelope if present: { type, data }
+          if (parsed && typeof parsed === 'object' && 'type' in parsed && 'data' in parsed) {
+            return parsed as StreamEvent
+          }
+
+          if (!eventName) return null
+          return { type: eventName as StreamEvent['type'], data: parsed as any } as StreamEvent
+        }
+
         let interrupted = false
+        let buffer = ''
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
 
-          const chunk = decoder.decode(value)
-          const lines = chunk.split('\n').filter((line) => line.trim())
+          buffer += decoder.decode(value, { stream: true })
 
-          for (const line of lines) {
-            if (line.startsWith('0:')) {
+          if (streamProtocol === 'legacy') {
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || ''
+
+            for (const rawLine of lines) {
+              const line = rawLine.trim()
+              if (!line) continue
+              if (!line.startsWith('0:')) continue
+
               try {
                 const data = JSON.parse(line.slice(2)) as StreamEvent
-
-                if (data.type === 'status') {
-                  throttledSetStatus(data.data.text)
-                } else if (data.type === 'text') {
-                  assistantMessage.content += data.data.content
-                  scheduleAssistantFlush()
-                } else if (data.type === 'message') {
-                  assistantMessage.content = data.data.content
-                  flushAssistantMessage()
-                } else if (data.type === 'interrupt') {
-                  flushAssistantMessage()
-                  interrupted = true
-                  setPendingInterrupt(data.data)
-                  const msg = data.data?.message || data.data?.prompts?.[0]?.message
-                  setCurrentStatus(msg || 'Approval required before continuing')
-                  setMessages((prev: Message[]) => [
-                    ...prev,
-                    {
-                      id: `interrupt-${Date.now()}`,
-                      role: 'assistant',
-                      content: msg || 'Approval required before running a tool.',
-                    },
-                  ])
-                  break
-                } else if (data.type === 'tool') {
-                  const toolInvocation: ToolInvocation = {
-                    toolCallId: `tool-${Date.now()}-${Math.random()}`,
-                    toolName: data.data.name,
-                    state: data.data.status === 'completed' ? 'completed' : 'running',
-                    args: data.data.query ? { query: data.data.query } : {},
-                  }
-
-                  assistantMessage.toolInvocations = [
-                    ...(assistantMessage.toolInvocations || []),
-                    toolInvocation,
-                  ]
-
-                  flushAssistantMessage()
-                } else if (data.type === 'completion') {
-                  assistantMessage.content = data.data.content
-                  flushAssistantMessage()
-                } else if (data.type === 'artifact') {
-                  const newArtifact = data.data as Artifact
-                  // Use Set for O(1) deduplication
-                  if (!artifactIdsRef.current.has(newArtifact.id)) {
-                    artifactIdsRef.current.add(newArtifact.id)
-                    setArtifacts((prev: Artifact[]) => [...prev, newArtifact])
-                  }
-                }
+                handleStreamEvent(data)
               } catch (err) {
                 console.error('Error parsing stream data:', err)
               }
+
+              if (interrupted) break
+            }
+          } else {
+            buffer = buffer.replace(/\r\n/g, '\n')
+            const frames = buffer.split('\n\n')
+            buffer = frames.pop() || ''
+
+            for (const frame of frames) {
+              const data = parseSseFrame(frame)
+              if (data) handleStreamEvent(data)
+              if (interrupted) break
             }
           }
 

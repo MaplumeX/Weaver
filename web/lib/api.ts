@@ -16,6 +16,18 @@ export function apiUrl(path: string): string {
   return `${baseUrl}/${trimmed}`
 }
 
+export type ChatStreamProtocol = 'sse' | 'legacy'
+
+export function getChatStreamProtocol(): ChatStreamProtocol {
+  const raw = (process.env.NEXT_PUBLIC_CHAT_STREAM_PROTOCOL || 'sse').trim().toLowerCase()
+  return raw === 'legacy' ? 'legacy' : 'sse'
+}
+
+export function getChatStreamUrl(): string {
+  const protocol = getChatStreamProtocol()
+  return apiUrl(protocol === 'legacy' ? '/api/chat' : '/api/chat/sse')
+}
+
 export function getApiWsBaseUrl(): string {
   return getApiBaseUrl().replace(/^http/, 'ws')
 }

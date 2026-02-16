@@ -87,6 +87,8 @@ export type StreamEvent =
   | { type: 'interrupt'; data: PendingInterrupt }
   | { type: 'tool'; data: { name: string; status: string; query?: string } }
   | { type: 'artifact'; data: Artifact }
+  | { type: 'error'; data: { message?: string } }
+  | { type: 'done'; data: Record<string, unknown> }
 
 // ──────────────────────────────────────────────
 // Research Visualization Types
@@ -129,4 +131,3 @@ export interface ResearchEvent {
   data: Record<string, unknown>
   timestamp: number
 }
-
