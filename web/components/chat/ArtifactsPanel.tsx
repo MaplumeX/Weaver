@@ -31,8 +31,7 @@ interface ArtifactsPanelProps {
   onToggle?: () => void
 }
 
-// Tab button component
-const ArtifactTab = memo(function ArtifactTab({
+const ArtifactListItem = memo(function ArtifactListItem({
   artifact,
   isActive,
   onClick
@@ -41,29 +40,39 @@ const ArtifactTab = memo(function ArtifactTab({
   isActive: boolean
   onClick: () => void
 }) {
-  const getTabIcon = () => {
+  const icon = (() => {
     switch (artifact.type) {
-      case 'report': return <FileText className="h-3 w-3" />
-      case 'code': return <Code className="h-3 w-3" />
-      case 'chart': return <BarChart className="h-3 w-3" />
-      default: return <FileText className="h-3 w-3" />
+      case 'report': return <FileText className="h-3.5 w-3.5" />
+      case 'code': return <Code className="h-3.5 w-3.5" />
+      case 'chart': return <BarChart className="h-3.5 w-3.5" />
+      default: return <FileText className="h-3.5 w-3.5" />
     }
-  }
+  })()
 
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-current={isActive ? 'true' : undefined}
       className={cn(
-        "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
+        "flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors duration-200",
         isActive
-          ? "bg-primary text-primary-foreground shadow-sm"
-          : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          ? "bg-primary/10 border-primary/20 text-foreground"
+          : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50 hover:border-border/60"
       )}
       title={artifact.title}
     >
-      {getTabIcon()}
-      <span className="max-w-[80px] truncate">{artifact.title}</span>
+      <span className={cn("mt-0.5 shrink-0", isActive ? "text-primary" : "text-muted-foreground")}>
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={cn("block text-xs font-medium truncate", isActive && "text-foreground")}>
+          {artifact.title}
+        </span>
+        <span className="block text-[11px] text-muted-foreground mt-0.5">
+          {artifact.type}
+        </span>
+      </span>
     </button>
   )
 })
@@ -81,7 +90,7 @@ export function ArtifactsPanel({ artifacts, isOpen = true, onToggle }: Artifacts
   // If collapsed (and not fullscreen), render slim bar
   if (!isOpen && !isFullscreen) {
     return (
-      <div className="h-full w-[50px] border-l border-border/60 bg-card flex flex-col items-center py-4 gap-4 transition-colors duration-200">
+      <div className="h-full w-full border-l border-border/60 bg-card flex flex-col items-center py-3 gap-3 transition-colors duration-200">
         <Button
           type="button"
           variant="ghost"
@@ -92,9 +101,12 @@ export function ArtifactsPanel({ artifacts, isOpen = true, onToggle }: Artifacts
         >
           <PanelRightOpen className="h-5 w-5 text-muted-foreground" />
         </Button>
-        <div className="flex-1 w-full flex flex-col items-center gap-2 overflow-hidden py-2">
-          <div className="writing-mode-vertical text-xs font-semibold text-muted-foreground uppercase rotate-180 select-none">
-            Artifacts ({artifacts.length})
+        <div className="flex-1 w-full flex flex-col items-center justify-center gap-2 overflow-hidden py-2">
+          <div className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground tabular-nums">
+            {artifacts.length}
+          </div>
+          <div className="text-[10px] font-medium text-muted-foreground uppercase select-none">
+            Artifacts
           </div>
         </div>
       </div>
@@ -165,28 +177,114 @@ export function ArtifactsPanel({ artifacts, isOpen = true, onToggle }: Artifacts
         </div>
       </div>
 
-      {/* Tab navigation for multiple artifacts */}
-      {artifacts.length > 1 && (
-        <div className="px-3 py-2 border-b border-border/60 bg-muted/20 overflow-x-auto">
-          <div className="flex gap-1 min-w-max">
-            {artifacts.map((artifact, index) => (
-              <ArtifactTab
-                key={artifact.id}
-                artifact={artifact}
-                isActive={index === currentIndex}
-                onClick={() => setActiveIndex(index)}
-              />
-            ))}
+      <div className="flex-1 min-h-0 flex">
+        {artifacts.length > 1 ? (
+          <div className="w-[176px] shrink-0 border-r border-border/60 bg-muted/10">
+            <ScrollArea className="h-full">
+              <div className="p-2 space-y-1">
+                {artifacts.map((artifact, index) => (
+                  <ArtifactListItem
+                    key={artifact.id}
+                    artifact={artifact}
+                    isActive={index === currentIndex}
+                    onClick={() => setActiveIndex(index)}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+        ) : null}
+
+        <ScrollArea className="flex-1 min-w-0">
+          <div className="p-4">
+            <ArtifactPreview artifact={activeArtifact} />
+          </div>
+        </ScrollArea>
+      </div>
+    </div>
+  )
+}
+
+function ArtifactPreview({ artifact }: { artifact: Artifact }) {
+  const icon = (() => {
+    switch (artifact.type) {
+      case 'report': return <FileText className="h-4 w-4 text-primary" />
+      case 'code': return <Code className="h-4 w-4 text-primary" />
+      case 'chart': return <BarChart className="h-4 w-4 text-primary" />
+      default: return <FileText className="h-4 w-4 text-primary" />
+    }
+  })()
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/60 bg-background shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/20 px-3 py-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="flex size-8 items-center justify-center rounded-md border border-border/60 bg-background">
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold truncate">{artifact.title}</div>
+            <div className="text-[11px] text-muted-foreground">{artifact.type}</div>
           </div>
         </div>
-      )}
+        {artifact.type === 'chart' ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="h-8 w-8"
+            aria-label="Download chart"
+            title="Download chart"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
+      </div>
 
-      {/* Only render the active artifact */}
-      <ScrollArea className="flex-1 p-4">
-        <div className="pb-4">
-          <ArtifactCard artifact={activeArtifact} />
-        </div>
-      </ScrollArea>
+      <div className="p-3">
+        {artifact.type === 'chart' && artifact.image ? (
+          <div className="relative">
+            <Image
+              src={`data:image/png;base64,${artifact.image}`}
+              alt={artifact.title}
+              width={1400}
+              height={900}
+              unoptimized
+              className="w-full object-contain bg-white rounded-md border border-border/60"
+              sizes="(max-width: 1024px) 100vw, 600px"
+              loading="lazy"
+            />
+          </div>
+        ) : artifact.type === 'code' ? (
+          <CodeBlock language="python" value={artifact.content} />
+        ) : (
+          <div className="prose dark:prose-invert max-w-none leading-relaxed prose-sm">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                pre: ({ children }) => <>{children}</>,
+                code: ({ node, className, children, ...props }: any) => {
+                  const match = /language-(\w+)/.exec(className || '')
+                  const isInline = !match && !String(children).includes('\n')
+                  const content = String(children).replace(/\n$/, '')
+                  if (isInline) {
+                    return (
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-[11px] font-mono" {...props}>
+                        {children}
+                      </code>
+                    )
+                  }
+                  return (
+                    <CodeBlock language={match?.[1] ?? 'text'} value={content} />
+                  )
+                }
+              }}
+            >
+              {artifact.content}
+            </ReactMarkdown>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -229,7 +327,7 @@ function ArtifactCard({ artifact, isFullscreen }: { artifact: Artifact, isFullsc
         )}
       </CardHeader>
 
-      <CardContent className={cn("p-0 text-xs", artifact.type === 'report' ? "p-3 bg-background" : "bg-zinc-950")}>
+      <CardContent className={cn("p-0 text-xs", artifact.type === 'report' ? "p-3 bg-background" : "bg-background")}>
         {artifact.type === 'chart' && artifact.image ? (
           <div className="relative group/image">
             <div className="absolute inset-0 bg-black/0 group-hover/image:bg-black/5 transition-colors" />

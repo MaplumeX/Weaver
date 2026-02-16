@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -102,13 +102,15 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   const [mcpConfig, setMcpConfig] = useState('')
   const [mcpLoadedTools, setMcpLoadedTools] = useState(0)
   const [mcpLoading, setMcpLoading] = useState(false)
+  const [mcpError, setMcpError] = useState<string | null>(null)
 
   const modelProviders = getModelProviders(t)
 
   // Fetch MCP config
-  const fetchMcpConfig = async () => {
+  const fetchMcpConfig = useCallback(async () => {
     try {
       setMcpLoading(true)
+      setMcpError(null)
       const res = await fetch(`${getApiBaseUrl()}/api/mcp/config`)
       if (!res.ok) throw new Error('Failed to fetch config')
       const data = await res.json()
@@ -117,15 +119,18 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
       setMcpLoadedTools(data.loaded_tools || 0)
     } catch (e) {
       console.error(e)
+      setMcpError(t('mcpLoadFailed'))
+      toast.error(t('mcpLoadFailed'))
     } finally {
       setMcpLoading(false)
     }
-  }
+  }, [t])
 
   // Save MCP config
   const saveMcpConfig = async () => {
     try {
       setMcpLoading(true)
+      setMcpError(null)
       let parsedServers = {}
       try {
         parsedServers = JSON.parse(mcpConfig)
@@ -152,7 +157,8 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
       return true
     } catch (e) {
       console.error(e)
-      toast.error('Failed to save MCP config')
+      setMcpError(t('mcpSaveFailed'))
+      toast.error(t('mcpSaveFailed'))
       return false
     } finally {
       setMcpLoading(false)
@@ -167,9 +173,9 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   // Fetch MCP config when dialog opens
   useEffect(() => {
     if (open) {
-      fetchMcpConfig()
+      void fetchMcpConfig()
     }
-  }, [open])
+  }, [open, fetchMcpConfig])
 
   useEffect(() => {
     setTempModel(selectedModel)
@@ -347,6 +353,14 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
               />
             </div>
 
+            {mcpError ? (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                <div className="font-medium">{mcpError}</div>
+                <div className="mt-1 text-destructive/80">{t('mcpLoadHint')}</div>
+                <div className="mt-1 font-mono text-[11px] text-destructive/70">{getApiBaseUrl()}</div>
+              </div>
+            ) : null}
+
             <div className="space-y-2">
               <Label className="text-xs font-medium">{t('serversConfiguration')}</Label>
               {mcpLoading ? (
@@ -369,13 +383,27 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
               )}
             </div>
 
-            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded">
-              {mcpLoading ? (
-                <RefreshCw className="h-3 w-3 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-3 w-3 text-green-500" />
-              )}
-              <span>{t('loadedTools')}: {mcpLoadedTools}</span>
+            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded">
+              <div className="flex items-center gap-2">
+                {mcpLoading ? (
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                )}
+                <span>{t('loadedTools')}: {mcpLoadedTools}</span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                disabled={mcpLoading}
+                onClick={fetchMcpConfig}
+                aria-label={t('refresh')}
+                title={t('refresh')}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
             </div>
           </div>
         </div>

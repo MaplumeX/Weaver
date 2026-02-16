@@ -1,13 +1,19 @@
 'use client'
 
 import { useMemo, useState, useCallback, memo } from 'react'
+import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { Plus, Compass, LayoutGrid, FolderOpen, MessageSquare, PanelLeft, Trash2, Pin, PinOff } from 'lucide-react'
 import { Virtuoso } from 'react-virtuoso'
 import { ChatSession } from '@/types/chat'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useTheme } from '@/components/theme-provider'
+import { Sun, Moon, Settings } from 'lucide-react'
+import { WORKSPACE_PANEL_W, WORKSPACE_RAIL_W } from './workspace-layout'
 
 // Constant group order - defined outside component to avoid recreating on each render
 const GROUP_ORDER = ['Today', 'Yesterday', 'Previous 7 Days', 'Older'] as const
@@ -37,17 +43,38 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
     onDeleteChat,
     onTogglePin,
     onClearHistory,
+    onOpenSettings,
     activeView,
     onViewChange,
     history,
     isLoading = false,
   } = props
   const { t } = useI18n()
+  const { theme, setTheme, resolvedTheme } = useTheme()
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [historyQuery, setHistoryQuery] = useState('')
+
+  const toggleTheme = () => {
+    const currentTheme = resolvedTheme || theme
+    setTheme(currentTheme === 'dark' ? 'light' : 'dark')
+  }
 
   const pinnedItems = useMemo(() => history.filter(s => s.isPinned), [history])
   const unpinnedItems = useMemo(() => history.filter(s => !s.isPinned), [history])
+
+  const normalizedQuery = historyQuery.trim().toLowerCase()
+  const hasQuery = normalizedQuery.length > 0
+
+  const filteredPinnedItems = useMemo(() => {
+    if (!hasQuery) return pinnedItems
+    return pinnedItems.filter((s) => (s.title || '').toLowerCase().includes(normalizedQuery))
+  }, [hasQuery, normalizedQuery, pinnedItems])
+
+  const filteredUnpinnedItems = useMemo(() => {
+    if (!hasQuery) return unpinnedItems
+    return unpinnedItems.filter((s) => (s.title || '').toLowerCase().includes(normalizedQuery))
+  }, [hasQuery, normalizedQuery, unpinnedItems])
 
   const groupedHistory = useMemo(() => {
     const groups: Record<string, typeof history> = {}
@@ -56,7 +83,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
     const yesterday = today - 86400000
     const sevenDaysAgo = today - 86400000 * 7
 
-    unpinnedItems.forEach(item => {
+    filteredUnpinnedItems.forEach(item => {
       const time = item.updatedAt || item.createdAt || Date.now()
       let key = 'Older'
       if (time >= today) key = 'Today'
@@ -67,39 +94,64 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
       group.push(item)
     })
     return groups
-  }, [unpinnedItems])
+  }, [filteredUnpinnedItems])
 
   // Build a flat list of items with group headers for virtual scrolling
-  const flatItems = useMemo(() => {
-    const items: Array<{ type: 'header'; label: string } | { type: 'item'; item: ChatSession }> = []
+  type FlatEntry =
+    | { type: 'header'; kind: 'pinned' | 'group' | 'results' | 'empty'; label: string }
+    | { type: 'item'; item: ChatSession }
 
-    if (pinnedItems.length > 0) {
-      items.push({ type: 'header', label: 'Pinned' })
-      pinnedItems.forEach(item => items.push({ type: 'item', item }))
+  const flatItems = useMemo(() => {
+    const items: FlatEntry[] = []
+
+    if (hasQuery) {
+      const matches = [...filteredPinnedItems, ...filteredUnpinnedItems]
+      if (matches.length === 0) {
+        items.push({ type: 'header', kind: 'empty', label: '' })
+        return items
+      }
+
+      items.push({ type: 'header', kind: 'results', label: '' })
+      matches.forEach(item => items.push({ type: 'item', item }))
+      return items
+    }
+
+    if (filteredPinnedItems.length > 0) {
+      items.push({ type: 'header', kind: 'pinned', label: '' })
+      filteredPinnedItems.forEach(item => items.push({ type: 'item', item }))
     }
 
     GROUP_ORDER.forEach(dateLabel => {
       const group = groupedHistory[dateLabel]
       if (group && group.length > 0) {
-        items.push({ type: 'header', label: dateLabel })
+        items.push({ type: 'header', kind: 'group', label: dateLabel })
         group.forEach(item => items.push({ type: 'item', item }))
       }
     })
 
     return items
-  }, [pinnedItems, groupedHistory])
+  }, [filteredPinnedItems, filteredUnpinnedItems, groupedHistory, hasQuery])
 
   // Virtuoso item renderer
   const renderFlatItem = useCallback((index: number) => {
     const entry = flatItems[index]!
     if (entry.type === 'header') {
+      const text =
+        entry.kind === 'pinned'
+          ? t('pinned')
+          : entry.kind === 'results'
+            ? t('results')
+            : entry.kind === 'empty'
+              ? t('noResults')
+              : entry.label
+
       return (
         <div className={cn(
           "px-3 text-[11px] font-semibold uppercase mb-1 pt-3",
-          entry.label === 'Pinned' ? "text-primary flex items-center gap-1" : "text-muted-foreground/70"
+          entry.kind === 'pinned' ? "text-primary flex items-center gap-1" : "text-muted-foreground/70"
         )}>
-          {entry.label === 'Pinned' && <Pin className="h-3 w-3 fill-primary" />}
-          {entry.label}
+          {entry.kind === 'pinned' && <Pin className="h-3 w-3 fill-primary" />}
+          {text}
         </div>
       )
     }
@@ -111,7 +163,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
         onTogglePin={onTogglePin}
       />
     )
-  }, [flatItems, onSelectChat, onTogglePin])
+  }, [flatItems, onSelectChat, onTogglePin, t])
 
   return (
     <>
@@ -144,17 +196,19 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
         onClick={onToggle}
       />
 
-      {/* Sidebar Container */}
+      {/* Mobile Drawer */}
       <div
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex flex-col sidebar w-[260px] transition-transform duration-200 ease-out md:relative",
-          isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0 md:w-0 md:border-r-0 overflow-hidden"
+          "fixed inset-y-0 left-0 z-50 md:hidden",
+          "w-[320px] max-w-[85vw]",
+          "bg-card border-r border-border/60",
+          "transition-transform duration-200 ease-out",
+          isOpen ? "translate-x-0" : "-translate-x-full"
         )}
+        aria-hidden={!isOpen}
       >
-        <div className="flex h-full flex-col p-3 gap-2">
-
-          {/* Sidebar Header */}
-          <div className="flex items-center justify-between px-2 mb-2 pt-1">
+        <div className="flex h-full flex-col p-3 gap-3">
+          <div className="flex items-center justify-between px-2 pt-1">
             <div className="flex items-center gap-2 select-none">
               <div className="flex size-7 items-center justify-center rounded-md border border-border/60 bg-background text-xs font-semibold text-foreground">
                 W
@@ -165,43 +219,42 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
               variant="ghost"
               size="icon"
               onClick={onToggle}
-              aria-label={isOpen ? "Close sidebar" : "Open sidebar"}
+              aria-label="Close sidebar"
               aria-expanded={isOpen}
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
           </div>
 
-          {/* Top Actions */}
-          <div className="mb-2">
+          <div>
             <Button
-              className={cn(
-                "w-full justify-start gap-2 h-10 shadow-sm transition-colors font-medium text-sm",
-                !isOpen && "px-2"
-              )}
+              className="w-full justify-start gap-2 h-10 shadow-sm transition-colors font-medium text-sm"
               variant="default"
               onClick={onNewChat}
             >
               <Plus className="h-4 w-4" />
-              <span className={cn("truncate", !isOpen && "md:hidden")}>{t('newInvestigation')}</span>
+              <span className="truncate">{t('newInvestigation')}</span>
             </Button>
           </div>
 
-          {/* Navigation Groups */}
-          <nav aria-label="Workspace navigation" className="flex-1 overflow-y-auto space-y-6 py-2 pr-1 scrollbar-thin scrollbar-thumb-muted/50">
+          <div className="space-y-1" role="group" aria-label="Workspace navigation">
+            <SidebarItem icon={LayoutGrid} label={t('dashboard')} active={activeView === 'dashboard'} onClick={() => onViewChange('dashboard')} />
+            <SidebarItem icon={Compass} label={t('discover')} active={activeView === 'discover'} onClick={() => onViewChange('discover')} />
+            <SidebarItem icon={FolderOpen} label={t('library')} active={activeView === 'library'} onClick={() => onViewChange('library')} />
+          </div>
 
-            {/* Workspace */}
-            <div className="space-y-1" role="group" aria-labelledby="workspace-heading">
-              <div id="workspace-heading" className="px-3 text-[11px] font-semibold text-muted-foreground/70 uppercase mb-1">
-                {t('workspace')}
-              </div>
-              <SidebarItem icon={LayoutGrid} label={t('dashboard')} active={activeView === 'dashboard'} onClick={() => onViewChange('dashboard')} />
-              <SidebarItem icon={Compass} label={t('discover')} active={activeView === 'discover'} onClick={() => onViewChange('discover')} />
-              <SidebarItem icon={FolderOpen} label={t('library')} active={activeView === 'library'} onClick={() => onViewChange('library')} />
-            </div>
+          <div className="pt-1">
+            <Input
+              value={historyQuery}
+              onChange={(e) => setHistoryQuery(e.target.value)}
+              placeholder={t('searchPlaceholder')}
+              aria-label="Search chat history"
+              className="h-9"
+            />
+          </div>
 
-            {/* History Section */}
+          <div className="flex-1 min-h-0 overflow-hidden">
             {isLoading ? (
               <div className="space-y-4 px-2 py-2">
                 {[1, 2, 3, 4, 5, 6].map(i => (
@@ -213,66 +266,209 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
               </div>
             ) : history.length === 0 ? (
               <div className="px-3 text-xs text-muted-foreground italic py-2">{t('noRecentChats')}</div>
-            ) : flatItems.length > 20 ? (
-              // Virtual scrolling for large history lists
+            ) : (
               <Virtuoso
-                style={{ height: 'calc(100vh - 280px)' }}
+                style={{ height: '100%' }}
                 totalCount={flatItems.length}
                 itemContent={renderFlatItem}
                 className="scrollbar-thin scrollbar-thumb-muted/50"
               />
-            ) : (
-              <div className="space-y-4">
-                {/* Pinned Section */}
-                {pinnedItems.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="px-3 text-[11px] font-semibold text-primary uppercase mb-1 flex items-center gap-1">
-                      <Pin className="h-3 w-3 fill-primary" /> Pinned
-                    </div>
-                    {pinnedItems.map(item => (
-                      <SidebarChatItem
-                        key={item.id}
-                        item={item}
-                        onSelect={onSelectChat}
-                        onDelete={setDeleteId}
-                        onTogglePin={onTogglePin}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Grouped Recent Section */}
-                {GROUP_ORDER.map(dateLabel => {
-                  const items = groupedHistory[dateLabel]
-                  if (!items || items.length === 0) return null
-
-                  return (
-                    <div key={dateLabel} className="space-y-1">
-                      <div className="px-3 text-[11px] font-semibold text-muted-foreground/70 uppercase mb-1">
-                        {dateLabel}
-                      </div>
-                      {items.map((item) => (
-                        <SidebarChatItem
-                          key={item.id}
-                          item={item}
-                          onSelect={onSelectChat}
-                          onDelete={setDeleteId}
-                          onTogglePin={onTogglePin}
-                        />
-                      ))}
-                    </div>
-                  )
-                })}
-              </div>
             )}
-          </nav>
+          </div>
 
-          {/* Bottom Actions - Removed Settings and Clear History as requested */}
+          <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2 px-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={toggleTheme}
+              aria-label={t('toggleTheme')}
+              title={t('toggleTheme')}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Sun className="h-4 w-4 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+              <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={onOpenSettings}
+              aria-label={t('settings')}
+              title={t('settings')}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
+
+      {/* Desktop Rail + Panel */}
+      <aside className="hidden md:flex h-dvh shrink-0">
+        <TooltipProvider delayDuration={200}>
+          <div
+            className="flex h-full flex-col items-center justify-between bg-card border-r border-border/60 py-3"
+            style={{ width: WORKSPACE_RAIL_W }}
+          >
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex size-9 items-center justify-center rounded-lg border border-border/60 bg-background text-xs font-semibold text-foreground select-none">
+                W
+              </div>
+
+              <RailButton
+                label={isOpen ? t('collapsePanel') : t('expandPanel')}
+                active={false}
+                onClick={onToggle}
+              >
+                <PanelLeft className={cn("h-4 w-4", !isOpen && "rotate-180")} aria-hidden="true" />
+              </RailButton>
+
+              <div className="h-3" />
+
+              <RailButton
+                label={t('dashboard')}
+                active={activeView === 'dashboard'}
+                onClick={() => onViewChange('dashboard')}
+              >
+                <LayoutGrid className="h-4 w-4" aria-hidden="true" />
+              </RailButton>
+              <RailButton
+                label={t('discover')}
+                active={activeView === 'discover'}
+                onClick={() => onViewChange('discover')}
+              >
+                <Compass className="h-4 w-4" aria-hidden="true" />
+              </RailButton>
+              <RailButton
+                label={t('library')}
+                active={activeView === 'library'}
+                onClick={() => onViewChange('library')}
+              >
+                <FolderOpen className="h-4 w-4" aria-hidden="true" />
+              </RailButton>
+            </div>
+
+            <div className="flex flex-col items-center gap-2">
+              <RailButton label={t('toggleTheme')} active={false} onClick={toggleTheme}>
+                <>
+                  <Sun className="h-4 w-4 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" aria-hidden="true" />
+                  <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" aria-hidden="true" />
+                </>
+              </RailButton>
+
+              <RailButton label={t('settings')} active={false} onClick={onOpenSettings}>
+                <Settings className="h-4 w-4" aria-hidden="true" />
+              </RailButton>
+            </div>
+          </div>
+        </TooltipProvider>
+
+        <div
+          className={cn(
+            "h-full bg-card overflow-hidden",
+            isOpen && "border-r border-border/60"
+          )}
+          style={{ width: isOpen ? WORKSPACE_PANEL_W : 0 }}
+          aria-hidden={!isOpen}
+        >
+          {isOpen ? (
+            <div className="flex h-full flex-col p-3 gap-3">
+              <div>
+                <Button
+                  className="w-full justify-start gap-2 h-10 shadow-sm transition-colors font-medium text-sm"
+                  variant="default"
+                  onClick={onNewChat}
+                >
+                  <Plus className="h-4 w-4" />
+                  <span className="truncate">{t('newInvestigation')}</span>
+                </Button>
+              </div>
+
+              <div className="pt-1">
+                <Input
+                  value={historyQuery}
+                  onChange={(e) => setHistoryQuery(e.target.value)}
+                  placeholder={t('searchPlaceholder')}
+                  aria-label="Search chat history"
+                  className="h-9"
+                />
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {isLoading ? (
+                  <div className="space-y-4 px-2 py-2">
+                    {[1, 2, 3, 4, 5, 6].map(i => (
+                      <div key={i} className="space-y-2 animate-pulse">
+                        <div className="h-3 w-20 bg-muted/40 rounded" />
+                        <div className="h-8 w-full bg-muted/30 rounded-lg" />
+                      </div>
+                    ))}
+                  </div>
+                ) : history.length === 0 ? (
+                  <div className="px-3 text-xs text-muted-foreground italic py-2">{t('noRecentChats')}</div>
+                ) : (
+                  <Virtuoso
+                    style={{ height: '100%' }}
+                    totalCount={flatItems.length}
+                    itemContent={renderFlatItem}
+                    className="scrollbar-thin scrollbar-thumb-muted/50"
+                  />
+                )}
+              </div>
+
+              <div className="border-t border-border/60 pt-2 px-1 flex items-center justify-between">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowClearConfirm(true)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {t('clearHistory')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </aside>
     </>
   )
 })
+
+function RailButton({
+  label,
+  active,
+  onClick,
+  children,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={label}
+          aria-current={active ? 'page' : undefined}
+          className={cn(
+            "relative flex size-10 items-center justify-center rounded-xl border transition-colors duration-200",
+            active
+              ? "bg-primary/10 border-primary/20 text-primary"
+              : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/60 hover:border-border/60"
+          )}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 function SidebarChatItem({
   item,

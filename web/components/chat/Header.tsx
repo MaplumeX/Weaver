@@ -21,6 +21,8 @@ interface HeaderProps {
   onOpenSettings: () => void
   onToggleArtifacts?: () => void
   hasArtifacts?: boolean
+  currentView: 'dashboard' | 'discover' | 'library'
+  sessionTitle?: string | null
 }
 
 export const Header = memo(function Header({
@@ -30,7 +32,9 @@ export const Header = memo(function Header({
   onModelChange,
   onOpenSettings,
   onToggleArtifacts,
-  hasArtifacts
+  hasArtifacts,
+  currentView,
+  sessionTitle
 }: HeaderProps) {
   const { theme, setTheme, resolvedTheme } = useTheme()
   const { t } = useI18n()
@@ -63,20 +67,34 @@ export const Header = memo(function Header({
     [models, selectedModel],
   )
 
+  const viewLabel = useMemo(() => {
+    return t(currentView)
+  }, [currentView, t])
+
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border/60 bg-background px-4 transition-colors duration-200">
-      <div className="flex items-center gap-3">
-        {!sidebarOpen && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onToggleSidebar}
-            className="hidden rounded-full hover:bg-accent md:flex"
-            aria-label="Open sidebar"
-          >
-            <PanelLeft className="h-5 w-5 text-muted-foreground" />
-          </Button>
-        )}
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border/60 bg-background px-4 transition-colors duration-200">
+      <div className="flex items-center gap-3 min-w-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onToggleSidebar}
+          className="rounded-full hover:bg-accent md:hidden"
+          aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+          aria-expanded={sidebarOpen}
+        >
+          <PanelLeft className="h-5 w-5 text-muted-foreground" />
+        </Button>
+
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-foreground truncate text-balance">
+            {viewLabel}
+          </div>
+          {currentView === 'dashboard' ? (
+            <div className="text-xs text-muted-foreground truncate text-pretty">
+              {sessionTitle || t('newInvestigation')}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex items-center gap-2">
@@ -109,26 +127,29 @@ export const Header = memo(function Header({
           </SelectContent>
         </Select>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleTheme}
-          className="rounded-full hover:bg-accent"
-        >
-          <Sun className="h-5 w-5 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Toggle theme</span>
-        </Button>
+        {/* Desktop theme/settings moved to Rail; keep on mobile */}
+        <div className="flex items-center gap-2 md:hidden">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            className="rounded-full hover:bg-accent"
+            aria-label={t('toggleTheme')}
+          >
+            <Sun className="h-5 w-5 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
+          </Button>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onOpenSettings}
-          className="rounded-full hover:bg-accent"
-        >
-          <Settings className="h-5 w-5" />
-          <span className="sr-only">Settings</span>
-        </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onOpenSettings}
+            className="rounded-full hover:bg-accent"
+            aria-label={t('settings')}
+          >
+            <Settings className="h-5 w-5" />
+          </Button>
+        </div>
       </div>
     </header>
   )

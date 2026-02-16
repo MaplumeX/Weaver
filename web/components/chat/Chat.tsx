@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { Header } from './Header'
 import { EmptyState } from './EmptyState'
@@ -17,13 +17,17 @@ import { filesToImageAttachments } from '@/lib/file-utils'
 import { LoadingSkeleton } from '@/components/ui/loading'
 import { ChatErrorBoundary } from '@/components/ui/error-boundary'
 import { useSwipeGesture } from '@/hooks/useSwipeGesture'
-import { useRef } from 'react'
+import { INSPECTOR_COLLAPSED_W, INSPECTOR_OPEN_W, WORKSPACE_PANEL_W, WORKSPACE_RAIL_W } from './workspace-layout'
 
 // Dynamic imports for heavy components
 const ArtifactsPanel = dynamic(
   () => import('./ArtifactsPanel').then(mod => ({ default: mod.ArtifactsPanel })),
   {
-    loading: () => <div className="w-[400px] h-full flex items-center justify-center"><LoadingSkeleton className="w-full h-full" /></div>,
+    loading: () => (
+      <div style={{ width: INSPECTOR_OPEN_W }} className="h-full flex items-center justify-center">
+        <LoadingSkeleton className="w-full h-full" />
+      </div>
+    ),
     ssr: false
   }
 )
@@ -59,7 +63,7 @@ const ChatMessages = dynamic(
   {
     loading: () => (
       <div className="flex-1 p-4">
-        <div className="max-w-5xl mx-auto space-y-3">
+        <div className="max-w-[820px] mx-auto space-y-3">
           <LoadingSkeleton className="h-20 w-full" />
           <LoadingSkeleton className="h-24 w-full" />
           <LoadingSkeleton className="h-16 w-2/3" />
@@ -74,7 +78,7 @@ const Sidebar = dynamic(
   () => import('./Sidebar').then(mod => ({ default: mod.Sidebar })),
   {
     loading: () => (
-      <div className="hidden md:flex w-[260px] border-r bg-card">
+      <div style={{ width: WORKSPACE_RAIL_W + WORKSPACE_PANEL_W }} className="hidden md:flex border-r bg-card">
         <div className="w-full p-3 space-y-2">
           <LoadingSkeleton className="h-10 w-full" />
           <LoadingSkeleton className="h-8 w-full" />
@@ -119,6 +123,11 @@ export function Chat() {
     togglePin,
     renameSession
   } = useChatHistory()
+
+  const activeSessionTitle = useMemo(() => {
+    if (!currentSessionId) return null
+    return history.find((s) => s.id === currentSessionId)?.title || null
+  }, [currentSessionId, history])
 
   // Chat stream
   const {
@@ -320,7 +329,7 @@ export function Chat() {
       />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 relative">
+      <div className="flex-1 flex flex-col min-w-0 relative bg-muted/10">
         <Header
           sidebarOpen={ui.sidebarOpen}
           onToggleSidebar={toggleSidebar}
@@ -329,6 +338,8 @@ export function Chat() {
           onOpenSettings={() => setSettings(true)}
           onToggleArtifacts={() => setMobileArtifacts(!ui.showMobileArtifacts)}
           hasArtifacts={artifacts.length > 0}
+          currentView={ui.currentView}
+          sessionTitle={activeSessionTitle}
         />
 
         {renderContent()}
@@ -382,10 +393,10 @@ export function Chat() {
 
       {/* Desktop Artifacts Panel */}
       {artifacts.length > 0 && (
-        <div className={cn(
-          "border-l hidden xl:flex flex-col bg-card animate-in slide-in-from-right duration-300 shadow-2xl z-20",
-          ui.isArtifactsOpen ? "w-[400px]" : "w-[50px]"
-        )}>
+        <div
+          className="border-l hidden xl:flex flex-col bg-card"
+          style={{ width: ui.isArtifactsOpen ? INSPECTOR_OPEN_W : INSPECTOR_COLLAPSED_W }}
+        >
           <ChatErrorBoundary
             onError={(error, errorInfo) => {
               console.error('[ArtifactsPanel] Render crash:', {

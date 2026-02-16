@@ -23,7 +23,7 @@ const MessageWrapper = memo(function MessageWrapper({
   onEdit: (id: string, newContent: string) => void
 }) {
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-0">
+    <div className="max-w-[820px] mx-auto px-4">
       <MessageItem message={message} onEdit={onEdit} />
     </div>
   )
@@ -53,7 +53,7 @@ export function ChatMessages({
 
   // Footer component showing loading status
   const Footer = useCallback(() => (
-    <div className="max-w-5xl mx-auto px-4 sm:px-0 pb-4">
+    <div className="max-w-[820px] mx-auto px-4 pb-4">
       {currentStatus && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-2 animate-in fade-in slide-in-from-bottom-2">
           {isLoading && <Loader2 className="h-3 w-3 animate-spin text-primary" />}

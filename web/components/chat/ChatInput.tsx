@@ -196,7 +196,7 @@ export const ChatInput = memo(function ChatInput({
   const mcpLabel = searchMode === 'mcp' ? 'MCP...' : t('askAnything')
 
   return (
-    <div className="relative z-20 mx-auto w-full max-w-5xl px-4 safe-pb-6 pt-2 md:pt-0">
+    <div className="relative z-20 mx-auto w-full max-w-[820px] px-4 safe-pb-6 pt-2 md:pt-0">
       <div className="flex flex-col gap-2">
         {/* Command Menu */}
         {showCommandMenu ? (

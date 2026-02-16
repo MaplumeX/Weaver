@@ -38,7 +38,7 @@ export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: Empty
   ]
 
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full max-w-4xl mx-auto p-6">
+    <div className="flex flex-col items-center justify-center h-full w-full max-w-[820px] mx-auto p-6">
 
       {/* Hero Section */}
       <div className="flex flex-col items-center space-y-6 mb-12 text-center">
@@ -65,7 +65,7 @@ export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: Empty
       </div>
 
       {/* Starter Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-[820px]">
         {starters.map((starter, i) => {
           const isActive = selectedMode === starter.mode
           return (
