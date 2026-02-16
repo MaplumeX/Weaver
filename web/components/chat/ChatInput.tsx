@@ -216,15 +216,15 @@ export const ChatInput = memo(function ChatInput({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={cn(
-            "relative group rounded-3xl border bg-background shadow-lg shadow-black/5 transition duration-300 overflow-hidden",
-            isFocused ? "ring-2 ring-primary/20 border-primary shadow-xl shadow-primary/5 scale-[1.005]" : "border-border/50 hover:border-primary/30",
-            isDragging ? "ring-2 ring-primary border-primary bg-primary/5" : "",
+            "relative group rounded-2xl border border-border/60 bg-background shadow-sm transition-colors duration-200 overflow-hidden",
+            isFocused ? "ring-2 ring-ring/15 border-ring/60" : "hover:border-ring/40",
+            isDragging ? "ring-2 ring-ring/20 border-ring/60 bg-primary/5" : "",
             isLoading && "opacity-80"
           )}
         >
           {/* Drag Overlay */}
           {isDragging && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/90">
               <div className="text-primary font-medium flex flex-col items-center gap-2">
                 <div className="p-4 rounded-full bg-primary/10">
                   <Paperclip className="h-8 w-8" />
@@ -314,9 +314,9 @@ export const ChatInput = memo(function ChatInput({
                 disabled={!input.trim() && attachments.length === 0}
                 aria-label="Send message"
                 className={cn(
-                  "h-8 w-8 rounded-full transition duration-300 shadow-sm",
+                  "h-8 w-8 rounded-full transition-colors duration-200 shadow-sm",
                   (input.trim() || attachments.length > 0)
-                    ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:scale-110"
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
                     : "bg-muted text-muted-foreground"
                 )}
               >
@@ -327,7 +327,7 @@ export const ChatInput = memo(function ChatInput({
         </div>
 
         {/* Footer hints */}
-        <div className="flex justify-between px-4 text-[10px] text-muted-foreground opacity-60">
+        <div className="flex justify-between px-4 text-[11px] text-muted-foreground opacity-60">
           <span><strong>/</strong> {t('forCommands')}</span>
           <span>{t('aiCanMakeMistakes')}</span>
         </div>
