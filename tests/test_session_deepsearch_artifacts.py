@@ -100,3 +100,33 @@ def test_session_manager_extracts_query_coverage_from_quality_summary_fallback()
     assert session_state is not None
     artifacts = session_state.deepsearch_artifacts
     assert artifacts["query_coverage"]["score"] == 0.6
+
+
+def test_session_manager_includes_sources_and_claims_in_deepsearch_artifacts():
+    state = {
+        "route": "deep",
+        "research_plan": ["q1"],
+        "final_report": "According to the annual report, revenue increased by 20% in 2024.",
+        "scraped_content": [
+            {
+                "query": "revenue report",
+                "results": [
+                    {
+                        "title": "Annual Report",
+                        "url": "https://example.com/?utm_source=test",
+                        "summary": "The annual report shows revenue increased by 20% in 2024.",
+                    }
+                ],
+            }
+        ],
+        "quality_summary": {"summary_count": 1, "source_count": 1},
+    }
+
+    checkpointer = SimpleNamespace(get_tuple=lambda config: _fake_checkpoint_tuple(state))
+    manager = SessionManager(checkpointer)
+    session_state = manager.get_session_state("thread-evidence")
+    assert session_state is not None
+
+    artifacts = session_state.deepsearch_artifacts
+    assert artifacts["sources"][0]["url"] == "https://example.com/"
+    assert artifacts["claims"][0]["evidence_urls"][0] == "https://example.com/"

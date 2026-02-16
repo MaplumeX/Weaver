@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Set, Tuple
 
+from agent.workflows.source_registry import SourceRegistry
+
 _CLAIM_MARKERS = (
     "research",
     "study",
@@ -183,9 +185,11 @@ class ClaimVerifier:
 
     def _extract_evidence(self, scraped_content: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
         evidence: List[Tuple[str, str]] = []
+        source_registry = SourceRegistry()
         for item in scraped_content or []:
             for result in item.get("results", []) or []:
                 url = str(result.get("url") or "").strip() or "unknown"
+                canonical_url = source_registry.canonicalize_url(url) or url
                 text = (
                     result.get("raw_excerpt")
                     or result.get("content")
@@ -195,7 +199,7 @@ class ClaimVerifier:
                 )
                 text = str(text).strip()
                 if text:
-                    evidence.append((url, text))
+                    evidence.append((canonical_url, text))
         return evidence
 
     def _tokenize(self, text: str) -> Set[str]:

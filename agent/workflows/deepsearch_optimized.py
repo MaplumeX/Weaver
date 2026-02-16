@@ -980,6 +980,31 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
             "elapsed_seconds": elapsed,
             **diagnostics,
         }
+        sources = []
+        claims = []
+        try:
+            from agent.workflows.evidence_extractor import extract_message_sources
+
+            sources = extract_message_sources(search_runs)
+        except Exception:
+            sources = []
+        try:
+            from agent.workflows.claim_verifier import ClaimVerifier
+
+            verifier = ClaimVerifier()
+            checks = verifier.verify_report(final_report, search_runs)
+            claims = [
+                {
+                    "claim": c.claim,
+                    "status": c.status.value,
+                    "evidence_urls": c.evidence_urls,
+                    "score": c.score,
+                    "notes": c.notes,
+                }
+                for c in checks
+            ]
+        except Exception:
+            claims = []
         deepsearch_artifacts = {
             "mode": "linear",
             "queries": have_query,
@@ -987,6 +1012,8 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
             "quality_summary": quality_summary,
             "query_coverage": diagnostics.get("query_coverage", {}),
             "freshness_summary": diagnostics.get("freshness_summary", {}),
+            "sources": sources,
+            "claims": claims,
         }
 
         # 保存数据
@@ -1280,6 +1307,31 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             "elapsed_seconds": elapsed,
             **diagnostics,
         }
+        sources = []
+        claims = []
+        try:
+            from agent.workflows.evidence_extractor import extract_message_sources
+
+            sources = extract_message_sources(search_runs)
+        except Exception:
+            sources = []
+        try:
+            from agent.workflows.claim_verifier import ClaimVerifier
+
+            verifier = ClaimVerifier()
+            checks = verifier.verify_report(final_report, search_runs)
+            claims = [
+                {
+                    "claim": c.claim,
+                    "status": c.status.value,
+                    "evidence_urls": c.evidence_urls,
+                    "score": c.score,
+                    "notes": c.notes,
+                }
+                for c in checks
+            ]
+        except Exception:
+            claims = []
         deepsearch_artifacts = {
             "mode": "tree",
             "queries": have_query,
@@ -1287,6 +1339,8 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             "quality_summary": quality_summary,
             "query_coverage": diagnostics.get("query_coverage", {}),
             "freshness_summary": diagnostics.get("freshness_summary", {}),
+            "sources": sources,
+            "claims": claims,
         }
         _emit_event(emitter, "quality_update", {"epoch": 1, "stage": "final", **diagnostics})
         _emit_event(

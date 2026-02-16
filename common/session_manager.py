@@ -409,8 +409,55 @@ class SessionManager:
             return {}
 
         artifacts = state.get("deepsearch_artifacts")
+        scraped_content = state.get("scraped_content", [])
+        final_report = state.get("final_report") or state.get("draft_report") or ""
+
+        def _maybe_extract_sources() -> List[Dict[str, Any]]:
+            if not isinstance(scraped_content, list) or not scraped_content:
+                return []
+            try:
+                from agent.workflows.evidence_extractor import extract_message_sources
+
+                return extract_message_sources(scraped_content)
+            except Exception:
+                return []
+
+        def _maybe_extract_claims() -> List[Dict[str, Any]]:
+            if not isinstance(scraped_content, list) or not scraped_content:
+                return []
+            if not isinstance(final_report, str) or not final_report.strip():
+                return []
+            try:
+                from agent.workflows.claim_verifier import ClaimVerifier
+
+                verifier = ClaimVerifier()
+                checks = verifier.verify_report(final_report, scraped_content)
+                claims: List[Dict[str, Any]] = []
+                for check in checks:
+                    claims.append(
+                        {
+                            "claim": check.claim,
+                            "status": check.status.value,
+                            "evidence_urls": check.evidence_urls,
+                            "score": check.score,
+                            "notes": check.notes,
+                        }
+                    )
+                return claims
+            except Exception:
+                return []
+
         if isinstance(artifacts, dict):
-            return artifacts
+            enriched = dict(artifacts)
+            if "sources" not in enriched:
+                sources = _maybe_extract_sources()
+                if sources:
+                    enriched["sources"] = sources
+            if "claims" not in enriched:
+                claims = _maybe_extract_claims()
+                if claims:
+                    enriched["claims"] = claims
+            return enriched
 
         queries = state.get("research_plan", []) if isinstance(state.get("research_plan", []), list) else []
         research_tree = state.get("research_tree")
@@ -458,6 +505,9 @@ class SessionManager:
         ):
             return {}
 
+        sources = _maybe_extract_sources()
+        claims = _maybe_extract_claims()
+
         return {
             "mode": state.get("deepsearch_mode")
             or state.get("route")
@@ -467,6 +517,8 @@ class SessionManager:
             "quality_summary": quality_summary,
             "query_coverage": query_coverage,
             "freshness_summary": freshness_summary,
+            "sources": sources,
+            "claims": claims,
         }
 
 

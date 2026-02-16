@@ -30,7 +30,7 @@ def test_claim_with_conflicting_evidence_is_contradicted():
             "query": "revenue trend",
             "results": [
                 {
-                    "url": "https://example.com/earnings",
+                    "url": "https://example.com/earnings?utm_source=test",
                     "summary": "The company's revenue did not increase in 2024 and decreased by 5%.",
                 }
             ],
