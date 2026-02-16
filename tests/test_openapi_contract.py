@@ -27,6 +27,7 @@ def test_openapi_has_key_paths_and_distinct_resume_schemas():
     assert "/api/sessions" in paths
     assert "/api/sessions/{thread_id}/comments" in paths
     assert "/api/sessions/{thread_id}/versions" in paths
+    assert "/api/sessions/{thread_id}/evidence" in paths
 
     schemas = (spec.get("components", {}) or {}).get("schemas", {}) or {}
     assert "GraphInterruptResumeRequest" in schemas
@@ -95,3 +96,22 @@ def test_openapi_has_key_paths_and_distinct_resume_schemas():
     versions_props = versions_resolved.get("properties", {}) or {}
     assert versions_props.get("count", {}).get("type") == "integer"
     assert versions_props.get("versions", {}).get("type") == "array"
+
+    evidence_get = (
+        (paths.get("/api/sessions/{thread_id}/evidence", {}) or {}).get("get", {}) or {}
+    )
+    evidence_schema = (
+        (evidence_get.get("responses", {}) or {})
+        .get("200", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema", {})
+        or {}
+    )
+    assert (
+        evidence_schema
+    ), "/api/sessions/{thread_id}/evidence 200 schema should not be empty (response_model missing?)"
+    evidence_resolved = _resolve_schema_ref(spec, evidence_schema)
+    evidence_props = evidence_resolved.get("properties", {}) or {}
+    assert evidence_props.get("sources", {}).get("type") == "array"
+    assert evidence_props.get("claims", {}).get("type") == "array"

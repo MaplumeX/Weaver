@@ -2112,6 +2112,29 @@ class SessionsListResponse(BaseModel):
     sessions: List[SessionSummary]
 
 
+class EvidenceSource(BaseModel):
+    title: str = ""
+    url: str
+    rawUrl: Optional[str] = None
+    domain: Optional[str] = None
+    provider: Optional[str] = None
+    publishedDate: Optional[str] = None
+
+
+class EvidenceClaim(BaseModel):
+    claim: str
+    status: str
+    evidence_urls: List[str] = []
+    score: float = 0.0
+    notes: str = ""
+
+
+class EvidenceResponse(BaseModel):
+    sources: List[EvidenceSource] = []
+    claims: List[EvidenceClaim] = []
+    quality_summary: Dict[str, Any] = {}
+
+
 @app.get("/api/sessions", response_model=SessionsListResponse)
 async def list_sessions(
     limit: int = 50,
@@ -2192,6 +2215,43 @@ async def get_session_state(thread_id: str):
         raise
     except Exception as e:
         logger.error(f"Get session state error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions/{thread_id}/evidence", response_model=EvidenceResponse)
+async def get_session_evidence(thread_id: str):
+    """
+    Get evidence artifacts (sources + claims + quality summary) for a session.
+    """
+    if not checkpointer:
+        raise HTTPException(status_code=400, detail="No checkpointer configured")
+
+    try:
+        from common.session_manager import get_session_manager
+
+        manager = get_session_manager(checkpointer)
+        session_state = manager.get_session_state(thread_id)
+        if not session_state:
+            raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
+
+        artifacts = session_state.deepsearch_artifacts or {}
+        if not isinstance(artifacts, dict):
+            artifacts = {}
+
+        sources = artifacts.get("sources", [])
+        claims = artifacts.get("claims", [])
+        quality_summary = artifacts.get("quality_summary", {})
+
+        return {
+            "sources": sources if isinstance(sources, list) else [],
+            "claims": claims if isinstance(claims, list) else [],
+            "quality_summary": quality_summary if isinstance(quality_summary, dict) else {},
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get session evidence error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
