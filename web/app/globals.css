@@ -343,7 +343,7 @@ html {
 /* Research UI Specific Styles */
 @layer components {
   .research-card {
-    @apply glass rounded-xl p-4 transition-all duration-300;
+    @apply glass rounded-xl p-4 transition duration-200;
     contain: strict;
   }
 
@@ -366,7 +366,8 @@ html {
   .progress-bar-fill {
     @apply absolute inset-y-0 left-0 rounded-full;
     @apply gradient-accent;
-    transition: width 0.5s ease-out;
+    transform-origin: left;
+    transition: transform 0.5s ease-out;
   }
 
   .tree-node {
