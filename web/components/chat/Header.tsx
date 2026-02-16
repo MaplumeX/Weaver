@@ -64,39 +64,39 @@ export const Header = memo(function Header({
   )
 
   return (
-    <header className="flex h-16 items-center justify-between border-b px-4 bg-background/80 backdrop-blur-md sticky top-0 z-30 transition-colors duration-200">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border/60 bg-background px-4 transition-colors duration-200">
       <div className="flex items-center gap-3">
         {!sidebarOpen && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onToggleSidebar}
-              className="hidden md:flex hover:bg-muted/50 rounded-full"
-              aria-label="Open sidebar"
-            >
-              <PanelLeft className="h-5 w-5 text-muted-foreground" />
-            </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleSidebar}
+            className="hidden rounded-full hover:bg-accent md:flex"
+            aria-label="Open sidebar"
+          >
+            <PanelLeft className="h-5 w-5 text-muted-foreground" />
+          </Button>
         )}
       </div>
 
       <div className="flex items-center gap-2">
-         {/* Artifacts Toggle (Mobile/Tablet) */}
-         {hasArtifacts && (
-             <Button
-                variant="ghost"
-                size="icon"
-                onClick={onToggleArtifacts}
-                className="xl:hidden hover:bg-muted/50 rounded-full text-orange-500"
-                aria-label="Toggle artifacts"
-             >
-                <LayoutPanelLeft className="h-5 w-5" />
-             </Button>
-         )}
+        {/* Artifacts Toggle (Mobile/Tablet) */}
+        {hasArtifacts && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleArtifacts}
+            className="rounded-full text-primary hover:bg-accent xl:hidden"
+            aria-label="Toggle artifacts"
+          >
+            <LayoutPanelLeft className="h-5 w-5" />
+          </Button>
+        )}
 
         <Select value={selectedModel} onValueChange={onModelChange}>
           <SelectTrigger
             aria-label="Select model"
-            className="h-9 w-auto rounded-full border border-border/60 bg-muted/20 px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted/50 transition-colors duration-200 focus:ring-offset-0"
+            className="h-9 w-auto rounded-lg border border-border/60 bg-background px-3 py-1.5 text-sm font-medium shadow-sm transition-colors duration-200 hover:bg-accent focus:ring-offset-0"
           >
             <SelectValue placeholder={currentModelName} />
           </SelectTrigger>
@@ -109,25 +109,26 @@ export const Header = memo(function Header({
           </SelectContent>
         </Select>
 
-                  <Button
-                    variant="ghost"           size="icon"
-           onClick={toggleTheme}
-           className="rounded-full hover:bg-muted/50"
-         >
-            <Sun className="h-5 w-5 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
-            <span className="sr-only">Toggle theme</span>
-         </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleTheme}
+          className="rounded-full hover:bg-accent"
+        >
+          <Sun className="h-5 w-5 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+          <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
+          <span className="sr-only">Toggle theme</span>
+        </Button>
 
-         <Button
-           variant="ghost"
-           size="icon"
-           onClick={onOpenSettings}
-           className="rounded-full hover:bg-muted/50"
-         >
-            <Settings className="h-5 w-5" />
-            <span className="sr-only">Settings</span>
-         </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onOpenSettings}
+          className="rounded-full hover:bg-accent"
+        >
+          <Settings className="h-5 w-5" />
+          <span className="sr-only">Settings</span>
+        </Button>
       </div>
     </header>
   )
