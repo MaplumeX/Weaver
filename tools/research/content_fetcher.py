@@ -44,6 +44,17 @@ def _content_type(headers: object) -> str:
     return str(value) if value else ""
 
 
+def _html_to_markdown(html: str) -> str:
+    if not html:
+        return ""
+    try:
+        from markdownify import markdownify as _markdownify
+
+        return str(_markdownify(html) or "").strip()
+    except Exception:
+        return ""
+
+
 def _is_blocked_fetch_target(url: str) -> bool:
     parsed = urlsplit(url)
     scheme = (parsed.scheme or "").lower()
@@ -113,7 +124,7 @@ def _read_response_bytes(resp: object) -> bytes:
     return truncate_bytes(bytes(data), max_bytes=limit)
 
 
-def _extract_text_from_response(resp: object) -> tuple[str, Optional[int]]:
+def _extract_body_from_response(resp: object) -> tuple[str, Optional[str], Optional[int], str]:
     status_code: Optional[int]
     try:
         status_code = int(getattr(resp, "status_code", None))
@@ -130,8 +141,15 @@ def _extract_text_from_response(resp: object) -> tuple[str, Optional[int]]:
     else:
         decoded = str(getattr(resp, "text", "") or "")
 
-    text = _strip_html(decoded) if "html" in content_type else decoded
-    return text, status_code
+    markdown: Optional[str] = None
+    if "html" in content_type:
+        text = _strip_html(decoded)
+        if bool(getattr(settings, "research_fetch_extract_markdown", True)):
+            md = _html_to_markdown(decoded)
+            markdown = md or None
+        return text, markdown, status_code, content_type
+
+    return decoded, None, status_code, content_type
 
 
 class ContentFetcher:
@@ -163,7 +181,7 @@ class ContentFetcher:
             return "reader_self_hosted" if self._reader_self_hosted_base else "reader_public"
         return "reader_unknown"
 
-    def _fetch_via_reader(self, canonical_url: str, raw_url: str) -> Optional[FetchedPage]:
+    def _fetch_via_reader(self, canonical_url: str, raw_url: str, *, attempts: int) -> Optional[FetchedPage]:
         try:
             client = ReaderClient(
                 mode=self._reader_mode,
@@ -179,21 +197,72 @@ class ContentFetcher:
                 reader_url,
                 timeout=settings.research_fetch_timeout_s,
                 headers={"User-Agent": DEFAULT_UA},
+                stream=True,
             )
         except Exception:
             return None
 
-        text, status_code = _extract_text_from_response(resp)
+        try:
+            text, markdown, status_code, _content_type = _extract_body_from_response(resp)
+        finally:
+            closer = getattr(resp, "close", None)
+            if callable(closer):
+                closer()
         if status_code == 200 and (text or "").strip():
             return FetchedPage(
                 url=canonical_url,
                 raw_url=raw_url,
                 method=self._reader_method_label(),
                 text=text,
+                markdown=markdown,
                 http_status=status_code,
-                attempts=2,
+                attempts=attempts,
             )
         return None
+
+    def _fetch_via_crawler(self, canonical_url: str, raw_url: str, *, attempts: int) -> Optional[FetchedPage]:
+        mode = str(getattr(settings, "research_fetch_render_mode", "off") or "off").strip().lower()
+        if mode == "off":
+            return None
+
+        min_chars = int(getattr(settings, "research_fetch_render_min_chars", 200) or 200)
+        try:
+            from tools.crawl.crawler import crawl_urls
+        except Exception:
+            return None
+
+        try:
+            timeout_s = max(1, int(getattr(settings, "research_fetch_timeout_s", 25.0) or 25.0))
+        except Exception:
+            timeout_s = 25
+
+        try:
+            results = crawl_urls([canonical_url], timeout=timeout_s)
+        except Exception:
+            return None
+
+        if not isinstance(results, list) or not results:
+            return None
+
+        first = results[0] if isinstance(results[0], dict) else {}
+        content = first.get("content") if isinstance(first, dict) else ""
+        text = str(content or "").strip()
+        if not text:
+            return None
+        lowered = text.lower()
+        if lowered.startswith("crawl failed") or lowered.startswith("exception:"):
+            return None
+        if len(text) < max(1, min_chars) and mode != "always":
+            return None
+
+        return FetchedPage(
+            url=canonical_url,
+            raw_url=raw_url,
+            method="render_crawler",
+            text=text,
+            http_status=200,
+            attempts=attempts,
+        )
 
     def fetch(self, url: str) -> FetchedPage:
         raw_url = (url or "").strip()
@@ -233,34 +302,66 @@ class ContentFetcher:
             attempts=1,
         )
 
+        def _maybe_cache(page: FetchedPage) -> None:
+            if cache is None or not cache_key:
+                return
+            store_errors = bool(getattr(settings, "research_fetch_cache_store_errors", False))
+            if (page.http_status == 200 and (page.text or page.markdown)) or (store_errors and page.error):
+                cache.set(cache_key, page)
+
         try:
             resp = requests.get(
                 canonical_url,
                 timeout=settings.research_fetch_timeout_s,
                 headers={"User-Agent": DEFAULT_UA},
+                stream=True,
             )
         except Exception as exc:
             direct_attempt.error = str(exc)
-            reader_attempt = self._fetch_via_reader(canonical_url, raw_url)
+            render_attempt = self._fetch_via_crawler(canonical_url, raw_url, attempts=2)
+            if render_attempt:
+                _maybe_cache(render_attempt)
+                return render_attempt
+
+            reader_attempt = self._fetch_via_reader(canonical_url, raw_url, attempts=2)
             final = reader_attempt or direct_attempt
-            if cache is not None and cache_key:
-                store_errors = bool(getattr(settings, "research_fetch_cache_store_errors", False))
-                if (final.http_status == 200 and (final.text or final.markdown)) or (store_errors and final.error):
-                    cache.set(cache_key, final)
+            _maybe_cache(final)
             return final
 
-        text, status_code = _extract_text_from_response(resp)
+        try:
+            text, markdown, status_code, content_type = _extract_body_from_response(resp)
+        finally:
+            closer = getattr(resp, "close", None)
+            if callable(closer):
+                closer()
+
         direct_attempt.text = text or None
+        direct_attempt.markdown = markdown
         direct_attempt.http_status = status_code
+
+        render_mode = str(getattr(settings, "research_fetch_render_mode", "off") or "off").strip().lower()
+        min_chars = int(getattr(settings, "research_fetch_render_min_chars", 200) or 200)
+
         if status_code == 200 and (text or "").strip():
-            if cache is not None and cache_key:
-                cache.set(cache_key, direct_attempt)
+            if (
+                render_mode != "off"
+                and "html" in content_type
+                and len((text or "").strip()) < max(1, min_chars)
+            ):
+                render_attempt = self._fetch_via_crawler(canonical_url, raw_url, attempts=2)
+                if render_attempt:
+                    _maybe_cache(render_attempt)
+                    return render_attempt
+            _maybe_cache(direct_attempt)
             return direct_attempt
 
-        reader_attempt = self._fetch_via_reader(canonical_url, raw_url)
+        if render_mode != "off" and ("html" in content_type or status_code != 200):
+            render_attempt = self._fetch_via_crawler(canonical_url, raw_url, attempts=2)
+            if render_attempt:
+                _maybe_cache(render_attempt)
+                return render_attempt
+
+        reader_attempt = self._fetch_via_reader(canonical_url, raw_url, attempts=2)
         final = reader_attempt or direct_attempt
-        if cache is not None and cache_key:
-            store_errors = bool(getattr(settings, "research_fetch_cache_store_errors", False))
-            if (final.http_status == 200 and (final.text or final.markdown)) or (store_errors and final.error):
-                cache.set(cache_key, final)
+        _maybe_cache(final)
         return final
