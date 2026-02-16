@@ -1704,6 +1704,48 @@ export interface components {
             /** Role */
             role: string;
         };
+        /** RunEvidenceSummary */
+        RunEvidenceSummary: {
+            /** Freshness Ratio 30D */
+            freshness_ratio_30d?: number | null;
+            /** Sources Count */
+            sources_count: number;
+            /** Unsupported Claims Count */
+            unsupported_claims_count: number;
+        };
+        /** RunMetricsResponse */
+        RunMetricsResponse: {
+            /** Cancelled */
+            cancelled: boolean;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Ended At */
+            ended_at?: string | null;
+            /** Errors */
+            errors: string[];
+            /** Event Count */
+            event_count: number;
+            evidence_summary: components["schemas"]["RunEvidenceSummary"];
+            /** Model */
+            model: string;
+            /** Nodes Completed */
+            nodes_completed: {
+                [key: string]: number;
+            };
+            /** Nodes Started */
+            nodes_started: {
+                [key: string]: number;
+            };
+            /**
+             * Route
+             * @default
+             */
+            route: string;
+            /** Run Id */
+            run_id: string;
+            /** Started At */
+            started_at: string;
+        };
         /** SearchMode */
         SearchMode: {
             /**
@@ -2763,7 +2805,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunMetricsResponse"];
                 };
             };
             /** @description Validation Error */

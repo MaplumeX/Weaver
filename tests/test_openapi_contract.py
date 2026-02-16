@@ -29,6 +29,7 @@ def test_openapi_has_key_paths_and_distinct_resume_schemas():
     assert "/api/sessions/{thread_id}/versions" in paths
     assert "/api/sessions/{thread_id}/evidence" in paths
     assert "/api/chat/sse" in paths
+    assert "/api/runs/{thread_id}" in paths
 
     schemas = (spec.get("components", {}) or {}).get("schemas", {}) or {}
     assert "GraphInterruptResumeRequest" in schemas
@@ -116,3 +117,22 @@ def test_openapi_has_key_paths_and_distinct_resume_schemas():
     evidence_props = evidence_resolved.get("properties", {}) or {}
     assert evidence_props.get("sources", {}).get("type") == "array"
     assert evidence_props.get("claims", {}).get("type") == "array"
+
+    runs_get = (paths.get("/api/runs/{thread_id}", {}) or {}).get("get", {}) or {}
+    runs_schema = (
+        (runs_get.get("responses", {}) or {})
+        .get("200", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema", {})
+        or {}
+    )
+    assert runs_schema, "/api/runs/{thread_id} 200 schema should not be empty (response_model missing?)"
+    runs_resolved = _resolve_schema_ref(spec, runs_schema)
+    runs_props = runs_resolved.get("properties", {}) or {}
+    assert "evidence_summary" in runs_props
+    evidence_summary_schema = runs_props.get("evidence_summary", {}) or {}
+    evidence_summary_resolved = _resolve_schema_ref(spec, evidence_summary_schema)
+    evidence_summary_props = evidence_summary_resolved.get("properties", {}) or {}
+    assert evidence_summary_props.get("sources_count", {}).get("type") == "integer"
+    assert evidence_summary_props.get("unsupported_claims_count", {}).get("type") == "integer"

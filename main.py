@@ -1745,13 +1745,95 @@ async def list_runs():
     return {"runs": metrics_registry.all()}
 
 
-@app.get("/api/runs/{thread_id}")
+class RunEvidenceSummary(BaseModel):
+    sources_count: int
+    unsupported_claims_count: int
+    freshness_ratio_30d: Optional[float] = None
+
+
+class RunMetricsResponse(BaseModel):
+    run_id: str
+    model: str
+    route: str = ""
+    started_at: str
+    ended_at: Optional[str] = None
+    duration_ms: float
+    event_count: int
+    nodes_started: Dict[str, int]
+    nodes_completed: Dict[str, int]
+    errors: List[str]
+    cancelled: bool
+    evidence_summary: RunEvidenceSummary
+
+
+def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
+    sources_count = 0
+    unsupported_claims_count = 0
+    freshness_ratio_30d: Optional[float] = None
+
+    if not checkpointer:
+        return RunEvidenceSummary(
+            sources_count=sources_count,
+            unsupported_claims_count=unsupported_claims_count,
+            freshness_ratio_30d=freshness_ratio_30d,
+        )
+
+    try:
+        from common.session_manager import get_session_manager
+
+        manager = get_session_manager(checkpointer)
+        session_state = manager.get_session_state(thread_id)
+        if not session_state:
+            raise ValueError("session not found")
+
+        artifacts = session_state.deepsearch_artifacts or {}
+        if not isinstance(artifacts, dict):
+            raise TypeError("deepsearch_artifacts is not a dict")
+
+        sources = artifacts.get("sources", [])
+        if isinstance(sources, list):
+            sources_count = len(sources)
+
+        claims = artifacts.get("claims", [])
+        if isinstance(claims, list):
+            for claim in claims:
+                if not isinstance(claim, dict):
+                    continue
+                status = (claim.get("status") or "").strip().lower()
+                if status in ("unsupported", "contradicted"):
+                    unsupported_claims_count += 1
+
+        freshness_summary = artifacts.get("freshness_summary", {})
+        if isinstance(freshness_summary, dict):
+            ratio = freshness_summary.get("fresh_30_ratio")
+            if ratio is not None:
+                try:
+                    freshness_ratio_30d = float(ratio)
+                except (TypeError, ValueError):
+                    freshness_ratio_30d = None
+
+    except Exception:
+        # Evidence summary is best-effort; never fail the metrics endpoint for this.
+        pass
+
+    return RunEvidenceSummary(
+        sources_count=sources_count,
+        unsupported_claims_count=unsupported_claims_count,
+        freshness_ratio_30d=freshness_ratio_30d,
+    )
+
+
+@app.get("/api/runs/{thread_id}", response_model=RunMetricsResponse)
 async def get_run_metrics(thread_id: str):
     """Get metrics for a specific run/thread."""
     metrics = metrics_registry.get(thread_id)
     if not metrics:
         raise HTTPException(status_code=404, detail="Run not found")
-    return metrics.to_dict()
+    payload = metrics.to_dict()
+    return RunMetricsResponse(
+        **payload,
+        evidence_summary=_build_run_evidence_summary(thread_id),
+    )
 
 
 @app.get("/metrics")
