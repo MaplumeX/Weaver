@@ -86,8 +86,8 @@ export function Library() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-3">
-              <FolderOpen className="h-8 w-8 text-primary" />
+            <h1 className="text-3xl font-semibold flex items-center gap-3 text-balance">
+              <FolderOpen className="h-8 w-8 text-primary" aria-hidden="true" />
               Library
             </h1>
             <p className="text-muted-foreground mt-2 text-lg">
@@ -176,14 +176,19 @@ export function Library() {
                 </ScrollArea>
               )
             ) : (
-              <div className="flex flex-col items-center justify-center h-80 border-2 border-dashed rounded-3xl bg-muted/30">
-                <div className="h-16 w-16 bg-muted rounded-full flex items-center justify-center mb-4">
-                    <History className="h-8 w-8 text-muted-foreground" />
+              <div className="flex flex-col items-center justify-center h-80 rounded-3xl border border-dashed border-border/60 bg-muted/20 px-6">
+                <div className="h-16 w-16 rounded-full border border-border/60 bg-background flex items-center justify-center mb-4">
+                    <History className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
                 </div>
                 <h3 className="text-xl font-semibold">No items found</h3>
                 <p className="text-muted-foreground mt-1 text-center max-w-xs">
                     {searchQuery ? `We couldn't find anything matching "${searchQuery}"` : "Your library is empty. Start a conversation to see it here."}
                 </p>
+                {!searchQuery ? (
+                  <div className="mt-4">
+                    <Button onClick={() => router.push('/')}>Start a chat</Button>
+                  </div>
+                ) : null}
               </div>
             )}
         </div>
