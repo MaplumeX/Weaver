@@ -473,7 +473,7 @@ def _build_fetcher_evidence(urls: List[str]) -> Tuple[List[Dict[str, Any]], List
     for page in fetcher.fetch_many(canonical_urls):
         fetched_pages.append(page.to_dict())
 
-        text = page.text or page.markdown or ""
+        text = page.markdown or page.text or ""
         if not isinstance(text, str) or not text.strip():
             continue
 

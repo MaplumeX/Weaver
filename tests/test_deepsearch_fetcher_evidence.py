@@ -17,7 +17,7 @@ def test_build_fetcher_evidence_uses_fetch_many_and_dedupes(monkeypatch):
             self.raw_url = url
             self.method = "direct_http"
             self.text = text
-            self.markdown = None
+            self.markdown = "para1\n\npara2"
             self.http_status = 200
             self.error = None
             self.attempts = 1
@@ -53,4 +53,5 @@ def test_build_fetcher_evidence_uses_fetch_many_and_dedupes(monkeypatch):
     assert fetched_pages[0]["url"] == "https://example.com"
     assert passages
     assert passages[0]["url"] == "https://example.com"
+    assert "\n\n" in passages[0]["text"]
     assert passages[0]["start_char"] == 0
