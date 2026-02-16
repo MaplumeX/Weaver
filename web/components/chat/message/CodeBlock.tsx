@@ -82,9 +82,7 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
     e.stopPropagation()
     navigator.clipboard.writeText(value)
     setCopied(true)
-    setCopied(true)
     showSuccess('Code copied', 'code-copy')
-    setTimeout(() => setCopied(false), 2000)
     setTimeout(() => setCopied(false), 2000)
   }
 
@@ -93,10 +91,10 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
   }
 
   return (
-    <div className="relative w-full my-4 rounded-xl overflow-hidden border border-border/40 bg-[#282c34] shadow-sm group transition-all hover:shadow-md">
+    <div className="relative w-full my-4 rounded-xl overflow-hidden border border-border/40 bg-[#282c34] shadow-sm group transition-shadow duration-200 hover:shadow-md">
       {/* Header - Glassy MacOS Style */}
       <div
-        className="flex items-center justify-between px-4 py-2.5 bg-white/5 border-b border-white/10 backdrop-blur-sm select-none cursor-pointer hover:bg-white/10 transition-colors"
+        className="flex items-center justify-between px-4 py-2 bg-white/5 border-b border-white/10 backdrop-blur-sm select-none cursor-pointer hover:bg-white/10 transition-colors duration-200"
         onClick={toggleCollapse}
       >
         <div className="flex items-center gap-3">
@@ -112,17 +110,27 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
         </div>
         <div className="flex items-center gap-1">
           <Button
+            type="button"
             variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-white/50 hover:text-white hover:bg-white/10 transition-all"
+            size="icon-sm"
+            className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/10 transition-colors duration-200"
             onClick={handleCopy}
+            aria-label="Copy code"
+            title="Copy code"
           >
             {copied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
           </Button>
           <Button
+            type="button"
             variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-white/50 hover:text-white hover:bg-white/10 transition-all"
+            size="icon-sm"
+            className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/10 transition-colors duration-200"
+            onClick={(e) => {
+              e.stopPropagation()
+              toggleCollapse()
+            }}
+            aria-label={isCollapsed ? "Expand code block" : "Collapse code block"}
+            title={isCollapsed ? "Expand" : "Collapse"}
           >
             {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </Button>
