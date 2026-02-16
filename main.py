@@ -592,6 +592,10 @@ class AgentUpsertPayload(BaseModel):
     metadata: Dict[str, Any] = {}
 
 
+class AgentsListResponse(BaseModel):
+    agents: List[AgentProfile]
+
+
 class SupportChatRequest(BaseModel):
     message: str
     user_id: Optional[str] = "default_user"
@@ -1548,10 +1552,10 @@ async def get_mcp_config():
 # ==================== Agents (GPTs-like profiles) ====================
 
 
-@app.get("/api/agents")
+@app.get("/api/agents", response_model=AgentsListResponse)
 async def list_agents():
     profiles = load_agents()
-    return {"agents": [p.model_dump(mode="json") for p in profiles]}
+    return {"agents": profiles}
 
 
 @app.get("/api/agents/{agent_id}")
@@ -2008,7 +2012,24 @@ async def search_documents(query: str, n_results: int = 5):
 # ==================== Sessions API ====================
 
 
-@app.get("/api/sessions")
+class SessionSummary(BaseModel):
+    thread_id: str
+    status: str
+    topic: str
+    created_at: str
+    updated_at: str
+    route: str
+    has_report: bool
+    revision_count: int
+    message_count: int
+
+
+class SessionsListResponse(BaseModel):
+    count: int
+    sessions: List[SessionSummary]
+
+
+@app.get("/api/sessions", response_model=SessionsListResponse)
 async def list_sessions(
     limit: int = 50,
     status: Optional[str] = None,
@@ -2249,6 +2270,35 @@ class CommentRequest(BaseModel):
     message_id: Optional[str] = None
 
 
+class SessionComment(BaseModel):
+    id: str
+    thread_id: str
+    message_id: Optional[str] = None
+    author: str
+    content: str
+    created_at: str
+    updated_at: str
+
+
+class CommentsResponse(BaseModel):
+    comments: List[SessionComment]
+    count: int
+
+
+class SessionVersion(BaseModel):
+    id: str
+    thread_id: str
+    version_number: int
+    label: str
+    created_at: str
+    snapshot_size: int
+
+
+class VersionsResponse(BaseModel):
+    versions: List[SessionVersion]
+    count: int
+
+
 @app.post("/api/sessions/{thread_id}/share")
 async def create_share(thread_id: str, req: ShareRequest):
     """Create a share link for a session."""
@@ -2341,7 +2391,7 @@ async def add_comment(thread_id: str, req: CommentRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/sessions/{thread_id}/comments")
+@app.get("/api/sessions/{thread_id}/comments", response_model=CommentsResponse)
 async def get_comments(thread_id: str, message_id: Optional[str] = None):
     """Get comments for a session."""
     try:
@@ -2354,7 +2404,7 @@ async def get_comments(thread_id: str, message_id: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/sessions/{thread_id}/versions")
+@app.get("/api/sessions/{thread_id}/versions", response_model=VersionsResponse)
 async def get_versions(thread_id: str):
     """Get version history for a session."""
     try:
