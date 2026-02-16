@@ -1604,6 +1604,17 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** EvidencePassageItem */
+        EvidencePassageItem: {
+            /** End Char */
+            end_char: number;
+            /** Start Char */
+            start_char: number;
+            /** Text */
+            text: string;
+            /** Url */
+            url: string;
+        };
         /** EvidenceResponse */
         EvidenceResponse: {
             /**
@@ -1611,6 +1622,16 @@ export interface components {
              * @default []
              */
             claims: components["schemas"]["EvidenceClaim"][];
+            /**
+             * Fetched Pages
+             * @default []
+             */
+            fetched_pages: components["schemas"]["FetchedPageItem"][];
+            /**
+             * Passages
+             * @default []
+             */
+            passages: components["schemas"]["EvidencePassageItem"][];
             /**
              * Quality Summary
              * @default {}
@@ -1639,6 +1660,34 @@ export interface components {
              * @default
              */
             title: string;
+            /** Url */
+            url: string;
+        };
+        /** FetchedPageItem */
+        FetchedPageItem: {
+            /**
+             * Attempts
+             * @default 1
+             */
+            attempts: number;
+            /** Error */
+            error?: string | null;
+            /** Http Status */
+            http_status?: number | null;
+            /** Markdown */
+            markdown?: string | null;
+            /** Method */
+            method: string;
+            /** Published Date */
+            published_date?: string | null;
+            /** Raw Url */
+            raw_url: string;
+            /** Retrieved At */
+            retrieved_at?: string | null;
+            /** Text */
+            text?: string | null;
+            /** Title */
+            title?: string | null;
             /** Url */
             url: string;
         };
