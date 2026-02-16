@@ -27,7 +27,7 @@ export function ArtifactItem({ artifact, onDelete, onDownload }: ArtifactItemPro
   }[artifact.type] || File
 
   return (
-    <div className="group relative p-4 rounded-xl border bg-card hover:bg-muted/50 transition-all cursor-pointer">
+    <div className="group relative p-4 rounded-xl border border-border/60 bg-card hover:bg-accent transition-colors cursor-pointer">
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -49,7 +49,7 @@ export function ArtifactItem({ artifact, onDelete, onDownload }: ArtifactItemPro
                 <span>{formatBytes(artifact.fileSize)}</span>
               )}
             </div>
-            <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground/50">
+            <span className="text-[10px] uppercase font-semibold text-muted-foreground/60">
               {artifact.type}
             </span>
           </div>
@@ -58,15 +58,27 @@ export function ArtifactItem({ artifact, onDelete, onDownload }: ArtifactItemPro
         <div onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                aria-label="Artifact actions"
+                title="Artifact actions"
+              >
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-40 p-1" align="end">
-              <Button variant="ghost" className="w-full justify-start text-sm h-9" onClick={() => onDownload?.(artifact)}>
+              <Button type="button" variant="ghost" className="w-full justify-start text-sm h-9" onClick={() => onDownload?.(artifact)}>
                 <Download className="mr-2 h-4 w-4" /> Download
               </Button>
-              <Button variant="ghost" className="w-full justify-start text-sm h-9 text-destructive hover:text-destructive" onClick={() => onDelete(artifact.id)}>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full justify-start text-sm h-9 text-destructive hover:text-destructive"
+                onClick={() => onDelete(artifact.id)}
+              >
                 <Trash2 className="mr-2 h-4 w-4" /> Delete
               </Button>
             </PopoverContent>
