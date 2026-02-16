@@ -224,7 +224,7 @@ export function ExportDialog({ threadId, isOpen, onClose, className }: ExportDia
 
         {/* Export Button */}
         <Button
-          variant="gradient"
+          variant="default"
           className="w-full"
           onClick={handleExport}
           loading={isExporting}

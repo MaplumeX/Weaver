@@ -180,7 +180,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
                 "w-full justify-start gap-2 h-10 shadow-sm transition font-medium text-sm",
                 !isOpen && "px-2"
               )}
-              variant="gradient"
+              variant="default"
               onClick={onNewChat}
             >
               <Plus className="h-4 w-4" />

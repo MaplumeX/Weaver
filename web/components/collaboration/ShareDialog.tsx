@@ -159,7 +159,7 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
 
         {/* Create Button */}
         <Button
-          variant="gradient"
+          variant="default"
           className="w-full mb-6"
           onClick={createShareLink}
           loading={isCreating}

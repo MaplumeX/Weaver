@@ -152,7 +152,7 @@ export function CommentsPanel({ threadId, isOpen, onClose, className }: Comments
             className="flex-1 px-3 py-2 text-sm rounded-xl bg-muted/50 border border-muted focus:outline-none focus:ring-1 focus:ring-blue-500/50"
           />
           <Button
-            variant="gradient"
+            variant="default"
             size="icon"
             onClick={submitComment}
             disabled={!newComment.trim() || isSubmitting}
