@@ -20,12 +20,15 @@ This guide covers rollout of Deep Research VNext capabilities:
 2. Run frontend checks:
    - `pnpm -C web lint`
    - `pnpm -C web build`
-3. Run benchmark smoke:
+3. Verify API contract drift guard:
+   - `bash scripts/check_openapi_ts_types.sh`
+4. Run benchmark smoke:
    - `python scripts/benchmark_deep_research.py --max-cases 3 --mode auto --output /tmp/bench.json`
 
 Exit criteria:
 - checks pass
 - benchmark report generated
+ - OpenAPI contract drift guard clean (no diff in `web/lib/api-types.ts`)
 
 ### Stage 2: Pre-Prod
 
@@ -65,6 +68,8 @@ Exit criteria:
 - Cache rollback:
   - reduce `SEARCH_CACHE_TTL_SECONDS`
   - reduce `SEARCH_CACHE_MAX_SIZE`
+- Chat streaming rollback (frontend):
+  - `NEXT_PUBLIC_CHAT_STREAM_PROTOCOL=legacy` (see `docs/chat-streaming.md`)
 
 ## Troubleshooting
 
