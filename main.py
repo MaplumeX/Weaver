@@ -2274,10 +2274,33 @@ class EvidenceClaim(BaseModel):
     notes: str = ""
 
 
+class FetchedPageItem(BaseModel):
+    url: str
+    raw_url: str
+    method: str
+    text: Optional[str] = None
+    title: Optional[str] = None
+    published_date: Optional[str] = None
+    retrieved_at: Optional[str] = None
+    markdown: Optional[str] = None
+    http_status: Optional[int] = None
+    error: Optional[str] = None
+    attempts: int = 1
+
+
+class EvidencePassageItem(BaseModel):
+    url: str
+    text: str
+    start_char: int
+    end_char: int
+
+
 class EvidenceResponse(BaseModel):
     sources: List[EvidenceSource] = []
     claims: List[EvidenceClaim] = []
     quality_summary: Dict[str, Any] = {}
+    fetched_pages: List[FetchedPageItem] = []
+    passages: List[EvidencePassageItem] = []
 
 
 @app.get("/api/sessions", response_model=SessionsListResponse)
@@ -2386,11 +2409,15 @@ async def get_session_evidence(thread_id: str):
         sources = artifacts.get("sources", [])
         claims = artifacts.get("claims", [])
         quality_summary = artifacts.get("quality_summary", {})
+        fetched_pages = artifacts.get("fetched_pages", [])
+        passages = artifacts.get("passages", [])
 
         return {
             "sources": sources if isinstance(sources, list) else [],
             "claims": claims if isinstance(claims, list) else [],
             "quality_summary": quality_summary if isinstance(quality_summary, dict) else {},
+            "fetched_pages": fetched_pages if isinstance(fetched_pages, list) else [],
+            "passages": passages if isinstance(passages, list) else [],
         }
 
     except HTTPException:

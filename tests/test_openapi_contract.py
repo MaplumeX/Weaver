@@ -117,6 +117,8 @@ def test_openapi_has_key_paths_and_distinct_resume_schemas():
     evidence_props = evidence_resolved.get("properties", {}) or {}
     assert evidence_props.get("sources", {}).get("type") == "array"
     assert evidence_props.get("claims", {}).get("type") == "array"
+    assert evidence_props.get("fetched_pages", {}).get("type") == "array"
+    assert evidence_props.get("passages", {}).get("type") == "array"
 
     runs_get = (paths.get("/api/runs/{thread_id}", {}) or {}).get("get", {}) or {}
     runs_schema = (
