@@ -38,26 +38,23 @@ export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: Empty
   ]
 
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full max-w-4xl mx-auto p-6 animate-in fade-in zoom-in-95 duration-500">
+    <div className="flex flex-col items-center justify-center h-full w-full max-w-4xl mx-auto p-6">
 
       {/* Hero Section */}
       <div className="flex flex-col items-center space-y-6 mb-12 text-center">
-        <div className="relative group cursor-default">
-          <div className="absolute inset-0 bg-primary/20 rounded-3xl blur-xl opacity-40 transition duration-500 group-hover:opacity-60 group-hover:scale-105" />
-          <div className="relative h-24 w-24 rounded-3xl flex items-center justify-center shadow-xl shadow-primary/20 ring-1 ring-white/20 overflow-hidden bg-white">
-            <Image
-              src="/logo.png"
-              alt="Weaver"
-              width={80}
-              height={80}
-              className="h-20 w-20 object-contain"
-              priority
-            />
-          </div>
+        <div className="flex size-24 items-center justify-center rounded-3xl border border-border/60 bg-card shadow-sm overflow-hidden">
+          <Image
+            src="/logo.png"
+            alt="Weaver"
+            width={80}
+            height={80}
+            className="h-20 w-20 object-contain"
+            priority
+          />
         </div>
 
         <div className="space-y-2 max-w-lg">
-          <h2 className="text-3xl font-bold tracking-tight text-balance bg-clip-text text-transparent bg-gradient-to-b from-foreground to-foreground/70">
+          <h2 className="text-3xl font-semibold text-balance">
             {t('emptyStateTitle')}
           </h2>
           <p className="text-muted-foreground text-lg text-pretty">
@@ -79,10 +76,10 @@ export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: Empty
                 onStarterClick?.(starter.text, starter.mode)
               }}
               className={cn(
-                "group flex items-start gap-4 p-4 rounded-xl border text-left transition duration-300",
+                "group flex items-start gap-4 p-4 rounded-xl border border-border/60 bg-card text-left transition-colors duration-200",
                 isActive
-                  ? "bg-card shadow-md border-primary/30"
-                  : "bg-card/50 hover:bg-card hover:shadow-md hover:border-primary/20"
+                  ? "border-primary/30"
+                  : "hover:bg-accent"
               )}
             >
             <div className="p-2 rounded-lg bg-muted group-hover:bg-primary/10 group-hover:text-primary transition-colors">
@@ -92,10 +89,7 @@ export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: Empty
               <p className="text-sm font-medium leading-snug group-hover:text-primary transition-colors">
                 {starter.text}
               </p>
-              <div className={cn(
-                "flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider font-semibold transition-opacity translate-y-2 group-hover:translate-y-0 group-hover:opacity-100",
-                isActive ? "opacity-100 translate-y-0" : "opacity-0"
-              )}>
+              <div className={cn("mt-1 flex items-center gap-1 text-xs text-muted-foreground", isActive && "text-primary")}>
                 <span>{t('useMode')} {starter.mode} {t('mode')}</span>
                 <ArrowRight className="h-3 w-3" />
               </div>
