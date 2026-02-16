@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useState, useCallback, memo } from 'react'
+import { useMemo, useState, useCallback, memo } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n/i18n-context'

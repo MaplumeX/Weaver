@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { Copy, Check, Link, X, Clock, Eye, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'

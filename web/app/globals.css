@@ -1,3 +1,5 @@
+@config "../tailwind.config.js";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -323,12 +325,14 @@ html {
 /* Research UI Specific Styles */
 @layer components {
   .research-card {
-    @apply glass rounded-xl p-4 transition duration-200;
+    @apply rounded-xl p-4 transition duration-200;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     contain: strict;
   }
 
   .research-card:hover {
-    @apply glow-sm;
+    box-shadow: 0 0 10px hsl(var(--accent-purple) / 0.2);
     transform: translateY(-2px);
   }
 
@@ -345,7 +349,7 @@ html {
 
   .progress-bar-fill {
     @apply absolute inset-y-0 left-0 rounded-full;
-    @apply gradient-accent;
+    background: linear-gradient(135deg, hsl(var(--accent-blue)) 0%, hsl(var(--accent-purple)) 100%);
     transform-origin: left;
     transition: transform 0.5s ease-out;
   }
@@ -385,7 +389,8 @@ html {
 /* Sidebar Styles */
 @layer components {
   .sidebar {
-    @apply glass-subtle border-r border-border/50;
+    @apply border-r border-border/50;
+    background: var(--glass-bg);
   }
 
   .sidebar-item {
@@ -414,13 +419,34 @@ html {
   }
 
   .message-assistant {
-    @apply glass rounded-2xl rounded-bl-md;
+    @apply rounded-2xl rounded-bl-md;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     contain: content;
   }
 
   .message-thinking {
     @apply bg-gradient-to-r from-amber-500/5 to-orange-500/5;
     @apply border border-amber-500/20 rounded-xl;
+  }
+}
+
+@layer components {
+  @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .research-card {
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+    }
+
+    .sidebar {
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .message-assistant {
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+    }
   }
 }
 

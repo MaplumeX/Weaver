@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Papa from 'papaparse'
 import { Download, Table as TableIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'

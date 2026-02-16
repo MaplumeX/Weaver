@@ -1,6 +1,5 @@
 'use client'
 
-import React from 'react'
 import Image from 'next/image'
 import { ArrowRight, Sparkles, TrendingUp, Code2, BookOpen } from 'lucide-react'
 import { useI18n } from '@/lib/i18n/i18n-context'

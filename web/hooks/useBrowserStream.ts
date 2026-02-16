@@ -60,7 +60,7 @@ export function useBrowserStream({
     }
   }, [])
 
-  const connect = useCallback(() => {
+  const connect = useCallback(function connect() {
     if (!threadId) return
 
     // Clean up existing connection

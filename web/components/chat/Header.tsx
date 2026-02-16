@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, memo } from 'react'
+import { useMemo, memo } from 'react'
 import { Button } from '@/components/ui/button'
 import { PanelLeft, Sun, Moon, LayoutPanelLeft, Settings } from 'lucide-react'
 import { useTheme } from '@/components/theme-provider'

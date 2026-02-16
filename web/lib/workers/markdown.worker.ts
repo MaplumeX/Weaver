@@ -1,5 +1,3 @@
-/* eslint-disable no-restricted-globals */
-
 // Define the worker interface
 export interface MarkdownWorkerData {
     content: string

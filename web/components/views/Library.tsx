@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { FolderOpen, History } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { VirtuosoGrid } from 'react-virtuoso'

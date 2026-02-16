@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect } from 'react'
 
 /**
  * Custom hook for debounced callbacks
@@ -14,7 +14,9 @@ export function useDebouncedCallback<T extends (...args: any[]) => any>(
   const callbackRef = useRef(callback)
 
   // Keep callback ref up to date
-  callbackRef.current = callback
+  useEffect(() => {
+    callbackRef.current = callback
+  }, [callback])
 
   return useCallback((...args: Parameters<T>) => {
     if (timeoutRef.current) {
@@ -37,7 +39,9 @@ export function useThrottledCallback<T extends (...args: any[]) => any>(
   const lastRunRef = useRef<number>(0)
   const callbackRef = useRef(callback)
 
-  callbackRef.current = callback
+  useEffect(() => {
+    callbackRef.current = callback
+  }, [callback])
 
   return useCallback((...args: Parameters<T>) => {
     const now = Date.now()

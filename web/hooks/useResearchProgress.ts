@@ -68,6 +68,39 @@ export function useResearchProgress({
   threadId,
   enabled = true,
 }: UseResearchProgressOptions): ResearchProgress {
+  const [timeline, setTimeline] = useState<TimelineStep[]>([])
+  const [tree, setTree] = useState<TreeNode | null>(null)
+  const [stats, setStats] = useState<{
+    totalSources: number
+    searchQueries: number
+    elapsedTime: string
+    status: ResearchStatus
+    quality?: ResearchQualityMetrics
+  }>({
+    totalSources: 0,
+    searchQueries: 0,
+    elapsedTime: '0s',
+    status: 'pending',
+  })
+  const [isConnected, setIsConnected] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const eventSourceRef = useRef<EventSource | null>(null)
+  const startTimeRef = useRef<number>(0)
+  const seenSourceUrlsRef = useRef<Set<string>>(new Set())
+
+  const addTimelineStep = useCallback((step: TimelineStep) => {
+    setTimeline(prev => [...prev, step])
+  }, [])
+
+  const updateTimelineStep = useCallback((id: string, updates: Partial<TimelineStep>) => {
+    setTimeline(prev =>
+      prev.map(step =>
+        step.id === id ? { ...step, ...updates } : step
+      )
+    )
+  }, [])
+
   const normalizeQuality = useCallback((raw: any): ResearchQualityMetrics | null => {
     if (!raw || typeof raw !== 'object') {
       return null
@@ -122,27 +155,6 @@ export function useResearchProgress({
     }))
   }, [normalizeQuality])
 
-  const [timeline, setTimeline] = useState<TimelineStep[]>([])
-  const [tree, setTree] = useState<TreeNode | null>(null)
-  const [stats, setStats] = useState<{
-    totalSources: number
-    searchQueries: number
-    elapsedTime: string
-    status: ResearchStatus
-    quality?: ResearchQualityMetrics
-  }>({
-    totalSources: 0,
-    searchQueries: 0,
-    elapsedTime: '0s',
-    status: 'pending',
-  })
-  const [isConnected, setIsConnected] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const eventSourceRef = useRef<EventSource | null>(null)
-  const startTimeRef = useRef<number>(Date.now())
-  const seenSourceUrlsRef = useRef<Set<string>>(new Set())
-
   const collectNewSourceCount = useCallback((items: any[]): number => {
     if (!Array.isArray(items) || items.length === 0) {
       return 0
@@ -165,6 +177,7 @@ export function useResearchProgress({
   useEffect(() => {
     // Reset counters/state when switching thread.
     seenSourceUrlsRef.current = new Set()
+    startTimeRef.current = 0
     setTimeline([])
     setTree(null)
     setStats({
@@ -348,19 +361,7 @@ export function useResearchProgress({
       setError('Failed to connect to event stream')
       console.error('SSE connection error:', err)
     }
-  }, [threadId, enabled, mergeQuality, collectNewSourceCount])
-
-  const addTimelineStep = useCallback((step: TimelineStep) => {
-    setTimeline(prev => [...prev, step])
-  }, [])
-
-  const updateTimelineStep = useCallback((id: string, updates: Partial<TimelineStep>) => {
-    setTimeline(prev =>
-      prev.map(step =>
-        step.id === id ? { ...step, ...updates } : step
-      )
-    )
-  }, [])
+  }, [threadId, enabled, mergeQuality, collectNewSourceCount, addTimelineStep, updateTimelineStep])
 
   return {
     timeline,

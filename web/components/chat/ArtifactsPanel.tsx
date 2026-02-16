@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, memo } from 'react'
+import { useState, memo } from 'react'
 import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'

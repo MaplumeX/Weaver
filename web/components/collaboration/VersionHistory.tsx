@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { History, Clock, RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'

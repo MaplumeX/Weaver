@@ -9,7 +9,7 @@ interface UseIntersectionObserverOptions {
 
 export function useIntersectionObserver<T extends Element>(
   options: UseIntersectionObserverOptions = {}
-): [RefObject<T>, boolean] {
+): [RefObject<T | null>, boolean] {
   const {
     threshold = 0,
     root = null,
@@ -17,7 +17,7 @@ export function useIntersectionObserver<T extends Element>(
     freezeOnceVisible = true
   } = options
 
-  const elementRef = useRef<T>(null)
+  const elementRef = useRef<T | null>(null)
   const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {

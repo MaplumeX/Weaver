@@ -7,7 +7,7 @@ interface SwipeConfig {
 }
 
 export function useSwipeGesture(
-    ref: React.RefObject<HTMLElement>,
+    ref: React.RefObject<HTMLElement | null>,
     { onSwipeLeft, onSwipeRight, threshold = 50 }: SwipeConfig
 ) {
     const touchStart = useRef<number | null>(null)

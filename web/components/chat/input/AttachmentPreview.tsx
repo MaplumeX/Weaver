@@ -1,6 +1,6 @@
 'use client'
 
-import React, { memo } from 'react'
+import { memo } from 'react'
 import Image from 'next/image'
 import { X, File as FileIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'

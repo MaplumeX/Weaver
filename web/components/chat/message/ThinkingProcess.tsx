@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { ChevronDown, Loader2, BrainCircuit, Globe, Code, FileText, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ToolInvocation } from '@/types/chat'

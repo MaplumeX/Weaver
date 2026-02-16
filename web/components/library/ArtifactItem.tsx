@@ -1,6 +1,5 @@
 'use client'
 
-import React from 'react'
 import { Artifact } from '@/types/chat'
 import { BarChart, FileText, Code, Image as ImageIcon, File, MoreVertical, Trash2, Download, Clock } from 'lucide-react'
 import { formatRelativeTime, formatBytes } from '@/lib/utils'

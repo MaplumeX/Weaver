@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useRef, useCallback, memo } from 'react'
+import { useRef, useCallback, memo } from 'react'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
 import { MessageItem } from './MessageItem'
 import { Loader2 } from 'lucide-react'
