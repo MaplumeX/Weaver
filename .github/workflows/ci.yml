@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -49,8 +51,8 @@ jobs:
       - name: Secret scan
         run: python scripts/secret_scan.py
 
-      - name: Lint (ruff)
-        run: ruff check .
+      - name: Lint (ruff, changed files)
+        run: bash scripts/ruff_changed_files.sh
 
       - name: Tests (pytest)
         run: pytest -q

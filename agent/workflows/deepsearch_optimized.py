@@ -43,7 +43,7 @@ from agent.workflows.query_strategy import (
 )
 
 # Import tree-based research components
-from agent.workflows.research_tree import ResearchTree, TreeExplorer
+from agent.workflows.research_tree import TreeExplorer
 from agent.workflows.source_url_utils import canonicalize_source_url, compact_unique_sources
 from common.cancellation import check_cancellation as _check_cancel_token
 from common.config import settings
@@ -615,7 +615,7 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
     selected_urls_set: set = set()  # Fast lookup
 
     logger.info(f"[deepsearch] topic='{topic}' epochs={max_epochs}")
-    logger.info(f"[deepsearch] 开始优化版深度搜索")
+    logger.info("[deepsearch] 开始优化版深度搜索")
 
     start_ts = time.time()
     tokens_used = _estimate_tokens_from_text(topic)
@@ -940,7 +940,7 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
             except Exception as e:
                 logger.error(f"[deepsearch] Epoch {epoch + 1} 失败: {str(e)}", exc_info=True)
                 logger.error(traceback.format_exc())
-                logger.info(f"[deepsearch] 继续下一轮搜索...")
+                logger.info("[deepsearch] 继续下一轮搜索...")
                 continue  # 单轮失败不影响整体流程
 
         # ⏱️ Step 6: 生成最终报告
@@ -1209,7 +1209,7 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             except RuntimeError:
                 # No event loop, create one
                 tree = asyncio.run(explorer.run_async(topic, state, decompose_root=True))
-            logger.info(f"[deepsearch-tree] Used async parallel exploration")
+            logger.info("[deepsearch-tree] Used async parallel exploration")
         else:
             tree = explorer.run(topic, state, decompose_root=True)
 

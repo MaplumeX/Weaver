@@ -45,6 +45,7 @@ from agent import (
     initialize_enhanced_tools,
     remove_emitter,
 )
+from agent.workflows.evidence_extractor import extract_message_sources
 from common.agents_store import (
     AgentProfile,
     ensure_default_agent,
@@ -62,7 +63,7 @@ from common.agents_store import (
 from common.cancellation import cancellation_manager
 from common.chat_stream_translate import translate_legacy_line_to_sse
 from common.config import settings
-from common.logger import LogContext, get_logger, setup_logging
+from common.logger import get_logger, setup_logging
 from common.metrics import metrics_registry
 from common.sse import format_sse_event, iter_with_sse_keepalive
 from support_agent import create_support_graph
@@ -70,14 +71,13 @@ from tools.browser.browser_session import browser_sessions
 from tools.core.memory_client import add_memory_entry, fetch_memories, store_interaction
 from tools.core.registry import set_registered_tools
 from tools.io.asr import get_asr_service, init_asr_service
-from tools.io.screenshot_service import get_screenshot_service, init_screenshot_service
+from tools.io.screenshot_service import get_screenshot_service
 from tools.io.tts import AVAILABLE_VOICES, get_tts_service, init_tts_service
 from tools.mcp import close_mcp_tools, init_mcp_tools, reload_mcp_tools
 from tools.sandbox import sandbox_browser_sessions
 from triggers import (
     EventTrigger,
     ScheduledTrigger,
-    TriggerManager,
     TriggerStatus,
     TriggerType,
     WebhookTrigger,
@@ -1191,8 +1191,6 @@ async def stream_agent_events(
                         final_report = output.get("final_report", "")
                         if final_report:
                             try:
-                                from agent.workflows.evidence_extractor import extract_message_sources
-
                                 candidates: List[Dict[str, Any]] = []
                                 scraped_content = output.get("scraped_content")
                                 if isinstance(scraped_content, list):
@@ -1955,8 +1953,6 @@ async def export_report_endpoint(
         scraped = state.get("scraped_content", [])
         extracted_sources = []
         try:
-            from agent.workflows.evidence_extractor import extract_message_sources
-
             if isinstance(scraped, list):
                 extracted_sources = extract_message_sources(scraped)
         except Exception:
@@ -2116,8 +2112,6 @@ async def upload_document(file: UploadFile = File(...)):
 
     Supports PDF, DOCX, TXT, MD files.
     """
-    from tools.rag import RAGTool
-
     if not settings.rag_enabled:
         raise HTTPException(status_code=400, detail="RAG is not enabled. Set rag_enabled=True in settings.")
 
@@ -3738,6 +3732,7 @@ async def handle_webhook(
 
 if __name__ == "__main__":
     import os
+
     import uvicorn
 
     port = int(os.getenv("PORT", "8001"))
