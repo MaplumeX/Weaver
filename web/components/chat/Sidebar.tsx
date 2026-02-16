@@ -95,7 +95,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
     if (entry.type === 'header') {
       return (
         <div className={cn(
-          "px-3 text-[10px] font-semibold uppercase tracking-widest mb-1 pt-3",
+          "px-3 text-[11px] font-semibold uppercase mb-1 pt-3",
           entry.label === 'Pinned' ? "text-primary flex items-center gap-1" : "text-muted-foreground/70"
         )}>
           {entry.label === 'Pinned' && <Pin className="h-3 w-3 fill-primary" />}
@@ -138,7 +138,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
       {/* Mobile Overlay */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden transition-opacity duration-200",
+          "fixed inset-0 z-40 bg-black/30 md:hidden transition-opacity duration-200",
           isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         )}
         onClick={onToggle}
@@ -156,10 +156,10 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
           {/* Sidebar Header */}
           <div className="flex items-center justify-between px-2 mb-2 pt-1">
             <div className="flex items-center gap-2 select-none">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg gradient-accent text-white text-xs font-bold shadow-glow-sm">
+              <div className="flex size-7 items-center justify-center rounded-md border border-border/60 bg-background text-xs font-semibold text-foreground">
                 W
               </div>
-              <span className="font-bold text-base tracking-tight gradient-text">{t('weaver')}</span>
+              <span className="text-base font-semibold text-foreground">{t('weaver')}</span>
             </div>
             <Button
               variant="ghost"
@@ -177,7 +177,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
           <div className="mb-2">
             <Button
               className={cn(
-                "w-full justify-start gap-2 h-10 shadow-sm transition font-medium text-sm",
+                "w-full justify-start gap-2 h-10 shadow-sm transition-colors font-medium text-sm",
                 !isOpen && "px-2"
               )}
               variant="default"
@@ -193,7 +193,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
 
             {/* Workspace */}
             <div className="space-y-1" role="group" aria-labelledby="workspace-heading">
-              <div id="workspace-heading" className="px-3 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-widest mb-1">
+              <div id="workspace-heading" className="px-3 text-[11px] font-semibold text-muted-foreground/70 uppercase mb-1">
                 {t('workspace')}
               </div>
               <SidebarItem icon={LayoutGrid} label={t('dashboard')} active={activeView === 'dashboard'} onClick={() => onViewChange('dashboard')} />
@@ -226,7 +226,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
                 {/* Pinned Section */}
                 {pinnedItems.length > 0 && (
                   <div className="space-y-1">
-                    <div className="px-3 text-[10px] font-semibold text-primary uppercase tracking-widest mb-1 flex items-center gap-1">
+                    <div className="px-3 text-[11px] font-semibold text-primary uppercase mb-1 flex items-center gap-1">
                       <Pin className="h-3 w-3 fill-primary" /> Pinned
                     </div>
                     {pinnedItems.map(item => (
@@ -248,7 +248,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
 
                   return (
                     <div key={dateLabel} className="space-y-1">
-                      <div className="px-3 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-widest mb-1">
+                      <div className="px-3 text-[11px] font-semibold text-muted-foreground/70 uppercase mb-1">
                         {dateLabel}
                       </div>
                       {items.map((item) => (
@@ -295,7 +295,7 @@ function SidebarChatItem({
         <MessageSquare className="h-4 w-4 shrink-0 transition-colors group-hover:text-primary" aria-hidden="true" />
         <span className="truncate">{item.title}</span>
       </button>
-      <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 flex items-center transition-opacity duration-200 bg-gradient-to-l from-muted/60 pl-2">
+      <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 flex items-center transition-opacity duration-200 bg-background/90 pl-2">
         <button
           onClick={(e) => {
             e.stopPropagation()
@@ -332,7 +332,7 @@ function SidebarItem({ icon: Icon, label, active, onClick }: { icon: any, label:
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        "sidebar-item",
+        "sidebar-item group",
         active && "active"
       )}>
       <Icon className={cn("h-4 w-4 transition-colors", active ? "text-primary" : "text-muted-foreground group-hover:text-foreground")} aria-hidden="true" />
