@@ -314,6 +314,12 @@ class Settings(BaseSettings):
     research_fetch_max_bytes: int = 2_000_000
     research_fetch_concurrency: int = 6
     research_fetch_concurrency_per_domain: int = 2
+    research_fetch_cache_ttl_s: float = 0.0  # 0 disables in-memory fetch cache
+    research_fetch_cache_max_entries: int = 256
+    research_fetch_cache_store_errors: bool = False
+    research_fetch_render_mode: str = "off"  # off | auto | always
+    research_fetch_render_min_chars: int = 200
+    research_fetch_extract_markdown: bool = True
 
     # Multi-Search Engine Config
     search_strategy: str = "fallback"  # fallback | parallel | round_robin | best_first
