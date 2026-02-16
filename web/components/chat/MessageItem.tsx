@@ -210,6 +210,8 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
   const isThinking = tools.some(t => t.state === 'running')
   const hasSources = !isUser && (message.sources?.length || 0) > 0
 
+  const hasActionBar = Boolean(message.content)
+
   const handleCitationClick = useCallback((citation: string) => {
     setActiveCitation(prev => (prev === citation ? null : citation))
     sourceInspectorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -250,14 +252,15 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
           </div>
         ) : (
           <div className={cn(
-            "relative px-5 py-3.5 shadow-sm transition-shadow duration-200",
+            "relative px-5 pt-3.5 pb-3.5 shadow-sm transition-shadow duration-200",
+            hasActionBar && "max-md:pb-12",
             isUser
               ? "message-user"
               : "message-assistant hover:shadow-glow-sm"
           )}
           >
             <div className={cn(
-              "prose prose-neutral dark:prose-invert max-w-none break-words leading-7",
+              "max-w-none break-words leading-7 text-pretty",
               "text-[15px] md:text-base" // Slightly larger font
             )}>
               <ReactMarkdown
@@ -265,6 +268,26 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                 rehypePlugins={[rehypeKatex]}
                 components={{
                   pre: ({ children }) => <>{children}</>,
+                  h1: ({ children, ...props }) => (
+                    <h1 className="mt-4 mb-2 text-2xl font-semibold leading-tight text-balance" {...props}>
+                      {children}
+                    </h1>
+                  ),
+                  h2: ({ children, ...props }) => (
+                    <h2 className="mt-4 mb-2 text-xl font-semibold leading-tight text-balance" {...props}>
+                      {children}
+                    </h2>
+                  ),
+                  h3: ({ children, ...props }) => (
+                    <h3 className="mt-3 mb-1 text-lg font-semibold leading-tight text-balance" {...props}>
+                      {children}
+                    </h3>
+                  ),
+                  h4: ({ children, ...props }) => (
+                    <h4 className="mt-3 mb-1 text-base font-semibold leading-tight text-balance" {...props}>
+                      {children}
+                    </h4>
+                  ),
                   p: ({ node, children, ...props }) => (
                     <p className="mb-2 last:mb-0 leading-7" {...props}>
                       {React.Children.map(children, child => {
@@ -289,6 +312,26 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                         return child
                       })}
                     </p>
+                  ),
+                  ul: ({ children, ...props }) => (
+                    <ul className="my-2 ml-5 list-disc space-y-1" {...props}>
+                      {children}
+                    </ul>
+                  ),
+                  ol: ({ children, ...props }) => (
+                    <ol className="my-2 ml-5 list-decimal space-y-1" {...props}>
+                      {children}
+                    </ol>
+                  ),
+                  li: ({ children, ...props }) => (
+                    <li className="leading-7" {...props}>
+                      {children}
+                    </li>
+                  ),
+                  blockquote: ({ children, ...props }) => (
+                    <blockquote className="my-3 border-l-2 border-border/60 pl-4 text-muted-foreground" {...props}>
+                      {children}
+                    </blockquote>
                   ),
                   code: ({ node, className, children, ...props }: any) => {
                     const match = /language-(\w+)/.exec(className || '')
@@ -318,7 +361,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
 
                     if (isInline) {
                       return (
-                        <code className="bg-black/10 dark:bg-black/30 px-1.5 py-0.5 rounded text-sm font-mono break-words whitespace-pre-wrap" {...props}>
+                        <code className="bg-muted/60 border border-border/40 px-1.5 py-0.5 rounded text-[13px] md:text-sm font-mono break-words whitespace-pre-wrap" {...props}>
                           {children}
                         </code>
                       )
@@ -329,7 +372,10 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                     )
                   },
                   a: ({ node, ...props }) => (
-                    <a className={cn("underline underline-offset-2 font-medium", isUser ? "text-white" : "text-primary hover:text-primary/80")} {...props} />
+                    <a
+                      className="font-medium underline underline-offset-2 decoration-primary/40 text-primary hover:text-primary/80 hover:decoration-primary"
+                      {...props}
+                    />
                   )
                 }}
               >
@@ -390,60 +436,83 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
             </div>
 
             {/* Actions: Copy, Speak & Edit */}
-            <div className="absolute -bottom-6 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-              {/* Copy Button - Available for both roles */}
-              {message.content && (
+            {hasActionBar ? (
+              <div
+                role="toolbar"
+                aria-label="Message actions"
+                className={cn(
+                  "absolute flex items-center gap-1",
+                  "right-2 bottom-2 md:right-0 md:-bottom-6",
+                  "opacity-100 md:opacity-0",
+                  "md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+                  "transition-opacity duration-200",
+                  "max-md:rounded-full max-md:border max-md:border-border/60 max-md:bg-background/70 max-md:backdrop-blur-sm max-md:px-1 max-md:py-1"
+                )}
+              >
                 <Button
+                  type="button"
                   variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                  size="icon-sm"
+                  className="rounded-full text-muted-foreground hover:text-foreground"
                   onClick={handleCopy}
+                  aria-label="Copy message"
+                  title="Copy message"
                 >
                   {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 </Button>
-              )}
 
-              {!isUser && message.content && (
-                <>
+                {!isUser ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className={cn(
+                        "rounded-full text-muted-foreground hover:text-foreground",
+                        isPlaying && "text-primary"
+                      )}
+                      onClick={handleSpeak}
+                      disabled={isTTSLoading}
+                      aria-label={isPlaying ? "Stop audio" : "Read aloud"}
+                      title={isPlaying ? "Stop audio" : "Read aloud"}
+                    >
+                      {isTTSLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : isPlaying ? (
+                        <VolumeX className="h-3.5 w-3.5" />
+                      ) : (
+                        <Volume2 className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="rounded-full text-muted-foreground hover:text-foreground"
+                      onClick={handleSaveToLibrary}
+                      aria-label={saved ? "Saved to library" : "Save to library"}
+                      title={saved ? "Saved to library" : "Save to library"}
+                    >
+                      {saved ? <Check className="h-3.5 w-3.5 text-green-500" /> : <FolderPlus className="h-3.5 w-3.5" />}
+                    </Button>
+                  </>
+                ) : null}
+
+                {isUser && onEdit ? (
                   <Button
+                    type="button"
                     variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-6 w-6 text-muted-foreground hover:text-foreground",
-                      isPlaying && "text-primary"
-                    )}
-                    onClick={handleSpeak}
-                    disabled={isTTSLoading}
+                    size="icon-sm"
+                    className="rounded-full text-muted-foreground hover:text-foreground"
+                    onClick={() => setIsEditing(true)}
+                    aria-label="Edit message"
+                    title="Edit message"
                   >
-                    {isTTSLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : isPlaying ? (
-                      <VolumeX className="h-3.5 w-3.5" />
-                    ) : (
-                      <Volume2 className="h-3.5 w-3.5" />
-                    )}
+                    <Pencil className="h-3.5 w-3.5" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                    onClick={handleSaveToLibrary}
-                  >
-                    {saved ? <Check className="h-3.5 w-3.5 text-green-500" /> : <FolderPlus className="h-3.5 w-3.5" />}
-                  </Button>
-                </>
-              )}
-              {isUser && onEdit && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 text-muted-foreground hover:text-foreground ml-auto"
-                  onClick={() => setIsEditing(true)}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-              )}
-            </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
       </div>
