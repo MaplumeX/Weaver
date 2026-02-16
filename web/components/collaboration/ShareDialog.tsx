@@ -98,7 +98,14 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
               <p className="text-xs text-muted-foreground">Create a link to share this session</p>
             </div>
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={onClose}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            aria-label="Close share dialog"
+            title="Close"
+          >
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -107,9 +114,10 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
         <div className="space-y-4 mb-6">
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => setPermissions('view')}
               className={cn(
-                "flex-1 flex items-center gap-2 p-3 rounded-xl border transition-all",
+                "flex-1 flex items-center gap-2 p-3 rounded-xl border transition-colors duration-200",
                 permissions === 'view'
                   ? "border-blue-500/50 bg-blue-500/10"
                   : "border-muted hover:border-muted-foreground/30"
@@ -119,9 +127,10 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
               <span className="text-sm font-medium">View Only</span>
             </button>
             <button
+              type="button"
               onClick={() => setPermissions('comment')}
               className={cn(
-                "flex-1 flex items-center gap-2 p-3 rounded-xl border transition-all",
+                "flex-1 flex items-center gap-2 p-3 rounded-xl border transition-colors duration-200",
                 permissions === 'comment'
                   ? "border-purple-500/50 bg-purple-500/10"
                   : "border-muted hover:border-muted-foreground/30"
@@ -177,7 +186,10 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
                   {link.view_count} views
                 </span>
                 <button
+                  type="button"
                   onClick={() => copyLink(link.id)}
+                  aria-label="Copy share link"
+                  title="Copy link"
                   className="p-1 hover:bg-muted/50 rounded transition-colors"
                 >
                   {copied === link.id ? (
@@ -187,7 +199,10 @@ export function ShareDialog({ threadId, isOpen, onClose, className }: ShareDialo
                   )}
                 </button>
                 <button
+                  type="button"
                   onClick={() => deleteLink(link.id)}
+                  aria-label="Delete share link"
+                  title="Delete link"
                   className="p-1 hover:bg-destructive/10 rounded transition-colors"
                 >
                   <X className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />

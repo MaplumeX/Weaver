@@ -132,7 +132,14 @@ export function ExportDialog({ threadId, isOpen, onClose, className }: ExportDia
               <p className="text-xs text-muted-foreground">Choose format and style</p>
             </div>
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={onClose}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            aria-label="Close export dialog"
+            title="Close"
+          >
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -165,7 +172,7 @@ export function ExportDialog({ threadId, isOpen, onClose, className }: ExportDia
                   onClick={() => setFormat(f.id)}
                   aria-label={`Export as ${f.name}: ${f.description}`}
                   className={cn(
-                    "flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all",
+                    "flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-colors duration-200",
                     format === f.id
                       ? "border-blue-500/50 bg-blue-500/10"
                       : "border-muted hover:border-muted-foreground/30"
@@ -194,7 +201,7 @@ export function ExportDialog({ threadId, isOpen, onClose, className }: ExportDia
                 onClick={() => setTemplate(t.id)}
                 aria-label={`Template: ${t.name} — ${t.description}`}
                 className={cn(
-                  "flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
+                  "flex items-center gap-3 p-3 rounded-xl border transition-colors duration-200 text-left",
                   template === t.id
                     ? "border-purple-500/50 bg-purple-500/10"
                     : "border-muted hover:border-muted-foreground/30"

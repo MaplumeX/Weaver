@@ -117,7 +117,14 @@ export function VersionHistory({ threadId, isOpen, onClose, onRestore, className
             <Button variant="soft" size="sm" onClick={createVersion}>
               Save Current
             </Button>
-            <Button variant="ghost" size="icon-sm" onClick={onClose}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={onClose}
+              aria-label="Close version history"
+              title="Close"
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -141,7 +148,7 @@ export function VersionHistory({ threadId, isOpen, onClose, onRestore, className
             versions.slice().reverse().map((version) => (
               <div
                 key={version.id}
-                className="p-4 rounded-xl border bg-gradient-to-r from-muted/20 to-transparent hover:from-muted/40 transition-all group"
+                className="p-4 rounded-xl border bg-gradient-to-r from-muted/20 to-transparent hover:from-muted/40 transition-colors duration-200 group"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
@@ -164,7 +171,7 @@ export function VersionHistory({ threadId, isOpen, onClose, onRestore, className
                     size="sm"
                     onClick={() => restoreVersion(version.id)}
                     loading={restoringId === version.id}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200"
                   >
                     <RotateCcw className="h-4 w-4 mr-1" />
                     Restore

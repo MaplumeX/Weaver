@@ -189,16 +189,12 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   const handleSave = async () => {
     onModelChange(tempModel)
     setLanguage(tempLanguage as Language)
-    onModelChange(tempModel)
-    setLanguage(tempLanguage as Language)
     StorageService.saveApiKeys(apiKeys)
     await saveMcpConfig()
     onOpenChange(false)
   }
 
   const handleCancel = () => {
-    setTempModel(selectedModel)
-    setTempLanguage(language)
     setTempModel(selectedModel)
     setTempLanguage(language)
     // Reload saved API keys
@@ -222,17 +218,17 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
           <div className="space-y-3">
             <Label className="text-sm font-medium">{t('language')}</Label>
             <div className="grid grid-cols-2 gap-2">
-              {languages.map((lang) => (
-                <button
-                  key={lang.id}
-                  onClick={() => setTempLanguage(lang.id as Language)}
-                  className={cn(
-                    'flex items-center justify-between rounded-lg border-2 p-3 text-left transition-all hover:bg-muted/50',
-                    tempLanguage === lang.id
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border'
-                  )}
-                >
+	              {languages.map((lang) => (
+	                <button
+	                  key={lang.id}
+	                  onClick={() => setTempLanguage(lang.id as Language)}
+	                  className={cn(
+	                    'flex items-center justify-between rounded-lg border-2 p-3 text-left transition-colors duration-200 hover:bg-muted/50',
+	                    tempLanguage === lang.id
+	                      ? 'border-primary bg-primary/5'
+	                      : 'border-border'
+	                  )}
+	                >
                   <div>
                     <div className="font-medium">{lang.nativeName}</div>
                     <div className="text-xs text-muted-foreground">{lang.name}</div>
@@ -249,17 +245,17 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
           <div className="space-y-3">
             <Label className="text-sm font-medium">{t('defaultModel')}</Label>
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-              {allModels.map((model) => (
-                <button
-                  key={model.id}
-                  onClick={() => setTempModel(model.id)}
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-lg border p-3 text-left transition-all hover:bg-muted/50',
-                    tempModel === model.id
-                      ? 'border-primary bg-primary/5 font-medium'
-                      : 'border-border'
-                  )}
-                >
+	              {allModels.map((model) => (
+	                <button
+	                  key={model.id}
+	                  onClick={() => setTempModel(model.id)}
+	                  className={cn(
+	                    'flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors duration-200 hover:bg-muted/50',
+	                    tempModel === model.id
+	                      ? 'border-primary bg-primary/5 font-medium'
+	                      : 'border-border'
+	                  )}
+	                >
                   <div>
                     <div className="font-medium">{model.name}</div>
                     <div className="text-xs text-muted-foreground">
