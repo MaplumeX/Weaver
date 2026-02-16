@@ -34,6 +34,7 @@ from agent.workflows.domain_router import ResearchDomain, build_provider_profile
 
 # Import knowledge gap analysis
 from agent.workflows.knowledge_gap import KnowledgeGapAnalyzer
+from agent.workflows.evidence_passages import split_into_passages
 from agent.workflows.parsing_utils import format_search_results, parse_list_output
 from agent.workflows.query_strategy import (
     analyze_query_coverage,
@@ -55,6 +56,7 @@ from prompts.templates.deepsearch import (
     summary_text_prompt,
 )
 from tools.crawl.crawler import crawl_urls
+from tools.research.content_fetcher import ContentFetcher
 from tools.search.multi_search import SearchStrategy, multi_search
 from tools.search.search import tavily_search
 
@@ -452,6 +454,34 @@ def _hydrate_with_crawler(results: List[Dict[str, Any]]) -> None:
                 r["summary"] = content[:400]
 
 
+def _build_fetcher_evidence(urls: List[str]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    if not bool(getattr(settings, "deepsearch_enable_research_fetcher", False)):
+        return [], []
+
+    fetcher = ContentFetcher()
+    fetched_pages: List[Dict[str, Any]] = []
+    passages: List[Dict[str, Any]] = []
+    seen: set = set()
+    for url in urls or []:
+        canonical_url = canonicalize_source_url(url)
+        if not canonical_url or canonical_url in seen:
+            continue
+        seen.add(canonical_url)
+
+        page = fetcher.fetch(canonical_url)
+        fetched_pages.append(page.to_dict())
+
+        text = page.text or page.markdown or ""
+        if not isinstance(text, str) or not text.strip():
+            continue
+
+        for passage in split_into_passages(text, max_chars=800)[:10]:
+            enriched = {"url": page.url, **passage}
+            passages.append(enriched)
+
+    return fetched_pages, passages
+
+
 def _safe_filename(name: str) -> str:
     return re.sub(r'[\/\\:\*\?"<>\|]', "_", name)[:80]
 
@@ -613,6 +643,8 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
     all_searched_urls_set: set = set()  # Fast lookup
     selected_urls: List[str] = []  # Already crawled URLs
     selected_urls_set: set = set()  # Fast lookup
+    fetched_pages: List[Dict[str, Any]] = []
+    passages: List[Dict[str, Any]] = []
 
     logger.info(f"[deepsearch] topic='{topic}' epochs={max_epochs}")
     logger.info("[deepsearch] 开始优化版深度搜索")
@@ -815,6 +847,10 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
                 selected_urls.extend(chosen_urls)
                 selected_urls_set.update(chosen_urls)
 
+                new_pages, new_passages = _build_fetcher_evidence(chosen_urls)
+                fetched_pages.extend(new_pages)
+                passages.extend(new_passages)
+
                 chosen_urls_set = set(chosen_urls)
                 chosen_results = [
                     r
@@ -1012,6 +1048,8 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
             "quality_summary": quality_summary,
             "query_coverage": diagnostics.get("query_coverage", {}),
             "freshness_summary": diagnostics.get("freshness_summary", {}),
+            "fetched_pages": fetched_pages,
+            "passages": passages,
             "sources": sources,
             "claims": claims,
         }
@@ -1332,6 +1370,7 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             ]
         except Exception:
             claims = []
+        fetched_pages, passages = _build_fetcher_evidence(all_sources[:10])
         deepsearch_artifacts = {
             "mode": "tree",
             "queries": have_query,
@@ -1339,6 +1378,8 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             "quality_summary": quality_summary,
             "query_coverage": diagnostics.get("query_coverage", {}),
             "freshness_summary": diagnostics.get("freshness_summary", {}),
+            "fetched_pages": fetched_pages,
+            "passages": passages,
             "sources": sources,
             "claims": claims,
         }

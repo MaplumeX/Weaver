@@ -295,6 +295,7 @@ class Settings(BaseSettings):
     deepsearch_query_num: int = 5
     deepsearch_results_per_query: int = 5
     deepsearch_enable_crawler: bool = False  # enable simple fallback crawler
+    deepsearch_enable_research_fetcher: bool = False  # fetch page bodies for evidence passages
     deepsearch_save_data: bool = False  # save deepsearch run data to disk
     deepsearch_save_dir: str = "eval/deepsearch_data"
     deepsearch_use_gap_analysis: bool = True  # use knowledge gap analysis for targeted queries

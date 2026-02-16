@@ -30,6 +30,8 @@ def test_session_manager_extracts_deepsearch_artifacts():
     assert artifacts["queries"] == ["q1", "q2"]
     assert artifacts["research_tree"]["nodes"]["root"]["topic"] == "AI"
     assert artifacts["quality_summary"]["summary_count"] == 2
+    assert "fetched_pages" in artifacts
+    assert "passages" in artifacts
 
 
 def test_session_manager_build_resume_state_rehydrates_artifacts():

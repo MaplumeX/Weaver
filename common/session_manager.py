@@ -449,6 +449,8 @@ class SessionManager:
 
         if isinstance(artifacts, dict):
             enriched = dict(artifacts)
+            enriched.setdefault("fetched_pages", [])
+            enriched.setdefault("passages", [])
             if "sources" not in enriched:
                 sources = _maybe_extract_sources()
                 if sources:
@@ -517,6 +519,8 @@ class SessionManager:
             "quality_summary": quality_summary,
             "query_coverage": query_coverage,
             "freshness_summary": freshness_summary,
+            "fetched_pages": [],
+            "passages": [],
             "sources": sources,
             "claims": claims,
         }
