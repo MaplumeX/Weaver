@@ -10,6 +10,7 @@ import requests
 from agent.workflows.source_registry import SourceRegistry
 from common.config import settings
 from tools.research.models import FetchedPage, truncate_bytes
+from tools.research.reader_client import ReaderClient
 
 DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -69,9 +70,88 @@ def _is_blocked_fetch_target(url: str) -> bool:
     )
 
 
+def _extract_text_from_response(resp: object) -> tuple[str, Optional[int]]:
+    status_code: Optional[int]
+    try:
+        status_code = int(getattr(resp, "status_code", None))
+    except Exception:
+        status_code = None
+
+    headers = getattr(resp, "headers", None)
+    content_type = _content_type(headers).lower()
+
+    raw_bytes = getattr(resp, "content", b"") or b""
+    raw_bytes = truncate_bytes(raw_bytes, max_bytes=settings.research_fetch_max_bytes)
+
+    if raw_bytes:
+        decoded = raw_bytes.decode("utf-8", errors="replace")
+    else:
+        decoded = str(getattr(resp, "text", "") or "")
+
+    text = _strip_html(decoded) if "html" in content_type else decoded
+    return text, status_code
+
+
 class ContentFetcher:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        reader_mode: Optional[str] = None,
+        reader_public_base: Optional[str] = None,
+        reader_self_hosted_base: Optional[str] = None,
+    ) -> None:
         self._registry = SourceRegistry()
+        self._reader_mode = reader_mode if reader_mode is not None else settings.reader_fallback_mode
+        self._reader_public_base = (
+            reader_public_base if reader_public_base is not None else settings.reader_public_base
+        )
+        self._reader_self_hosted_base = (
+            reader_self_hosted_base
+            if reader_self_hosted_base is not None
+            else settings.reader_self_hosted_base
+        )
+
+    def _reader_method_label(self) -> str:
+        mode = (self._reader_mode or "").strip().lower()
+        if mode == "public":
+            return "reader_public"
+        if mode == "self_hosted":
+            return "reader_self_hosted"
+        if mode == "both":
+            return "reader_self_hosted" if self._reader_self_hosted_base else "reader_public"
+        return "reader_unknown"
+
+    def _fetch_via_reader(self, canonical_url: str, raw_url: str) -> Optional[FetchedPage]:
+        try:
+            client = ReaderClient(
+                mode=self._reader_mode,
+                public_base=self._reader_public_base,
+                self_hosted_base=self._reader_self_hosted_base,
+            )
+            reader_url = client.build_reader_url(canonical_url)
+        except Exception:
+            return None
+
+        try:
+            resp = requests.get(
+                reader_url,
+                timeout=settings.research_fetch_timeout_s,
+                headers={"User-Agent": DEFAULT_UA},
+            )
+        except Exception:
+            return None
+
+        text, status_code = _extract_text_from_response(resp)
+        if status_code == 200 and (text or "").strip():
+            return FetchedPage(
+                url=canonical_url,
+                raw_url=raw_url,
+                method=self._reader_method_label(),
+                text=text,
+                http_status=status_code,
+                attempts=2,
+            )
+        return None
 
     def fetch(self, url: str) -> FetchedPage:
         raw_url = (url or "").strip()
@@ -93,6 +173,13 @@ class ContentFetcher:
                 attempts=1,
             )
 
+        direct_attempt = FetchedPage(
+            url=canonical_url,
+            raw_url=raw_url,
+            method="direct_http",
+            attempts=1,
+        )
+
         try:
             resp = requests.get(
                 canonical_url,
@@ -100,41 +187,15 @@ class ContentFetcher:
                 headers={"User-Agent": DEFAULT_UA},
             )
         except Exception as exc:
-            return FetchedPage(
-                url=canonical_url,
-                raw_url=raw_url,
-                method="direct_http",
-                error=str(exc),
-                attempts=1,
-            )
+            direct_attempt.error = str(exc)
+            reader_attempt = self._fetch_via_reader(canonical_url, raw_url)
+            return reader_attempt or direct_attempt
 
-        status_code: Optional[int]
-        try:
-            status_code = int(getattr(resp, "status_code", None))
-        except Exception:
-            status_code = None
+        text, status_code = _extract_text_from_response(resp)
+        direct_attempt.text = text or None
+        direct_attempt.http_status = status_code
+        if status_code == 200 and (text or "").strip():
+            return direct_attempt
 
-        headers = getattr(resp, "headers", None)
-        content_type = _content_type(headers).lower()
-
-        raw_bytes = getattr(resp, "content", b"") or b""
-        raw_bytes = truncate_bytes(raw_bytes, max_bytes=settings.research_fetch_max_bytes)
-
-        decoded = ""
-        if raw_bytes:
-            decoded = raw_bytes.decode("utf-8", errors="replace")
-        else:
-            decoded = str(getattr(resp, "text", "") or "")
-
-        text = decoded
-        if "html" in content_type:
-            text = _strip_html(decoded)
-
-        return FetchedPage(
-            url=canonical_url,
-            raw_url=raw_url,
-            method="direct_http",
-            text=text or None,
-            http_status=status_code,
-            attempts=1,
-        )
+        reader_attempt = self._fetch_via_reader(canonical_url, raw_url)
+        return reader_attempt or direct_attempt
