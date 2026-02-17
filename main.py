@@ -2294,9 +2294,12 @@ class EvidencePassageItem(BaseModel):
     start_char: int
     end_char: int
     heading: Optional[str] = None
+    heading_path: Optional[List[str]] = None
     page_title: Optional[str] = None
     retrieved_at: Optional[str] = None
     method: Optional[str] = None
+    quote: Optional[str] = None
+    snippet_hash: Optional[str] = None
 
 
 class EvidenceResponse(BaseModel):

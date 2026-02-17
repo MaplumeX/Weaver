@@ -15,6 +15,7 @@ Based on: deep_search-dev reference implementation
 
 import asyncio
 import copy
+import hashlib
 import json
 import logging
 import re
@@ -525,6 +526,21 @@ def _build_fetcher_evidence(urls: List[str]) -> Tuple[List[Dict[str, Any]], List
         best.sort(key=lambda p: int((p.get("start_char") or 0) if isinstance(p, dict) else 0))
         return best
 
+    def _collapse_whitespace(text: str) -> str:
+        return re.sub(r"\s+", " ", str(text or "")).strip()
+
+    def _quote_for_passage(text: str, *, max_chars: int = 240) -> str:
+        normalized = _collapse_whitespace(text)
+        if not normalized:
+            return ""
+        return normalized[: max(1, int(max_chars))]
+
+    def _snippet_hash_for_passage(text: str) -> str:
+        normalized = _collapse_whitespace(text)
+        if not normalized:
+            return ""
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
     fetcher = ContentFetcher()
     fetched_pages: List[Dict[str, Any]] = []
     passages: List[Dict[str, Any]] = []
@@ -556,6 +572,13 @@ def _build_fetcher_evidence(urls: List[str]) -> Tuple[List[Dict[str, Any]], List
             method = getattr(page, "method", None)
             if method:
                 enriched["method"] = method
+
+            quote = _quote_for_passage(enriched.get("text") or "")
+            if quote:
+                enriched["quote"] = quote
+            snippet_hash = _snippet_hash_for_passage(enriched.get("text") or "")
+            if snippet_hash:
+                enriched["snippet_hash"] = snippet_hash
             passages.append(enriched)
 
     return fetched_pages, passages

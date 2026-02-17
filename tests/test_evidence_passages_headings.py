@@ -8,7 +8,8 @@ def test_split_into_passages_includes_heading_for_markdown():
 
     alpha = next(p for p in passages if "Alpha" in p["text"])
     assert alpha.get("heading") == "Intro"
+    assert alpha.get("heading_path") == ["Intro"]
 
     beta = next(p for p in passages if "Beta" in p["text"])
     assert beta.get("heading") == "Details"
-
+    assert beta.get("heading_path") == ["Intro", "Details"]

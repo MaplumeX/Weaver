@@ -38,9 +38,12 @@ async def test_session_evidence_includes_fetched_pages_and_passages(monkeypatch)
                 "start_char": 0,
                 "end_char": 5,
                 "heading": "Intro",
+                "heading_path": ["Intro"],
                 "page_title": "Example Title",
                 "retrieved_at": "2026-02-17T00:00:00+00:00",
                 "method": "direct_http",
+                "quote": "hello",
+                "snippet_hash": "deadbeef",
             }
         ],
     }
@@ -73,6 +76,9 @@ async def test_session_evidence_includes_fetched_pages_and_passages(monkeypatch)
     assert len(data.get("passages", [])) == 1
     passage = (data.get("passages", []) or [None])[0] or {}
     assert passage.get("heading") == "Intro"
+    assert passage.get("heading_path") == ["Intro"]
     assert passage.get("page_title") == "Example Title"
     assert passage.get("retrieved_at") == "2026-02-17T00:00:00+00:00"
     assert passage.get("method") == "direct_http"
+    assert passage.get("quote") == "hello"
+    assert passage.get("snippet_hash") == "deadbeef"

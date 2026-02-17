@@ -62,6 +62,8 @@ def test_build_fetcher_evidence_uses_fetch_many_and_dedupes(monkeypatch):
     assert passages[0].get("page_title") == "Example Title"
     assert passages[0].get("retrieved_at") == "2026-02-17T00:00:00+00:00"
     assert passages[0].get("method") == "direct_http"
+    assert passages[0].get("quote")
+    assert passages[0].get("snippet_hash")
 
 
 def test_build_fetcher_evidence_filters_cookie_banner_passages(monkeypatch):
