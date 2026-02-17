@@ -336,8 +336,8 @@ export function Chat() {
           selectedModel={ui.selectedModel}
           onModelChange={setModel}
           onOpenSettings={() => setSettings(true)}
-          onToggleArtifacts={() => setMobileArtifacts(!ui.showMobileArtifacts)}
-          hasArtifacts={artifacts.length > 0}
+          onToggleInspector={() => setMobileArtifacts(!ui.showMobileArtifacts)}
+          hasInspector={artifacts.length > 0 || Boolean(threadId)}
           currentView={ui.currentView}
           sessionTitle={activeSessionTitle}
         />
@@ -392,7 +392,7 @@ export function Chat() {
       </div>
 
       {/* Desktop Artifacts Panel */}
-      {artifacts.length > 0 && (
+      {(artifacts.length > 0 || threadId) && (
         <div
           className="border-l hidden xl:flex flex-col bg-card"
           style={{ width: ui.isArtifactsOpen ? INSPECTOR_OPEN_W : INSPECTOR_COLLAPSED_W }}
@@ -409,6 +409,7 @@ export function Chat() {
           >
             <ArtifactsPanel
               artifacts={artifacts}
+              threadId={threadId}
               isOpen={ui.isArtifactsOpen}
               onToggle={toggleArtifacts}
             />
@@ -471,6 +472,7 @@ export function Chat() {
       <MobileArtifactsOverlay
         show={ui.showMobileArtifacts}
         artifacts={artifacts}
+        threadId={threadId}
         onClose={() => setMobileArtifacts(false)}
       />
     </div>

@@ -19,8 +19,8 @@ interface HeaderProps {
   selectedModel: string
   onModelChange: (model: string) => void
   onOpenSettings: () => void
-  onToggleArtifacts?: () => void
-  hasArtifacts?: boolean
+  onToggleInspector?: () => void
+  hasInspector?: boolean
   currentView: 'dashboard' | 'discover' | 'library'
   sessionTitle?: string | null
 }
@@ -31,8 +31,8 @@ export const Header = memo(function Header({
   selectedModel,
   onModelChange,
   onOpenSettings,
-  onToggleArtifacts,
-  hasArtifacts,
+  onToggleInspector,
+  hasInspector,
   currentView,
   sessionTitle
 }: HeaderProps) {
@@ -98,14 +98,14 @@ export const Header = memo(function Header({
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Artifacts Toggle (Mobile/Tablet) */}
-        {hasArtifacts && (
+        {/* Inspector Toggle (Mobile/Tablet) */}
+        {hasInspector && (
           <Button
             variant="ghost"
             size="icon"
-            onClick={onToggleArtifacts}
+            onClick={onToggleInspector}
             className="rounded-full text-primary hover:bg-accent xl:hidden"
-            aria-label="Toggle artifacts"
+            aria-label="Toggle inspector"
           >
             <LayoutPanelLeft className="h-5 w-5" />
           </Button>

@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowDown, X } from 'lucide-react'
+import { ArrowDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { ArtifactsPanel } from './ArtifactsPanel'
@@ -72,23 +72,24 @@ export function InterruptBanner({ pendingInterrupt, isLoading, onApprove, onDism
 interface MobileArtifactsOverlayProps {
   show: boolean
   artifacts: Artifact[]
+  threadId: string | null
   onClose: () => void
 }
 
-export function MobileArtifactsOverlay({ show, artifacts, onClose }: MobileArtifactsOverlayProps) {
+export function MobileArtifactsOverlay({ show, artifacts, threadId, onClose }: MobileArtifactsOverlayProps) {
   if (!show) return null
 
   return (
     <div className="fixed inset-0 z-50 bg-background xl:hidden flex flex-col">
-      <div className="flex items-center justify-between p-4 border-b border-border/60">
-        <h2 className="font-semibold">Artifacts</h2>
-        <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close artifacts">
-          <X className="h-5 w-5" />
-        </Button>
-      </div>
-      <div className="flex-1 overflow-hidden">
-        <ArtifactsPanel artifacts={artifacts} />
-      </div>
+      <ArtifactsPanel
+        artifacts={artifacts}
+        threadId={threadId}
+        isOpen={true}
+        onToggle={onClose}
+        toggleLabel="Close inspector"
+        toggleTitle="Close inspector"
+        allowFullscreen={false}
+      />
     </div>
   )
 }
