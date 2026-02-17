@@ -69,3 +69,10 @@ export async function resumeInterrupt(payload: ResumeInterruptRequest): Promise<
     body: JSON.stringify(payload),
   })
 }
+
+export type SessionEvidenceResponse = components['schemas']['EvidenceResponse']
+
+export async function getSessionEvidence(threadId: string): Promise<SessionEvidenceResponse> {
+  const safeId = encodeURIComponent(String(threadId))
+  return apiFetch<SessionEvidenceResponse>(`/api/sessions/${safeId}/evidence`)
+}
