@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import html
 import ipaddress
 import re
 import threading
+from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlsplit
 
@@ -54,6 +56,27 @@ def _html_to_markdown(html: str) -> str:
         return str(_markdownify(html) or "").strip()
     except Exception:
         return ""
+
+
+def _extract_title_from_html(text: str) -> str:
+    if not text:
+        return ""
+
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", text, flags=re.S | re.I)
+    if title_match:
+        raw = title_match.group(1)
+        return html.unescape(_strip_html(raw)).strip()
+
+    h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", text, flags=re.S | re.I)
+    if h1_match:
+        raw = h1_match.group(1)
+        return html.unescape(_strip_html(raw)).strip()
+
+    return ""
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _is_blocked_fetch_target(url: str) -> bool:
@@ -125,7 +148,7 @@ def _read_response_bytes(resp: object) -> bytes:
     return truncate_bytes(bytes(data), max_bytes=limit)
 
 
-def _extract_body_from_response(resp: object) -> tuple[str, Optional[str], Optional[int], str]:
+def _extract_body_from_response(resp: object) -> tuple[str, Optional[str], Optional[str], Optional[int], str]:
     status_code: Optional[int]
     try:
         status_code = int(getattr(resp, "status_code", None))
@@ -144,13 +167,14 @@ def _extract_body_from_response(resp: object) -> tuple[str, Optional[str], Optio
 
     markdown: Optional[str] = None
     if "html" in content_type:
+        title = _extract_title_from_html(decoded) or None
         text = _strip_html(decoded)
         if bool(getattr(settings, "research_fetch_extract_markdown", True)):
             md = _html_to_markdown(decoded)
             markdown = md or None
-        return text, markdown, status_code, content_type
+        return text, markdown, title, status_code, content_type
 
-    return decoded, None, status_code, content_type
+    return decoded, None, None, status_code, content_type
 
 
 class ContentFetcher:
@@ -204,7 +228,7 @@ class ContentFetcher:
             return None
 
         try:
-            text, markdown, status_code, _content_type = _extract_body_from_response(resp)
+            text, markdown, title, status_code, _content_type = _extract_body_from_response(resp)
         finally:
             closer = getattr(resp, "close", None)
             if callable(closer):
@@ -215,9 +239,11 @@ class ContentFetcher:
                 raw_url=raw_url,
                 method=self._reader_method_label(),
                 text=text,
+                title=title,
                 markdown=markdown,
                 http_status=status_code,
                 attempts=attempts,
+                retrieved_at=_now_iso(),
             )
         return None
 
@@ -263,6 +289,7 @@ class ContentFetcher:
             text=text,
             http_status=200,
             attempts=attempts,
+            retrieved_at=_now_iso(),
         )
 
     def fetch(self, url: str) -> FetchedPage:
@@ -319,6 +346,7 @@ class ContentFetcher:
             )
         except Exception as exc:
             direct_attempt.error = str(exc)
+            direct_attempt.retrieved_at = _now_iso()
             render_attempt = self._fetch_via_crawler(canonical_url, raw_url, attempts=2)
             if render_attempt:
                 _maybe_cache(render_attempt)
@@ -330,15 +358,17 @@ class ContentFetcher:
             return final
 
         try:
-            text, markdown, status_code, content_type = _extract_body_from_response(resp)
+            text, markdown, title, status_code, content_type = _extract_body_from_response(resp)
         finally:
             closer = getattr(resp, "close", None)
             if callable(closer):
                 closer()
 
         direct_attempt.text = text or None
+        direct_attempt.title = title
         direct_attempt.markdown = markdown
         direct_attempt.http_status = status_code
+        direct_attempt.retrieved_at = _now_iso()
 
         render_mode = str(getattr(settings, "research_fetch_render_mode", "off") or "off").strip().lower()
         min_chars = int(getattr(settings, "research_fetch_render_min_chars", 200) or 200)
