@@ -97,3 +97,15 @@ Weaver 的 `data` 通常是一个 **envelope**：
 
 前端实现包含有限的重试与退避逻辑；如果仍频繁断连，建议在基础设施侧提高 SSE 连接可用性。
 
+---
+
+## 5) Evidence Inspector（Passages / Sources）
+
+前端 Chat 右侧的 Inspector 面板（原 Artifacts）包含 **Evidence** 标签页，用于查看 evidence-first 结构化产物：
+
+- `GET /api/sessions/{thread_id}/evidence`
+- Response: `EvidenceResponse`（包含 `sources / claims / fetched_pages / passages`）
+
+若希望看到更强的 `passages`（带 `heading_path / quote / snippet_hash`），建议在 `.env` 中启用：
+
+- `DEEPSEARCH_ENABLE_RESEARCH_FETCHER=true`
