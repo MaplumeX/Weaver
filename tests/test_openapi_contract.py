@@ -120,6 +120,13 @@ def test_openapi_has_key_paths_and_distinct_resume_schemas():
     assert evidence_props.get("fetched_pages", {}).get("type") == "array"
     assert evidence_props.get("passages", {}).get("type") == "array"
 
+    passage_item = schemas.get("EvidencePassageItem", {}) or {}
+    passage_item_props = passage_item.get("properties", {}) or {}
+    assert "heading" in passage_item_props
+    assert "page_title" in passage_item_props
+    assert "retrieved_at" in passage_item_props
+    assert "method" in passage_item_props
+
     runs_get = (paths.get("/api/runs/{thread_id}", {}) or {}).get("get", {}) or {}
     runs_schema = (
         (runs_get.get("responses", {}) or {})

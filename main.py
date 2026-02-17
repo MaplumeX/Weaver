@@ -2293,6 +2293,10 @@ class EvidencePassageItem(BaseModel):
     text: str
     start_char: int
     end_char: int
+    heading: Optional[str] = None
+    page_title: Optional[str] = None
+    retrieved_at: Optional[str] = None
+    method: Optional[str] = None
 
 
 class EvidenceResponse(BaseModel):
