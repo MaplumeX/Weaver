@@ -2266,10 +2266,18 @@ class EvidenceSource(BaseModel):
     publishedDate: Optional[str] = None
 
 
+class EvidenceClaimEvidence(BaseModel):
+    url: str
+    snippet_hash: Optional[str] = None
+    quote: Optional[str] = None
+    heading_path: Optional[List[str]] = None
+
+
 class EvidenceClaim(BaseModel):
     claim: str
     status: str
     evidence_urls: List[str] = []
+    evidence_passages: List[EvidenceClaimEvidence] = []
     score: float = 0.0
     notes: str = ""
 

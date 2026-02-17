@@ -1129,13 +1129,31 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
         try:
             from agent.workflows.claim_verifier import ClaimVerifier
 
-            verifier = ClaimVerifier()
-            checks = verifier.verify_report(final_report, search_runs)
+            min_overlap = int(
+                getattr(settings, "deepsearch_claim_verifier_min_overlap_tokens", 2) or 2
+            )
+            max_evidence = int(
+                getattr(settings, "deepsearch_claim_verifier_max_evidence_per_claim", 3) or 3
+            )
+            use_passages = bool(
+                getattr(settings, "deepsearch_claim_verifier_use_passages", True)
+            )
+
+            verifier = ClaimVerifier(
+                min_overlap_tokens=min_overlap,
+                max_evidence_per_claim=max_evidence,
+            )
+            checks = verifier.verify_report(
+                final_report,
+                search_runs,
+                passages=passages if use_passages else None,
+            )
             claims = [
                 {
                     "claim": c.claim,
                     "status": c.status.value,
                     "evidence_urls": c.evidence_urls,
+                    "evidence_passages": c.evidence_passages,
                     "score": c.score,
                     "notes": c.notes,
                 }
@@ -1458,13 +1476,31 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
         try:
             from agent.workflows.claim_verifier import ClaimVerifier
 
-            verifier = ClaimVerifier()
-            checks = verifier.verify_report(final_report, search_runs)
+            min_overlap = int(
+                getattr(settings, "deepsearch_claim_verifier_min_overlap_tokens", 2) or 2
+            )
+            max_evidence = int(
+                getattr(settings, "deepsearch_claim_verifier_max_evidence_per_claim", 3) or 3
+            )
+            use_passages = bool(
+                getattr(settings, "deepsearch_claim_verifier_use_passages", True)
+            )
+
+            verifier = ClaimVerifier(
+                min_overlap_tokens=min_overlap,
+                max_evidence_per_claim=max_evidence,
+            )
+            checks = verifier.verify_report(
+                final_report,
+                search_runs,
+                passages=passages if use_passages else None,
+            )
             claims = [
                 {
                     "claim": c.claim,
                     "status": c.status.value,
                     "evidence_urls": c.evidence_urls,
+                    "evidence_passages": c.evidence_passages,
                     "score": c.score,
                     "notes": c.notes,
                 }

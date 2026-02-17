@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from agent.workflows.source_registry import SourceRegistry
 
@@ -85,6 +85,7 @@ class ClaimCheck:
     claim: str
     status: ClaimStatus
     evidence_urls: List[str] = field(default_factory=list)
+    evidence_passages: List[Dict[str, Any]] = field(default_factory=list)
     score: float = 0.0
     notes: str = ""
 
@@ -92,8 +93,9 @@ class ClaimCheck:
 class ClaimVerifier:
     """Deterministic claim-to-evidence matcher."""
 
-    def __init__(self, min_overlap_tokens: int = 2):
+    def __init__(self, min_overlap_tokens: int = 2, *, max_evidence_per_claim: int = 5):
         self.min_overlap_tokens = max(1, int(min_overlap_tokens))
+        self.max_evidence_per_claim = max(1, int(max_evidence_per_claim))
 
     def extract_claims(self, report: str, max_claims: int = 10) -> List[str]:
         if not report:
@@ -128,49 +130,72 @@ class ClaimVerifier:
         report: str,
         scraped_content: List[Dict[str, Any]],
         max_claims: int = 10,
+        passages: Optional[List[Dict[str, Any]]] = None,
     ) -> List[ClaimCheck]:
         claims = self.extract_claims(report, max_claims=max_claims)
         if not claims:
             return []
-        evidence = self._extract_evidence(scraped_content)
+        evidence = self._extract_evidence(scraped_content, passages=passages)
         return [self.verify_claim(claim, evidence) for claim in claims]
 
-    def verify_claim(self, claim: str, evidence: List[Tuple[str, str]]) -> ClaimCheck:
+    def verify_claim(self, claim: str, evidence: List[Dict[str, Any]]) -> ClaimCheck:
         claim_tokens = self._tokenize(claim)
         if not claim_tokens:
             return ClaimCheck(claim=claim, status=ClaimStatus.UNSUPPORTED)
 
-        supported_urls: List[str] = []
-        contradicted_urls: List[str] = []
+        supported: List[tuple[int, str, Dict[str, Any]]] = []
+        contradicted: List[tuple[int, str, Dict[str, Any]]] = []
         best_overlap = 0
 
-        for url, text in evidence:
+        for item in evidence:
+            url = str(item.get("url") or "").strip() or "unknown"
+            text = str(item.get("text") or "").strip()
             evidence_tokens = self._tokenize(text)
             overlap = len(claim_tokens & evidence_tokens)
             if overlap < self.min_overlap_tokens:
                 continue
 
             best_overlap = max(best_overlap, overlap)
-            if self._is_contradiction(claim, text):
-                contradicted_urls.append(url)
-            else:
-                supported_urls.append(url)
+            passage_payload: Dict[str, Any] = {
+                "url": url,
+            }
+            snippet_hash = str(item.get("snippet_hash") or "").strip()
+            if snippet_hash:
+                passage_payload["snippet_hash"] = snippet_hash
+            quote = str(item.get("quote") or "").strip()
+            if quote:
+                passage_payload["quote"] = quote
+            heading_path = item.get("heading_path")
+            if isinstance(heading_path, list) and all(isinstance(p, str) for p in heading_path):
+                passage_payload["heading_path"] = heading_path
 
-        if contradicted_urls:
-            urls = list(dict.fromkeys(contradicted_urls + supported_urls))
+            if self._is_contradiction(claim, text):
+                contradicted.append((overlap, url, passage_payload))
+            else:
+                supported.append((overlap, url, passage_payload))
+
+        contradicted.sort(key=lambda row: -row[0])
+        supported.sort(key=lambda row: -row[0])
+        limit = self.max_evidence_per_claim
+
+        if contradicted:
+            urls = list(dict.fromkeys([u for _o, u, _p in contradicted] + [u for _o, u, _p in supported]))
+            evidence_passages = [p for _o, _u, p in (contradicted + supported)][:limit]
             return ClaimCheck(
                 claim=claim,
                 status=ClaimStatus.CONTRADICTED,
-                evidence_urls=urls[:5],
+                evidence_urls=urls[:limit],
+                evidence_passages=evidence_passages,
                 score=float(best_overlap),
                 notes="conflicting evidence found",
             )
 
-        if supported_urls:
+        if supported:
             return ClaimCheck(
                 claim=claim,
                 status=ClaimStatus.VERIFIED,
-                evidence_urls=list(dict.fromkeys(supported_urls))[:5],
+                evidence_urls=list(dict.fromkeys([u for _o, u, _p in supported]))[:limit],
+                evidence_passages=[p for _o, _u, p in supported][:limit],
                 score=float(best_overlap),
                 notes="supported by evidence",
             )
@@ -179,13 +204,47 @@ class ClaimVerifier:
             claim=claim,
             status=ClaimStatus.UNSUPPORTED,
             evidence_urls=[],
+            evidence_passages=[],
             score=0.0,
             notes="no matching evidence",
         )
 
-    def _extract_evidence(self, scraped_content: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
-        evidence: List[Tuple[str, str]] = []
+    def _extract_evidence(
+        self,
+        scraped_content: List[Dict[str, Any]],
+        *,
+        passages: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
+        evidence: List[Dict[str, Any]] = []
         source_registry = SourceRegistry()
+
+        if passages:
+            for passage in passages:
+                if not isinstance(passage, dict):
+                    continue
+                url = str(passage.get("url") or "").strip()
+                if not url:
+                    continue
+                canonical_url = source_registry.canonicalize_url(url) or url
+                text = str(passage.get("text") or "").strip()
+                if not text:
+                    continue
+                item: Dict[str, Any] = {
+                    "url": canonical_url,
+                    "text": text,
+                }
+                snippet_hash = str(passage.get("snippet_hash") or "").strip()
+                if snippet_hash:
+                    item["snippet_hash"] = snippet_hash
+                quote = str(passage.get("quote") or "").strip()
+                if quote:
+                    item["quote"] = quote
+                heading_path = passage.get("heading_path")
+                if isinstance(heading_path, list) and all(isinstance(p, str) for p in heading_path):
+                    item["heading_path"] = heading_path
+                evidence.append(item)
+            return evidence
+
         for item in scraped_content or []:
             for result in item.get("results", []) or []:
                 url = str(result.get("url") or "").strip() or "unknown"
@@ -199,7 +258,7 @@ class ClaimVerifier:
                 )
                 text = str(text).strip()
                 if text:
-                    evidence.append((canonical_url, text))
+                    evidence.append({"url": canonical_url, "text": text})
         return evidence
 
     def _tokenize(self, text: str) -> Set[str]:

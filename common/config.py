@@ -305,6 +305,9 @@ class Settings(BaseSettings):
     deepsearch_freshness_warning_min_known: int = 3  # minimum dated results before warning checks
     deepsearch_freshness_warning_min_ratio: float = 0.4  # warn if fresh_30_ratio drops below this
     deepsearch_event_results_limit: int = 5  # max search results included in SSE event payloads
+    deepsearch_claim_verifier_use_passages: bool = True  # use fetched passages for claim evidence
+    deepsearch_claim_verifier_min_overlap_tokens: int = 2  # token overlap threshold for claim evidence
+    deepsearch_claim_verifier_max_evidence_per_claim: int = 3  # max evidence passages/urls stored per claim
 
     # Research Fetcher / Reader Settings
     reader_fallback_mode: str = "both"

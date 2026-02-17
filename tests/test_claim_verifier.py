@@ -42,3 +42,26 @@ def test_claim_with_conflicting_evidence_is_contradicted():
     assert len(checks) == 1
     assert checks[0].status == ClaimStatus.CONTRADICTED
     assert checks[0].evidence_urls == ["https://example.com/earnings"]
+
+
+def test_claim_with_matching_passage_attaches_passage_level_evidence():
+    verifier = ClaimVerifier()
+    report = "The company's revenue increased in 2024 according to the annual report."
+    scraped_content = []
+    passages = [
+        {
+            "url": "https://example.com/earnings?utm_source=test",
+            "text": "In 2024, the company's revenue increased by 5% year over year.",
+            "snippet_hash": "passage_123",
+            "quote": "In 2024, the company's revenue increased by 5% year over year.",
+            "heading_path": ["Results"],
+        }
+    ]
+
+    checks = verifier.verify_report(report, scraped_content, passages=passages)
+
+    assert len(checks) == 1
+    assert checks[0].status == ClaimStatus.VERIFIED
+    assert checks[0].evidence_urls == ["https://example.com/earnings"]
+    assert checks[0].evidence_passages
+    assert checks[0].evidence_passages[0]["snippet_hash"] == "passage_123"

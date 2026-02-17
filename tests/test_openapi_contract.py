@@ -130,6 +130,11 @@ def test_openapi_has_key_paths_and_distinct_resume_schemas():
     assert "quote" in passage_item_props
     assert "snippet_hash" in passage_item_props
 
+    claim_item = schemas.get("EvidenceClaim", {}) or {}
+    claim_item_props = claim_item.get("properties", {}) or {}
+    assert "evidence_passages" in claim_item_props
+    assert claim_item_props.get("evidence_passages", {}).get("type") == "array"
+
     runs_get = (paths.get("/api/runs/{thread_id}", {}) or {}).get("get", {}) or {}
     runs_schema = (
         (runs_get.get("responses", {}) or {})
