@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
     "api:types": "bash scripts/generate-api-types.sh"
   },
   "dependencies": {
@@ -58,6 +59,7 @@
     "autoprefixer": "^10.4.24",
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.1.6",
+    "vitest": "^4.0.18",
     "openapi-typescript": "^7.9.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^4.1.18",
