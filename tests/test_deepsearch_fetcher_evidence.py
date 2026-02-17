@@ -18,6 +18,8 @@ def test_build_fetcher_evidence_uses_fetch_many_and_dedupes(monkeypatch):
             self.method = "direct_http"
             self.text = text
             self.markdown = "para1\n\npara2"
+            self.title = "Example Title"
+            self.retrieved_at = "2026-02-17T00:00:00+00:00"
             self.http_status = 200
             self.error = None
             self.attempts = 1
@@ -27,6 +29,8 @@ def test_build_fetcher_evidence_uses_fetch_many_and_dedupes(monkeypatch):
                 "url": self.url,
                 "raw_url": self.raw_url,
                 "method": self.method,
+                "title": self.title,
+                "retrieved_at": self.retrieved_at,
                 "text": self.text,
                 "markdown": self.markdown,
                 "http_status": self.http_status,
@@ -55,3 +59,6 @@ def test_build_fetcher_evidence_uses_fetch_many_and_dedupes(monkeypatch):
     assert passages[0]["url"] == "https://example.com"
     assert "\n\n" in passages[0]["text"]
     assert passages[0]["start_char"] == 0
+    assert passages[0].get("page_title") == "Example Title"
+    assert passages[0].get("retrieved_at") == "2026-02-17T00:00:00+00:00"
+    assert passages[0].get("method") == "direct_http"

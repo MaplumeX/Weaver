@@ -479,6 +479,15 @@ def _build_fetcher_evidence(urls: List[str]) -> Tuple[List[Dict[str, Any]], List
 
         for passage in split_into_passages(text, max_chars=800)[:10]:
             enriched = {"url": page.url, **passage}
+            page_title = getattr(page, "title", None)
+            if page_title:
+                enriched["page_title"] = page_title
+            retrieved_at = getattr(page, "retrieved_at", None)
+            if retrieved_at:
+                enriched["retrieved_at"] = retrieved_at
+            method = getattr(page, "method", None)
+            if method:
+                enriched["method"] = method
             passages.append(enriched)
 
     return fetched_pages, passages
