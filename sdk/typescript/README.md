@@ -15,6 +15,5 @@ bash sdk/typescript/scripts/build.sh
 ## Example
 
 ```bash
-node sdk/typescript/examples/research.mjs
+WEAVER_BASE_URL=http://127.0.0.1:8001 node sdk/typescript/examples/research.mjs
 ```
-
