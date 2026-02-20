@@ -1625,7 +1625,29 @@ Provide specific, actionable feedback and search queries to address gaps.""",
             except Exception as e:
                 logger.debug(f"[evaluator] failed to emit quality_update: {e}")
 
-        return {
+        quality_patch: Dict[str, Any] = {
+            "citation_coverage": citation_coverage_score,
+            "citation_coverage_score": citation_coverage_score,
+            **(claim_verifier_counts or {}),
+        }
+
+        quality_summary_state = state.get("quality_summary")
+        quality_summary: Dict[str, Any] = quality_summary_state if isinstance(quality_summary_state, dict) else {}
+
+        state_deepsearch_artifacts = state.get("deepsearch_artifacts")
+        deepsearch_artifacts: Optional[Dict[str, Any]] = None
+        if isinstance(state_deepsearch_artifacts, dict):
+            artifact_quality_state = state_deepsearch_artifacts.get("quality_summary")
+            artifact_quality = artifact_quality_state if isinstance(artifact_quality_state, dict) else {}
+            deepsearch_artifacts = {
+                **state_deepsearch_artifacts,
+                "quality_summary": {
+                    **artifact_quality,
+                    **quality_patch,
+                },
+            }
+
+        result: Dict[str, Any] = {
             "evaluation": eval_summary,
             "verdict": verdict,
             "eval_dimensions": dimensions,
@@ -1635,7 +1657,15 @@ Provide specific, actionable feedback and search queries to address gaps.""",
             "quality_gap_count": quality_gap_count,
             "citation_coverage_score": citation_coverage_score,
             "claim_verifier_counts": claim_verifier_counts or {},
+            "quality_summary": {
+                **quality_summary,
+                **quality_patch,
+            },
         }
+        if deepsearch_artifacts is not None:
+            result["deepsearch_artifacts"] = deepsearch_artifacts
+
+        return result
 
     except Exception as e:
         logger.error(f"Evaluator error: {e}")
