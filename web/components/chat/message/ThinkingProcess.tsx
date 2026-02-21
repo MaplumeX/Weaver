@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { ChevronDown, Loader2, BrainCircuit, Globe, Code, FileText, CheckCircle2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronDown, Loader2, Globe, Code, Monitor, Wrench, CheckCircle2, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ToolInvocation } from '@/types/chat'
 import { Button } from '@/components/ui/button'
@@ -16,31 +16,47 @@ interface ThinkingProcessProps {
 
 export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [activeStep, setActiveStep] = useState(0)
 
-  // Determine active phase based on tools
-  const hasSearch = tools.some(t => t.toolName.includes('search'))
-  const hasCode = tools.some(t => t.toolName.includes('code'))
-  const isComplete = !isThinking && tools.length > 0
+  const stats = useMemo(() => {
+    const toolList = tools || []
+    const total = toolList.length
+    const running = toolList.filter(t => t.state === 'running').length
+    const completed = toolList.filter(t => t.state === 'completed').length
+    const failed = toolList.filter(t => t.state === 'failed').length
 
-  useEffect(() => {
-      if (isComplete) setActiveStep(3)
-      else if (hasCode) setActiveStep(2)
-      else if (hasSearch) setActiveStep(1)
-      else setActiveStep(0)
-  }, [hasSearch, hasCode, isComplete])
+    const byCategory = {
+      search: 0,
+      code: 0,
+      browser: 0,
+      other: 0,
+    }
+
+    const categorize = (name: string) => {
+      const lowered = (name || '').toLowerCase()
+      if (lowered.includes('search')) return 'search'
+      if (lowered.includes('python') || lowered.includes('code') || lowered.includes('execute')) return 'code'
+      if (lowered.includes('browser') || lowered.includes('crawl') || lowered.startsWith('sb_browser_')) return 'browser'
+      return 'other'
+    }
+
+    for (const tool of toolList) {
+      byCategory[categorize(tool.toolName) as keyof typeof byCategory]++
+    }
+
+    return { total, running, completed, failed, byCategory }
+  }, [tools])
 
   if (!tools || tools.length === 0) return null
 
-  const steps = [
-      { label: 'Plan', icon: BrainCircuit },
-      { label: 'Search', icon: Globe },
-      { label: 'Analyze', icon: Code },
-      { label: 'Report', icon: FileText },
-  ]
+  const statusLabel =
+    stats.running > 0 || isThinking
+      ? `${stats.running} running · ${stats.completed} done`
+      : stats.failed > 0
+        ? `${stats.completed} done · ${stats.failed} failed`
+        : `${stats.completed} done`
 
   return (
-    <Card className="w-full max-w-md my-3 overflow-hidden border-border/60 transition-shadow duration-200 hover:shadow-md">
+    <Card className="w-full my-3 overflow-hidden border-border/60">
       {/* Header */}
       <div
         className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
@@ -49,16 +65,22 @@ export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
          <div className="flex items-center gap-3">
             <div className={cn(
                 "flex items-center justify-center size-8 rounded-full ring-1 ring-border shadow-sm transition-colors duration-200",
-                isThinking ? "bg-primary/10 text-primary ring-primary/20" : "bg-muted text-muted-foreground"
+                (stats.running > 0 || isThinking) ? "bg-primary/10 text-primary ring-primary/20" : "bg-muted text-muted-foreground"
             )}>
-                {isThinking ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {stats.failed > 0 && !(stats.running > 0 || isThinking) ? (
+                  <XCircle className="w-4 h-4" />
+                ) : (stats.running > 0 || isThinking) ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
             </div>
             <div className="flex flex-col gap-0.5">
                 <span className="text-sm font-semibold text-foreground/90">
-                    {isThinking ? "Deep Researching" : "Research Completed"}
+                    Tool activity
                 </span>
                 <span className="text-[10px] font-medium text-muted-foreground uppercase">
-                    {isThinking ? "Processing..." : `${tools.length} Steps Executed`}
+                    {statusLabel}
                 </span>
             </div>
          </div>
@@ -74,44 +96,43 @@ export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
          </Button>
       </div>
 
-      {/* Stepper (Always Visible) */}
-      <div className="px-4 pb-4 pt-1">
-          <div className="relative flex items-center justify-between mt-2">
-              {/* Connecting Line */}
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-[2px] bg-muted z-0 rounded-full" />
-              <div
-                  className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] w-full bg-primary origin-left z-0 rounded-full"
-                  style={{ transform: `scaleX(${activeStep / (steps.length - 1)})` }}
-              />
+      {/* Summary */}
+      <div className="px-4 pb-3 pt-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary" className="text-[11px] tabular-nums">
+            total {stats.total}
+          </Badge>
+          <Badge
+            variant={stats.running > 0 || isThinking ? 'default' : 'secondary'}
+            className="text-[11px] tabular-nums"
+          >
+            running {stats.running}
+          </Badge>
+          {stats.failed > 0 ? (
+            <Badge variant="destructive" className="text-[11px] tabular-nums">
+              failed {stats.failed}
+            </Badge>
+          ) : null}
 
-              {steps.map((step, index) => {
-                  const isActive = index === activeStep
-                  const isCompleted = index < activeStep
-                  const Icon = step.icon
+          <span className="mx-1 h-4 w-px bg-border/60" aria-hidden="true" />
 
-                  return (
-                      <div key={step.label} className="relative z-10 flex flex-col items-center gap-2 group">
-                          <div className={cn(
-                              "size-8 rounded-full flex items-center justify-center border-2 bg-background shadow-sm",
-                              isActive ? "border-primary text-primary ring-4 ring-primary/10" :
-                              isCompleted ? "border-primary bg-primary text-primary-foreground border-transparent" :
-                              "border-border/60 text-muted-foreground"
-                          )}>
-                              <Icon className="w-3.5 h-3.5" />
-                          </div>
-                          <span className={cn(
-                              "text-[10px] font-semibold absolute -bottom-6 whitespace-nowrap",
-                              isActive ? "text-primary" :
-                              isCompleted ? "text-foreground/80" :
-                              "text-muted-foreground/60"
-                          )}>
-                              {step.label}
-                          </span>
-                      </div>
-                  )
-              })}
-          </div>
-          <div className="h-4" /> {/* Spacer for labels */}
+          <Badge variant="outline" className="text-[11px] tabular-nums">
+            <Globe className="mr-1 h-3 w-3" />
+            search {stats.byCategory.search}
+          </Badge>
+          <Badge variant="outline" className="text-[11px] tabular-nums">
+            <Code className="mr-1 h-3 w-3" />
+            code {stats.byCategory.code}
+          </Badge>
+          <Badge variant="outline" className="text-[11px] tabular-nums">
+            <Monitor className="mr-1 h-3 w-3" />
+            browser {stats.byCategory.browser}
+          </Badge>
+          <Badge variant="outline" className="text-[11px] tabular-nums">
+            <Wrench className="mr-1 h-3 w-3" />
+            other {stats.byCategory.other}
+          </Badge>
+        </div>
       </div>
 
       {/* Logs (Collapsible) */}
@@ -133,8 +154,28 @@ export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
 function LogItem({ tool }: { tool: ToolInvocation }) {
   const isRunning = tool.state === 'running'
   const query = typeof tool.args?.query === 'string' ? tool.args.query : null
+  const url = typeof tool.args?.url === 'string' ? tool.args.url : null
+  const path = typeof tool.args?.path === 'string' ? tool.args.path : null
+  const command = typeof tool.args?.command === 'string' ? tool.args.command : null
   const code = typeof tool.args?.code === 'string' ? tool.args.code : null
-  const hasPreview = !!(query || code)
+
+  const preview = (() => {
+    if (query) return `Query: "${query}"`
+    if (url) return `URL: ${url}`
+    if (path) return `Path: ${path}`
+    if (command) return `Command: ${command}`
+    if (code) return code.slice(0, 220) + (code.length > 220 ? '…' : '')
+
+    const args = tool.args || {}
+    const keys = Object.keys(args)
+    if (keys.length === 0) return null
+    try {
+      const text = JSON.stringify(args)
+      return text.length > 260 ? text.slice(0, 260) + '…' : text
+    } catch {
+      return null
+    }
+  })()
 
   return (
     <div className="group flex gap-3 p-2.5 rounded-lg hover:bg-muted/40 border border-transparent hover:border-border/40 transition-colors duration-200">
@@ -151,13 +192,10 @@ function LogItem({ tool }: { tool: ToolInvocation }) {
                <div className="flex items-center gap-2">
                    <Badge
                      variant="outline"
-                     className="text-[10px] h-5 px-1.5 font-mono uppercase bg-muted/20 border-border/60 text-muted-foreground"
+                     className="text-[10px] h-5 px-1.5 font-mono bg-muted/20 border-border/60 text-muted-foreground"
                    >
                        {tool.toolName.replace(/_/g, ' ')}
                    </Badge>
-                   <span className="text-[10px] text-muted-foreground font-mono">
-                       {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                   </span>
                </div>
                <span className={cn(
                    "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
@@ -167,13 +205,11 @@ function LogItem({ tool }: { tool: ToolInvocation }) {
                </span>
            </div>
 
-           {hasPreview && (
-               <div className="mt-1.5 p-2 rounded bg-muted/40 border border-border/40 font-mono text-[10px] text-muted-foreground overflow-x-auto whitespace-pre-wrap break-all">
-                   {tool.toolName === 'tavily_search' && query ? `Query: "${query}"` :
-                    tool.toolName === 'execute_python_code' && code ? code.slice(0, 100) + (code.length > 100 ? '...' : '') :
-                    JSON.stringify(tool.args)}
-               </div>
-           )}
+           {preview ? (
+             <div className="mt-1.5 p-2 rounded bg-muted/40 border border-border/40 font-mono text-[10px] text-muted-foreground overflow-x-auto whitespace-pre-wrap break-words">
+               {preview}
+             </div>
+           ) : null}
        </div>
     </div>
   )

@@ -86,7 +86,7 @@ export type StreamEvent =
   | { type: 'completion'; data: { content: string } }
   | { type: 'sources'; data: { items: MessageSource[] } }
   | { type: 'interrupt'; data: PendingInterrupt }
-  | { type: 'tool'; data: { name: string; status: string; query?: string } }
+  | { type: 'tool'; data: { toolCallId?: string; name: string; status: string; query?: string; args?: Record<string, unknown> } }
   | { type: 'artifact'; data: Artifact }
   | { type: 'error'; data: { message?: string } }
   | { type: 'done'; data: Record<string, unknown> }

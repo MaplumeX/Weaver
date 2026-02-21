@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Message, Artifact, ToolInvocation, ImageAttachment, PendingInterrupt, StreamEvent } from '@/types/chat'
+import { Message, Artifact, ImageAttachment, PendingInterrupt, StreamEvent } from '@/types/chat'
 import {
   getApiBaseUrl,
   getChatStreamProtocol,
@@ -9,6 +9,7 @@ import {
 } from '@/lib/api'
 import { createAppError } from '@/lib/errors'
 import { toNullableSearchMode, type SearchMode } from '@/lib/chat-mode'
+import { applyToolStreamEvent } from '@/lib/stream/toolInvocations'
 
 interface UseChatStreamProps {
   selectedModel: string
@@ -145,15 +146,10 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             },
           ])
         } else if (data.type === 'tool') {
-          const toolInvocation: ToolInvocation = {
-            toolCallId: `tool-${Date.now()}-${Math.random()}`,
-            toolName: data.data.name,
-            state: data.data.status === 'completed' ? 'completed' : 'running',
-            args: data.data.query ? { query: data.data.query } : {},
-          }
-
-          assistantMessage.toolInvocations = [...(assistantMessage.toolInvocations || []), toolInvocation]
-
+          assistantMessage.toolInvocations = applyToolStreamEvent(
+            assistantMessage.toolInvocations || [],
+            data.data,
+          )
           flushAssistantMessage()
         } else if (data.type === 'completion') {
           assistantMessage.content = data.data.content

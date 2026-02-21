@@ -1065,6 +1065,58 @@ async def format_stream_event(event_type: str, data: Any) -> str:
     return f"0:{json.dumps(payload)}\n"
 
 
+def _compact_tool_args(tool_input: Any) -> Dict[str, Any]:
+    """
+    Best-effort compact tool args for streaming UI previews.
+
+    This must remain:
+    - small (avoid large blobs / file contents)
+    - safe (avoid leaking secrets; only include a small allowlist)
+    - JSON-serializable
+    """
+    if not isinstance(tool_input, dict):
+        return {}
+
+    allowed_keys = (
+        "query",
+        "url",
+        "code",
+        "path",
+        "command",
+        "args",
+        "selector",
+        "text",
+        "title",
+        "filename",
+    )
+    out: Dict[str, Any] = {}
+
+    for key in allowed_keys:
+        if key not in tool_input:
+            continue
+        value = tool_input.get(key)
+        if isinstance(value, str):
+            max_len = 400 if key == "code" else 200
+            trimmed = value.strip()
+            out[key] = trimmed if len(trimmed) <= max_len else trimmed[:max_len] + "..."
+            continue
+        if value is None or isinstance(value, (bool, int, float)):
+            out[key] = value
+            continue
+        if isinstance(value, list):
+            # Avoid dumping giant lists to the client.
+            out[key] = value[:10]
+            continue
+
+        # Fallback: stringify a small preview.
+        try:
+            out[key] = str(value)[:200]
+        except Exception:
+            pass
+
+    return out
+
+
 def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | str | None) -> Dict[str, Any]:
     if isinstance(search_mode, SearchMode):
         use_web = search_mode.useWebSearch
@@ -1506,24 +1558,58 @@ async def stream_agent_events(
                             _store_add(input_text, final_report, user_id=user_id)
 
             elif event_type == "on_tool_start":
-                tool_name = data_dict.get("name", "unknown")
+                tool_name = str(data_dict.get("name", "unknown") or "unknown")
                 tool_input = data_dict.get("input", {})
+                tool_call_id = str(event.get("run_id") or "") or None
 
-                if "search" in tool_name.lower():
-                    query = tool_input.get("query", "unknown")
-                    yield await format_stream_event(
-                        "tool", {"name": "search", "status": "running", "query": query}
-                    )
-                elif "code" in tool_name.lower():
-                    yield await format_stream_event(
-                        "tool", {"name": "code_execution", "status": "running"}
-                    )
+                args_preview = _compact_tool_args(tool_input)
+                payload: Dict[str, Any] = {
+                    "name": tool_name,
+                    "status": "running",
+                }
+                if tool_call_id:
+                    payload["toolCallId"] = tool_call_id
+                if args_preview:
+                    payload["args"] = args_preview
+                    query = args_preview.get("query")
+                    if isinstance(query, str) and query:
+                        payload["query"] = query
+
+                yield await format_stream_event("tool", payload)
+
+            elif event_type == "on_tool_error":
+                tool_name = str(data_dict.get("name", "unknown") or "unknown")
+                tool_input = data_dict.get("input", {})
+                tool_call_id = str(event.get("run_id") or "") or None
+
+                args_preview = _compact_tool_args(tool_input)
+                payload: Dict[str, Any] = {
+                    "name": tool_name,
+                    "status": "failed",
+                }
+                if tool_call_id:
+                    payload["toolCallId"] = tool_call_id
+                if args_preview:
+                    payload["args"] = args_preview
+                    query = args_preview.get("query")
+                    if isinstance(query, str) and query:
+                        payload["query"] = query
+
+                yield await format_stream_event("tool", payload)
 
             elif event_type == "on_tool_end":
-                tool_name = data_dict.get("name", "unknown")
+                tool_name = str(data_dict.get("name", "unknown") or "unknown")
                 output = data_dict.get("output", {})
+                tool_call_id = str(event.get("run_id") or "") or None
 
-                yield await format_stream_event("tool", {"name": tool_name, "status": "completed"})
+                payload: Dict[str, Any] = {
+                    "name": tool_name,
+                    "status": "completed",
+                }
+                if tool_call_id:
+                    payload["toolCallId"] = tool_call_id
+
+                yield await format_stream_event("tool", payload)
 
                 # Check for artifacts from code execution
                 if tool_name == "execute_python_code" and isinstance(output, dict):
