@@ -7,6 +7,7 @@ import main
 @pytest.mark.asyncio
 async def test_rate_limit_headers_present_on_api_endpoints(monkeypatch):
     monkeypatch.setitem(main.settings.__dict__, "internal_api_key", "")
+    monkeypatch.setitem(main.settings.__dict__, "rate_limit_enabled", True)
 
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -16,4 +17,3 @@ async def test_rate_limit_headers_present_on_api_endpoints(monkeypatch):
     assert resp.headers.get("x-ratelimit-limit")
     assert resp.headers.get("x-ratelimit-remaining")
     assert resp.headers.get("x-ratelimit-reset")
-

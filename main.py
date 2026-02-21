@@ -160,6 +160,7 @@ async def log_requests(request: Request, call_next):
     auth_user_header = (getattr(settings, "auth_user_header", "") or "").strip() or "X-Weaver-User"
     path = request.url.path
     method = request.method.upper()
+    rate_limit_enabled = bool(getattr(settings, "rate_limit_enabled_effective", True))
 
     principal_id = ((request.headers.get(auth_user_header) or "").strip() if internal_key else "").strip()
     request.state.principal_id = principal_id or ("internal" if internal_key else "anonymous")
@@ -192,30 +193,33 @@ async def log_requests(request: Request, call_next):
         rate_limit_reset_ts = 0
         rate_limit_exceeded = False
         rate_limit_retry_after = 0
-        if path not in _RATE_LIMIT_EXEMPT and method != "OPTIONS":
+        if rate_limit_enabled and path not in _RATE_LIMIT_EXEMPT and method != "OPTIONS":
             identity = (
                 (getattr(request.state, "principal_id", "") or "").strip()
                 if internal_key and authorized
                 else _get_client_ip(request)
             )
             is_chat = path.startswith("/api/chat")
-            rate_limit_limit = _RATE_LIMIT_CHAT if is_chat else _RATE_LIMIT_GENERAL
+            general_limit = int(getattr(settings, "rate_limit_general_per_minute", 60))
+            chat_limit = int(getattr(settings, "rate_limit_chat_per_minute", 20))
+            window_seconds = int(getattr(settings, "rate_limit_window_seconds", 60))
+            rate_limit_limit = chat_limit if is_chat else general_limit
             bucket_key = f"{identity}:{'chat' if is_chat else 'general'}"
             now = time.time()
 
             bucket = _rate_limit_buckets.get(bucket_key)
-            if bucket is None or now - bucket["window_start"] >= _RATE_LIMIT_WINDOW:
+            if bucket is None or now - bucket["window_start"] >= window_seconds:
                 bucket = {"tokens": rate_limit_limit - 1, "window_start": now}
                 _rate_limit_buckets[bucket_key] = bucket
             else:
                 bucket["tokens"] -= 1
 
             rate_limit_remaining = int(max(bucket.get("tokens", 0), 0))
-            rate_limit_reset_ts = int(bucket["window_start"] + _RATE_LIMIT_WINDOW)
+            rate_limit_reset_ts = int(bucket["window_start"] + window_seconds)
 
             if bucket.get("tokens", 0) < 0:
                 rate_limit_exceeded = True
-                rate_limit_retry_after = int(_RATE_LIMIT_WINDOW - (now - bucket["window_start"])) + 1
+                rate_limit_retry_after = int(window_seconds - (now - bucket["window_start"])) + 1
 
         if rate_limit_exceeded:
             response = JSONResponse(
@@ -289,9 +293,6 @@ app.add_middleware(
 # Rate Limiting Middleware (in-memory token bucket)
 # ---------------------------------------------------------------------------
 _rate_limit_buckets: Dict[str, Dict[str, Any]] = {}
-_RATE_LIMIT_GENERAL = 60  # requests per minute for general endpoints
-_RATE_LIMIT_CHAT = 20  # requests per minute for chat endpoints
-_RATE_LIMIT_WINDOW = 60  # seconds
 _RATE_LIMIT_EXEMPT = {"/", "/health", "/metrics", "/docs", "/openapi.json", "/redoc"}
 _rate_limit_cleanup_task: asyncio.Task | None = None
 
@@ -358,9 +359,10 @@ async def _cleanup_rate_limit_buckets():
         while True:
             await asyncio.sleep(300)
             now = time.time()
+            window_seconds = int(getattr(settings, "rate_limit_window_seconds", 60))
             stale_keys = [
                 k for k, v in _rate_limit_buckets.items()
-                if now - v["window_start"] > _RATE_LIMIT_WINDOW * 2
+                if now - v["window_start"] > window_seconds * 2
             ]
             for k in stale_keys:
                 _rate_limit_buckets.pop(k, None)
@@ -450,7 +452,10 @@ async def startup_event():
 
     # Ensure the rate-limit bucket cleanup task is running (lifespan-managed).
     global _rate_limit_cleanup_task
-    if _rate_limit_cleanup_task is None or _rate_limit_cleanup_task.done():
+    if (
+        getattr(settings, "rate_limit_enabled_effective", False)
+        and (_rate_limit_cleanup_task is None or _rate_limit_cleanup_task.done())
+    ):
         _rate_limit_cleanup_task = asyncio.create_task(
             _cleanup_rate_limit_buckets(),
             name="weaver-rate-limit-cleanup",

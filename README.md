@@ -7,11 +7,11 @@
 
 # Weaver - AI 智能体平台
 
-**基于 LangGraph 的企业级 AI Agent 平台 · 深度研究 · 代码执行 · 浏览器自动化 · 多模态交互**
+**基于 LangGraph 的开源 AI Agent 平台模板 · 深度研究 · 代码执行 · 浏览器自动化 · 多模态交互**
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat&logo=fastapi&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-14.2+-000000?style=flat&logo=next.js&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16.1+-000000?style=flat&logo=next.js&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-1.0+-7B68EE?style=flat&logo=databricks&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat)
@@ -46,7 +46,7 @@
 
 ## 系统架构
 
-Weaver 采用前后端分离的现代化架构，后端基于 FastAPI + LangGraph 构建工作流引擎，前端使用 Next.js + Tailwind CSS 提供流畅的用户体验。系统支持实时事件流（SSE）、任务取消、会话持久化等企业级特性。
+Weaver 采用前后端分离的现代化架构，后端基于 FastAPI + LangGraph 构建工作流引擎，前端使用 Next.js + Tailwind CSS 提供流畅的用户体验。系统支持实时事件流（SSE）、任务取消、会话持久化等生产可用特性（可选加固）。
 
 以下是 Weaver 的核心技术架构图：
 
@@ -302,17 +302,21 @@ ENABLE_MCP=true
 MCP_SERVERS={"filesystem":{"type":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/ABS/PATH/TO/ALLOW"]},"memory":{"type":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-memory"]}}
 # 更多示例与说明见 docs/mcp.md
 
-# 内网/企业部署安全（可选，但强烈建议生产启用）
-# 开启后：所有 /api/* 默认需要内部鉴权（/api/webhook/* 走 trigger 自身的鉴权策略）
+# 部署加固（可选；本地自用可跳过）
+# 开启后：大多数 /api/* 默认需要内部鉴权（/api/webhook/* 走 trigger 自身的鉴权策略）
 # 支持：Authorization: Bearer <key> 或 X-API-Key: <key>
 # 重要：浏览器端不要保存/发送这个 key；应由反向代理/网关在鉴权后注入。
 WEAVER_INTERNAL_API_KEY=
 # 可信用户身份 Header（由反向代理在鉴权后注入），用于会话/线程隔离
 WEAVER_AUTH_USER_HEADER=X-Weaver-User
-#
-# Why proxy injection?
-# - SSE / EventSource 无法自定义 headers，所以必须在反代层注入 Authorization + 用户 Header
-# - 这样前端代码无需知道 internal key（避免泄漏）
+# 说明与反向代理示例见 README 的「部署加固」章节
+
+# HTTP 限流（可选；默认仅在 APP_ENV=prod|production 启用）
+# 如需强制开启/关闭，可显式设置 RATE_LIMIT_ENABLED=true|false
+# RATE_LIMIT_ENABLED=true
+# RATE_LIMIT_GENERAL_PER_MINUTE=60
+# RATE_LIMIT_CHAT_PER_MINUTE=20
+# RATE_LIMIT_WINDOW_SECONDS=60
 
 # 深度研究模式（auto|tree|linear）
 DEEPSEARCH_MODE=auto
@@ -333,41 +337,6 @@ NEXT_PUBLIC_CHAT_STREAM_PROTOCOL=sse
 # - sse: 标准 SSE（推荐，/api/research/sse）
 # - legacy: 兼容旧协议（/api/research）
 NEXT_PUBLIC_RESEARCH_STREAM_PROTOCOL=sse
-```
-
-#### （可选）企业内网鉴权 + 多用户隔离
-
-当你在后端配置了 `WEAVER_INTERNAL_API_KEY`（非空）时：
-
-- **鉴权**：除 `/api/webhook/*` 外，所有 `/api/*` 默认都需要内部鉴权（否则 `401`）。
-- **隔离**：如果你同时让反向代理注入 `WEAVER_AUTH_USER_HEADER`（默认 `X-Weaver-User`），则会话/线程相关接口会按用户隔离（越权返回 `403`）。
-- **本地文档（RAG）**：当启用 RAG 文档库时，内部鉴权开启会自动按用户隔离文档集合，避免不同用户共享上传的文档。
-- **限流**：高频接口可能返回 `429`，并附带 `X-RateLimit-*` headers。
-
-推荐部署拓扑：
-
-- Browser/Client → **Reverse Proxy / Gateway（完成登录鉴权）** → Weaver Backend  
-  由反代在通过鉴权后 **向后端注入**：
-  - `Authorization: Bearer <WEAVER_INTERNAL_API_KEY>`（或 `X-API-Key`）
-  - `X-Weaver-User: <user_id>`（或你自定义的 header 名）
-
-> 为什么不让前端直接带 key？  
-> 因为 SSE / `EventSource` 无法自定义 headers；并且把 internal key 放到浏览器端有泄漏风险。
-
-Nginx 示例（仅示意，请按你的鉴权体系调整）：
-
-```nginx
-location /api/ {
-  # 1) 由反代完成用户鉴权（此处省略 auth_request / OIDC 等配置）
-
-  # 2) 向后端注入内部鉴权 key（不要给浏览器）
-  proxy_set_header Authorization "Bearer <WEAVER_INTERNAL_API_KEY>";
-
-  # 3) 注入可信用户身份（用于线程/会话隔离）
-  proxy_set_header X-Weaver-User "<user_id>";
-
-  proxy_pass http://127.0.0.1:8001;
-}
 ```
 
 ### 第三步：安装依赖
@@ -425,6 +394,64 @@ make check
 #（可选）本地 secret 扫描
 .venv/bin/python scripts/secret_scan.py
 ```
+
+---
+
+## 部署加固（可选）
+
+如果你只是本地自用/内网开发，可以跳过本节。
+
+### 内部鉴权（反向代理注入）
+
+当你在后端配置了 `WEAVER_INTERNAL_API_KEY`（非空）时：
+
+- **鉴权**：除 `/api/webhook/*` 外，大多数 `/api/*` 默认需要内部鉴权（否则 `401`）。
+- **多用户隔离**：如果反向代理注入 `WEAVER_AUTH_USER_HEADER`（默认 `X-Weaver-User`），则会话/线程相关接口会按用户隔离（越权返回 `403`）。
+- **本地文档（RAG）**：当启用 RAG 文档库时，内部鉴权开启会自动按用户隔离文档集合，避免不同用户共享上传的文档。
+
+> 为什么要“反向代理注入”？  
+> 因为 SSE / `EventSource` 无法自定义 headers；并且把 internal key 放到浏览器端有泄漏风险。
+
+推荐部署拓扑：
+
+- Browser/Client → **Reverse Proxy / Gateway（完成登录鉴权）** → Weaver Backend  
+  由反代在通过鉴权后 **向后端注入**：
+  - `Authorization: Bearer <WEAVER_INTERNAL_API_KEY>`（或 `X-API-Key`）
+  - `X-Weaver-User: <user_id>`（或你自定义的 header 名）
+
+Nginx 示例（仅示意，请按你的鉴权体系调整）：
+
+```nginx
+location /api/ {
+  # 1) 由反代完成用户鉴权（此处省略 auth_request / OIDC 等配置）
+
+  # 2) 向后端注入内部鉴权 key（不要给浏览器）
+  proxy_set_header Authorization "Bearer <WEAVER_INTERNAL_API_KEY>";
+
+  # 3) 注入可信用户身份（用于线程/会话隔离）
+  proxy_set_header X-Weaver-User "<user_id>";
+
+  proxy_pass http://127.0.0.1:8001;
+}
+```
+
+### HTTP 限流（可选）
+
+Weaver 内置轻量 HTTP 限流，用于防止误刷/脚本死循环。
+
+默认行为：
+
+- `APP_ENV=prod|production`：启用
+- 其他环境：默认关闭（更适合开源/本地开发）
+
+可用环境变量（根目录 `.env`）：
+
+- `RATE_LIMIT_ENABLED=true|false`
+- `RATE_LIMIT_GENERAL_PER_MINUTE=60`
+- `RATE_LIMIT_CHAT_PER_MINUTE=20`
+- `RATE_LIMIT_WINDOW_SECONDS=60`
+
+启用后高频接口可能返回 `429`，并附带 `X-RateLimit-*` headers。
 
 ---
 

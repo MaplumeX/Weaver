@@ -201,6 +201,17 @@ class Settings(BaseSettings):
         description="Trusted user identity header (only meaningful behind an authenticated proxy).",
     )
 
+    # HTTP Rate Limiting (optional; primarily useful for public deployments)
+    # RATE_LIMIT_ENABLED:
+    # - unset (default): enabled only when APP_ENV=prod|production
+    # - true/false: force on/off regardless of APP_ENV
+    rate_limit_enabled: Optional[bool] = Field(default=None, validation_alias="RATE_LIMIT_ENABLED")
+    rate_limit_general_per_minute: int = Field(
+        default=60, ge=1, validation_alias="RATE_LIMIT_GENERAL_PER_MINUTE"
+    )
+    rate_limit_chat_per_minute: int = Field(default=20, ge=1, validation_alias="RATE_LIMIT_CHAT_PER_MINUTE")
+    rate_limit_window_seconds: int = Field(default=60, ge=1, validation_alias="RATE_LIMIT_WINDOW_SECONDS")
+
     # Database
     database_url: str = ""
 
@@ -443,6 +454,21 @@ class Settings(BaseSettings):
                     origins.append(extra)
 
         return origins
+
+    @property
+    def rate_limit_enabled_effective(self) -> bool:
+        """
+        Whether HTTP rate limiting is enabled for this process.
+
+        Open-source/dev ergonomics:
+        - If RATE_LIMIT_ENABLED is set, we respect it.
+        - Otherwise we only enable rate limiting in production.
+        """
+        configured = getattr(self, "rate_limit_enabled", None)
+        if configured is not None:
+            return bool(configured)
+        env = (self.app_env or "").strip().lower()
+        return env in {"prod", "production"}
 
     @property
     def interrupt_nodes_list(self) -> List[str]:
