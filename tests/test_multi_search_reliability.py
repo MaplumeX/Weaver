@@ -1,7 +1,5 @@
 import concurrent.futures
 
-import pytest
-
 from agent.core.search_cache import clear_search_cache
 from tools.search.multi_search import (
     MultiSearchOrchestrator,

@@ -2,21 +2,21 @@ from __future__ import annotations
 
 import json
 import logging
-
-logger = logging.getLogger(__name__)
 import os
+from functools import lru_cache
+from pathlib import Path
+from typing import Dict, List, Optional
 
 try:
     import tomllib  # Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover
     # Python 3.10 fallback
     import tomli as tomllib  # type: ignore
-from functools import lru_cache
-from pathlib import Path
-from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 # -----------------------------
 # OpenManus-style AppConfig models

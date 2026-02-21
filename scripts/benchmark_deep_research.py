@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from eval.benchmarks.deep_research_bench_loader import load_benchmark_tasks
+from eval.benchmarks.deep_research_bench_loader import load_benchmark_tasks  # noqa: E402
 
 DEFAULT_BENCH_FILE = ROOT / "eval" / "benchmarks" / "sample_tasks.jsonl"
 DEFAULT_GOLDEN_FILE = ROOT / "eval" / "golden_queries.json"

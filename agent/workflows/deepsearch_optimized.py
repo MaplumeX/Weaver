@@ -32,10 +32,8 @@ from langchain_openai import ChatOpenAI
 from agent.core.llm_factory import create_chat_model
 from agent.core.search_cache import get_search_cache
 from agent.workflows.domain_router import ResearchDomain, build_provider_profile
-
-# Import knowledge gap analysis
-from agent.workflows.knowledge_gap import KnowledgeGapAnalyzer
 from agent.workflows.evidence_passages import split_into_passages
+from agent.workflows.knowledge_gap import KnowledgeGapAnalyzer
 from agent.workflows.parsing_utils import format_search_results, parse_list_output
 from agent.workflows.query_strategy import (
     analyze_query_coverage,
@@ -43,8 +41,6 @@ from agent.workflows.query_strategy import (
     is_time_sensitive_topic,
     summarize_freshness,
 )
-
-# Import tree-based research components
 from agent.workflows.research_tree import TreeExplorer
 from agent.workflows.source_url_utils import canonicalize_source_url, compact_unique_sources
 from common.cancellation import check_cancellation as _check_cancel_token
@@ -1465,6 +1461,8 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             "elapsed_seconds": elapsed,
             **diagnostics,
         }
+        fetched_pages, passages = _build_fetcher_evidence(all_sources[:10])
+
         sources = []
         claims = []
         try:
@@ -1508,7 +1506,6 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             ]
         except Exception:
             claims = []
-        fetched_pages, passages = _build_fetcher_evidence(all_sources[:10])
         deepsearch_artifacts = {
             "mode": "tree",
             "queries": have_query,

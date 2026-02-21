@@ -1,9 +1,10 @@
+from types import SimpleNamespace
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 import main
 from common.session_manager import SessionState
-from types import SimpleNamespace
 
 
 @pytest.mark.asyncio

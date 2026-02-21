@@ -13,6 +13,7 @@ Key Features:
 
 import copy
 import hashlib
+import importlib.util
 import logging
 import math
 import re
@@ -249,11 +250,7 @@ class DuckDuckGoProvider(SearchProvider):
         super().__init__("duckduckgo")
 
     def is_available(self) -> bool:
-        try:
-            from duckduckgo_search import DDGS
-            return True
-        except ImportError:
-            return False
+        return importlib.util.find_spec("duckduckgo_search") is not None
 
     def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
         try:
