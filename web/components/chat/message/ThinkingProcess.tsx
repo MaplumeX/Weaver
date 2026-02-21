@@ -1,13 +1,14 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ChevronDown, Loader2, Globe, Code, Monitor, Wrench, CheckCircle2, XCircle } from 'lucide-react'
+import { ChevronDown, Loader2, Globe, Code, Monitor, Wrench, CheckCircle2, XCircle, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ToolInvocation } from '@/types/chat'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { showError, showSuccess } from '@/lib/toast-utils'
 
 interface ThinkingProcessProps {
   tools: ToolInvocation[]
@@ -138,7 +139,7 @@ export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
       {/* Logs (Collapsible) */}
       {isOpen && (
         <div className="border-t border-border/60 bg-muted/10">
-            <ScrollArea className="h-[240px]">
+            <ScrollArea className="h-60">
                 <div className="p-3 space-y-2">
                     {tools.map((tool) => (
                         <LogItem key={tool.toolCallId} tool={tool} />
@@ -158,6 +159,28 @@ function LogItem({ tool }: { tool: ToolInvocation }) {
   const path = typeof tool.args?.path === 'string' ? tool.args.path : null
   const command = typeof tool.args?.command === 'string' ? tool.args.command : null
   const code = typeof tool.args?.code === 'string' ? tool.args.code : null
+
+  const copyPayload = (() => {
+    if (command) return command
+    if (code) return code
+    if (url) return url
+    if (query) return query
+    if (path) return path
+    try {
+      return JSON.stringify(tool.args || {}, null, 2)
+    } catch {
+      return String(tool.args || '')
+    }
+  })()
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(copyPayload)
+      showSuccess('Copied', 'tool-activity-copy')
+    } catch {
+      showError('Copy failed', 'tool-activity-copy-failed')
+    }
+  }
 
   const preview = (() => {
     if (query) return `Query: "${query}"`
@@ -197,12 +220,25 @@ function LogItem({ tool }: { tool: ToolInvocation }) {
                        {tool.toolName.replace(/_/g, ' ')}
                    </Badge>
                </div>
-               <span className={cn(
-                   "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
-                   isRunning ? "bg-primary/10 text-primary" : "bg-muted/30 text-muted-foreground"
-               )}>
-                   {tool.state}
-               </span>
+               <div className="flex items-center gap-1">
+                 <span className={cn(
+                     "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
+                     isRunning ? "bg-primary/10 text-primary" : "bg-muted/30 text-muted-foreground"
+                 )}>
+                     {tool.state}
+                 </span>
+                 <Button
+                   type="button"
+                   variant="ghost"
+                   size="icon-sm"
+                   className="size-7 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                   onClick={handleCopy}
+                   aria-label="Copy tool details"
+                   title="Copy"
+                 >
+                   <Copy className="h-3.5 w-3.5" />
+                 </Button>
+               </div>
            </div>
 
            {preview ? (

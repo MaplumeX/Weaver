@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo, useCallback, memo } from 'react'
-import { Check, Copy, ChevronDown, ChevronRight, WrapText } from 'lucide-react'
+import { Check, Copy, ChevronDown, ChevronRight, WrapText, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { showSuccess } from '@/lib/toast-utils'
 import dynamic from 'next/dynamic'
@@ -25,6 +25,28 @@ interface CodeBlockProps {
 
 // Threshold for enabling virtual scrolling
 const VIRTUAL_SCROLL_THRESHOLD = 100
+
+function extensionForLanguage(language: string): string {
+  const lang = String(language || '').trim().toLowerCase()
+  if (!lang || lang === 'text' || lang === 'plain') return 'txt'
+
+  if (lang === 'ts' || lang === 'typescript') return 'ts'
+  if (lang === 'tsx') return 'tsx'
+  if (lang === 'js' || lang === 'javascript') return 'js'
+  if (lang === 'jsx') return 'jsx'
+  if (lang === 'py' || lang === 'python') return 'py'
+  if (lang === 'sh' || lang === 'bash' || lang === 'shell') return 'sh'
+  if (lang === 'json') return 'json'
+  if (lang === 'yaml' || lang === 'yml') return 'yml'
+  if (lang === 'md' || lang === 'markdown') return 'md'
+  if (lang === 'html') return 'html'
+  if (lang === 'css') return 'css'
+  if (lang === 'sql') return 'sql'
+  if (lang === 'go' || lang === 'golang') return 'go'
+  if (lang === 'rs' || lang === 'rust') return 'rs'
+
+  return 'txt'
+}
 
 // Memoized line component for virtual scrolling
 const CodeLine = memo(function CodeLine({
@@ -78,6 +100,24 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
     setCopied(true)
     showSuccess('Code copied', 'code-copy')
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const ext = extensionForLanguage(language)
+    const filename = `snippet.${ext}`
+    const blob = new Blob([value], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+
+    URL.revokeObjectURL(url)
+    showSuccess('Download started', 'code-download')
   }
 
   const toggleCollapse = () => {
@@ -144,6 +184,17 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
             title="Copy code"
           >
             {copied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/10 transition-colors duration-200"
+            onClick={handleDownload}
+            aria-label="Download code"
+            title="Download"
+          >
+            <Download className="h-4 w-4" />
           </Button>
           <Button
             type="button"
