@@ -17,6 +17,35 @@ python scripts/benchmark_deep_research.py \
   --output /tmp/bench.json
 ```
 
+## Run Execute Benchmark (Real Deep Research)
+
+This mode **actually runs** deep research for each case via `POST /api/research/sse` and records
+evidence metrics (citation coverage, freshness ratio, query coverage, claim verifier counts).
+
+Prereqs:
+- Configure `.env` with real API keys (LLM + at least one search provider).
+- For in-process runs (default `--base-url asgi`), you do **not** need to start the backend server.
+
+```bash
+.venv/bin/python scripts/benchmark_deep_research.py \
+  --max-cases 3 \
+  --mode auto \
+  --execute \
+  --timeout-s 240 \
+  --output /tmp/bench-exec.json
+```
+
+Optional: call a running backend instead of in-process ASGI:
+
+```bash
+.venv/bin/python scripts/benchmark_deep_research.py \
+  --max-cases 3 \
+  --mode auto \
+  --execute \
+  --base-url http://127.0.0.1:8001 \
+  --output /tmp/bench-exec-remote.json
+```
+
 ## CLI Options
 
 - `--max-cases`: number of benchmark cases to include
@@ -25,6 +54,10 @@ python scripts/benchmark_deep_research.py \
 - `--min-freshness-ratio`: base freshness ratio target (0-1) used for case policy
 - `--output`: output JSON report path
 - `--bench-file`: custom JSONL benchmark file path
+- `--execute`: run real deep research and collect metrics
+- `--base-url`: `asgi` (default) or `http://...` backend base URL
+- `--model`: override backend model for execution mode (defaults to `PRIMARY_MODEL`)
+- `--timeout-s`: per-case wall-clock timeout for execution mode
 
 ## JSONL Schema
 

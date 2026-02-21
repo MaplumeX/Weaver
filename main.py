@@ -1878,6 +1878,13 @@ class RunEvidenceSummary(BaseModel):
     sources_count: int
     unsupported_claims_count: int
     freshness_ratio_30d: Optional[float] = None
+    citation_coverage: Optional[float] = None
+    query_coverage_score: Optional[float] = None
+    freshness_warning: Optional[str] = None
+    claim_verifier_total: Optional[int] = None
+    claim_verifier_verified: Optional[int] = None
+    claim_verifier_unsupported: Optional[int] = None
+    claim_verifier_contradicted: Optional[int] = None
 
 
 class RunMetricsResponse(BaseModel):
@@ -1899,12 +1906,26 @@ def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
     sources_count = 0
     unsupported_claims_count = 0
     freshness_ratio_30d: Optional[float] = None
+    citation_coverage: Optional[float] = None
+    query_coverage_score: Optional[float] = None
+    freshness_warning: Optional[str] = None
+    claim_verifier_total: Optional[int] = None
+    claim_verifier_verified: Optional[int] = None
+    claim_verifier_unsupported: Optional[int] = None
+    claim_verifier_contradicted: Optional[int] = None
 
     if not checkpointer:
         return RunEvidenceSummary(
             sources_count=sources_count,
             unsupported_claims_count=unsupported_claims_count,
             freshness_ratio_30d=freshness_ratio_30d,
+            citation_coverage=citation_coverage,
+            query_coverage_score=query_coverage_score,
+            freshness_warning=freshness_warning,
+            claim_verifier_total=claim_verifier_total,
+            claim_verifier_verified=claim_verifier_verified,
+            claim_verifier_unsupported=claim_verifier_unsupported,
+            claim_verifier_contradicted=claim_verifier_contradicted,
         )
 
     try:
@@ -1941,6 +1962,47 @@ def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
                 except (TypeError, ValueError):
                     freshness_ratio_30d = None
 
+        quality_summary = artifacts.get("quality_summary", {})
+        if isinstance(quality_summary, dict):
+            raw_citation = quality_summary.get("citation_coverage", quality_summary.get("citation_coverage_score"))
+            if raw_citation is not None:
+                try:
+                    citation_coverage = float(raw_citation)
+                except (TypeError, ValueError):
+                    citation_coverage = None
+
+            raw_query_coverage = quality_summary.get("query_coverage_score")
+            if raw_query_coverage is None:
+                nested_coverage = quality_summary.get("query_coverage")
+                if isinstance(nested_coverage, dict):
+                    raw_query_coverage = nested_coverage.get("score")
+            if raw_query_coverage is None:
+                nested_query_coverage = artifacts.get("query_coverage")
+                if isinstance(nested_query_coverage, dict):
+                    raw_query_coverage = nested_query_coverage.get("score")
+            if raw_query_coverage is not None:
+                try:
+                    query_coverage_score = float(raw_query_coverage)
+                except (TypeError, ValueError):
+                    query_coverage_score = None
+
+            freshness_warning_raw = quality_summary.get("freshness_warning")
+            if isinstance(freshness_warning_raw, str) and freshness_warning_raw.strip():
+                freshness_warning = freshness_warning_raw.strip()
+
+            def _maybe_int(value: Any) -> Optional[int]:
+                if value is None:
+                    return None
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return None
+
+            claim_verifier_total = _maybe_int(quality_summary.get("claim_verifier_total"))
+            claim_verifier_verified = _maybe_int(quality_summary.get("claim_verifier_verified"))
+            claim_verifier_unsupported = _maybe_int(quality_summary.get("claim_verifier_unsupported"))
+            claim_verifier_contradicted = _maybe_int(quality_summary.get("claim_verifier_contradicted"))
+
     except Exception:
         # Evidence summary is best-effort; never fail the metrics endpoint for this.
         pass
@@ -1949,6 +2011,13 @@ def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
         sources_count=sources_count,
         unsupported_claims_count=unsupported_claims_count,
         freshness_ratio_30d=freshness_ratio_30d,
+        citation_coverage=citation_coverage,
+        query_coverage_score=query_coverage_score,
+        freshness_warning=freshness_warning,
+        claim_verifier_total=claim_verifier_total,
+        claim_verifier_verified=claim_verifier_verified,
+        claim_verifier_unsupported=claim_verifier_unsupported,
+        claim_verifier_contradicted=claim_verifier_contradicted,
     )
 
 

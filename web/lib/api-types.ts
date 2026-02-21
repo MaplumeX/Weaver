@@ -1848,8 +1848,22 @@ export interface components {
         };
         /** RunEvidenceSummary */
         RunEvidenceSummary: {
+            /** Citation Coverage */
+            citation_coverage?: number | null;
+            /** Claim Verifier Contradicted */
+            claim_verifier_contradicted?: number | null;
+            /** Claim Verifier Total */
+            claim_verifier_total?: number | null;
+            /** Claim Verifier Unsupported */
+            claim_verifier_unsupported?: number | null;
+            /** Claim Verifier Verified */
+            claim_verifier_verified?: number | null;
             /** Freshness Ratio 30D */
             freshness_ratio_30d?: number | null;
+            /** Freshness Warning */
+            freshness_warning?: string | null;
+            /** Query Coverage Score */
+            query_coverage_score?: number | null;
             /** Sources Count */
             sources_count: number;
             /** Unsupported Claims Count */
