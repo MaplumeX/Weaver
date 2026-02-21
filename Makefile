@@ -3,7 +3,7 @@ VENV_DIR ?= .venv
 VENV_BIN := $(VENV_DIR)/bin
 PY := $(VENV_BIN)/python
 
-.PHONY: help setup setup-full test lint format secret-scan check web-install web-lint web-build
+.PHONY: help setup setup-full test lint format secret-scan check openapi-types bench-smoke web-install web-lint web-build
 
 help:
 	@echo "Targets:"
@@ -14,6 +14,8 @@ help:
 	@echo "  format      - Run ruff formatter"
 	@echo "  secret-scan - Scan tracked files for common API key patterns"
 	@echo "  check       - Run lint + tests + secret scan"
+	@echo "  openapi-types - Regenerate OpenAPI TS types and ensure no drift"
+	@echo "  bench-smoke - Run deep research benchmark policy smoke (no execution)"
 	@echo "  web-install - Install frontend dependencies (pnpm)"
 	@echo "  web-lint    - Run frontend lint (Next.js)"
 	@echo "  web-build   - Run frontend build (Next.js)"
@@ -40,6 +42,12 @@ secret-scan:
 	@$(PY) scripts/secret_scan.py
 
 check: lint test secret-scan
+
+openapi-types:
+	@bash scripts/check_openapi_ts_types.sh
+
+bench-smoke:
+	@$(PY) scripts/benchmark_deep_research.py --max-cases 3 --mode auto --output /tmp/benchmark_smoke.json
 
 web-install:
 	@pnpm -C web install --frozen-lockfile

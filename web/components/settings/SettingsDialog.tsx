@@ -106,6 +106,30 @@ const MCP_PRESET_FILESYSTEM_MEMORY: McpServersPreset = {
   },
 }
 
+const MCP_PRESET_GITHUB: McpServersPreset = {
+  github: {
+    type: 'stdio',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-github'],
+  },
+}
+
+const MCP_PRESET_BRAVE_SEARCH: McpServersPreset = {
+  brave_search: {
+    type: 'stdio',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-brave-search'],
+  },
+}
+
+const MCP_PRESET_POSTGRES: McpServersPreset = {
+  postgres: {
+    type: 'stdio',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-postgres', 'postgresql://USER:PASSWORD@HOST:5432/DB'],
+  },
+}
+
 export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChange }: SettingsDialogProps) {
   const { language, setLanguage, t } = useI18n()
   const [tempModel, setTempModel] = useState(selectedModel)
@@ -432,15 +456,44 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
                       <Label className="text-xs font-medium">{t('mcpPresets')}</Label>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => applyMcpPreset(MCP_PRESET_FILESYSTEM_MEMORY)}
-                      >
-                        {t('mcpPresetFsMemory')}
-                      </Button>
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs whitespace-nowrap"
+                          onClick={() => applyMcpPreset(MCP_PRESET_FILESYSTEM_MEMORY)}
+                        >
+                          {t('mcpPresetFsMemory')}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs whitespace-nowrap"
+                          onClick={() => applyMcpPreset(MCP_PRESET_GITHUB)}
+                        >
+                          {t('mcpPresetGithub')}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs whitespace-nowrap"
+                          onClick={() => applyMcpPreset(MCP_PRESET_BRAVE_SEARCH)}
+                        >
+                          {t('mcpPresetBraveSearch')}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs whitespace-nowrap"
+                          onClick={() => applyMcpPreset(MCP_PRESET_POSTGRES)}
+                        >
+                          {t('mcpPresetPostgres')}
+                        </Button>
+                      </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {t('mcpPresetsHint')}

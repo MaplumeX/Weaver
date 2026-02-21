@@ -1,9 +1,13 @@
-# Chat Streaming Protocols (SSE vs Legacy)
+# Streaming Protocols (SSE vs Legacy)
 
-Weaver 当前支持两种 Chat 流式协议，目的是在“标准化（更通用）”与“兼容性（便于回滚）”之间取得平衡：
+Weaver 当前支持两种流式协议（Chat / Research），目的是在“标准化（更通用）”与“兼容性（便于回滚）”之间取得平衡：
 
-- **SSE（推荐）**：标准 Server-Sent Events，端点为 `POST /api/chat/sse`
-- **Legacy（兼容）**：Vercel AI SDK Data Stream Protocol 的简化行协议（`0:{json}\n`），端点为 `POST /api/chat`
+- **SSE（推荐）**：标准 Server-Sent Events（`event:` / `data:` / `id:`），端点为：
+  - Chat：`POST /api/chat/sse`
+  - Research：`POST /api/research/sse`
+- **Legacy（兼容）**：Vercel AI SDK Data Stream Protocol 的简化行协议（`0:{json}\n`），端点为：
+  - Chat：`POST /api/chat`
+  - Research：`POST /api/research?query=...`
 
 > 默认前端会优先使用 **SSE**。如果你的部署平台/代理对 SSE 支持不佳（例如缓冲、断连、Header 被改写），可以切回 legacy。
 
@@ -44,7 +48,38 @@ Weaver 的 `data` 通常是一个 **envelope**：
 
 ---
 
-## 2) Legacy Chat Stream（兼容）
+## 2) SSE Research Stream（推荐）
+
+Research 的 SSE 协议与 Chat 基本一致（复用同一个 SSE parser），差别在于请求体字段。
+
+**Endpoint**
+
+- `POST /api/research/sse`
+- `Content-Type: application/json`
+- `Accept: text/event-stream`
+
+**Request body**
+
+```json
+{
+  "query": "your question",
+  "model": "optional override",
+  "search_mode": { "useWebSearch": false, "useAgent": true, "useDeepSearch": true },
+  "agent_id": "optional",
+  "user_id": "optional"
+}
+```
+
+**Response headers**
+
+- `X-Thread-ID: thread_<uuid>`
+- `Content-Type: text/event-stream`
+
+> 前端会读取 `X-Thread-ID` 来连接 `/api/events/{thread_id}`（进度可视化）以及拉取 `/api/sessions/{thread_id}/evidence`（证据面板）。
+
+---
+
+## 3) Legacy Chat Stream（兼容）
 
 **Endpoint**
 
@@ -64,21 +99,61 @@ Weaver 的 `data` 通常是一个 **envelope**：
 
 ---
 
-## 3) 前端如何切换协议
+## 4) Legacy Research Stream（兼容）
+
+**Endpoint**
+
+- `POST /api/research?query=...`
+
+**Response**
+
+- `Content-Type: text/event-stream`
+- 同样是逐行输出 legacy 协议：
+
+```
+0:{"type":"text","data":{"content":"hello"}}\n
+0:{"type":"completion","data":{"content":"final"}}\n
+```
+
+> 该协议主要用于回滚/兼容，在新部署里更推荐 `POST /api/research/sse`。
+
+---
+
+## 5) 前端如何切换协议
 
 通过环境变量控制：
 
 - `NEXT_PUBLIC_CHAT_STREAM_PROTOCOL=sse`（默认，推荐）
 - `NEXT_PUBLIC_CHAT_STREAM_PROTOCOL=legacy`（遇到 SSE 兼容性问题时使用）
+- `NEXT_PUBLIC_RESEARCH_STREAM_PROTOCOL=sse`（默认，推荐）
+- `NEXT_PUBLIC_RESEARCH_STREAM_PROTOCOL=legacy`（遇到 SSE 兼容性问题时使用）
 
-该开关只影响前端发起 chat streaming 的 URL 选择，不影响：
+该开关只影响前端发起 streaming 的 URL 选择，不影响：
 
 - `/api/events/{thread_id}` 的研究过程 SSE（EventSource）
 - `/api/chat/cancel/{thread_id}` 的取消行为（两种协议共用同一取消端点）
 
 ---
 
-## 4) Troubleshooting（常见问题）
+## 6) Research Progress Events（/api/events/{thread_id}）
+
+Inspector 的 Progress 面板使用 EventSource 连接：
+
+- `GET /api/events/{thread_id}`
+
+该流用于可视化 deep research 的过程（timeline/tree/quality 更新），常见事件：
+
+- `quality_update`
+- `research_tree_update`
+- `research_node_start` / `research_node_complete`
+- `search`
+- `error` / `done`
+
+> 注意：EventSource 不暴露 response headers，因此 `thread_id` 必须来自 Chat/Research 的 `X-Thread-ID` header。
+
+---
+
+## 7) Troubleshooting（常见问题）
 
 ### SSE 卡住/不流式
 

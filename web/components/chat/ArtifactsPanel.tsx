@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Artifact } from '@/types/chat'
 import { InspectorEvidence } from './InspectorEvidence'
+import { InspectorRunMetrics } from './InspectorRunMetrics'
 import { useResearchProgress } from '@/hooks/useResearchProgress'
 import { ProgressDashboard } from '@/components/visualization'
 
@@ -96,11 +97,12 @@ export function ArtifactsPanel({
   const hasArtifacts = artifacts.length > 0
   const hasEvidence = Boolean(threadId)
   const hasProgress = Boolean(threadId)
+  const hasMetrics = Boolean(threadId)
 
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
-  const [activeTab, setActiveTab] = useState<'artifacts' | 'evidence' | 'progress'>(() =>
-    hasArtifacts ? 'artifacts' : (hasProgress ? 'progress' : 'evidence')
+  const [activeTab, setActiveTab] = useState<'artifacts' | 'evidence' | 'progress' | 'metrics'>(() =>
+    hasArtifacts ? 'artifacts' : (hasProgress ? 'progress' : (hasMetrics ? 'metrics' : 'evidence'))
   )
 
   const progress = useResearchProgress({
@@ -161,6 +163,24 @@ export function ArtifactsPanel({
           )}
         >
           <span>Evidence</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'metrics'}
+          disabled={!hasMetrics}
+          onClick={() => setActiveTab('metrics')}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors',
+            base,
+            padding,
+            activeTab === 'metrics'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
+            !hasMetrics && 'opacity-50 cursor-not-allowed hover:bg-transparent hover:text-muted-foreground'
+          )}
+        >
+          <span>Metrics</span>
         </button>
         <button
           type="button"
@@ -243,6 +263,10 @@ export function ArtifactsPanel({
                 </div>
               ) : null}
             </div>
+          ) : activeTab === 'metrics' ? (
+            <div className="max-w-4xl mx-auto">
+              <InspectorRunMetrics threadId={threadId} />
+            </div>
           ) : activeTab === 'evidence' ? (
             <div className="max-w-4xl mx-auto">
               <InspectorEvidence threadId={threadId} />
@@ -288,7 +312,9 @@ export function ArtifactsPanel({
             <p className="text-xs text-muted-foreground truncate">
               {activeTab === 'evidence'
                 ? 'Evidence view'
-                : `${artifacts.length} artifact${artifacts.length === 1 ? '' : 's'}`}
+                : activeTab === 'metrics'
+                  ? 'Metrics view'
+                  : `${artifacts.length} artifact${artifacts.length === 1 ? '' : 's'}`}
             </p>
           </div>
         </div>
@@ -336,6 +362,8 @@ export function ArtifactsPanel({
                 tree={progress.tree}
                 stats={progress.stats}
               />
+            ) : activeTab === 'metrics' ? (
+              <InspectorRunMetrics threadId={threadId} />
             ) : activeTab === 'evidence' ? (
               <InspectorEvidence threadId={threadId} />
             ) : (
