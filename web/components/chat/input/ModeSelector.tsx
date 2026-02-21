@@ -68,9 +68,9 @@ export function ModeSelector({
     } else {
       onMcpModeChange(true)
       onSearchModeChange(searchModeFromId('agent'))
-      setIsMcpOpen(!isMcpOpen)
+      setIsMcpOpen((prev) => !prev)
     }
-  }, [mcpMode, onMcpModeChange, onSearchModeChange, isMcpOpen])
+  }, [mcpMode, onMcpModeChange, onSearchModeChange])
 
   const handleMcpSelect = useCallback((next: McpProviderId) => {
     onMcpProviderChange(next)

@@ -1744,6 +1744,14 @@ async def get_search_providers():
 
     for provider in orchestrator.providers:
         circuit = orchestrator.reliability_manager.snapshot(provider.name)
+        last_error = provider.stats.last_error
+        if last_error:
+            try:
+                from tools.search.providers import _sanitize_error_message
+
+                last_error = _sanitize_error_message(last_error)
+            except Exception:
+                pass
         providers.append(
             SearchProviderSnapshot(
                 name=provider.name,
@@ -1755,7 +1763,7 @@ async def get_search_providers():
                 success_rate=float(provider.stats.success_rate),
                 avg_latency_ms=float(provider.stats.avg_latency_ms),
                 avg_result_quality=float(provider.stats.avg_result_quality),
-                last_error=provider.stats.last_error,
+                last_error=last_error,
                 last_error_time=provider.stats.last_error_time,
                 circuit=ProviderCircuitSnapshot(
                     is_open=bool(circuit.get("is_open", False)),

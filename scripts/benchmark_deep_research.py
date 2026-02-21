@@ -156,6 +156,12 @@ def _parse_sse_frame(frame: str) -> Optional[Tuple[str, Any]]:
         payload = json.loads(raw_data)
     except json.JSONDecodeError:
         payload = raw_data
+    else:
+        # The backend emits SSE frames where `data` can be the legacy envelope:
+        #   {"type": "<event>", "data": {...}}
+        # Unwrap to keep the rest of the benchmark logic simple.
+        if isinstance(payload, dict) and "type" in payload and "data" in payload:
+            payload = payload.get("data")
 
     return (event_name, payload)
 

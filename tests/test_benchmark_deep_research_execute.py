@@ -13,6 +13,11 @@ def test_parse_sse_frame_extracts_event_and_json():
     assert parsed == ("status", {"text": "hi"})
 
 
+def test_parse_sse_frame_unwraps_legacy_envelope():
+    parsed = _parse_sse_frame('event: text\ndata: {"type":"text","data":{"content":"hi"}}\n')
+    assert parsed == ("text", {"content": "hi"})
+
+
 def test_parse_sse_frame_ignores_empty_and_comments():
     assert _parse_sse_frame("") is None
     assert _parse_sse_frame(": keepalive\n\n") is None
@@ -54,4 +59,3 @@ def test_run_benchmark_execute_mode_writes_report(tmp_path, monkeypatch):
     assert report["metrics"]["available"] is True
     assert report["summary"]["executed_cases"] == 1
     assert report["cases"][0]["status"] in {"failed", "timeout"}
-
