@@ -413,16 +413,209 @@ def _summarize_new_knowledge(
 
 
 def _final_report(
-    llm: ChatOpenAI, topic: str, summary_notes: List[str], config: Dict[str, Any]
+    llm: ChatOpenAI,
+    topic: str,
+    summary_notes: List[str],
+    config: Dict[str, Any],
+    *,
+    sources: str = "",
 ) -> str:
     """Generate final report based on all summaries."""
     prompt = ChatPromptTemplate.from_messages([("user", final_summary_prompt)])
     msg = prompt.format_messages(
         topic=topic,
         summary_search="\n\n".join(summary_notes) or "暂无",
+        sources=sources or "暂无",
     )
     response = llm.invoke(msg, config=config)
     return getattr(response, "content", "") or summary_text_prompt
+
+
+def _reorder_search_runs_for_citations(
+    search_runs: List[Dict[str, Any]],
+    *,
+    preferred_urls: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Stable reorder to improve citation/source relevance.
+
+    We keep the same content, but move "preferred" URLs (typically the selected URLs that were
+    summarized) earlier so that `extract_message_sources()` assigns lower citation numbers to them.
+
+    This improves:
+    - report citation usefulness ([1]..[N] are more likely to be the actually-used sources)
+    - frontend SourceInspector alignment (since sources are extracted from `scraped_content`)
+    """
+    if not search_runs:
+        return []
+    if not preferred_urls:
+        return list(search_runs)
+
+    try:
+        from agent.workflows.source_registry import SourceRegistry
+
+        registry = SourceRegistry()
+        preferred_canonical: set[str] = set()
+        for raw in preferred_urls:
+            canon = registry.canonicalize_url(str(raw or ""))
+            if canon:
+                preferred_canonical.add(canon)
+        if not preferred_canonical:
+            return list(search_runs)
+
+        preferred_runs: List[Dict[str, Any]] = []
+        other_runs: List[Dict[str, Any]] = []
+
+        for run in search_runs:
+            if not isinstance(run, dict):
+                continue
+
+            results = run.get("results") or []
+            if not isinstance(results, list):
+                results = []
+
+            preferred_results: List[Any] = []
+            other_results: List[Any] = []
+            for r in results:
+                if not isinstance(r, dict):
+                    other_results.append(r)
+                    continue
+                url = str(r.get("url") or "").strip()
+                canon = registry.canonicalize_url(url) if url else ""
+                if canon and canon in preferred_canonical:
+                    preferred_results.append(r)
+                else:
+                    other_results.append(r)
+
+            new_run = {**run, "results": preferred_results + other_results}
+            if preferred_results:
+                preferred_runs.append(new_run)
+            else:
+                other_runs.append(new_run)
+
+        # Preserve determinism: stable partition only.
+        return preferred_runs + other_runs
+    except Exception:
+        return list(search_runs)
+
+
+def _format_sources_for_writer(
+    sources: List[Dict[str, Any]],
+    search_runs: List[Dict[str, Any]],
+    *,
+    limit: int,
+) -> str:
+    """
+    Render sources into a compact, numbered block for the writer prompt.
+
+    Numbering must match `extract_message_sources()` ordering so the frontend can
+    display the same `[n]` mapping.
+    """
+    if not sources:
+        return "暂无可引用来源。"
+
+    max_count = max(1, int(limit or 0)) if limit else len(sources)
+    rendered_sources = sources[:max_count]
+
+    snippet_by_canonical: Dict[str, str] = {}
+    try:
+        from agent.workflows.source_registry import SourceRegistry
+
+        registry = SourceRegistry()
+        for run in search_runs or []:
+            if not isinstance(run, dict):
+                continue
+            results = run.get("results") or []
+            if not isinstance(results, list):
+                continue
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                url = str(item.get("url") or "").strip()
+                if not url:
+                    continue
+                canon = registry.canonicalize_url(url) or url
+                if canon in snippet_by_canonical:
+                    continue
+
+                raw_snippet = (
+                    item.get("raw_excerpt")
+                    or item.get("summary")
+                    or item.get("snippet")
+                    or item.get("content")
+                    or ""
+                )
+                snippet = re.sub(r"\s+", " ", str(raw_snippet)).strip()
+                if snippet:
+                    snippet_by_canonical[canon] = snippet[:280]
+    except Exception:
+        snippet_by_canonical = {}
+
+    lines: List[str] = []
+    for idx, src in enumerate(rendered_sources, 1):
+        if not isinstance(src, dict):
+            continue
+        title = str(src.get("title") or "").strip() or "Untitled"
+        canonical_url = str(src.get("url") or "").strip()
+        raw_url = str(src.get("rawUrl") or "").strip()
+        href = raw_url or canonical_url
+
+        domain = str(src.get("domain") or "").strip()
+        provider = str(src.get("provider") or "").strip()
+        published = str(src.get("publishedDate") or "").strip()
+        meta_parts = [p for p in (domain, provider, published) if p and p.lower() != "none"]
+        meta = " | ".join(meta_parts)
+
+        snippet = ""
+        if canonical_url:
+            snippet = snippet_by_canonical.get(canonical_url, "")
+        if not snippet and href:
+            snippet = snippet_by_canonical.get(href, "")
+
+        header = f"[{idx}] {title}"
+        if meta:
+            header = f"{header} ({meta})"
+        lines.append(header)
+        if href:
+            lines.append(f"URL: {href}")
+        if snippet:
+            lines.append(f"摘要片段: {snippet}")
+        lines.append("")  # blank line between sources
+
+    return "\n".join(lines).strip() or "暂无可引用来源。"
+
+
+def _append_auto_references(
+    report: str,
+    sources: List[Dict[str, Any]],
+    *,
+    limit: int,
+) -> str:
+    if not report:
+        return report
+
+    heading = "## 参考来源（自动生成）"
+    if heading in report:
+        return report
+
+    max_count = max(1, int(limit or 0)) if limit else len(sources)
+    rendered_sources = sources[:max_count]
+
+    items: List[str] = []
+    for idx, src in enumerate(rendered_sources, 1):
+        if not isinstance(src, dict):
+            continue
+        title = str(src.get("title") or "").strip() or "Untitled"
+        url = str(src.get("rawUrl") or src.get("url") or "").strip()
+        if not url:
+            continue
+        items.append(f"- [{idx}] {title} — {url}")
+
+    if not items:
+        return report
+
+    block = "\n".join([heading, "", *items]).rstrip()
+    return report.rstrip() + "\n\n" + block + "\n"
 
 
 def _hydrate_with_crawler(results: List[Dict[str, Any]]) -> None:
@@ -1077,12 +1270,41 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
                 logger.info("[deepsearch] 继续下一轮搜索...")
                 continue  # 单轮失败不影响整体流程
 
-        # ⏱️ Step 6: 生成最终报告
+        # Prefer sources we actually summarized when assigning citation numbers.
+        # This helps the report and the frontend agree on `[n]` semantics.
+        citation_runs = _reorder_search_runs_for_citations(
+            search_runs,
+            preferred_urls=selected_urls,
+        )
+
+        report_sources_limit = int(
+            getattr(settings, "deepsearch_report_sources_limit", 20) or 20
+        )
+        all_sources: List[Dict[str, Any]] = []
+        try:
+            from agent.workflows.evidence_extractor import extract_message_sources
+
+            all_sources = extract_message_sources(citation_runs)
+        except Exception:
+            all_sources = []
+        report_sources = all_sources[: max(1, report_sources_limit)]
+        sources_block = _format_sources_for_writer(
+            report_sources,
+            citation_runs,
+            limit=report_sources_limit,
+        )
+
+        # ⏱️ Step 6: 生成最终报告（带强引用来源编号）
         report_start = time.time()
         final_report = (
-            _final_report(writer_llm, topic, summary_notes, config)
+            _final_report(writer_llm, topic, summary_notes, config, sources=sources_block)
             if summary_notes
             else summary_text_prompt
+        )
+        final_report = _append_auto_references(
+            final_report,
+            report_sources,
+            limit=report_sources_limit,
         )
         logger.info(
             f"[deepsearch] 最终报告生成完成"
@@ -1103,7 +1325,7 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
             f"\n  预算停止原因: {budget_stop_reason or 'none'}"
         )
 
-        diagnostics = _build_quality_diagnostics(topic, have_query, search_runs)
+        diagnostics = _build_quality_diagnostics(topic, have_query, citation_runs)
         quality_summary = {
             "epochs_completed": epoch + 1,
             "summary_count": len(summary_notes),
@@ -1114,14 +1336,7 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
             "elapsed_seconds": elapsed,
             **diagnostics,
         }
-        sources = []
         claims = []
-        try:
-            from agent.workflows.evidence_extractor import extract_message_sources
-
-            sources = extract_message_sources(search_runs)
-        except Exception:
-            sources = []
         try:
             from agent.workflows.claim_verifier import ClaimVerifier
 
@@ -1141,7 +1356,7 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
             )
             checks = verifier.verify_report(
                 final_report,
-                search_runs,
+                citation_runs,
                 passages=passages if use_passages else None,
             )
             claims = [
@@ -1166,7 +1381,7 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
             "freshness_summary": diagnostics.get("freshness_summary", {}),
             "fetched_pages": fetched_pages,
             "passages": passages,
-            "sources": sources,
+            "sources": all_sources,
             "claims": claims,
         }
 
@@ -1175,7 +1390,7 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
             topic,
             have_query,
             summary_notes,
-            search_runs,
+            citation_runs,
             final_report,
             epoch=epoch + 1,
         )
@@ -1201,10 +1416,11 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
 
         return {
             "research_plan": have_query,
-            "scraped_content": search_runs,
+            "scraped_content": citation_runs,
             "draft_report": final_report,
             "final_report": final_report,
             "quality_summary": quality_summary,
+            "sources": all_sources,
             "deepsearch_artifacts": deepsearch_artifacts,
             "deepsearch_mode": "linear",
             "messages": messages,
@@ -1379,12 +1595,48 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
                 all_sources_set.add(canonical_source)
         all_findings = explorer.get_all_findings()
 
-        # Generate final report using the comprehensive summary
         summary_notes = [merged_summary] if merged_summary else []
+        # Collect queries + search runs from all nodes
+        have_query: List[str] = []
+        search_runs: List[Dict[str, Any]] = []
+        for node in tree.nodes.values():
+            have_query.extend(node.queries)
+            for finding in node.findings:
+                search_runs.append({
+                    "query": finding.get("query", ""),
+                    "results": [finding.get("result", {})],
+                    "timestamp": finding.get("timestamp", ""),
+                    "branch_id": node.id,
+                    "branch_topic": node.topic,
+                })
+
+        report_sources_limit = int(
+            getattr(settings, "deepsearch_report_sources_limit", 20) or 20
+        )
+        extracted_sources: List[Dict[str, Any]] = []
+        try:
+            from agent.workflows.evidence_extractor import extract_message_sources
+
+            extracted_sources = extract_message_sources(search_runs)
+        except Exception:
+            extracted_sources = []
+        report_sources = extracted_sources[: max(1, report_sources_limit)]
+        sources_block = _format_sources_for_writer(
+            report_sources,
+            search_runs,
+            limit=report_sources_limit,
+        )
+
+        # Generate final report (strong citations aligned to extracted_sources order)
         final_report = (
-            _final_report(writer_llm, topic, summary_notes, config)
+            _final_report(writer_llm, topic, summary_notes, config, sources=sources_block)
             if summary_notes
             else summary_text_prompt
+        )
+        final_report = _append_auto_references(
+            final_report,
+            report_sources,
+            limit=report_sources_limit,
         )
 
         elapsed = time.time() - start_ts
@@ -1406,20 +1658,6 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             f"  Total sources: {len(all_sources)}\n"
             f"  Report length: {len(final_report)} chars"
         )
-
-        # Collect queries from all nodes
-        have_query = []
-        search_runs = []
-        for node in tree.nodes.values():
-            have_query.extend(node.queries)
-            for finding in node.findings:
-                search_runs.append({
-                    "query": finding.get("query", ""),
-                    "results": [finding.get("result", {})],
-                    "timestamp": finding.get("timestamp", ""),
-                    "branch_id": node.id,
-                    "branch_topic": node.topic,
-                })
 
         # Save data
         save_path = _save_deepsearch_data(
@@ -1463,14 +1701,7 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
         }
         fetched_pages, passages = _build_fetcher_evidence(all_sources[:10])
 
-        sources = []
         claims = []
-        try:
-            from agent.workflows.evidence_extractor import extract_message_sources
-
-            sources = extract_message_sources(search_runs)
-        except Exception:
-            sources = []
         try:
             from agent.workflows.claim_verifier import ClaimVerifier
 
@@ -1515,7 +1746,7 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             "freshness_summary": diagnostics.get("freshness_summary", {}),
             "fetched_pages": fetched_pages,
             "passages": passages,
-            "sources": sources,
+            "sources": extracted_sources,
             "claims": claims,
         }
         _emit_event(emitter, "quality_update", {"epoch": 1, "stage": "final", **diagnostics})
@@ -1557,6 +1788,7 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             "draft_report": final_report,
             "final_report": final_report,
             "quality_summary": quality_summary,
+            "sources": extracted_sources,
             "deepsearch_artifacts": deepsearch_artifacts,
             "deepsearch_mode": "tree",
             "messages": messages,

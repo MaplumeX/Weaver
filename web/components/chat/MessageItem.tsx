@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { DataTableView } from './DataTableView'
 import { ErrorBoundary, type FallbackProps } from 'react-error-boundary'
 import { toast } from 'sonner'
-import { Message } from '@/types/chat'
+import { Message, type MessageSource } from '@/types/chat'
 import { ThinkingProcess } from './message/ThinkingProcess'
 import { CodeBlock } from './message/CodeBlock'
 import { CitationBadge } from './message/CitationBadge'
@@ -219,10 +219,45 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
 
   const hasActionBar = Boolean(message.content)
 
+  const citationSourceByNum = useMemo(() => {
+    const map = new Map<string, MessageSource>()
+    ;(message.sources || []).forEach((source, idx) => {
+      map.set(String(idx + 1), source)
+    })
+    return map
+  }, [message.sources])
+
   const handleCitationClick = useCallback((citation: string) => {
     setActiveCitation(prev => (prev === citation ? null : citation))
     sourceInspectorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [])
+
+  const renderStringWithCitations = useCallback((text: string, keyPrefix: string) => {
+    const parts = text.split(/(\[\d+\])/g)
+    return parts.map((part, i) => {
+      const match = part.match(/^\[(\d+)\]$/)
+      if (!match) return part
+      const citationNum = match[1]!
+      return (
+        <CitationBadge
+          key={`${keyPrefix}-${i}`}
+          num={citationNum}
+          source={citationSourceByNum.get(citationNum)}
+          active={activeCitation === citationNum}
+          onClick={handleCitationClick}
+        />
+      )
+    })
+  }, [activeCitation, citationSourceByNum, handleCitationClick])
+
+  const renderChildrenWithCitations = useCallback((children: React.ReactNode, keyPrefix: string) => {
+    return React.Children.map(children, (child, childIdx) => {
+      if (typeof child === 'string') {
+        return renderStringWithCitations(child, `${keyPrefix}-${childIdx}`)
+      }
+      return child
+    })
+  }, [renderStringWithCitations])
 
   return (
     <div
@@ -295,27 +330,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                   ),
                   p: ({ node, children, ...props }) => (
                     <p className="mb-2 last:mb-0 leading-7" {...props}>
-                      {React.Children.map(children, child => {
-                        if (typeof child === 'string') {
-                          const parts = child.split(/(\[\d+\])/g)
-                          return parts.map((part, i) => {
-                            const match = part.match(/^\[(\d+)\]$/)
-                            if (match) {
-                              const citationNum = match[1]!
-                              return (
-                                <CitationBadge
-                                  key={i}
-                                  num={citationNum}
-                                  active={activeCitation === citationNum}
-                                  onClick={handleCitationClick}
-                                />
-                              )
-                            }
-                            return part
-                          })
-                        }
-                        return child
-                      })}
+                      {renderChildrenWithCitations(children, 'p')}
                     </p>
                   ),
                   ul: ({ children, ...props }) => (
@@ -330,7 +345,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                   ),
                   li: ({ children, ...props }) => (
                     <li className="leading-7" {...props}>
-                      {children}
+                      {renderChildrenWithCitations(children, 'li')}
                     </li>
                   ),
                   blockquote: ({ children, ...props }) => (

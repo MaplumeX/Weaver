@@ -473,6 +473,14 @@ Weaver 内置轻量 HTTP 限流，用于防止误刷/脚本死循环。
   → 生成 8000 字综合报告
 ```
 
+#### 深度研究的引用与证据（强引用）
+
+- 报告正文中的引用采用编号格式：`[1] [2] ...`，编号与文末的“参考来源（自动生成）”一致。
+- 在 Web UI 中点击正文里的 `[n]`，会高亮并定位到对应来源（Source Inspector），便于快速核对证据。
+- 可通过 `.env` 调整引用来源数量：`DEEPSEARCH_REPORT_SOURCES_LIMIT=20`（默认 20）。
+- 如果你希望“证据段落 / passages”更丰富（更慢、更耗 token），可开启抓取正文：
+  - `DEEPSEARCH_ENABLE_RESEARCH_FETCHER=true`
+
 ### 代码执行示例
 
 ```python
