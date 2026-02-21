@@ -32,6 +32,7 @@ const VIRTUAL_SCROLL_THRESHOLD = 100
 
 const CODEBLOCK_PREF_WRAP = 'weaver:codeblock:wrap'
 const CODEBLOCK_PREF_LINE_NUMBERS = 'weaver:codeblock:line_numbers'
+const CODEBLOCK_PREF_EVENT = 'weaver:codeblock:prefs'
 
 function readStoredBoolean(key: string, fallback: boolean): boolean {
   if (typeof window === 'undefined') return fallback
@@ -52,6 +53,15 @@ function writeStoredBoolean(key: string, value: boolean): void {
     window.localStorage.setItem(key, value ? '1' : '0')
   } catch {
     // Ignore; storage may be unavailable (privacy mode) and should not break UI.
+  }
+}
+
+function broadcastCodeBlockPrefs(patch: { wrap?: boolean; lineNumbers?: boolean }): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new CustomEvent(CODEBLOCK_PREF_EVENT, { detail: patch }))
+  } catch {
+    // Ignore; event dispatch can fail in unusual sandboxed environments.
   }
 }
 
@@ -225,6 +235,31 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
     writeStoredBoolean(CODEBLOCK_PREF_LINE_NUMBERS, showLineNumbers)
   }, [showLineNumbers])
 
+  useEffect(() => {
+    const handlePrefs = (e: Event) => {
+      const detail = (e as CustomEvent<{ wrap?: boolean; lineNumbers?: boolean }>).detail
+      if (!detail || typeof detail !== 'object') return
+
+      if (typeof detail.wrap === 'boolean') setWrapLines(detail.wrap)
+      if (typeof detail.lineNumbers === 'boolean') setShowLineNumbers(detail.lineNumbers)
+    }
+
+    window.addEventListener(CODEBLOCK_PREF_EVENT, handlePrefs as EventListener)
+    return () => {
+      window.removeEventListener(CODEBLOCK_PREF_EVENT, handlePrefs as EventListener)
+    }
+  }, [])
+
+  const updateWrapLines = useCallback((next: boolean) => {
+    setWrapLines(next)
+    broadcastCodeBlockPrefs({ wrap: next })
+  }, [])
+
+  const updateShowLineNumbers = useCallback((next: boolean) => {
+    setShowLineNumbers(next)
+    broadcastCodeBlockPrefs({ lineNumbers: next })
+  }, [])
+
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
     navigator.clipboard.writeText(value)
@@ -271,7 +306,11 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
 
   const toggleWrap = (e: React.MouseEvent) => {
     e.stopPropagation()
-    setWrapLines(v => !v)
+    setWrapLines(prev => {
+      const next = !prev
+      broadcastCodeBlockPrefs({ wrap: next })
+      return next
+    })
   }
 
   const openFullscreen = (e: React.MouseEvent) => {
@@ -504,7 +543,7 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
                   <span className="text-xs font-medium text-muted-foreground">Wrap</span>
                   <Switch
                     checked={wrapLines}
-                    onCheckedChange={setWrapLines}
+                    onCheckedChange={updateWrapLines}
                     aria-label="Toggle line wrap"
                   />
                 </div>
@@ -512,7 +551,7 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
                   <span className="text-xs font-medium text-muted-foreground">Line numbers</span>
                   <Switch
                     checked={showLineNumbers}
-                    onCheckedChange={setShowLineNumbers}
+                    onCheckedChange={updateShowLineNumbers}
                     aria-label="Toggle line numbers"
                   />
                 </div>
@@ -667,7 +706,7 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
                     <span className="text-sm font-medium">Line numbers</span>
                     <Switch
                       checked={showLineNumbers}
-                      onCheckedChange={setShowLineNumbers}
+                      onCheckedChange={updateShowLineNumbers}
                       aria-label="Toggle line numbers"
                     />
                   </div>
