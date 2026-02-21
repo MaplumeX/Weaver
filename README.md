@@ -244,6 +244,8 @@ graph LR
 > - Node.js 18+
 > - Docker & Docker Compose（可选，用于 PostgreSQL）
 > - 至少 1 个 LLM API Key（OpenAI/DeepSeek/Claude 等）
+>
+> **开源/本地自用提示**：本地跑起来只需要配置「模型 + 搜索」相关的 key；鉴权/多用户隔离/限流等都属于可选加固项（默认不影响开发体验）。
 
 ### 第一步：克隆仓库
 
@@ -302,21 +304,7 @@ ENABLE_MCP=true
 MCP_SERVERS={"filesystem":{"type":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/ABS/PATH/TO/ALLOW"]},"memory":{"type":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-memory"]}}
 # 更多示例与说明见 docs/mcp.md
 
-# 部署加固（可选；本地自用可跳过）
-# 开启后：大多数 /api/* 默认需要内部鉴权（/api/webhook/* 走 trigger 自身的鉴权策略）
-# 支持：Authorization: Bearer <key> 或 X-API-Key: <key>
-# 重要：浏览器端不要保存/发送这个 key；应由反向代理/网关在鉴权后注入。
-WEAVER_INTERNAL_API_KEY=
-# 可信用户身份 Header（由反向代理在鉴权后注入），用于会话/线程隔离
-WEAVER_AUTH_USER_HEADER=X-Weaver-User
-# 说明与反向代理示例见 README 的「部署加固」章节
-
-# HTTP 限流（可选；默认仅在 APP_ENV=prod|production 启用）
-# 如需强制开启/关闭，可显式设置 RATE_LIMIT_ENABLED=true|false
-# RATE_LIMIT_ENABLED=true
-# RATE_LIMIT_GENERAL_PER_MINUTE=60
-# RATE_LIMIT_CHAT_PER_MINUTE=20
-# RATE_LIMIT_WINDOW_SECONDS=60
+# 可选：公开部署加固（鉴权/隔离/限流）见 README「部署加固（可选）」章节
 
 # 深度研究模式（auto|tree|linear）
 DEEPSEARCH_MODE=auto
