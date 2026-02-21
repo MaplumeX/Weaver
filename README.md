@@ -235,6 +235,18 @@ graph LR
 - **可观测性**：结构化日志、Prometheus 指标、性能监控
 - **现代化 UI**：基于 Shadcn UI 的美观界面；代码块支持复制/折叠/换行开关，长输出更易读
 
+### 最近更新（相对最新 Tag：`v0.5.0` · 2026-01-02）
+
+本次版本主要聚焦「**前端输出体验**」与「**流式事件一致性**」，对齐了前后端在工具流（tool stream）上的契约，并对代码/思考过程的展示进行了深度打磨：
+
+- **SSE Tool 事件对齐**：后端 `tool` 事件补充 `toolCallId`（稳定关联 start/end）、`args` 精简预览、失败状态；前端用 upsert 合并更新，解决「工具步骤重复/永远 running」问题
+- **Tool activity（Thinking）面板**：统计 running/done/failed + 分类（search/code/browser/other）；支持一键复制工具关键参数，方便复用与排障
+- **代码块输出（CodeBlock）全面增强**：
+  - 长输出：虚拟滚动（大块不卡顿）+ 全屏阅读
+  - 可读性：换行开关、行号开关、Find（支持 Enter/Shift+Enter 导航 + 子串高亮）
+  - 可复用：Copy fenced（复制为 Markdown 围栏）+ Download（按语言推断扩展名）
+  - 偏好：Wrap/Line numbers 会持久化，并在同一页面内多代码块实时同步
+
 ---
 
 ## 快速开始
