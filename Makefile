@@ -3,14 +3,15 @@ VENV_DIR ?= .venv
 VENV_BIN := $(VENV_DIR)/bin
 PY := $(VENV_BIN)/python
 
-.PHONY: help setup setup-full test lint format secret-scan check openapi-types bench-smoke web-install web-lint web-build
+.PHONY: help setup setup-full test lint lint-all format secret-scan check openapi-types bench-smoke web-install web-lint web-build
 
 help:
 	@echo "Targets:"
 	@echo "  setup       - Create venv and install core + dev dependencies"
 	@echo "  setup-full  - Install optional tool dependencies (if requirements-optional.txt exists)"
 	@echo "  test        - Run pytest"
-	@echo "  lint        - Run ruff"
+	@echo "  lint        - Run ruff (changed files)"
+	@echo "  lint-all    - Run ruff (full repo)"
 	@echo "  format      - Run ruff formatter"
 	@echo "  secret-scan - Scan tracked files for common API key patterns"
 	@echo "  check       - Run lint + tests + secret scan"
@@ -33,6 +34,9 @@ test:
 	@$(PY) -m pytest -q
 
 lint:
+	@bash scripts/ruff_changed_files.sh
+
+lint-all:
 	@$(PY) -m ruff check .
 
 format:

@@ -11,7 +11,8 @@ def test_is_valid_api_key_rejects_common_placeholders_and_short_values():
 
 def test_is_valid_api_key_accepts_reasonable_length_keys():
     assert providers._is_valid_api_key("a" * 10) is True
-    assert providers._is_valid_api_key(" tvly-1234567890 ") is True
+    # Keep a Tavily-like prefix, but avoid matching the repo secret scanner pattern.
+    assert providers._is_valid_api_key(" tvly-FAKEKEY12 ") is True
 
 
 def test_sanitize_error_message_redacts_common_secret_shapes_and_urls():
