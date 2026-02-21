@@ -35,6 +35,27 @@
 
 ---
 
+## 架构概览
+
+> 完整架构与工作流图：`docs/architecture.md`
+
+```mermaid
+graph TB
+  UI[Next.js Web UI] -->|SSE| API[FastAPI]
+  API --> Router{Router}
+  Router --> Direct[Direct]
+  Router --> Web[Web Search]
+  Router --> Agent[Agent Tools]
+  Router --> Deep[Deep Research]
+  Agent --> Tools[Tool Registry]
+  Deep --> Tools
+  Tools --> E2B[E2B Sandbox]
+  Tools --> Browser[Browser Automation]
+  Tools --> MCP[MCP Bridge]
+```
+
+---
+
 ## 快速开始（本地 2 分钟跑起来）
 
 > 更完整的步骤（E2B / Playwright / MCP / Docker Compose）见：`docs/getting-started.md`
