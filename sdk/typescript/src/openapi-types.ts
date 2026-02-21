@@ -2480,7 +2480,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["CancelRequest"];
+                "application/json": components["schemas"]["CancelRequest"] | null;
             };
         };
         responses: {

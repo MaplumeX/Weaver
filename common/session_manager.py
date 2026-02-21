@@ -114,6 +114,7 @@ class SessionManager:
         self,
         limit: int = 50,
         status_filter: Optional[str] = None,
+        user_id_filter: Optional[str] = None,
     ) -> List[SessionInfo]:
         """
         List all sessions.
@@ -169,6 +170,11 @@ class SessionManager:
                         state = checkpoint.checkpoint.get("channel_values", {})
                     elif isinstance(checkpoint, dict):
                         state = checkpoint.get("channel_values", {})
+
+                    if user_id_filter:
+                        owner = state.get("user_id")
+                        if not isinstance(owner, str) or owner.strip() != user_id_filter:
+                            continue
 
                     session_info = self._build_session_info(thread_id, state, checkpoint)
 

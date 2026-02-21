@@ -194,6 +194,12 @@ class Settings(BaseSettings):
     # Environment
     app_env: str = "dev"  # dev | test | prod
     enable_prometheus: bool = False  # expose /metrics in Prometheus format
+    internal_api_key: str = Field(default="", validation_alias="WEAVER_INTERNAL_API_KEY")
+    auth_user_header: str = Field(
+        default="X-Weaver-User",
+        validation_alias="WEAVER_AUTH_USER_HEADER",
+        description="Trusted user identity header (only meaningful behind an authenticated proxy).",
+    )
 
     # Database
     database_url: str = ""

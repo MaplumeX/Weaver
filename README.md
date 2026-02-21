@@ -302,8 +302,54 @@ ENABLE_MCP=true
 MCP_SERVERS={"filesystem":{"type":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/ABS/PATH/TO/ALLOW"]},"memory":{"type":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-memory"]}}
 # 更多示例与说明见 docs/mcp.md
 
+# 内网/企业部署安全（可选，但强烈建议生产启用）
+# 开启后：所有 /api/* 默认需要内部鉴权（/api/webhook/* 走 trigger 自身的鉴权策略）
+# 支持：Authorization: Bearer <key> 或 X-API-Key: <key>
+# 重要：浏览器端不要保存/发送这个 key；应由反向代理/网关在鉴权后注入。
+WEAVER_INTERNAL_API_KEY=
+# 可信用户身份 Header（由反向代理在鉴权后注入），用于会话/线程隔离
+WEAVER_AUTH_USER_HEADER=X-Weaver-User
+#
+# Why proxy injection?
+# - SSE / EventSource 无法自定义 headers，所以必须在反代层注入 Authorization + 用户 Header
+# - 这样前端代码无需知道 internal key（避免泄漏）
+
 # 深度研究模式（auto|tree|linear）
 DEEPSEARCH_MODE=auto
+```
+
+#### （可选）企业内网鉴权 + 多用户隔离
+
+当你在后端配置了 `WEAVER_INTERNAL_API_KEY`（非空）时：
+
+- **鉴权**：除 `/api/webhook/*` 外，所有 `/api/*` 默认都需要内部鉴权（否则 `401`）。
+- **隔离**：如果你同时让反向代理注入 `WEAVER_AUTH_USER_HEADER`（默认 `X-Weaver-User`），则会话/线程相关接口会按用户隔离（越权返回 `403`）。
+- **限流**：高频接口可能返回 `429`，并附带 `X-RateLimit-*` headers。
+
+推荐部署拓扑：
+
+- Browser/Client → **Reverse Proxy / Gateway（完成登录鉴权）** → Weaver Backend  
+  由反代在通过鉴权后 **向后端注入**：
+  - `Authorization: Bearer <WEAVER_INTERNAL_API_KEY>`（或 `X-API-Key`）
+  - `X-Weaver-User: <user_id>`（或你自定义的 header 名）
+
+> 为什么不让前端直接带 key？  
+> 因为 SSE / `EventSource` 无法自定义 headers；并且把 internal key 放到浏览器端有泄漏风险。
+
+Nginx 示例（仅示意，请按你的鉴权体系调整）：
+
+```nginx
+location /api/ {
+  # 1) 由反代完成用户鉴权（此处省略 auth_request / OIDC 等配置）
+
+  # 2) 向后端注入内部鉴权 key（不要给浏览器）
+  proxy_set_header Authorization "Bearer <WEAVER_INTERNAL_API_KEY>";
+
+  # 3) 注入可信用户身份（用于线程/会话隔离）
+  proxy_set_header X-Weaver-User "<user_id>";
+
+  proxy_pass http://127.0.0.1:8001;
+}
 ```
 
 ### 第三步：安装依赖
@@ -348,6 +394,12 @@ make test
 
 # 代码检查
 make lint
+
+# OpenAPI 合约对齐（后端 ↔ 前端 types，不允许漂移）
+make openapi-types
+
+# 全量检查（lint + tests + secret scan）
+make check
 
 #（可选）启用 pre-commit
 .venv/bin/pre-commit install

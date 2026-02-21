@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hmac
 import json
 import logging
 import time
@@ -20,7 +21,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
@@ -60,12 +61,13 @@ from common.agents_store import (
 from common.agents_store import (
     upsert_agent as upsert_agent_profile,
 )
-from common.cancellation import cancellation_manager
+from common.cancellation import TaskStatus, cancellation_manager
 from common.chat_stream_translate import translate_legacy_line_to_sse
 from common.config import settings
 from common.logger import get_logger, setup_logging
 from common.metrics import metrics_registry
 from common.sse import format_sse_event, iter_with_sse_keepalive
+from common.thread_ownership import get_thread_owner, set_thread_owner
 from support_agent import create_support_graph
 from tools.browser.browser_session import browser_sessions
 from tools.core.memory_client import add_memory_entry, fetch_memories, store_interaction
@@ -146,12 +148,20 @@ http_inprogress = (
 # Request logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Log all HTTP requests with timing information."""
+    """Log all HTTP requests, enforce internal auth, and apply basic rate limiting."""
     request_id = (request.headers.get("X-Request-ID") or "").strip() or str(uuid.uuid4())[:8]
     start_time = time.time()
 
     if http_inprogress:
         http_inprogress.inc()
+
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    auth_user_header = (getattr(settings, "auth_user_header", "") or "").strip() or "X-Weaver-User"
+    path = request.url.path
+    method = request.method.upper()
+
+    principal_id = ((request.headers.get(auth_user_header) or "").strip() if internal_key else "").strip()
+    request.state.principal_id = principal_id or ("internal" if internal_key else "anonymous")
 
     logger.info(
         f"Request started | {request.method} {request.url.path} | "
@@ -159,8 +169,84 @@ async def log_requests(request: Request, call_next):
     )
 
     try:
-        response = await call_next(request)
+        should_auth = (
+            internal_key
+            and path.startswith("/api/")
+            and not path.startswith("/api/webhook/")
+            and method != "OPTIONS"
+        )
+        provided = ""
+        if should_auth:
+            auth_header = (request.headers.get("Authorization") or "").strip()
+            if auth_header.lower().startswith("bearer "):
+                provided = auth_header[7:].strip()
+            if not provided:
+                provided = (request.headers.get("X-API-Key") or "").strip()
+
+        authorized = (not should_auth) or (provided and hmac.compare_digest(provided, internal_key))
+
+        # Basic in-memory rate limiting (token bucket) with response headers.
+        rate_limit_limit = 0
+        rate_limit_remaining = 0
+        rate_limit_reset_ts = 0
+        rate_limit_exceeded = False
+        rate_limit_retry_after = 0
+        if path not in _RATE_LIMIT_EXEMPT and method != "OPTIONS":
+            identity = (
+                (getattr(request.state, "principal_id", "") or "").strip()
+                if internal_key and authorized
+                else _get_client_ip(request)
+            )
+            is_chat = path.startswith("/api/chat")
+            rate_limit_limit = _RATE_LIMIT_CHAT if is_chat else _RATE_LIMIT_GENERAL
+            bucket_key = f"{identity}:{'chat' if is_chat else 'general'}"
+            now = time.time()
+
+            bucket = _rate_limit_buckets.get(bucket_key)
+            if bucket is None or now - bucket["window_start"] >= _RATE_LIMIT_WINDOW:
+                bucket = {"tokens": rate_limit_limit - 1, "window_start": now}
+                _rate_limit_buckets[bucket_key] = bucket
+            else:
+                bucket["tokens"] -= 1
+
+            rate_limit_remaining = int(max(bucket.get("tokens", 0), 0))
+            rate_limit_reset_ts = int(bucket["window_start"] + _RATE_LIMIT_WINDOW)
+
+            if bucket.get("tokens", 0) < 0:
+                rate_limit_exceeded = True
+                rate_limit_retry_after = int(_RATE_LIMIT_WINDOW - (now - bucket["window_start"])) + 1
+
+        if rate_limit_exceeded:
+            response = JSONResponse(
+                status_code=429,
+                content={
+                    "detail": "Too many requests. Please slow down.",
+                    "retry_after": rate_limit_retry_after,
+                },
+                headers={"Retry-After": str(rate_limit_retry_after)},
+            )
+        elif not authorized:
+            response = JSONResponse(
+                status_code=401,
+                content={
+                    "error": "Unauthorized",
+                    "status_code": 401,
+                    "request_id": request_id,
+                    "timestamp": datetime.now().isoformat(),
+                },
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        else:
+            response = await call_next(request)
+
         response.headers["X-Request-ID"] = request_id
+        if rate_limit_limit:
+            _apply_rate_limit_headers(
+                response,
+                limit=rate_limit_limit,
+                remaining=0 if rate_limit_exceeded else rate_limit_remaining,
+                reset_ts=rate_limit_reset_ts,
+            )
         duration = time.time() - start_time
 
         logger.info(
@@ -216,59 +302,52 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-@app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
-    """Token-bucket rate limiter per client IP."""
-    path = request.url.path
-
-    # Skip exempt paths
-    if path in _RATE_LIMIT_EXEMPT:
-        return await call_next(request)
-
-    client_ip = _get_client_ip(request)
-    is_chat = path.startswith("/api/chat")
-    limit = _RATE_LIMIT_CHAT if is_chat else _RATE_LIMIT_GENERAL
-    bucket_key = f"{client_ip}:{'chat' if is_chat else 'general'}"
-    now = time.time()
-
-    bucket = _rate_limit_buckets.get(bucket_key)
-    if bucket is None or now - bucket["window_start"] >= _RATE_LIMIT_WINDOW:
-        # New window
-        bucket = {"tokens": limit - 1, "window_start": now}
-        _rate_limit_buckets[bucket_key] = bucket
-    else:
-        if bucket["tokens"] <= 0:
-            retry_after = int(_RATE_LIMIT_WINDOW - (now - bucket["window_start"])) + 1
-            logger.warning(
-                f"Rate limit exceeded | IP: {client_ip} | Path: {path} | "
-                f"Limit: {limit}/min"
-            )
-            from fastapi.responses import JSONResponse
-
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "detail": "Too many requests. Please slow down.",
-                    "retry_after": retry_after,
-                },
-                headers={
-                    "Retry-After": str(retry_after),
-                    "X-RateLimit-Limit": str(limit),
-                    "X-RateLimit-Remaining": "0",
-                    "X-RateLimit-Reset": str(int(bucket["window_start"] + _RATE_LIMIT_WINDOW)),
-                },
-            )
-        bucket["tokens"] -= 1
-
-    response = await call_next(request)
-
-    # Attach rate limit headers to successful responses
-    remaining = max(bucket["tokens"], 0)
+def _apply_rate_limit_headers(response: Any, *, limit: int, remaining: int, reset_ts: int) -> None:
+    if not hasattr(response, "headers"):
+        return
     response.headers["X-RateLimit-Limit"] = str(limit)
-    response.headers["X-RateLimit-Remaining"] = str(remaining)
-    response.headers["X-RateLimit-Reset"] = str(int(bucket["window_start"] + _RATE_LIMIT_WINDOW))
+    response.headers["X-RateLimit-Remaining"] = str(max(remaining, 0))
+    response.headers["X-RateLimit-Reset"] = str(reset_ts)
 
-    return response
+
+def _require_thread_owner(request: Request, thread_id: str) -> None:
+    """
+    Enforce per-user thread isolation when internal auth is enabled.
+
+    Uses best-effort ownership sources:
+    - In-memory thread ownership registry (SSE-created threads)
+    - Persisted session state via checkpointer (if present)
+    """
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if not internal_key:
+        return
+
+    principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+    if not principal_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    owner_id = (get_thread_owner(thread_id) or "").strip()
+    if owner_id and owner_id != principal_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    if not checkpointer:
+        return
+
+    try:
+        from common.session_manager import get_session_manager
+
+        manager = get_session_manager(checkpointer)
+        session_state = manager.get_session_state(thread_id)
+        if not session_state or not isinstance(session_state.state, dict):
+            return
+        persisted_owner = session_state.state.get("user_id")
+        if isinstance(persisted_owner, str) and persisted_owner.strip() and persisted_owner.strip() != principal_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+    except HTTPException:
+        raise
+    except Exception:
+        # Authorization is best-effort; never 500 due to ownership lookups.
+        return
 
 
 # Periodic cleanup of stale rate-limit buckets (runs every 5 minutes)
@@ -816,14 +895,16 @@ async def health():
 
 
 @app.post("/api/chat/cancel/{thread_id}")
-async def cancel_chat(thread_id: str, request: CancelRequest = None):
+async def cancel_chat(thread_id: str, request: Request, payload: CancelRequest | None = None):
     """
     鍙栨秷姝ｅ湪杩涜鐨勮亰澶╀换鍔?
     Args:
         thread_id: 浠诲姟绾跨▼ ID
         request: 鍙€夌殑鍙栨秷鍘熷洜
     """
-    reason = request.reason if request else "User requested cancellation"
+    _require_thread_owner(request, thread_id)
+
+    reason = payload.reason if payload else "User requested cancellation"
     logger.info(f"Cancel request received for thread: {thread_id}, reason: {reason}")
 
     # 1. 通过 cancellation_manager 取消令牌
@@ -851,19 +932,51 @@ async def cancel_chat(thread_id: str, request: CancelRequest = None):
         }
 
 
+def _task_is_visible_to_principal(task_id: str, task_info: Dict[str, Any], principal_id: str) -> bool:
+    owner_id = (get_thread_owner(task_id) or "").strip()
+    if owner_id:
+        return owner_id == principal_id
+    metadata = task_info.get("metadata", {})
+    if isinstance(metadata, dict):
+        meta_user_id = metadata.get("user_id")
+        if isinstance(meta_user_id, str) and meta_user_id.strip():
+            return meta_user_id.strip() == principal_id
+    return False
+
+
 @app.post("/api/chat/cancel-all")
-async def cancel_all_chats():
+async def cancel_all_chats(request: Request):
     """鍙栨秷鎵€鏈夋鍦ㄨ繘琛岀殑浠诲姟"""
     logger.info("Cancel all tasks requested")
 
-    # 取消所有令牌
-    await cancellation_manager.cancel_all("Batch cancellation requested")
+    reason = "Batch cancellation requested"
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
 
-    # 取消所有异步任务
-    cancelled_count = len(active_streams)
-    for task in active_streams.values():
-        task.cancel()
-    active_streams.clear()
+        # Cancel only tasks belonging to this principal to avoid cross-user cancellation.
+        active = cancellation_manager.get_active_tasks()
+        owned_task_ids = [
+            task_id
+            for task_id, info in active.items()
+            if _task_is_visible_to_principal(task_id, info, principal_id)
+        ]
+        for task_id in owned_task_ids:
+            await cancellation_manager.cancel(task_id, reason)
+            task = active_streams.pop(task_id, None)
+            if task:
+                task.cancel()
+
+        cancelled_count = len(owned_task_ids)
+    else:
+        # 取消所有令牌
+        await cancellation_manager.cancel_all(reason)
+
+        # 取消所有异步任务
+        cancelled_count = len(active_streams)
+        for task in active_streams.values():
+            task.cancel()
+        active_streams.clear()
 
     return {
         "status": "all_cancelled",
@@ -873,14 +986,44 @@ async def cancel_all_chats():
 
 
 @app.get("/api/tasks/active")
-async def get_active_tasks():
+async def get_active_tasks(request: Request):
     """Get all active tasks."""
     active_tasks = cancellation_manager.get_active_tasks()
 
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        active_tasks = {
+            task_id: info
+            for task_id, info in active_tasks.items()
+            if _task_is_visible_to_principal(task_id, info, principal_id)
+        }
+
+        # Compute a user-scoped stats payload (avoid leaking global counts).
+        stats = {status.value: 0 for status in TaskStatus}
+        for info in active_tasks.values():
+            st = info.get("status")
+            if isinstance(st, str) and st in stats:
+                stats[st] += 1
+        stats["total"] = len(active_tasks)
+
+        stream_count = sum(
+            1
+            for thread_id in active_streams.keys()
+            if _task_is_visible_to_principal(
+                thread_id,
+                active_tasks.get(thread_id, {}),
+                principal_id,
+            )
+        )
+    else:
+        stats = cancellation_manager.get_stats()
+        stream_count = len(active_streams)
+
     return {
         "active_tasks": active_tasks,
-        "stats": cancellation_manager.get_stats(),
-        "stream_count": len(active_streams),
+        "stats": stats,
+        "stream_count": stream_count,
         "timestamp": datetime.now().isoformat(),
     }
 
@@ -1013,19 +1156,26 @@ def _store_add(query: str, content: str, user_id: str):
 
 
 @app.post("/api/support/chat")
-async def support_chat(request: SupportChatRequest):
+async def support_chat(request: Request, payload: SupportChatRequest):
     """Simple customer support chat backed by Mem0 memory."""
     try:
+        internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        user_id = (
+            principal_id
+            if internal_key and principal_id
+            else (payload.user_id or "default_user")
+        )
         state = {
             "messages": [
                 SystemMessage(content="You are a helpful support assistant."),
-                HumanMessage(content=request.message),
+                HumanMessage(content=payload.message),
             ],
-            "user_id": request.user_id or "default_user",
+            "user_id": user_id,
         }
-        config = {"configurable": {"thread_id": request.user_id or "support_default"}}
+        config = {"configurable": {"thread_id": user_id or "support_default"}}
         # Inject stored memories if present
-        store_memories = _store_search(request.message, user_id=state["user_id"])
+        store_memories = _store_search(payload.message, user_id=state["user_id"])
         if store_memories:
             state["messages"].insert(
                 0,
@@ -1043,7 +1193,7 @@ async def support_chat(request: SupportChatRequest):
                 break
         if not reply:
             reply = "No response generated."
-        _store_add(request.message, reply, user_id=state["user_id"])
+        _store_add(payload.message, reply, user_id=state["user_id"])
         return SupportChatResponse(content=reply, timestamp=datetime.now().isoformat())
     except Exception as e:
         logger.error(f"Support chat error: {e}", exc_info=True)
@@ -1099,7 +1249,13 @@ async def stream_agent_events(
 
     # 鍒涘缓鍙栨秷浠ょ墝
     cancel_token = await cancellation_manager.create_token(
-        thread_id, metadata={"model": model, "input_preview": input_text[:100]}
+        thread_id,
+        metadata={
+            "model": model,
+            "input_preview": input_text[:100],
+            # Used for internal-auth per-user isolation in admin/debug endpoints.
+            "user_id": user_id,
+        },
     )
 
     # Set up event emitter for tool visualization
@@ -1471,7 +1627,7 @@ async def stream_agent_events(
 
 
 @app.post("/api/chat/sse")
-async def chat_sse(request: ChatRequest):
+async def chat_sse(request: Request, payload: ChatRequest):
     """
     Standard SSE chat endpoint.
 
@@ -1480,15 +1636,18 @@ async def chat_sse(request: ChatRequest):
     off-the-shelf SSE parser.
     """
     # Get the last user message (same rule as /api/chat).
-    user_messages = [msg for msg in request.messages if msg.role == "user"]
+    user_messages = [msg for msg in payload.messages if msg.role == "user"]
     if not user_messages:
         raise HTTPException(status_code=400, detail="No user message found")
 
     last_message = user_messages[-1].content
-    user_id = request.user_id or settings.memory_user_id
-    mode_info = _normalize_search_mode(request.search_mode)
-    model = (request.model or settings.primary_model).strip()
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+    user_id = principal_id if internal_key and principal_id else (payload.user_id or settings.memory_user_id)
+    mode_info = _normalize_search_mode(payload.search_mode)
+    model = (payload.model or settings.primary_model).strip()
     thread_id = f"thread_{uuid.uuid4().hex}"
+    set_thread_owner(thread_id, getattr(request.state, "principal_id", "") or "anonymous")
 
     async def _sse_generator():
         seq = 0
@@ -1512,8 +1671,8 @@ async def chat_sse(request: ChatRequest):
                 thread_id=thread_id,
                 model=model,
                 search_mode=mode_info,
-                agent_id=request.agent_id,
-                images=_normalize_images_payload(request.images),
+                agent_id=payload.agent_id,
+                images=_normalize_images_payload(payload.images),
                 user_id=user_id,
             ),
             interval_s=15.0,
@@ -1541,7 +1700,7 @@ async def chat_sse(request: ChatRequest):
 
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest):
+async def chat(request: Request, payload: ChatRequest):
     """
     Main chat endpoint with streaming support.
 
@@ -1550,30 +1709,33 @@ async def chat(request: ChatRequest):
     thread_id = None
     try:
         # Get the last user message
-        user_messages = [msg for msg in request.messages if msg.role == "user"]
+        user_messages = [msg for msg in payload.messages if msg.role == "user"]
         if not user_messages:
             logger.warning("Chat request received with no user messages")
             raise HTTPException(status_code=400, detail="No user message found")
 
         last_message = user_messages[-1].content
-        user_id = request.user_id or settings.memory_user_id
-        mode_info = _normalize_search_mode(request.search_mode)
-        model = (request.model or settings.primary_model).strip()
-        agent_id = (request.agent_id or "default").strip() or "default"
+        internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        user_id = principal_id if internal_key and principal_id else (payload.user_id or settings.memory_user_id)
+        mode_info = _normalize_search_mode(payload.search_mode)
+        model = (payload.model or settings.primary_model).strip()
+        agent_id = (payload.agent_id or "default").strip() or "default"
         agent_profile = get_agent_profile(agent_id) or get_agent_profile("default")
 
         logger.info("Chat request received")
         logger.info(f"  Model: {model}")
-        logger.info(f"  Raw search_mode: {request.search_mode}")
+        logger.info(f"  Raw search_mode: {payload.search_mode}")
         logger.info(f"  Normalized mode_info: {mode_info}")
         logger.info(f"  Final mode: {mode_info.get('mode')}")
-        logger.info(f"  Stream: {request.stream}")
+        logger.info(f"  Stream: {payload.stream}")
         logger.info(f"  Message length: {len(last_message)} chars")
         logger.debug(f"  Message preview: {last_message[:200]}...")
 
-        if request.stream:
+        if payload.stream:
             thread_id = f"thread_{uuid.uuid4().hex}"
             logger.info(f"Starting streaming response | Thread: {thread_id}")
+            set_thread_owner(thread_id, principal_id or "anonymous")
 
             # Return streaming response with thread_id in header for cancellation
             return StreamingResponse(
@@ -1582,8 +1744,8 @@ async def chat(request: ChatRequest):
                     thread_id=thread_id,
                     model=model,
                     search_mode=mode_info,
-                    agent_id=request.agent_id,
-                    images=_normalize_images_payload(request.images),
+                    agent_id=payload.agent_id,
+                    images=_normalize_images_payload(payload.images),
                     user_id=user_id,
                 ),
                 media_type="text/event-stream",
@@ -1598,7 +1760,7 @@ async def chat(request: ChatRequest):
             # Non-streaming response (fallback)
             initial_state: AgentState = {
                 "input": last_message,
-                "images": _normalize_images_payload(request.images),
+                "images": _normalize_images_payload(payload.images),
                 "needs_clarification": False,
                 "tool_approved": False,
                 "pending_tool_calls": [],
@@ -1674,7 +1836,7 @@ async def chat(request: ChatRequest):
     except Exception as e:
         logger.error(
             f"鉁?Chat error | Thread: {thread_id or 'N/A'} | "
-            f"Model: {model if 'model' in locals() else (request.model if 'request' in locals() else 'N/A')} | "
+            f"Model: {model if 'model' in locals() else (payload.model if 'payload' in locals() else 'N/A')} | "
             f"Error: {str(e)}",
             exc_info=True,
         )
@@ -1682,26 +1844,27 @@ async def chat(request: ChatRequest):
 
 
 @app.post("/api/interrupt/resume")
-async def resume_interrupt(request: GraphInterruptResumeRequest):
+async def resume_interrupt(request: Request, payload: GraphInterruptResumeRequest):
     """
     Resume a LangGraph execution after an interrupt.
     """
     if not checkpointer:
         raise HTTPException(status_code=400, detail="Interrupts require a checkpointer")
 
-    mode_info = _normalize_search_mode(request.search_mode)
-    model = (request.model or settings.primary_model).strip()
-    agent_id = (request.agent_id or "default").strip() or "default"
+    mode_info = _normalize_search_mode(payload.search_mode)
+    model = (payload.model or settings.primary_model).strip()
+    agent_id = (payload.agent_id or "default").strip() or "default"
     agent_profile = get_agent_profile(agent_id) or get_agent_profile("default")
     # Fast path: avoid invoking the graph when no checkpoint exists for this thread.
-    if not request.thread_id or not str(request.thread_id).strip():
+    if not payload.thread_id or not str(payload.thread_id).strip():
         raise HTTPException(status_code=400, detail="thread_id is required")
-    existing = checkpointer.get_tuple({"configurable": {"thread_id": request.thread_id}})
+    _require_thread_owner(request, payload.thread_id)
+    existing = checkpointer.get_tuple({"configurable": {"thread_id": payload.thread_id}})
     if not existing:
         raise HTTPException(status_code=404, detail="No checkpoint found for this thread_id")
     config = {
         "configurable": {
-            "thread_id": request.thread_id,
+            "thread_id": payload.thread_id,
             "model": model,
             "search_mode": mode_info,
             "agent_profile": agent_profile.model_dump(mode="json") if agent_profile else None,
@@ -1713,7 +1876,7 @@ async def resume_interrupt(request: GraphInterruptResumeRequest):
         "recursion_limit": 50,
     }
 
-    result = await research_graph.ainvoke(Command(resume=request.payload), config=config)
+    result = await research_graph.ainvoke(Command(resume=payload.payload), config=config)
     interrupts = _serialize_interrupts(result.get("__interrupt__"))
     if interrupts:
         return {"status": "interrupted", "interrupts": interrupts}
@@ -1877,9 +2040,18 @@ async def update_mcp_config(payload: MCPConfigPayload):
 
 
 @app.get("/api/runs")
-async def list_runs():
+async def list_runs(request: Request):
     """List in-memory run metrics (per thread)."""
-    return {"runs": metrics_registry.all()}
+    runs = metrics_registry.all()
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        runs = [
+            run
+            for run in runs
+            if (get_thread_owner(str(run.get("run_id") or "")) or "").strip() == principal_id
+        ]
+    return {"runs": runs}
 
 
 class RunEvidenceSummary(BaseModel):
@@ -2030,8 +2202,15 @@ def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
 
 
 @app.get("/api/runs/{thread_id}", response_model=RunMetricsResponse)
-async def get_run_metrics(thread_id: str):
+async def get_run_metrics(thread_id: str, request: Request):
     """Get metrics for a specific run/thread."""
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        owner_id = (get_thread_owner(thread_id) or "").strip()
+        if owner_id and principal_id and owner_id != principal_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
     metrics = metrics_registry.get(thread_id)
     if not metrics:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -2066,7 +2245,7 @@ async def memory_status():
 
 
 @app.get("/api/traces/{thread_id}")
-async def get_traces(thread_id: str):
+async def get_traces(thread_id: str, request: Request):
     """
     Get traces for a thread.
 
@@ -2077,6 +2256,8 @@ async def get_traces(thread_id: str):
     if not settings.enable_tracing:
         raise HTTPException(status_code=400, detail="Tracing is not enabled")
 
+    _require_thread_owner(request, thread_id)
+
     trace = get_trace(thread_id)
     if not trace:
         raise HTTPException(status_code=404, detail=f"No traces found for thread {thread_id}")
@@ -2085,7 +2266,7 @@ async def get_traces(thread_id: str):
 
 
 @app.get("/api/traces/{thread_id}/summary")
-async def get_trace_summary(thread_id: str):
+async def get_trace_summary(thread_id: str, request: Request):
     """
     Get trace summary for a thread.
 
@@ -2096,6 +2277,8 @@ async def get_trace_summary(thread_id: str):
     if not settings.enable_tracing:
         raise HTTPException(status_code=400, detail="Tracing is not enabled")
 
+    _require_thread_owner(request, thread_id)
+
     summary = _get_summary(thread_id)
     if not summary:
         raise HTTPException(status_code=404, detail=f"No traces found for thread {thread_id}")
@@ -2104,7 +2287,7 @@ async def get_trace_summary(thread_id: str):
 
 
 @app.get("/api/traces/{thread_id}/all")
-async def get_all_traces(thread_id: str):
+async def get_all_traces(thread_id: str, request: Request):
     """
     Get all traces for a thread.
 
@@ -2114,6 +2297,8 @@ async def get_all_traces(thread_id: str):
 
     if not settings.enable_tracing:
         raise HTTPException(status_code=400, detail="Tracing is not enabled")
+
+    _require_thread_owner(request, thread_id)
 
     traces = _get_all(thread_id)
     return {"thread_id": thread_id, "count": len(traces), "traces": traces}
@@ -2131,6 +2316,7 @@ class ExportRequest(BaseModel):
 @app.get("/api/export/{thread_id}")
 async def export_report_endpoint(
     thread_id: str,
+    request: Request,
     format: str = "html",
     title: Optional[str] = None,
     template: str = "default",
@@ -2148,6 +2334,7 @@ async def export_report_endpoint(
         raise HTTPException(status_code=400, detail="No checkpointer configured")
 
     try:
+        _require_thread_owner(request, thread_id)
         config = {"configurable": {"thread_id": thread_id}}
         checkpoint = checkpointer.get_tuple(config)
         if not checkpoint:
@@ -2537,6 +2724,7 @@ class EvidenceResponse(BaseModel):
 
 @app.get("/api/sessions", response_model=SessionsListResponse)
 async def list_sessions(
+    request: Request,
     limit: int = 50,
     status: Optional[str] = None,
 ):
@@ -2554,7 +2742,11 @@ async def list_sessions(
         from common.session_manager import get_session_manager
 
         manager = get_session_manager(checkpointer)
-        sessions = manager.list_sessions(limit=limit, status_filter=status)
+        internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+        user_filter = None
+        if internal_key:
+            user_filter = (getattr(request.state, "principal_id", "") or "").strip() or "internal"
+        sessions = manager.list_sessions(limit=limit, status_filter=status, user_id_filter=user_filter)
 
         return {
             "count": len(sessions),
@@ -2567,7 +2759,7 @@ async def list_sessions(
 
 
 @app.get("/api/sessions/{thread_id}")
-async def get_session(thread_id: str):
+async def get_session(thread_id: str, request: Request):
     """
     Get session info by thread ID.
     """
@@ -2578,6 +2770,16 @@ async def get_session(thread_id: str):
         from common.session_manager import get_session_manager
 
         manager = get_session_manager(checkpointer)
+
+        internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+        if internal_key:
+            principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+            session_state = manager.get_session_state(thread_id)
+            if session_state and isinstance(session_state.state, dict):
+                owner = session_state.state.get("user_id")
+                if isinstance(owner, str) and owner.strip() and owner.strip() != principal_id:
+                    raise HTTPException(status_code=403, detail="Forbidden")
+
         session = manager.get_session(thread_id)
 
         if not session:
@@ -2593,7 +2795,7 @@ async def get_session(thread_id: str):
 
 
 @app.get("/api/sessions/{thread_id}/state")
-async def get_session_state(thread_id: str):
+async def get_session_state(thread_id: str, request: Request):
     """
     Get full session state snapshot.
     """
@@ -2609,6 +2811,13 @@ async def get_session_state(thread_id: str):
         if not state:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
+        internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+        if internal_key:
+            principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+            owner = state.state.get("user_id") if isinstance(state.state, dict) else None
+            if isinstance(owner, str) and owner.strip() and owner.strip() != principal_id:
+                raise HTTPException(status_code=403, detail="Forbidden")
+
         return state.to_dict()
 
     except HTTPException:
@@ -2619,7 +2828,7 @@ async def get_session_state(thread_id: str):
 
 
 @app.get("/api/sessions/{thread_id}/evidence", response_model=EvidenceResponse)
-async def get_session_evidence(thread_id: str):
+async def get_session_evidence(thread_id: str, request: Request):
     """
     Get evidence artifacts (sources + claims + quality summary) for a session.
     """
@@ -2633,6 +2842,13 @@ async def get_session_evidence(thread_id: str):
         session_state = manager.get_session_state(thread_id)
         if not session_state:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
+
+        internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+        if internal_key:
+            principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+            owner = session_state.state.get("user_id") if isinstance(session_state.state, dict) else None
+            if isinstance(owner, str) and owner.strip() and owner.strip() != principal_id:
+                raise HTTPException(status_code=403, detail="Forbidden")
 
         artifacts = session_state.deepsearch_artifacts or {}
         if not isinstance(artifacts, dict):
@@ -2666,7 +2882,11 @@ class SessionResumeRequest(BaseModel):
 
 
 @app.post("/api/sessions/{thread_id}/resume")
-async def resume_session(thread_id: str, request: SessionResumeRequest | None = None):
+async def resume_session(
+    thread_id: str,
+    request: Request,
+    payload: SessionResumeRequest | None = None,
+):
     """
     Resume a paused or cancelled research session.
     """
@@ -2675,6 +2895,8 @@ async def resume_session(thread_id: str, request: SessionResumeRequest | None = 
 
     try:
         from common.session_manager import get_session_manager
+
+        _require_thread_owner(request, thread_id)
 
         manager = get_session_manager(checkpointer)
 
@@ -2690,8 +2912,8 @@ async def resume_session(thread_id: str, request: SessionResumeRequest | None = 
 
         restored_state = manager.build_resume_state(
             thread_id=thread_id,
-            additional_input=request.additional_input if request else None,
-            update_state=request.update_state if request else None,
+            additional_input=payload.additional_input if payload else None,
+            update_state=payload.update_state if payload else None,
         )
         if restored_state is None:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
@@ -2773,7 +2995,7 @@ async def resume_session(thread_id: str, request: SessionResumeRequest | None = 
 
 
 @app.delete("/api/sessions/{thread_id}")
-async def delete_session(thread_id: str):
+async def delete_session(thread_id: str, request: Request):
     """
     Delete a research session.
     """
@@ -2782,6 +3004,8 @@ async def delete_session(thread_id: str):
 
     try:
         from common.session_manager import get_session_manager
+
+        _require_thread_owner(request, thread_id)
 
         manager = get_session_manager(checkpointer)
         success = manager.delete_session(thread_id)
@@ -2847,9 +3071,10 @@ class VersionsResponse(BaseModel):
 
 
 @app.post("/api/sessions/{thread_id}/share")
-async def create_share(thread_id: str, req: ShareRequest):
+async def create_share(thread_id: str, request: Request, req: ShareRequest):
     """Create a share link for a session."""
     try:
+        _require_thread_owner(request, thread_id)
         from common.collaboration import create_share_link
 
         link = create_share_link(
@@ -2921,9 +3146,10 @@ async def delete_share(share_id: str):
 
 
 @app.post("/api/sessions/{thread_id}/comments")
-async def add_comment(thread_id: str, req: CommentRequest):
+async def add_comment(thread_id: str, request: Request, req: CommentRequest):
     """Add a comment to a session."""
     try:
+        _require_thread_owner(request, thread_id)
         from common.collaboration import add_comment
 
         comment = add_comment(
@@ -2939,9 +3165,10 @@ async def add_comment(thread_id: str, req: CommentRequest):
 
 
 @app.get("/api/sessions/{thread_id}/comments", response_model=CommentsResponse)
-async def get_comments(thread_id: str, message_id: Optional[str] = None):
+async def get_comments(thread_id: str, request: Request, message_id: Optional[str] = None):
     """Get comments for a session."""
     try:
+        _require_thread_owner(request, thread_id)
         from common.collaboration import get_comments
 
         comments = get_comments(thread_id, message_id)
@@ -2952,9 +3179,10 @@ async def get_comments(thread_id: str, message_id: Optional[str] = None):
 
 
 @app.get("/api/sessions/{thread_id}/versions", response_model=VersionsResponse)
-async def get_versions(thread_id: str):
+async def get_versions(thread_id: str, request: Request):
     """Get version history for a session."""
     try:
+        _require_thread_owner(request, thread_id)
         from common.collaboration import list_versions
 
         versions = list_versions(thread_id)
@@ -2965,11 +3193,13 @@ async def get_versions(thread_id: str):
 
 
 @app.post("/api/sessions/{thread_id}/versions")
-async def create_version(thread_id: str, label: Optional[str] = None):
+async def create_version(thread_id: str, request: Request, label: Optional[str] = None):
     """Create a version snapshot of a session."""
     try:
         if not checkpointer:
             raise HTTPException(status_code=400, detail="No checkpointer configured")
+
+        _require_thread_owner(request, thread_id)
 
         from common.collaboration import save_version
         from common.session_manager import get_session_manager
@@ -2997,9 +3227,10 @@ async def create_version(thread_id: str, label: Optional[str] = None):
 
 
 @app.post("/api/sessions/{thread_id}/restore/{version_id}")
-async def restore_version(thread_id: str, version_id: str):
+async def restore_version(thread_id: str, version_id: str, request: Request):
     """Restore a session from a version snapshot."""
     try:
+        _require_thread_owner(request, thread_id)
         from common.collaboration import get_version_snapshot
 
         snapshot = get_version_snapshot(version_id)
@@ -3039,7 +3270,7 @@ class InterruptResumeRequest(BaseModel):
 
 
 @app.get("/api/interrupt/{thread_id}/status")
-async def get_interrupt_status(thread_id: str):
+async def get_interrupt_status(thread_id: str, request: Request):
     """
     Get the current interrupt status for a session.
 
@@ -3049,6 +3280,7 @@ async def get_interrupt_status(thread_id: str):
         raise HTTPException(status_code=400, detail="No checkpointer configured")
 
     try:
+        _require_thread_owner(request, thread_id)
         config = {"configurable": {"thread_id": thread_id}}
         checkpoint_tuple = checkpointer.get_tuple(config)
 
@@ -3113,7 +3345,7 @@ async def get_interrupt_status(thread_id: str):
 
 
 @app.post("/api/interrupt/{thread_id}/resume")
-async def resume_from_interrupt(thread_id: str, request: InterruptResumeRequest):
+async def resume_from_interrupt(thread_id: str, request: Request, payload: InterruptResumeRequest):
     """
     Resume execution from an interrupt point.
 
@@ -3127,13 +3359,14 @@ async def resume_from_interrupt(thread_id: str, request: InterruptResumeRequest)
         raise HTTPException(status_code=400, detail="No checkpointer configured")
 
     try:
+        _require_thread_owner(request, thread_id)
         config = {"configurable": {"thread_id": thread_id}}
         checkpoint_tuple = checkpointer.get_tuple(config)
 
         if not checkpoint_tuple:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
-        action = request.action.lower()
+        action = payload.action.lower()
 
         if action == "reject":
             # Mark session as cancelled
@@ -3143,10 +3376,10 @@ async def resume_from_interrupt(thread_id: str, request: InterruptResumeRequest)
                 "message": f"Session {thread_id} execution rejected. Session cancelled.",
             }
 
-        if action == "modify" and request.modifications:
+        if action == "modify" and payload.modifications:
             # Apply modifications would require updating the checkpoint
             # This is a simplified implementation
-            modifications = request.modifications
+            modifications = payload.modifications
             logger.info(f"Modifications requested for {thread_id}: {modifications}")
 
         # For approve/skip/modify, return info for client to resume via SSE
@@ -3325,16 +3558,20 @@ async def get_tts_status():
 
 
 @app.post("/api/research")
-async def research(query: str):
+async def research(request: Request, query: str):
     """
     Dedicated research endpoint for long-running queries.
 
     Returns streaming response with research progress.
     """
     thread_id = f"thread_{uuid.uuid4().hex}"
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+    user_id = principal_id if internal_key and principal_id else settings.memory_user_id
+    set_thread_owner(thread_id, principal_id or "anonymous")
 
     return StreamingResponse(
-        stream_agent_events(query, thread_id=thread_id),
+        stream_agent_events(query, thread_id=thread_id, user_id=user_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -3346,7 +3583,7 @@ async def research(query: str):
 
 
 @app.post("/api/research/sse")
-async def research_sse(request: ResearchRequest):
+async def research_sse(request: Request, payload: ResearchRequest):
     """
     Standard SSE research endpoint.
 
@@ -3354,14 +3591,17 @@ async def research_sse(request: ResearchRequest):
     into standard SSE frames (`event:` / `data:`) so the frontend can use the
     same SSE parser as `/api/chat/sse`.
     """
-    query = (request.query or "").strip()
+    query = (payload.query or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
 
-    user_id = request.user_id or settings.memory_user_id
-    mode_info = _normalize_search_mode(request.search_mode)
-    model = (request.model or settings.primary_model).strip()
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+    user_id = principal_id if internal_key and principal_id else (payload.user_id or settings.memory_user_id)
+    mode_info = _normalize_search_mode(payload.search_mode)
+    model = (payload.model or settings.primary_model).strip()
     thread_id = f"thread_{uuid.uuid4().hex}"
+    set_thread_owner(thread_id, principal_id or "anonymous")
 
     async def _sse_generator():
         seq = 0
@@ -3385,8 +3625,8 @@ async def research_sse(request: ResearchRequest):
                 thread_id=thread_id,
                 model=model,
                 search_mode=mode_info,
-                agent_id=request.agent_id,
-                images=_normalize_images_payload(request.images),
+                agent_id=payload.agent_id,
+                images=_normalize_images_payload(payload.images),
                 user_id=user_id,
             ),
             interval_s=15.0,
@@ -3443,7 +3683,7 @@ async def get_screenshot(filename: str):
 
 
 @app.get("/api/screenshots")
-async def list_screenshots(thread_id: Optional[str] = None, limit: int = 50):
+async def list_screenshots(request: Request, thread_id: Optional[str] = None, limit: int = 50):
     """
     List available screenshots.
 
@@ -3451,6 +3691,12 @@ async def list_screenshots(thread_id: Optional[str] = None, limit: int = 50):
         thread_id: Optional filter by thread ID
         limit: Maximum number of results
     """
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        if not thread_id or not str(thread_id).strip():
+            raise HTTPException(status_code=400, detail="thread_id is required")
+        _require_thread_owner(request, str(thread_id))
+
     service = get_screenshot_service()
     screenshots = service.list_screenshots(thread_id=thread_id, limit=limit)
 
@@ -3491,6 +3737,7 @@ async def stream_tool_events(thread_id: str, request: Request, last_event_id: Op
             console.log(data.type, data.data);
         };
     """
+    _require_thread_owner(request, thread_id)
 
     async def event_generator():
         cursor = last_event_id or request.headers.get("last-event-id")
@@ -3528,12 +3775,14 @@ def _looks_like_browser_closed_error(err: Exception) -> bool:
 
 
 @app.get("/api/browser/{thread_id}/info")
-async def get_browser_session_info(thread_id: str):
+async def get_browser_session_info(thread_id: str, request: Request):
     """
     Get browser session information including CDP endpoint.
 
     Returns browser session status and capabilities for real-time viewing.
     """
+    _require_thread_owner(request, thread_id)
+
     result = {
         "active": False,
         "thread_id": thread_id,
@@ -3570,10 +3819,12 @@ async def get_browser_session_info(thread_id: str):
 
 
 @app.post("/api/browser/{thread_id}/screenshot")
-async def trigger_browser_screenshot(thread_id: str):
+async def trigger_browser_screenshot(thread_id: str, request: Request):
     """
     Trigger a manual screenshot capture for the browser session.
     """
+    _require_thread_owner(request, thread_id)
+
     # Try sandbox browser first
     try:
 
@@ -3653,6 +3904,49 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                   {"type": "status", "message": "..."}
                   {"type": "error", "message": "..."}
     """
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        auth_user_header = (getattr(settings, "auth_user_header", "") or "").strip() or "X-Weaver-User"
+        principal_id = (websocket.headers.get(auth_user_header) or "").strip()
+
+        provided = ""
+        auth_header = (websocket.headers.get("Authorization") or "").strip()
+        if auth_header.lower().startswith("bearer "):
+            provided = auth_header[7:].strip()
+        if not provided:
+            provided = (websocket.headers.get("X-API-Key") or "").strip()
+
+        if not provided or not hmac.compare_digest(provided, internal_key):
+            await websocket.close(code=4401)
+            return
+
+        if not principal_id:
+            await websocket.close(code=4403)
+            return
+
+        owner_id = (get_thread_owner(thread_id) or "").strip()
+        if owner_id and owner_id != principal_id:
+            await websocket.close(code=4403)
+            return
+
+        if checkpointer:
+            try:
+                from common.session_manager import get_session_manager
+
+                manager = get_session_manager(checkpointer)
+                session_state = manager.get_session_state(thread_id)
+                if session_state and isinstance(session_state.state, dict):
+                    persisted_owner = session_state.state.get("user_id")
+                    if (
+                        isinstance(persisted_owner, str)
+                        and persisted_owner.strip()
+                        and persisted_owner.strip() != principal_id
+                    ):
+                        await websocket.close(code=4403)
+                        return
+            except Exception:
+                pass
+
     await websocket.accept()
 
     streaming = False
@@ -3858,19 +4152,21 @@ class CreateEventTriggerRequest(BaseModel):
 
 
 @app.post("/api/triggers/scheduled")
-async def create_scheduled_trigger(request: CreateScheduledTriggerRequest):
+async def create_scheduled_trigger(request: Request, payload: CreateScheduledTriggerRequest):
     """Create a new scheduled trigger with cron expression."""
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    principal_id = (getattr(request.state, "principal_id", "") or "").strip()
     trigger = ScheduledTrigger(
-        name=request.name,
-        description=request.description,
-        schedule=request.schedule,
-        agent_id=request.agent_id,
-        task=request.task,
-        task_params=request.task_params,
-        timezone=request.timezone,
-        run_immediately=request.run_immediately,
-        user_id=request.user_id,
-        tags=request.tags,
+        name=payload.name,
+        description=payload.description,
+        schedule=payload.schedule,
+        agent_id=payload.agent_id,
+        task=payload.task,
+        task_params=payload.task_params,
+        timezone=payload.timezone,
+        run_immediately=payload.run_immediately,
+        user_id=(principal_id if internal_key else payload.user_id),
+        tags=payload.tags,
     )
 
     manager = get_trigger_manager()
@@ -3884,19 +4180,21 @@ async def create_scheduled_trigger(request: CreateScheduledTriggerRequest):
 
 
 @app.post("/api/triggers/webhook")
-async def create_webhook_trigger(request: CreateWebhookTriggerRequest):
+async def create_webhook_trigger(request: Request, payload: CreateWebhookTriggerRequest):
     """Create a new webhook trigger."""
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    principal_id = (getattr(request.state, "principal_id", "") or "").strip()
     trigger = WebhookTrigger(
-        name=request.name,
-        description=request.description,
-        agent_id=request.agent_id,
-        task=request.task,
-        task_params=request.task_params,
-        http_methods=request.http_methods,
-        require_auth=request.require_auth,
-        rate_limit=request.rate_limit,
-        user_id=request.user_id,
-        tags=request.tags,
+        name=payload.name,
+        description=payload.description,
+        agent_id=payload.agent_id,
+        task=payload.task,
+        task_params=payload.task_params,
+        http_methods=payload.http_methods,
+        require_auth=payload.require_auth,
+        rate_limit=payload.rate_limit,
+        user_id=(principal_id if internal_key else payload.user_id),
+        tags=payload.tags,
     )
 
     # Generate auth token if authentication is required
@@ -3922,20 +4220,22 @@ async def create_webhook_trigger(request: CreateWebhookTriggerRequest):
 
 
 @app.post("/api/triggers/event")
-async def create_event_trigger(request: CreateEventTriggerRequest):
+async def create_event_trigger(request: Request, payload: CreateEventTriggerRequest):
     """Create a new event trigger."""
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    principal_id = (getattr(request.state, "principal_id", "") or "").strip()
     trigger = EventTrigger(
-        name=request.name,
-        description=request.description,
-        event_type=request.event_type,
-        event_source=request.event_source,
-        event_filters=request.event_filters,
-        agent_id=request.agent_id,
-        task=request.task,
-        task_params=request.task_params,
-        debounce_seconds=request.debounce_seconds,
-        user_id=request.user_id,
-        tags=request.tags,
+        name=payload.name,
+        description=payload.description,
+        event_type=payload.event_type,
+        event_source=payload.event_source,
+        event_filters=payload.event_filters,
+        agent_id=payload.agent_id,
+        task=payload.task,
+        task_params=payload.task_params,
+        debounce_seconds=payload.debounce_seconds,
+        user_id=(principal_id if internal_key else payload.user_id),
+        tags=payload.tags,
     )
 
     manager = get_trigger_manager()
@@ -3950,6 +4250,7 @@ async def create_event_trigger(request: CreateEventTriggerRequest):
 
 @app.get("/api/triggers")
 async def list_triggers(
+    request: Request,
     trigger_type: Optional[str] = None,
     status: Optional[str] = None,
     user_id: Optional[str] = None,
@@ -3959,6 +4260,10 @@ async def list_triggers(
 
     type_filter = TriggerType(trigger_type) if trigger_type else None
     status_filter = TriggerStatus(status) if status else None
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        user_id = principal_id or user_id
 
     triggers = manager.list_triggers(
         trigger_type=type_filter,
@@ -3973,7 +4278,7 @@ async def list_triggers(
 
 
 @app.get("/api/triggers/{trigger_id}")
-async def get_trigger(trigger_id: str):
+async def get_trigger(trigger_id: str, request: Request):
     """Get a specific trigger by ID."""
     manager = get_trigger_manager()
     trigger = manager.get_trigger(trigger_id)
@@ -3981,13 +4286,25 @@ async def get_trigger(trigger_id: str):
     if not trigger:
         raise HTTPException(status_code=404, detail="Trigger not found")
 
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        if trigger.user_id and trigger.user_id != principal_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
     return {"trigger": trigger.to_dict()}
 
 
 @app.delete("/api/triggers/{trigger_id}")
-async def delete_trigger(trigger_id: str):
+async def delete_trigger(trigger_id: str, request: Request):
     """Delete a trigger."""
     manager = get_trigger_manager()
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        trigger = manager.get_trigger(trigger_id)
+        if trigger and trigger.user_id and trigger.user_id != principal_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
     success = await manager.remove_trigger(trigger_id)
 
     if not success:
@@ -3997,9 +4314,15 @@ async def delete_trigger(trigger_id: str):
 
 
 @app.post("/api/triggers/{trigger_id}/pause")
-async def pause_trigger(trigger_id: str):
+async def pause_trigger(trigger_id: str, request: Request):
     """Pause a trigger."""
     manager = get_trigger_manager()
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        trigger = manager.get_trigger(trigger_id)
+        if trigger and trigger.user_id and trigger.user_id != principal_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
     success = await manager.pause_trigger(trigger_id)
 
     if not success:
@@ -4009,9 +4332,15 @@ async def pause_trigger(trigger_id: str):
 
 
 @app.post("/api/triggers/{trigger_id}/resume")
-async def resume_trigger(trigger_id: str):
+async def resume_trigger(trigger_id: str, request: Request):
     """Resume a paused trigger."""
     manager = get_trigger_manager()
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        trigger = manager.get_trigger(trigger_id)
+        if trigger and trigger.user_id and trigger.user_id != principal_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
     success = await manager.resume_trigger(trigger_id)
 
     if not success:
@@ -4021,9 +4350,15 @@ async def resume_trigger(trigger_id: str):
 
 
 @app.get("/api/triggers/{trigger_id}/executions")
-async def get_trigger_executions(trigger_id: str, limit: int = 50):
+async def get_trigger_executions(trigger_id: str, request: Request, limit: int = 50):
     """Get execution history for a trigger."""
     manager = get_trigger_manager()
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+        trigger = manager.get_trigger(trigger_id)
+        if trigger and trigger.user_id and trigger.user_id != principal_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
     executions = manager.get_executions(trigger_id=trigger_id, limit=limit)
 
     return {
@@ -4039,6 +4374,7 @@ async def handle_webhook(
 ):
     """Handle incoming webhook requests."""
     manager = get_trigger_manager()
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
 
     # Extract request data
     body = None
@@ -4050,6 +4386,20 @@ async def handle_webhook(
     query_params = dict(request.query_params)
     headers = dict(request.headers)
     auth_header = request.headers.get("Authorization")
+
+    if internal_key:
+        provided = ""
+        if isinstance(auth_header, str) and auth_header.strip().lower().startswith("bearer "):
+            provided = auth_header.strip()[7:].strip()
+        if not provided:
+            provided = (request.headers.get("X-API-Key") or "").strip()
+
+        internal_ok = bool(provided) and hmac.compare_digest(provided, internal_key)
+        if not internal_ok:
+            trigger = manager.get_trigger(trigger_id)
+            require_auth = bool(getattr(trigger, "require_auth", False)) if trigger else False
+            if trigger and not require_auth:
+                raise HTTPException(status_code=401, detail="Unauthorized")
 
     result = await manager.handle_webhook(
         trigger_id=trigger_id,
