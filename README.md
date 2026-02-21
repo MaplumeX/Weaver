@@ -297,7 +297,10 @@ MEM0_API_KEY=m0-...                      # 从 https://mem0.ai 获取
 
 # MCP 工具桥
 ENABLE_MCP=true
-MCP_SERVERS={"filesystem": {...}}
+# 推荐从 filesystem + memory 开始（需本机有 Node.js / npx）
+# 注意：`server-filesystem` 需要显式传入允许访问的目录（安全起见不要直接给根目录）。
+MCP_SERVERS={"filesystem":{"type":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/ABS/PATH/TO/ALLOW"]},"memory":{"type":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-memory"]}}
+# 更多示例与说明见 docs/mcp.md
 
 # 深度研究模式（auto|tree|linear）
 DEEPSEARCH_MODE=auto
