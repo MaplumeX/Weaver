@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useRef, useState, useMemo, useCallback, memo } from 'react'
-import { Check, Copy, ChevronDown, ChevronRight, WrapText, Download, MoreHorizontal, ArrowUp, ArrowDown } from 'lucide-react'
+import { Check, Copy, ChevronDown, ChevronRight, WrapText, Download, MoreHorizontal, ArrowUp, ArrowDown, Maximize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { showSuccess } from '@/lib/toast-utils'
 import dynamic from 'next/dynamic'
@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 // Lazy-load SyntaxHighlighter to reduce initial bundle (~200KB savings)
 const SyntaxHighlighter = dynamic(
@@ -99,6 +100,7 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
 
   const [copied, setCopied] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
+  const [isFullscreenOpen, setIsFullscreenOpen] = useState(false)
   const [wrapLines, setWrapLines] = useState(false)
   const [showLineNumbers, setShowLineNumbers] = useState(false)
   const [findQuery, setFindQuery] = useState('')
@@ -190,6 +192,11 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
     setWrapLines(v => !v)
   }
 
+  const openFullscreen = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setIsFullscreenOpen(true)
+  }
+
   const handleFindChange = (value: string) => {
     setFindQuery(value)
     setActiveMatchCursor(0)
@@ -257,8 +264,220 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
     } as const
   }, [wrapLines])
 
+  const codeViewportHeight = isFullscreenOpen ? '70vh' : '400px'
+  const codeViewportClassName = cn(
+    wrapLines ? 'overflow-x-hidden' : 'overflow-x-auto',
+    isFullscreenOpen ? 'max-h-[70vh]' : 'max-h-[400px]',
+  )
+
+  const codeBody = useMemo(() => {
+    if (useVirtualization) {
+      return (
+        <div className={codeViewportClassName}>
+          <div className="px-4 py-4">
+            <Virtuoso
+              ref={virtuosoRef}
+              style={{ height: codeViewportHeight }}
+              totalCount={lines.length}
+              itemContent={itemContent}
+              components={virtualizationComponents}
+            />
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className={cn(codeViewportClassName, 'overflow-y-auto')}>
+        <div ref={codeContainerRef}>
+          <SyntaxHighlighter
+            language={language?.toLowerCase() || 'text'}
+            style={oneDark}
+            customStyle={{
+              margin: 0,
+              padding: '1.5rem',
+              background: 'transparent',
+              fontSize: '14px',
+              lineHeight: '1.6',
+              fontFamily: 'var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              whiteSpace: codeWrapStyle.whiteSpace,
+              wordBreak: codeWrapStyle.wordBreak,
+              overflowWrap: codeWrapStyle.overflowWrap,
+            }}
+            codeTagProps={{
+              style: {
+                whiteSpace: codeWrapStyle.whiteSpace,
+                wordBreak: codeWrapStyle.wordBreak,
+                overflowWrap: codeWrapStyle.overflowWrap,
+              }
+            }}
+            showLineNumbers={showLineNumbers}
+            wrapLongLines={wrapLines}
+            wrapLines={Boolean(normalizedFindQuery)}
+            lineProps={(lineNumber: number) => {
+              const idx = lineNumber - 1
+              const isMatch = matchLineSet.has(idx)
+              const isActive = activeMatchLineIndex === idx
+              return {
+                'data-code-line': lineNumber,
+                className: cn(
+                  'block rounded-sm px-2',
+                  isMatch && 'bg-white/5',
+                  isActive && 'bg-primary/20 ring-1 ring-primary/30'
+                )
+              }
+            }}
+            PreTag="div"
+          >
+            {value}
+          </SyntaxHighlighter>
+        </div>
+      </div>
+    )
+  }, [
+    useVirtualization,
+    codeViewportClassName,
+    lines.length,
+    itemContent,
+    virtualizationComponents,
+    codeViewportHeight,
+    language,
+    codeWrapStyle.whiteSpace,
+    codeWrapStyle.wordBreak,
+    codeWrapStyle.overflowWrap,
+    showLineNumbers,
+    wrapLines,
+    normalizedFindQuery,
+    matchLineSet,
+    activeMatchLineIndex,
+    value,
+  ])
+
   return (
     <div className="relative w-full my-4 rounded-xl overflow-hidden border border-border/40 bg-[#282c34] shadow-sm group transition-shadow duration-200 hover:shadow-md">
+      <Dialog open={isFullscreenOpen} onOpenChange={setIsFullscreenOpen}>
+        <DialogContent
+          className="max-w-5xl w-[calc(100vw-2rem)] p-0 overflow-hidden max-h-[calc(100dvh-2rem)]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex flex-col">
+            <DialogHeader className="px-5 py-4 border-b border-border/60 bg-card">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col gap-1">
+                  <DialogTitle className="font-mono text-sm">
+                    {language || 'text'}
+                  </DialogTitle>
+                  <div className="text-xs text-muted-foreground tabular-nums">
+                    {lines.length} lines
+                    {matchCount > 0 ? ` · ${safeActiveCursor + 1}/${matchCount} matches` : null}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopyFenced}
+                    aria-label="Copy as fenced block"
+                    title="Copy fenced"
+                  >
+                    Copy fenced
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownload}
+                    aria-label="Download code"
+                    title="Download"
+                  >
+                    Download
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Wrap</span>
+                  <Switch
+                    checked={wrapLines}
+                    onCheckedChange={setWrapLines}
+                    aria-label="Toggle line wrap"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Line numbers</span>
+                  <Switch
+                    checked={showLineNumbers}
+                    onCheckedChange={setShowLineNumbers}
+                    aria-label="Toggle line numbers"
+                  />
+                </div>
+
+                <span className="mx-1 h-4 w-px bg-border/60" aria-hidden="true" />
+
+                <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+                  <Input
+                    value={findQuery}
+                    onChange={(e) => handleFindChange(e.target.value)}
+                    placeholder="Find in code..."
+                    className="h-9"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        if (e.shiftKey) goToPrevMatch()
+                        else goToNextMatch()
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault()
+                        handleFindChange('')
+                      }
+                    }}
+                    aria-label="Find in code"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="h-9 w-9"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      goToPrevMatch()
+                    }}
+                    disabled={matchCount === 0}
+                    aria-label="Previous match"
+                    title="Previous"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="h-9 w-9"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      goToNextMatch()
+                    }}
+                    disabled={matchCount === 0}
+                    aria-label="Next match"
+                    title="Next"
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </DialogHeader>
+
+            <div className="p-5 bg-background">
+              <div className="rounded-xl overflow-hidden border border-border/60 bg-[#282c34]">
+                {codeBody}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div
         className="flex items-center justify-between px-4 py-2 bg-white/5 border-b border-white/10 select-none cursor-pointer hover:bg-white/10 transition-colors duration-200"
         onClick={toggleCollapse}
@@ -293,6 +512,17 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
             title="Download"
           >
             <Download className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/10 transition-colors duration-200"
+            onClick={openFullscreen}
+            aria-label="Open code fullscreen"
+            title="Fullscreen"
+          >
+            <Maximize2 className="h-4 w-4" />
           </Button>
           <Popover>
             <PopoverTrigger asChild>
@@ -434,67 +664,9 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
       </div>
 
       {/* Code Content */}
-      {!isCollapsed && (
-        <div className={cn("overflow-x-auto", wrapLines ? "overflow-x-hidden" : "overflow-x-auto")}>
-          {useVirtualization ? (
-            // Virtual scrolling for large code blocks (>100 lines)
-            <div className="px-4 py-4">
-              <Virtuoso
-                ref={virtuosoRef}
-                style={{ height: '400px' }}
-                totalCount={lines.length}
-                itemContent={itemContent}
-                components={virtualizationComponents}
-              />
-            </div>
-          ) : (
-            // Standard rendering for smaller code blocks
-            <div ref={codeContainerRef}>
-              <SyntaxHighlighter
-                language={language?.toLowerCase() || 'text'}
-                style={oneDark}
-                customStyle={{
-                  margin: 0,
-                  padding: '1.5rem',
-                  background: 'transparent',
-                  fontSize: '14px',
-                  lineHeight: '1.6',
-                  fontFamily: 'var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                  whiteSpace: codeWrapStyle.whiteSpace,
-                  wordBreak: codeWrapStyle.wordBreak,
-                  overflowWrap: codeWrapStyle.overflowWrap,
-                }}
-                codeTagProps={{
-                  style: {
-                    whiteSpace: codeWrapStyle.whiteSpace,
-                    wordBreak: codeWrapStyle.wordBreak,
-                    overflowWrap: codeWrapStyle.overflowWrap,
-                  }
-                }}
-                showLineNumbers={showLineNumbers}
-                wrapLongLines={wrapLines}
-                wrapLines={Boolean(normalizedFindQuery)}
-                lineProps={(lineNumber: number) => {
-                  const idx = lineNumber - 1
-                  const isMatch = matchLineSet.has(idx)
-                  const isActive = activeMatchLineIndex === idx
-                  return {
-                    'data-code-line': lineNumber,
-                    className: cn(
-                      'block rounded-sm px-2',
-                      isMatch && 'bg-white/5',
-                      isActive && 'bg-primary/20 ring-1 ring-primary/30'
-                    )
-                  }
-                }}
-                PreTag="div"
-              >
-                {value}
-              </SyntaxHighlighter>
-            </div>
-          )}
-        </div>
-      )}
+      {!isCollapsed && !isFullscreenOpen ? (
+        codeBody
+      ) : null}
     </div>
   )
 }
