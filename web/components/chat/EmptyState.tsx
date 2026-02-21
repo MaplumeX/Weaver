@@ -4,36 +4,40 @@ import Image from 'next/image'
 import { ArrowRight, Sparkles, TrendingUp, Code2, BookOpen } from 'lucide-react'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { cn } from '@/lib/utils'
+import { deriveUiModeId, searchModeFromId, type CoreModeId, type SearchMode } from '@/lib/chat-mode'
 
 interface EmptyStateProps {
-  selectedMode: string
-  onModeSelect: (mode: string) => void
-  onStarterClick?: (text: string, mode: string) => void
+  selectedMode: SearchMode
+  mcpMode: boolean
+  onModeSelect: (mode: SearchMode) => void
+  onStarterClick?: (text: string, mode: CoreModeId) => void
 }
 
-export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: EmptyStateProps) {
+export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick }: EmptyStateProps) {
   const { t } = useI18n()
+
+  const activeMode = deriveUiModeId(selectedMode, mcpMode)
 
   const starters = [
     {
       icon: TrendingUp,
       text: t('starterAnalyze'),
-      mode: "ultra"
+      mode: "ultra" as CoreModeId
     },
     {
       icon: Code2,
       text: t('starterWrite'),
-      mode: "agent"
+      mode: "agent" as CoreModeId
     },
     {
       icon: BookOpen,
       text: t('starterSummarize'),
-      mode: "web"
+      mode: "web" as CoreModeId
     },
     {
       icon: Sparkles,
       text: t('starterPlan'),
-      mode: "direct"
+      mode: "direct" as CoreModeId
     }
   ]
 
@@ -67,12 +71,12 @@ export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: Empty
       {/* Starter Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-[820px]">
         {starters.map((starter, i) => {
-          const isActive = selectedMode === starter.mode
+          const isActive = activeMode === starter.mode
           return (
             <button
               key={i}
               onClick={() => {
-                onModeSelect(starter.mode)
+                onModeSelect(searchModeFromId(starter.mode))
                 onStarterClick?.(starter.text, starter.mode)
               }}
               className={cn(

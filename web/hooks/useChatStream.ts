@@ -8,10 +8,11 @@ import {
   getResearchStreamUrl,
 } from '@/lib/api'
 import { createAppError } from '@/lib/errors'
+import { toNullableSearchMode, type SearchMode } from '@/lib/chat-mode'
 
 interface UseChatStreamProps {
   selectedModel: string
-  searchMode: string
+  searchMode: SearchMode
 }
 
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
@@ -311,7 +312,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
               messages: messageHistory.map(m => ({ role: m.role, content: m.content })),
               stream: true,
               model: selectedModel,
-              search_mode: searchMode,
+              search_mode: toNullableSearchMode(searchMode),
               images: (images || []).map(img => ({
                 name: img.name,
                 mime: img.mime,
@@ -425,7 +426,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
               : JSON.stringify({
                 query: safeQuery,
                 model: selectedModel,
-                search_mode: searchMode,
+                search_mode: toNullableSearchMode(searchMode),
                 images: (images || []).map(img => ({
                   name: img.name,
                   mime: img.mime,
@@ -511,7 +512,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             thread_id: threadId,
             payload: { tool_approved: true, tool_calls: toolCalls },
             model: selectedModel,
-            search_mode: searchMode
+            search_mode: toNullableSearchMode(searchMode),
           })
         }
       )

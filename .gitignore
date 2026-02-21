@@ -97,6 +97,7 @@ coverage/
 .turbo/
 .vercel/
 .claude/
+.beads/
 *.tsbuildinfo
 .eslintcache
 .npm

@@ -76,3 +76,11 @@ export async function getSessionEvidence(threadId: string): Promise<SessionEvide
   const safeId = encodeURIComponent(String(threadId))
   return apiFetch<SessionEvidenceResponse>(`/api/sessions/${safeId}/evidence`)
 }
+
+export type SearchProviderCircuit = components['schemas']['ProviderCircuitSnapshot']
+export type SearchProviderSnapshot = components['schemas']['SearchProviderSnapshot']
+export type SearchProvidersResponse = components['schemas']['SearchProvidersResponse']
+
+export async function getSearchProviders(): Promise<SearchProvidersResponse> {
+  return apiFetch<SearchProvidersResponse>('/api/search/providers')
+}

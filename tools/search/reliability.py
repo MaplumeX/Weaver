@@ -119,3 +119,60 @@ class ProviderReliabilityManager:
                     time.sleep(delay)
 
         return []
+
+    def snapshot(self, provider_name: str) -> Dict[str, Any]:
+        """
+        Return a JSON-serializable view of the current reliability state for a provider.
+
+        Notes:
+        - Timestamps are expressed as durations (seconds) because `opened_at` is
+          based on `time.monotonic()` and has no stable epoch meaning.
+        - This method is safe to call from API endpoints for observability.
+        """
+        name = str(provider_name or "").strip()
+        if not name:
+            return {
+                "provider": "",
+                "is_open": False,
+                "consecutive_failures": 0,
+                "opened_for_seconds": None,
+                "resets_in_seconds": None,
+                "policy": {
+                    "max_retries": int(self.policy.max_retries),
+                    "retry_backoff_seconds": float(self.policy.retry_backoff_seconds),
+                    "circuit_breaker_failures": int(self.policy.circuit_breaker_failures),
+                    "circuit_breaker_reset_seconds": float(self.policy.circuit_breaker_reset_seconds),
+                },
+            }
+
+        self._reset_if_expired(name)
+        state = self._state(name)
+        with self._lock:
+            consecutive_failures = int(state.consecutive_failures)
+            opened_at = state.opened_at
+
+        is_open = opened_at is not None
+        opened_for_seconds = None
+        resets_in_seconds = None
+
+        if opened_at is not None:
+            opened_for_seconds = max(0.0, time.monotonic() - float(opened_at))
+            reset_after = max(0.0, float(self.policy.circuit_breaker_reset_seconds))
+            if reset_after == 0.0:
+                resets_in_seconds = 0.0
+            else:
+                resets_in_seconds = max(0.0, reset_after - opened_for_seconds)
+
+        return {
+            "provider": name,
+            "is_open": bool(is_open),
+            "consecutive_failures": consecutive_failures,
+            "opened_for_seconds": opened_for_seconds,
+            "resets_in_seconds": resets_in_seconds,
+            "policy": {
+                "max_retries": int(self.policy.max_retries),
+                "retry_backoff_seconds": float(self.policy.retry_backoff_seconds),
+                "circuit_breaker_failures": int(self.policy.circuit_breaker_failures),
+                "circuit_breaker_reset_seconds": float(self.policy.circuit_breaker_reset_seconds),
+            },
+        }

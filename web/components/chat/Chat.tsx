@@ -18,6 +18,7 @@ import { LoadingSkeleton } from '@/components/ui/loading'
 import { ChatErrorBoundary } from '@/components/ui/error-boundary'
 import { useSwipeGesture } from '@/hooks/useSwipeGesture'
 import { INSPECTOR_COLLAPSED_W, INSPECTOR_OPEN_W, WORKSPACE_PANEL_W, WORKSPACE_RAIL_W } from './workspace-layout'
+import { searchModeFromId, type CoreModeId } from '@/lib/chat-mode'
 
 // Dynamic imports for heavy components
 const ArtifactsPanel = dynamic(
@@ -104,6 +105,8 @@ export function Chat() {
     setView,
     setModel,
     setSearchMode,
+    setMcpMode,
+    setMcpProvider,
     resetForNewChat,
   } = useChatState()
 
@@ -146,7 +149,10 @@ export function Chat() {
     processResearch,
     handleStop,
     handleApproveInterrupt
-  } = useChatStream({ selectedModel: ui.selectedModel, searchMode: ui.searchMode })
+  } = useChatStream({
+    selectedModel: ui.selectedModel,
+    searchMode: ui.searchMode,
+  })
 
   // Auto-save messages
   useEffect(() => {
@@ -263,10 +269,11 @@ export function Chat() {
     }
   }, [messages, setMessages, processChat, processResearch])
 
-  const handleStarterClick = useCallback((text: string, mode: string) => {
+  const handleStarterClick = useCallback((text: string, mode: CoreModeId) => {
     setInput(text)
-    setSearchMode(mode)
-  }, [setSearchMode])
+    setMcpMode(false)
+    setSearchMode(searchModeFromId(mode))
+  }, [setMcpMode, setSearchMode])
 
   const handleAtBottomChange = useCallback((atBottom: boolean) => {
     setScrollButton(!atBottom)
@@ -287,7 +294,11 @@ export function Chat() {
           <div className="h-full w-full p-4 overflow-y-auto">
             <EmptyState
               selectedMode={ui.searchMode}
-              onModeSelect={setSearchMode}
+              mcpMode={ui.mcpMode}
+              onModeSelect={(next) => {
+                setMcpMode(false)
+                setSearchMode(next)
+              }}
               onStarterClick={handleStarterClick}
             />
           </div>
@@ -400,6 +411,10 @@ export function Chat() {
             onStop={handleStop}
             searchMode={ui.searchMode}
             setSearchMode={setSearchMode}
+            mcpMode={ui.mcpMode}
+            setMcpMode={setMcpMode}
+            mcpProvider={ui.mcpProvider}
+            setMcpProvider={setMcpProvider}
           />
         )}
 

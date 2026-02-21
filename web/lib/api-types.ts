@@ -678,6 +678,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Search Providers
+         * @description Expose multi-search provider availability, health, and circuit-breaker state.
+         */
+        get: operations["get_search_providers_api_search_providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions": {
         parameters: {
             query?: never;
@@ -1437,10 +1457,7 @@ export interface components {
             messages: components["schemas"]["Message"][];
             /** Model */
             model?: string | null;
-            /** Search Mode */
-            search_mode?: components["schemas"]["SearchMode"] | {
-                [key: string]: unknown;
-            } | string | null;
+            search_mode?: components["schemas"]["SearchMode"] | null;
             /**
              * Stream
              * @default true
@@ -1753,10 +1770,7 @@ export interface components {
             model?: string | null;
             /** Payload */
             payload: unknown;
-            /** Search Mode */
-            search_mode?: components["schemas"]["SearchMode"] | {
-                [key: string]: unknown;
-            } | string | null;
+            search_mode?: components["schemas"]["SearchMode"] | null;
             /** Thread Id */
             thread_id: string;
         };
@@ -1807,6 +1821,17 @@ export interface components {
             /** Role */
             role: string;
         };
+        /** ProviderCircuitSnapshot */
+        ProviderCircuitSnapshot: {
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Is Open */
+            is_open: boolean;
+            /** Opened For Seconds */
+            opened_for_seconds?: number | null;
+            /** Resets In Seconds */
+            resets_in_seconds?: number | null;
+        };
         /** ResearchRequest */
         ResearchRequest: {
             /** Agent Id */
@@ -1817,10 +1842,7 @@ export interface components {
             model?: string | null;
             /** Query */
             query: string;
-            /** Search Mode */
-            search_mode?: components["schemas"]["SearchMode"] | {
-                [key: string]: unknown;
-            } | string | null;
+            search_mode?: components["schemas"]["SearchMode"] | null;
             /** User Id */
             user_id?: string | null;
         };
@@ -1883,6 +1905,37 @@ export interface components {
              * @default false
              */
             useWebSearch: boolean;
+        };
+        /** SearchProviderSnapshot */
+        SearchProviderSnapshot: {
+            /** Available */
+            available: boolean;
+            /** Avg Latency Ms */
+            avg_latency_ms: number;
+            /** Avg Result Quality */
+            avg_result_quality: number;
+            circuit: components["schemas"]["ProviderCircuitSnapshot"];
+            /** Error Count */
+            error_count: number;
+            /** Healthy */
+            healthy: boolean;
+            /** Last Error */
+            last_error?: string | null;
+            /** Last Error Time */
+            last_error_time?: string | null;
+            /** Name */
+            name: string;
+            /** Success Count */
+            success_count: number;
+            /** Success Rate */
+            success_rate: number;
+            /** Total Calls */
+            total_calls: number;
+        };
+        /** SearchProvidersResponse */
+        SearchProvidersResponse: {
+            /** Providers */
+            providers: components["schemas"]["SearchProviderSnapshot"][];
         };
         /** SessionComment */
         SessionComment: {
@@ -3051,6 +3104,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_search_providers_api_search_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchProvidersResponse"];
                 };
             };
         };

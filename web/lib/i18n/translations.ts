@@ -108,6 +108,16 @@ export const translations = {
     loadedTools: 'Loaded Tools',
     supportedModels: 'Supported Models',
 
+    // Search Providers
+    searchProviders: 'Search Providers',
+    searchProvidersDesc: 'Backend search provider availability and reliability status.',
+    available: 'Available',
+    unavailable: 'Unavailable',
+    healthy: 'Healthy',
+    unhealthy: 'Unhealthy',
+    circuitOpen: 'Circuit open',
+    circuitClosed: 'Circuit closed',
+
     // Common
     loading: 'Loading...',
     error: 'Error',
@@ -238,6 +248,16 @@ export const translations = {
     serversConfigHint: '定义服务器的传输方式、命令和参数。',
     loadedTools: '已加载工具',
     supportedModels: '支持模型',
+
+    // Search Providers
+    searchProviders: '搜索提供商',
+    searchProvidersDesc: '后端搜索提供商的可用性与可靠性状态。',
+    available: '可用',
+    unavailable: '不可用',
+    healthy: '健康',
+    unhealthy: '异常',
+    circuitOpen: '熔断中',
+    circuitClosed: '正常',
 
     // Common
     loading: '加载中...',

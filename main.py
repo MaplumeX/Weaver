@@ -31,7 +31,7 @@ from prometheus_client import (
     Gauge,
     generate_latest,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from agent import (
     AgentState,
@@ -75,6 +75,7 @@ from tools.io.screenshot_service import get_screenshot_service
 from tools.io.tts import AVAILABLE_VOICES, get_tts_service, init_tts_service
 from tools.mcp import close_mcp_tools, init_mcp_tools, reload_mcp_tools
 from tools.sandbox import sandbox_browser_sessions
+from tools.search.multi_search import get_search_orchestrator
 from triggers import (
     EventTrigger,
     ScheduledTrigger,
@@ -545,6 +546,81 @@ class SearchMode(BaseModel):
     useDeepSearch: bool = False
 
 
+def _coerce_search_mode_input(value: Any) -> SearchMode | None:
+    """
+    Coerce legacy search_mode inputs into the structured SearchMode contract.
+
+    We keep the runtime tolerant (strings / dicts) while exposing a strict OpenAPI
+    schema (SearchMode object) for frontend/backend alignment.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, SearchMode):
+        return value
+
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"", "direct"}:
+            return SearchMode()
+        if lowered in {"web", "search", "tavily"}:
+            return SearchMode(useWebSearch=True)
+        if lowered in {"agent"}:
+            return SearchMode(useAgent=True)
+        if lowered in {"deep", "deep_agent", "deep-agent", "ultra"}:
+            return SearchMode(useAgent=True, useDeepSearch=True)
+        # Unknown string → treat as direct.
+        return SearchMode()
+
+    if isinstance(value, dict):
+        use_web = bool(value.get("useWebSearch", value.get("use_web", False)))
+        use_agent = bool(value.get("useAgent", value.get("use_agent", False)))
+        use_deep = bool(value.get("useDeepSearch", value.get("use_deep", False)))
+
+        # If booleans were not provided but a mode string exists, derive flags from it.
+        if not (use_web or use_agent or use_deep) and isinstance(value.get("mode"), str):
+            mode_lower = value["mode"].strip().lower()
+            if mode_lower == "web":
+                use_web = True
+            elif mode_lower in {"agent", "deep"}:
+                use_agent = True
+                use_deep = mode_lower == "deep"
+
+        # Deep requires agent.
+        if use_deep and not use_agent:
+            use_deep = False
+
+        return SearchMode(useWebSearch=use_web, useAgent=use_agent, useDeepSearch=use_deep)
+
+    return None
+
+
+class ProviderCircuitSnapshot(BaseModel):
+    is_open: bool
+    consecutive_failures: int
+    opened_for_seconds: Optional[float] = None
+    resets_in_seconds: Optional[float] = None
+
+
+class SearchProviderSnapshot(BaseModel):
+    name: str
+    available: bool
+    healthy: bool
+    total_calls: int
+    success_count: int
+    error_count: int
+    success_rate: float
+    avg_latency_ms: float
+    avg_result_quality: float
+    last_error: Optional[str] = None
+    last_error_time: Optional[str] = None
+    circuit: ProviderCircuitSnapshot
+
+
+class SearchProvidersResponse(BaseModel):
+    providers: List[SearchProviderSnapshot]
+
+
 class ImagePayload(BaseModel):
     name: Optional[str] = None
     data: str
@@ -555,21 +631,29 @@ class ChatRequest(BaseModel):
     messages: List[Message]
     stream: bool = True
     model: Optional[str] = None
-    search_mode: Optional[SearchMode | Dict[str, Any] | str] = (
-        None  # {"useWebSearch": bool, "useAgent": bool, "useDeepSearch": bool}
-    )
+    search_mode: Optional[SearchMode] = None
     agent_id: Optional[str] = None  # optional GPTs-like agent profile id (data/agents.json)
     user_id: Optional[str] = None
     images: Optional[List[ImagePayload]] = None  # Base64 images for multimodal input
+
+    @field_validator("search_mode", mode="before")
+    @classmethod
+    def _coerce_search_mode(cls, value: Any) -> SearchMode | None:
+        return _coerce_search_mode_input(value)
 
 
 class ResearchRequest(BaseModel):
     query: str
     model: Optional[str] = None
-    search_mode: Optional[SearchMode | Dict[str, Any] | str] = None
+    search_mode: Optional[SearchMode] = None
     agent_id: Optional[str] = None
     user_id: Optional[str] = None
     images: Optional[List[ImagePayload]] = None
+
+    @field_validator("search_mode", mode="before")
+    @classmethod
+    def _coerce_search_mode(cls, value: Any) -> SearchMode | None:
+        return _coerce_search_mode_input(value)
 
 
 class ChatResponse(BaseModel):
@@ -583,8 +667,13 @@ class GraphInterruptResumeRequest(BaseModel):
     thread_id: str
     payload: Any
     model: Optional[str] = None
-    search_mode: Optional[SearchMode | Dict[str, Any] | str] = None
+    search_mode: Optional[SearchMode] = None
     agent_id: Optional[str] = None
+
+    @field_validator("search_mode", mode="before")
+    @classmethod
+    def _coerce_search_mode(cls, value: Any) -> SearchMode | None:
+        return _coerce_search_mode_input(value)
 
 
 class MCPConfigPayload(BaseModel):
@@ -1645,6 +1734,39 @@ async def get_mcp_config():
         "servers": mcp_servers_config,
         "loaded_tools": mcp_loaded_tools,
     }
+
+
+@app.get("/api/search/providers", response_model=SearchProvidersResponse)
+async def get_search_providers():
+    """Expose multi-search provider availability, health, and circuit-breaker state."""
+    orchestrator = get_search_orchestrator()
+    providers: List[SearchProviderSnapshot] = []
+
+    for provider in orchestrator.providers:
+        circuit = orchestrator.reliability_manager.snapshot(provider.name)
+        providers.append(
+            SearchProviderSnapshot(
+                name=provider.name,
+                available=bool(provider.is_available()),
+                healthy=bool(provider.stats.is_healthy),
+                total_calls=int(provider.stats.total_calls),
+                success_count=int(provider.stats.success_count),
+                error_count=int(provider.stats.error_count),
+                success_rate=float(provider.stats.success_rate),
+                avg_latency_ms=float(provider.stats.avg_latency_ms),
+                avg_result_quality=float(provider.stats.avg_result_quality),
+                last_error=provider.stats.last_error,
+                last_error_time=provider.stats.last_error_time,
+                circuit=ProviderCircuitSnapshot(
+                    is_open=bool(circuit.get("is_open", False)),
+                    consecutive_failures=int(circuit.get("consecutive_failures", 0) or 0),
+                    opened_for_seconds=circuit.get("opened_for_seconds"),
+                    resets_in_seconds=circuit.get("resets_in_seconds"),
+                ),
+            )
+        )
+
+    return {"providers": providers}
 
 
 # ==================== Agents (GPTs-like profiles) ====================

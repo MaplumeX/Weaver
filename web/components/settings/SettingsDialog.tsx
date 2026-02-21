@@ -16,9 +16,9 @@ import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { TranslationKey, Language } from '@/lib/i18n/translations'
 import { cn } from '@/lib/utils'
-import { Check, ChevronDown, Plug, RefreshCw, CheckCircle2 } from 'lucide-react'
+import { Check, ChevronDown, Plug, RefreshCw, CheckCircle2, Search } from 'lucide-react'
 import { toast } from 'sonner'
-import { getMcpConfig, updateMcpConfig } from '@/lib/api-client'
+import { getMcpConfig, updateMcpConfig, getSearchProviders, type SearchProviderSnapshot } from '@/lib/api-client'
 import { getApiBaseUrl } from '@/lib/api'
 import { StorageService } from '@/lib/storage-service'
 
@@ -105,6 +105,11 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   const [mcpLoading, setMcpLoading] = useState(false)
   const [mcpError, setMcpError] = useState<string | null>(null)
 
+  // Search providers state
+  const [searchProviders, setSearchProviders] = useState<SearchProviderSnapshot[]>([])
+  const [searchProvidersLoading, setSearchProvidersLoading] = useState(false)
+  const [searchProvidersError, setSearchProvidersError] = useState<string | null>(null)
+
   const modelProviders = getModelProviders(t)
 
   // Fetch MCP config
@@ -122,6 +127,20 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
       toast.error(t('mcpLoadFailed'))
     } finally {
       setMcpLoading(false)
+    }
+  }, [t])
+
+  const fetchSearchProviderStatus = useCallback(async () => {
+    try {
+      setSearchProvidersLoading(true)
+      setSearchProvidersError(null)
+      const data = await getSearchProviders()
+      setSearchProviders(Array.isArray(data.providers) ? data.providers : [])
+    } catch (e) {
+      console.error(e)
+      setSearchProvidersError(t('error'))
+    } finally {
+      setSearchProvidersLoading(false)
     }
   }, [t])
 
@@ -166,8 +185,9 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   useEffect(() => {
     if (open) {
       void fetchMcpConfig()
+      void fetchSearchProviderStatus()
     }
-  }, [open, fetchMcpConfig])
+  }, [open, fetchMcpConfig, fetchSearchProviderStatus])
 
   useEffect(() => {
     setTempModel(selectedModel)
@@ -203,6 +223,15 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   const allModels = modelProviders.flatMap(provider =>
     provider.models.map(model => ({ ...model, provider: provider.id }))
   )
+
+  const formatSeconds = (value: number | null | undefined) => {
+    if (value == null || Number.isNaN(value)) return null
+    const seconds = Math.max(0, value)
+    if (seconds < 60) return `${Math.round(seconds)}s`
+    const mins = seconds / 60
+    if (mins < 10) return `${mins.toFixed(1)}m`
+    return `${Math.round(mins)}m`
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -395,6 +424,112 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
                 className="text-muted-foreground hover:text-foreground"
               >
                 <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Search Providers */}
+          <div className="space-y-3 border-t pt-4">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Search className="h-4 w-4" />
+              {t('searchProviders')}
+            </Label>
+            <p className="text-xs text-muted-foreground">{t('searchProvidersDesc')}</p>
+
+            {searchProvidersError ? (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                {searchProvidersError}
+              </div>
+            ) : null}
+
+            {searchProvidersLoading ? (
+              <div className="space-y-2 animate-pulse">
+                <div className="h-10 w-full bg-muted/30 rounded-lg" />
+                <div className="h-10 w-full bg-muted/20 rounded-lg" />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {searchProviders.length === 0 ? (
+                  <div className="rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    {t('noResults')}
+                  </div>
+                ) : (
+                  searchProviders.map((p) => {
+                    const circuitOpen = Boolean(p.circuit?.is_open)
+                    const resetsIn = formatSeconds(p.circuit?.resets_in_seconds)
+                    const availabilityLabel = p.available ? t('available') : t('unavailable')
+                    const healthLabel = p.healthy ? t('healthy') : t('unhealthy')
+                    const circuitLabel = circuitOpen ? t('circuitOpen') : t('circuitClosed')
+
+                    return (
+                      <div key={p.name} className="rounded-lg border bg-muted/10 px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-medium text-sm">{p.name}</div>
+                          <div className="flex items-center gap-1.5 text-[11px]">
+                            <span
+                              className={cn(
+                                'rounded-full px-2 py-0.5 border tabular-nums',
+                                p.available ? 'border-green-500/20 bg-green-500/10 text-green-700' : 'border-border bg-muted text-muted-foreground'
+                              )}
+                            >
+                              {availabilityLabel}
+                            </span>
+                            <span
+                              className={cn(
+                                'rounded-full px-2 py-0.5 border tabular-nums',
+                                p.healthy ? 'border-border bg-muted text-muted-foreground' : 'border-amber-500/20 bg-amber-500/10 text-amber-800'
+                              )}
+                            >
+                              {healthLabel}
+                            </span>
+                            <span
+                              className={cn(
+                                'rounded-full px-2 py-0.5 border tabular-nums',
+                                circuitOpen ? 'border-amber-500/20 bg-amber-500/10 text-amber-800' : 'border-border bg-muted text-muted-foreground'
+                              )}
+                              title={resetsIn ? `${circuitLabel} · ${resetsIn}` : circuitLabel}
+                            >
+                              {circuitLabel}{resetsIn ? ` · ${resetsIn}` : ''}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground tabular-nums">
+                          <span>
+                            SR {(p.success_rate * 100).toFixed(0)}% · {Math.round(p.avg_latency_ms)}ms · Q {p.avg_result_quality.toFixed(2)}
+                          </span>
+                          <span>
+                            {p.success_count}/{p.total_calls} ok · {p.error_count} err
+                          </span>
+                        </div>
+
+                        {p.last_error ? (
+                          <div className="mt-1 text-[11px] text-muted-foreground truncate" title={p.last_error}>
+                            {p.last_error}
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded">
+              <span className="tabular-nums">
+                {t('results')}: {searchProviders.length}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                disabled={searchProvidersLoading}
+                onClick={fetchSearchProviderStatus}
+                aria-label={t('refresh')}
+                title={t('refresh')}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <RefreshCw className={cn('h-4 w-4', searchProvidersLoading && 'animate-spin')} />
               </Button>
             </div>
           </div>

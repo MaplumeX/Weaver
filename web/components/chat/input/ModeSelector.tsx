@@ -4,10 +4,16 @@ import React, { useState, useCallback } from 'react'
 import { Globe, Bot, Rocket, Plug, ChevronDown, Check } from 'lucide-react'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { cn } from '@/lib/utils'
+import { deriveUiModeId, searchModeFromId, type SearchMode } from '@/lib/chat-mode'
+import type { McpProviderId } from '@/hooks/useChatState'
 
 interface ModeSelectorProps {
-  searchMode: string
-  onModeChange: (mode: string) => void
+  searchMode: SearchMode
+  onSearchModeChange: (mode: SearchMode) => void
+  mcpMode: boolean
+  onMcpModeChange: (enabled: boolean) => void
+  mcpProvider: McpProviderId
+  onMcpProviderChange: (provider: McpProviderId) => void
 }
 
 interface ModeOption {
@@ -17,14 +23,22 @@ interface ModeOption {
 }
 
 interface McpOption {
-  id: string
+  id: McpProviderId
   label: string
 }
 
-export function ModeSelector({ searchMode, onModeChange }: ModeSelectorProps) {
+export function ModeSelector({
+  searchMode,
+  onSearchModeChange,
+  mcpMode,
+  onMcpModeChange,
+  mcpProvider,
+  onMcpProviderChange,
+}: ModeSelectorProps) {
   const { t } = useI18n()
   const [isMcpOpen, setIsMcpOpen] = useState(false)
-  const [selectedMcp, setSelectedMcp] = useState('filesystem')
+
+  const activeMode = deriveUiModeId(searchMode, mcpMode)
 
   const modes: ModeOption[] = [
     { id: 'web', label: t('web'), icon: Globe },
@@ -34,41 +48,42 @@ export function ModeSelector({ searchMode, onModeChange }: ModeSelectorProps) {
 
   const mcpOptions: McpOption[] = [
     { id: 'filesystem', label: t('filesystem') },
-    { id: 'github', label: t('github') },
-    { id: 'brave', label: t('braveSearch') },
     { id: 'memory', label: t('memory') },
   ]
 
   const handleModeClick = useCallback((modeId: string) => {
-    if (searchMode === modeId) {
-      onModeChange('')
-    } else {
-      onModeChange(modeId)
-    }
+    if (activeMode === modeId) onSearchModeChange(searchModeFromId('direct'))
+    else if (modeId === 'web') onSearchModeChange(searchModeFromId('web'))
+    else if (modeId === 'agent') onSearchModeChange(searchModeFromId('agent'))
+    else if (modeId === 'ultra') onSearchModeChange(searchModeFromId('ultra'))
+    onMcpModeChange(false)
     setIsMcpOpen(false)
-  }, [searchMode, onModeChange])
+  }, [activeMode, onMcpModeChange, onSearchModeChange])
 
   const handleMcpToggle = useCallback(() => {
-    if (searchMode === 'mcp') {
-      onModeChange('')
+    if (mcpMode) {
+      onMcpModeChange(false)
+      onSearchModeChange(searchModeFromId('direct'))
       setIsMcpOpen(false)
     } else {
-      onModeChange('mcp')
+      onMcpModeChange(true)
+      onSearchModeChange(searchModeFromId('agent'))
       setIsMcpOpen(!isMcpOpen)
     }
-  }, [searchMode, onModeChange, isMcpOpen])
+  }, [mcpMode, onMcpModeChange, onSearchModeChange, isMcpOpen])
 
-  const handleMcpSelect = useCallback((mcpId: string) => {
-    setSelectedMcp(mcpId)
-    onModeChange('mcp')
+  const handleMcpSelect = useCallback((next: McpProviderId) => {
+    onMcpProviderChange(next)
+    onMcpModeChange(true)
+    onSearchModeChange(searchModeFromId('agent'))
     setIsMcpOpen(false)
-  }, [onModeChange])
+  }, [onMcpModeChange, onMcpProviderChange, onSearchModeChange])
 
   return (
     <div className="flex items-center gap-1 self-start ml-1 mb-1" role="radiogroup" aria-label="Search mode">
       {modes.map((mode) => {
         const Icon = mode.icon
-        const isActive = searchMode === mode.id
+        const isActive = activeMode === mode.id
         return (
           <button
             key={mode.id}
@@ -98,13 +113,13 @@ export function ModeSelector({ searchMode, onModeChange }: ModeSelectorProps) {
           onClick={handleMcpToggle}
           className={cn(
             "relative flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border border-border/60 transition-colors duration-200",
-            searchMode === 'mcp'
+            mcpMode
               ? "bg-primary/10 text-foreground border-primary/30 shadow-sm"
               : "bg-background text-muted-foreground hover:bg-accent"
           )}
         >
-          <Plug className={cn("h-3.5 w-3.5 transition-colors", searchMode === 'mcp' ? "text-primary" : "text-muted-foreground")} />
-          {searchMode === 'mcp' ? (mcpOptions.find(o => o.id === selectedMcp)?.label || 'MCP') : 'MCP'}
+          <Plug className={cn("h-3.5 w-3.5 transition-colors", mcpMode ? "text-primary" : "text-muted-foreground")} />
+          {mcpMode ? (mcpOptions.find(o => o.id === mcpProvider)?.label || 'MCP') : 'MCP'}
           <ChevronDown className="h-3 w-3 opacity-50" />
         </button>
 
@@ -119,15 +134,15 @@ export function ModeSelector({ searchMode, onModeChange }: ModeSelectorProps) {
                 <button
                   key={opt.id}
                   role="option"
-                  aria-selected={selectedMcp === opt.id && searchMode === 'mcp'}
+                  aria-selected={mcpProvider === opt.id && mcpMode}
                   onClick={() => handleMcpSelect(opt.id)}
                   className={cn(
                     "flex w-full items-center justify-between rounded-lg px-2 py-2 text-xs transition-colors hover:bg-muted",
-                    selectedMcp === opt.id && searchMode === 'mcp' && "bg-muted font-medium text-primary"
+                    mcpProvider === opt.id && mcpMode && "bg-muted font-medium text-primary"
                   )}
                 >
                   {opt.label}
-                  {selectedMcp === opt.id && searchMode === 'mcp' && <Check className="h-3 w-3" />}
+                  {mcpProvider === opt.id && mcpMode && <Check className="h-3 w-3" />}
                 </button>
               ))}
             </div>

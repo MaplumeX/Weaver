@@ -2,9 +2,12 @@
 
 import { useReducer, useCallback } from 'react'
 import { STORAGE_KEYS, DEFAULT_MODEL } from '@/lib/constants'
+import { searchModeFromId, type SearchMode } from '@/lib/chat-mode'
 
 // Types
 export type ChatView = 'dashboard' | 'discover' | 'library'
+
+export type McpProviderId = 'filesystem' | 'memory'
 
 export interface ChatUIState {
   sidebarOpen: boolean
@@ -15,7 +18,9 @@ export interface ChatUIState {
   showBrowserViewer: boolean
   currentView: ChatView
   selectedModel: string
-  searchMode: string
+  searchMode: SearchMode
+  mcpMode: boolean
+  mcpProvider: McpProviderId
 }
 
 export type ChatUIAction =
@@ -28,7 +33,9 @@ export type ChatUIAction =
   | { type: 'SET_BROWSER_VIEWER'; payload: boolean }
   | { type: 'SET_VIEW'; payload: ChatView }
   | { type: 'SET_MODEL'; payload: string }
-  | { type: 'SET_SEARCH_MODE'; payload: string }
+  | { type: 'SET_SEARCH_MODE'; payload: SearchMode }
+  | { type: 'SET_MCP_MODE'; payload: boolean }
+  | { type: 'SET_MCP_PROVIDER'; payload: McpProviderId }
   | { type: 'RESET_FOR_NEW_CHAT' }
 
 // Initial state
@@ -49,7 +56,9 @@ const getInitialState = (): ChatUIState => {
     showBrowserViewer: true,
     currentView: 'dashboard',
     selectedModel: savedModel,
-    searchMode: '',
+    searchMode: searchModeFromId('direct'),
+    mcpMode: false,
+    mcpProvider: 'filesystem',
   }
 }
 
@@ -80,11 +89,16 @@ function chatUIReducer(state: ChatUIState, action: ChatUIAction): ChatUIState {
       return { ...state, selectedModel: action.payload }
     case 'SET_SEARCH_MODE':
       return { ...state, searchMode: action.payload }
+    case 'SET_MCP_MODE':
+      return { ...state, mcpMode: action.payload }
+    case 'SET_MCP_PROVIDER':
+      return { ...state, mcpProvider: action.payload }
     case 'RESET_FOR_NEW_CHAT':
       return {
         ...state,
         currentView: 'dashboard',
-        searchMode: '',
+        searchMode: searchModeFromId('direct'),
+        mcpMode: false,
         showScrollButton: false,
       }
     default:
@@ -106,7 +120,9 @@ export function useChatState() {
   const setBrowserViewer = useCallback((show: boolean) => dispatch({ type: 'SET_BROWSER_VIEWER', payload: show }), [])
   const setView = useCallback((view: ChatView) => dispatch({ type: 'SET_VIEW', payload: view }), [])
   const setModel = useCallback((model: string) => dispatch({ type: 'SET_MODEL', payload: model }), [])
-  const setSearchMode = useCallback((mode: string) => dispatch({ type: 'SET_SEARCH_MODE', payload: mode }), [])
+  const setSearchMode = useCallback((mode: SearchMode) => dispatch({ type: 'SET_SEARCH_MODE', payload: mode }), [])
+  const setMcpMode = useCallback((enabled: boolean) => dispatch({ type: 'SET_MCP_MODE', payload: enabled }), [])
+  const setMcpProvider = useCallback((provider: McpProviderId) => dispatch({ type: 'SET_MCP_PROVIDER', payload: provider }), [])
   const resetForNewChat = useCallback(() => dispatch({ type: 'RESET_FOR_NEW_CHAT' }), [])
 
   return {
@@ -123,6 +139,8 @@ export function useChatState() {
     setView,
     setModel,
     setSearchMode,
+    setMcpMode,
+    setMcpProvider,
     resetForNewChat,
   }
 }

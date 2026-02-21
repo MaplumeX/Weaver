@@ -10,6 +10,8 @@ import { createFilePreview } from '@/lib/file-utils'
 import { ModeSelector } from './input/ModeSelector'
 import { AttachmentPreview } from './input/AttachmentPreview'
 import { getCommandTemplate } from './input/command-templates'
+import { searchModeFromId, type SearchMode } from '@/lib/chat-mode'
+import type { McpProviderId } from '@/hooks/useChatState'
 
 const CommandPalette = dynamic(
   () => import('./input/CommandPalette').then((mod) => ({ default: mod.CommandPalette })),
@@ -29,8 +31,12 @@ interface ChatInputProps {
   onSubmit: (e: React.FormEvent) => void
   isLoading: boolean
   onStop: () => void
-  searchMode: string
-  setSearchMode: (mode: string) => void
+  searchMode: SearchMode
+  setSearchMode: (mode: SearchMode) => void
+  mcpMode: boolean
+  setMcpMode: (enabled: boolean) => void
+  mcpProvider: McpProviderId
+  setMcpProvider: (provider: McpProviderId) => void
 }
 
 interface AttachmentPreviewItem {
@@ -48,7 +54,11 @@ export const ChatInput = memo(function ChatInput({
   isLoading,
   onStop,
   searchMode,
-  setSearchMode
+  setSearchMode,
+  mcpMode,
+  setMcpMode,
+  mcpProvider,
+  setMcpProvider,
 }: ChatInputProps) {
   const { t } = useI18n()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -167,8 +177,19 @@ export const ChatInput = memo(function ChatInput({
 
   const handleCommandSelect = useCallback((cmd: string) => {
     // Mode changes
-    if (cmd === 'direct') setSearchMode('')
-    else if (['agent', 'ultra', 'web', 'deep', 'deep_agent'].includes(cmd)) setSearchMode(cmd)
+    if (cmd === 'direct') {
+      setSearchMode(searchModeFromId('direct'))
+      setMcpMode(false)
+    } else if (cmd === 'web') {
+      setSearchMode(searchModeFromId('web'))
+      setMcpMode(false)
+    } else if (cmd === 'agent') {
+      setSearchMode(searchModeFromId('agent'))
+      setMcpMode(false)
+    } else if (['ultra', 'deep', 'deep_agent', 'deep-agent'].includes(cmd)) {
+      setSearchMode(searchModeFromId('ultra'))
+      setMcpMode(false)
+    }
 
     // Special actions
     if (cmd === 'clear') window.location.reload()
@@ -183,7 +204,7 @@ export const ChatInput = memo(function ChatInput({
 
     setShowCommandMenu(false)
     textareaRef.current?.focus()
-  }, [setInput, setSearchMode])
+  }, [setInput, setMcpMode, setSearchMode])
 
   const handleTranscript = useCallback((text: string) => {
     setInput(prev => prev + (prev ? ' ' : '') + text)
@@ -193,7 +214,7 @@ export const ChatInput = memo(function ChatInput({
     setShowCommandMenu(false)
   }, [])
 
-  const mcpLabel = searchMode === 'mcp' ? 'MCP...' : t('askAnything')
+  const mcpLabel = mcpMode ? `MCP: ${t(mcpProvider)}` : t('askAnything')
 
   return (
     <div className="relative z-20 mx-auto w-full max-w-[820px] px-4 safe-pb-6 pt-2 md:pt-0">
@@ -208,7 +229,14 @@ export const ChatInput = memo(function ChatInput({
         ) : null}
 
         {/* Mode Tabs */}
-        <ModeSelector searchMode={searchMode} onModeChange={setSearchMode} />
+        <ModeSelector
+          searchMode={searchMode}
+          onSearchModeChange={setSearchMode}
+          mcpMode={mcpMode}
+          onMcpModeChange={setMcpMode}
+          mcpProvider={mcpProvider}
+          onMcpProviderChange={setMcpProvider}
+        />
 
         {/* Input Container */}
         <div
