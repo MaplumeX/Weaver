@@ -2,7 +2,7 @@
 
 import { useMemo, memo } from 'react'
 import { Button } from '@/components/ui/button'
-import { PanelLeft, Sun, Moon, LayoutPanelLeft, Settings } from 'lucide-react'
+import { Menu, Settings, Sun, Moon, PanelRight } from '@/components/ui/icons'
 import { useTheme } from '@/components/theme-provider'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import {
@@ -55,9 +55,9 @@ export const Header = memo(function Header({
       { id: 'deepseek-chat', name: 'deepseek-chat', provider: t('deepseek') },
       { id: 'deepseek-reasoner', name: 'deepseek-reasoner', provider: t('deepseek') },
       { id: 'qwen-plus', name: 'qwen-plus', provider: t('qwen') },
-      { id: 'qwen3-vl-flash', name: 'qwen3-vl-flash 🖼️', provider: t('qwen') },
+      { id: 'qwen3-vl-flash', name: 'qwen3-vl-flash', provider: t('qwen') },
       { id: 'glm-4.6', name: 'GLM-4.6', provider: t('zhipu') },
-      { id: 'glm-4.6v', name: 'glm-4.6v 🖼️', provider: t('zhipu') },
+      { id: 'glm-4.6v', name: 'glm-4.6v', provider: t('zhipu') },
     ],
     [t],
   )
@@ -72,17 +72,17 @@ export const Header = memo(function Header({
   }, [currentView, t])
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border/60 bg-background px-4 transition-colors duration-200">
+    <header className="sticky top-0 z-30 flex h-12 items-center justify-between border-b border-border/30 bg-background/70 backdrop-blur-xl px-4 transition-colors duration-200">
       <div className="flex items-center gap-3 min-w-0">
         <Button
           variant="ghost"
           size="icon"
           onClick={onToggleSidebar}
-          className="rounded-full hover:bg-accent md:hidden"
+          className="rounded-lg hover:bg-accent md:hidden"
           aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
           aria-expanded={sidebarOpen}
         >
-          <PanelLeft className="h-5 w-5 text-muted-foreground" />
+          <Menu className="h-[18px] w-[18px] text-muted-foreground" />
         </Button>
 
         <div className="min-w-0">
@@ -97,57 +97,56 @@ export const Header = memo(function Header({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        {/* Inspector Toggle (Mobile/Tablet) */}
+      <div className="flex items-center gap-1.5">
         {hasInspector && (
           <Button
             variant="ghost"
             size="icon"
             onClick={onToggleInspector}
-            className="rounded-full text-primary hover:bg-accent xl:hidden"
+            className="rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent xl:hidden"
             aria-label="Toggle inspector"
           >
-            <LayoutPanelLeft className="h-5 w-5" />
+            <PanelRight className="h-[18px] w-[18px]" />
           </Button>
         )}
 
         <Select value={selectedModel} onValueChange={onModelChange}>
           <SelectTrigger
             aria-label="Select model"
-            className="h-9 w-auto rounded-lg border border-border/60 bg-background px-3 py-1.5 text-sm font-medium shadow-sm transition-colors duration-200 hover:bg-accent focus:ring-offset-0"
+            className="h-8 w-auto min-w-[120px] rounded-lg border-border/30 bg-muted/20 px-3 py-1.5 text-xs font-medium shadow-none transition-colors duration-200 hover:bg-accent focus:ring-offset-0"
           >
             <SelectValue placeholder={currentModelName} />
           </SelectTrigger>
-          <SelectContent className="w-64 max-h-80 rounded-xl">
+          <SelectContent className="w-64 max-h-80 rounded-xl border-border/30 bg-popover/90 backdrop-blur-xl">
             {models.map((model) => (
               <SelectItem key={model.id} value={model.id}>
-                {model.name} ({model.provider})
+                <span className="font-medium">{model.name}</span>
+                <span className="ml-1.5 text-muted-foreground">({model.provider})</span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        {/* Desktop theme/settings moved to Rail; keep on mobile */}
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="flex items-center gap-1 md:hidden">
           <Button
             variant="ghost"
             size="icon"
             onClick={toggleTheme}
-            className="rounded-full hover:bg-accent"
+            className="rounded-lg hover:bg-accent"
             aria-label={t('toggleTheme')}
           >
-            <Sun className="h-5 w-5 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
+            <Sun className="h-[18px] w-[18px] rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute h-[18px] w-[18px] rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
           </Button>
 
           <Button
             variant="ghost"
             size="icon"
             onClick={onOpenSettings}
-            className="rounded-full hover:bg-accent"
+            className="rounded-lg hover:bg-accent"
             aria-label={t('settings')}
           >
-            <Settings className="h-5 w-5" />
+            <Settings className="h-[18px] w-[18px]" />
           </Button>
         </div>
       </div>

@@ -75,6 +75,11 @@ def _require_e2b() -> None:
             "E2B_API_KEY is required for sandbox browser tools. "
             "Get one at https://e2b.dev/docs/api-key"
         )
+    if not key.startswith("e2b_"):
+        raise RuntimeError(
+            "E2B_API_KEY looks invalid (expected to start with 'e2b_'). "
+            "Get one at https://e2b.dev/docs/api-key"
+        )
 
 
 def _sandbox_domain() -> Optional[str]:
@@ -280,7 +285,7 @@ class SandboxBrowserSession:
 
             prepare_e2b_env(domain)
             try:
-                sandbox = Sandbox(
+                sandbox = Sandbox.create(
                     template=template,
                     timeout=timeout,
                     api_key=settings.e2b_api_key,

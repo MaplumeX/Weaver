@@ -1,7 +1,7 @@
 'use client'
 
 import { Artifact } from '@/types/chat'
-import { BarChart, FileText, Code, Image as ImageIcon, File, MoreVertical, Trash2, Download, Clock } from 'lucide-react'
+import { BarChart, FileText, Code, Image as ImageIcon, File, MoreVertical, Trash2, Download, Clock } from '@/components/ui/icons'
 import { formatRelativeTime, formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {

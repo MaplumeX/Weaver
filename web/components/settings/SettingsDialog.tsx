@@ -16,7 +16,7 @@ import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { TranslationKey, Language } from '@/lib/i18n/translations'
 import { cn } from '@/lib/utils'
-import { Check, ChevronDown, Plug, RefreshCw, CheckCircle2, Search } from 'lucide-react'
+import { Check, ChevronDown, Plug, RefreshCw, CheckCircle2, Search } from '@/components/ui/icons'
 import { toast } from 'sonner'
 import { getMcpConfig, updateMcpConfig, getSearchProviders, type SearchProviderSnapshot } from '@/lib/api-client'
 import { getApiBaseUrl } from '@/lib/api'
@@ -388,7 +388,7 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
                   </button>
 
                   {expandedProvider === provider.id && (
-                    <div className="p-3 border-t bg-muted/20 space-y-3">
+                    <div className="p-3 border-t border-border/30 bg-muted/20 backdrop-blur-sm space-y-3">
                       <div>
                         <Label className="text-xs font-medium mb-1.5 block">{t('apiKey')}</Label>
                         <Input
@@ -423,7 +423,7 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
               {t('mcpDescription')}
             </p>
 
-            <div className="flex items-center justify-between space-x-2 border p-3 rounded-lg bg-muted/20">
+            <div className="flex items-center justify-between space-x-2 border border-border/30 p-3 rounded-lg bg-muted/20 backdrop-blur-sm">
               <div className="space-y-0.5">
                 <Label className="text-sm font-medium">{t('enableMcp')}</Label>
                 <div className="text-xs text-muted-foreground">
@@ -512,7 +512,7 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
               )}
             </div>
 
-            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded">
+            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/30 backdrop-blur-sm border border-border/30 p-2 rounded">
               <div className="flex items-center gap-2">
                 {mcpLoading ? (
                   <RefreshCw className="h-3 w-3 animate-spin" />
@@ -558,7 +558,7 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
             ) : (
               <div className="space-y-2">
                 {searchProviders.length === 0 ? (
-                  <div className="rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="rounded-lg border border-border/30 bg-muted/20 backdrop-blur-sm px-3 py-2 text-xs text-muted-foreground">
                     {t('noResults')}
                   </div>
                 ) : (
@@ -570,7 +570,7 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
                     const circuitLabel = circuitOpen ? t('circuitOpen') : t('circuitClosed')
 
                     return (
-                      <div key={p.name} className="rounded-lg border bg-muted/10 px-3 py-2">
+                      <div key={p.name} className="rounded-lg border border-border/30 bg-muted/10 backdrop-blur-sm px-3 py-2">
                         <div className="flex items-center justify-between gap-2">
                           <div className="font-medium text-sm">{p.name}</div>
                           <div className="flex items-center gap-1.5 text-[11px]">
@@ -623,7 +623,7 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
               </div>
             )}
 
-            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded">
+            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/30 backdrop-blur-sm border border-border/30 p-2 rounded">
               <span className="tabular-nums">
                 {t('results')}: {searchProviders.length}
               </span>

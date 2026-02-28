@@ -22,23 +22,19 @@ const config = {
     extend: {
       fontFamily: {
         sans: [
-          'var(--font-sans)',
+          'var(--font-geist-sans)',
           'PingFang SC',
           'Hiragino Sans GB',
           'Microsoft YaHei',
-          '微软雅黑',
-          'Arial',
           'sans-serif',
         ],
         mono: [
-          'var(--font-mono)',
+          'var(--font-geist-mono)',
           'ui-monospace',
           'SFMono-Regular',
           'Menlo',
           'Monaco',
           'Consolas',
-          'Liberation Mono',
-          'Courier New',
           'monospace',
         ],
       },

@@ -72,6 +72,8 @@ def _e2b_api_key_configured() -> bool:
         return False
     if key in _E2B_PLACEHOLDER_KEYS:
         return False
+    if not key.startswith("e2b_"):
+        return False
     return True
 
 

@@ -1240,7 +1240,13 @@ def writer_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     try:
         check_cancellation(state)
 
-        agent, writer_tools = build_writer_agent(_model_for_task("writing", config))
+        route = str(state.get("route") or "").strip().lower()
+        model = _model_for_task("writing", config)
+        # Web-mode responses should be fast and deterministic. The tool-calling writer
+        # agent can decide to execute code (E2B) which is slow and can exceed API
+        # timeouts for simple web answers.
+        use_tools = route != "web"
+        agent, writer_tools = build_writer_agent(model) if use_tools else (None, [])
         t0 = time.time()
         code_results: List[Dict[str, Any]] = []
 
@@ -1285,7 +1291,11 @@ def writer_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
                 )
             )
 
-        response = agent.invoke({"messages": messages}, config=config)
+        if use_tools and agent is not None:
+            response = agent.invoke({"messages": messages}, config=config)
+        else:
+            llm = _chat_model(model, temperature=0.7)
+            response = llm.invoke(messages)
         logger.info(f"[timing] writer {(time.time() - t0):.3f}s")
 
         report = ""
@@ -1328,7 +1338,7 @@ def writer_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     except asyncio.CancelledError as e:
         return handle_cancellation(state, e)
     except Exception as e:
-        logger.error(f"Writer error: {str(e)}")
+        logger.error(f"Writer error: {str(e)}", exc_info=True)
         return {
             "final_report": "Error generating report",
             "is_complete": True,

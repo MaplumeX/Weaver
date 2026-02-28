@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ExternalLink, Filter, Link as LinkIcon } from 'lucide-react'
+import { ExternalLink, Filter, Link as LinkIcon } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
 import { MessageSource } from '@/types/chat'
 

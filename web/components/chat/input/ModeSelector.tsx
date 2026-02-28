@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useCallback } from 'react'
-import { Globe, Bot, Rocket, Plug, ChevronDown, Check } from 'lucide-react'
+import { Globe, Bot, Rocket, Plug, ChevronDown, Check } from '@/components/ui/icons'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { cn } from '@/lib/utils'
 import { deriveUiModeId, searchModeFromId, type SearchMode } from '@/lib/chat-mode'
@@ -80,7 +80,7 @@ export function ModeSelector({
   }, [onMcpModeChange, onMcpProviderChange, onSearchModeChange])
 
   return (
-    <div className="flex items-center gap-1 self-start ml-1 mb-1" role="radiogroup" aria-label="Search mode">
+    <div className="flex items-center gap-1 self-start ml-1 mb-1 p-0.5 rounded-xl bg-muted/20 border border-border/20" role="radiogroup" aria-label="Search mode">
       {modes.map((mode) => {
         const Icon = mode.icon
         const isActive = activeMode === mode.id
@@ -92,13 +92,13 @@ export function ModeSelector({
             aria-checked={isActive}
             onClick={() => handleModeClick(mode.id)}
             className={cn(
-              "relative flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border border-border/60 transition-colors duration-200",
+              "relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200",
               isActive
-                ? "bg-primary/10 text-foreground border-primary/30 shadow-sm"
-                : "bg-background text-muted-foreground hover:bg-accent"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-card/50"
             )}
           >
-            <Icon className={cn("h-3.5 w-3.5 transition-colors", isActive ? "text-primary" : "text-muted-foreground")} />
+            <Icon className={cn("h-3.5 w-3.5 transition-colors", isActive ? "text-primary" : "text-muted-foreground/70")} />
             {mode.label}
           </button>
         )
@@ -112,13 +112,13 @@ export function ModeSelector({
           aria-expanded={isMcpOpen}
           onClick={handleMcpToggle}
           className={cn(
-            "relative flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border border-border/60 transition-colors duration-200",
+            "relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200",
             mcpMode
-              ? "bg-primary/10 text-foreground border-primary/30 shadow-sm"
-              : "bg-background text-muted-foreground hover:bg-accent"
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-card/50"
           )}
         >
-          <Plug className={cn("h-3.5 w-3.5 transition-colors", mcpMode ? "text-primary" : "text-muted-foreground")} />
+          <Plug className={cn("h-3.5 w-3.5 transition-colors", mcpMode ? "text-primary" : "text-muted-foreground/70")} />
           {mcpMode ? (mcpOptions.find(o => o.id === mcpProvider)?.label || 'MCP') : 'MCP'}
           <ChevronDown className="h-3 w-3 opacity-50" />
         </button>
@@ -127,7 +127,7 @@ export function ModeSelector({
           <div
             role="listbox"
             aria-label="MCP providers"
-            className="absolute bottom-full left-0 mb-2 w-40 bg-popover border border-border/60 rounded-xl shadow-lg z-50 overflow-hidden"
+            className="absolute bottom-full left-0 mb-2 w-40 bg-popover/90 backdrop-blur-xl border border-border/30 rounded-xl shadow-lg z-50 overflow-hidden animate-scale-in"
           >
             <div className="p-1">
               {mcpOptions.map(opt => (

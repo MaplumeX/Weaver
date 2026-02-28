@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import { RefreshCcw } from 'lucide-react'
+import { RefreshCcw } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { LoadingSkeleton } from '@/components/ui/loading'
 import { cn } from '@/lib/utils'

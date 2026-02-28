@@ -1,7 +1,7 @@
 'use client'
 
 import React, { Component, ReactNode, useState as useStateImport } from 'react'
-import { AlertCircle, RotateCcw, Copy, Check } from 'lucide-react'
+import { AlertCircle, RotateCcw, Copy, Check } from '@/components/ui/icons'
 import { Button } from './button'
 import { cn } from '@/lib/utils'
 

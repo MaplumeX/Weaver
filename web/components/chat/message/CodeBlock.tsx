@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState, useMemo, useCallback, memo } from 'react'
-import { Check, Copy, ChevronDown, ChevronRight, WrapText, Download, MoreHorizontal, ArrowUp, ArrowDown, Maximize2 } from 'lucide-react'
+import { Check, Copy, ChevronDown, ChevronRight, WrapText, Download, MoreHorizontal, ArrowUp, ArrowDown, Maximize2 } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { showSuccess } from '@/lib/toast-utils'
 import dynamic from 'next/dynamic'

@@ -41,8 +41,16 @@ async def init_mcp_tools(
 
     thread_id = servers.get("__thread_id__", "default")
     clients = MCPClients(thread_id=thread_id)
-    for server_id, cfg in servers.items():
+    server_items = [
+        (server_id, cfg)
+        for server_id, cfg in servers.items()
+        if isinstance(server_id, str) and not server_id.startswith("__")
+    ]
+    for server_id, cfg in server_items:
         try:
+            if not isinstance(cfg, dict):
+                logger.warning(f"Invalid MCP server config for {server_id}; expected object.")
+                continue
             if cfg.get("type") == "sse":
                 await clients.connect_sse(cfg.get("url"), server_id)
             elif cfg.get("type") == "stdio":
@@ -53,7 +61,7 @@ async def init_mcp_tools(
             logger.error(f"MCP connect failed for {server_id}: {e}")
 
     _CLIENTS = clients
-    logger.info(f"Loaded {len(clients.tools)} MCP tools from {len(servers)} servers")
+    logger.info(f"Loaded {len(clients.tools)} MCP tools from {len(server_items)} servers")
     return clients.tools
 
 

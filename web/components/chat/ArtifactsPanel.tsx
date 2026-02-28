@@ -5,7 +5,7 @@ import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { FileText, Code, BarChart, Download, Maximize2, Minimize2, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { FileText, Code, BarChart, Download, Maximize2, Minimize2, PanelRightClose, PanelRightOpen } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Artifact } from '@/types/chat'
@@ -63,7 +63,7 @@ const ArtifactListItem = memo(function ArtifactListItem({
       onClick={onClick}
       aria-current={isActive ? 'true' : undefined}
       className={cn(
-        "flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors duration-200",
+        "flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
         isActive
           ? "bg-primary/10 border-primary/20 text-foreground"
           : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50 hover:border-border/60"
@@ -134,7 +134,7 @@ export function ArtifactsPanel({
           disabled={!hasArtifacts}
           onClick={() => setActiveTab('artifacts')}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors',
+            'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
             base,
             padding,
             activeTab === 'artifacts'
@@ -153,7 +153,7 @@ export function ArtifactsPanel({
           disabled={!hasEvidence}
           onClick={() => setActiveTab('evidence')}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors',
+            'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
             base,
             padding,
             activeTab === 'evidence'
@@ -171,7 +171,7 @@ export function ArtifactsPanel({
           disabled={!hasMetrics}
           onClick={() => setActiveTab('metrics')}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors',
+            'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
             base,
             padding,
             activeTab === 'metrics'
@@ -189,7 +189,7 @@ export function ArtifactsPanel({
           disabled={!hasProgress}
           onClick={() => setActiveTab('progress')}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors',
+            'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
             base,
             padding,
             activeTab === 'progress'
@@ -207,7 +207,7 @@ export function ArtifactsPanel({
   // If collapsed (and not fullscreen), render slim bar
   if (!isOpen && !isFullscreen) {
     return (
-      <div className="h-full w-full border-l border-border/60 bg-card flex flex-col items-center py-3 gap-3 transition-colors duration-200">
+      <div className="h-full w-full border-l border-border/60 bg-card flex flex-col items-center py-3 gap-3 transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
         <Button
           type="button"
           variant="ghost"
@@ -234,7 +234,7 @@ export function ArtifactsPanel({
   if (isFullscreen) {
     return (
       <div className="fixed inset-0 z-50 bg-background flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-border/60">
+        <div className="flex items-center justify-between p-4 border-b border-border/60 backdrop-blur-xl">
           <div className="flex items-center gap-3 min-w-0">
             <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center text-primary-foreground font-semibold">
               I
@@ -291,8 +291,8 @@ export function ArtifactsPanel({
   }
 
   return (
-    <div className="flex flex-col h-full bg-card border-l border-border/60 transition-colors duration-200 w-full">
-      <div className="flex items-center justify-between p-4 border-b border-border/60 bg-background">
+    <div className="flex flex-col h-full bg-card border-l border-border/60 transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] w-full">
+      <div className="flex items-center justify-between p-4 border-b border-border/60 bg-background backdrop-blur-xl">
         <div className="flex items-center gap-2 min-w-0">
           {onToggle && (
             <Button
@@ -483,10 +483,10 @@ function ArtifactCard({ artifact, isFullscreen }: { artifact: Artifact, isFullsc
 
   return (
     <Card className={cn(
-      "overflow-hidden border-border/60 group transition-colors duration-200 hover:border-border/80",
+      "overflow-hidden border-border/60 group transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-border/80",
       isFullscreen ? "shadow-md" : undefined
     )}>
-      <CardHeader className="p-3 bg-muted/20 border-b border-border/60 flex flex-row items-center justify-between space-y-0">
+      <CardHeader className="p-3 bg-muted/20 border-b border-border/60 backdrop-blur-xl flex flex-row items-center justify-between space-y-0">
         <div className="flex items-center gap-2 overflow-hidden">
           <div className="p-1.5 bg-background rounded-md shadow-sm">
             {getIcon()}
@@ -500,7 +500,7 @@ function ArtifactCard({ artifact, isFullscreen }: { artifact: Artifact, isFullsc
             type="button"
             variant="ghost"
             size="icon"
-            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
             aria-label="Download chart"
             title="Download chart"
           >

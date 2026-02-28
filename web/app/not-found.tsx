@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Home, Search } from 'lucide-react'
+import { Home, Search } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 
 /**

@@ -27,17 +27,20 @@ const nextConfig = {
 
   // Dev indicators
   devIndicators: {
-    buildActivity: false,
+    // Next.js DevTools indicator (the draggable "N" in dev).
+    // Keep it away from the sidebar's bottom-left controls.
+    position: 'bottom-right',
   },
 
   // Experimental features
   experimental: {
     // Optimize package imports to reduce bundle size
     optimizePackageImports: [
-      'lucide-react',
+      '@phosphor-icons/react',
       'recharts',
       'framer-motion',
       'react-syntax-highlighter',
+      'geist',
     ],
   },
 

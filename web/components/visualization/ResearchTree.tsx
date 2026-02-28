@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from 'react'
 import { cn } from '@/lib/utils'
-import { ChevronDown, ChevronRight, Circle } from 'lucide-react'
+import { ChevronDown, ChevronRight, Circle } from '@/components/ui/icons'
 
 export interface TreeNode {
   id: string

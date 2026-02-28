@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MessageItem } from './MessageItem'
 import { SearchModeSelector, SearchMode } from './SearchModeSelector'
-import { Send, Loader2, Sparkles } from 'lucide-react'
+import { Send, Loader2, Sparkles } from '@/components/ui/icons'
 import { getApiBaseUrl } from '@/lib/api'
 
 interface Message {

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Bot, Globe, Bug, BookOpen, PenTool, TestTube, Trash2, Rocket, Search } from 'lucide-react'
+import { Bot, Globe, Bug, BookOpen, PenTool, TestTube, Trash2, Rocket, Search } from '@/components/ui/icons'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { cn } from '@/lib/utils'
 
@@ -102,10 +102,10 @@ export function CommandPalette({ show, onSelect, onClose }: CommandPaletteProps)
       onKeyDown={handleKeyDown}
       role="listbox"
       aria-label="Commands"
-      className="absolute bottom-full left-4 mb-2 w-72 bg-popover border rounded-xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-2 fade-in z-50 focus:outline-none"
+      className="absolute bottom-full left-4 mb-2 w-72 bg-popover/90 backdrop-blur-xl border border-border/30 rounded-xl shadow-lg overflow-hidden animate-in slide-in-from-bottom-2 fade-in animate-scale-in z-50 focus:outline-none"
     >
       {/* Search Input */}
-      <div className="px-3 py-2 border-b bg-muted/30">
+      <div className="px-3 py-2 border-b border-border/30 bg-muted/30">
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <input
@@ -120,7 +120,7 @@ export function CommandPalette({ show, onSelect, onClose }: CommandPaletteProps)
       </div>
 
       {/* Header */}
-      <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 border-b">
+      <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 border-b border-border/30">
         {t('commands')} {filteredCommands.length !== ALL_COMMANDS.length && `(${filteredCommands.length})`}
       </div>
 
@@ -145,10 +145,10 @@ export function CommandPalette({ show, onSelect, onClose }: CommandPaletteProps)
                   "flex items-center gap-3 w-full px-2 py-2 text-sm rounded-lg text-left transition-colors",
                   isSelected
                     ? "bg-accent text-accent-foreground"
-                    : "hover:bg-accent hover:text-accent-foreground"
+                    : "hover:bg-accent/50 hover:text-accent-foreground"
                 )}
               >
-                <div className="flex items-center justify-center h-6 w-6 rounded bg-background border shadow-sm">
+                <div className="flex items-center justify-center h-6 w-6 rounded bg-background border border-border/30 shadow-sm">
                   <Icon className="h-3.5 w-3.5" />
                 </div>
                 <div>

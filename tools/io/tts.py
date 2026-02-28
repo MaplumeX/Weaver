@@ -4,14 +4,16 @@ Hard-requires the DashScope SDK and a valid `DASHSCOPE_API_KEY`.
 """
 
 import base64
+import json
 import logging
 import os
+import re
 import time
 from importlib import metadata
 from typing import Any, Dict, Optional
 
 import dashscope
-from dashscope.audio.tts_v2 import SpeechSynthesizer
+from dashscope.audio.tts_v2 import AudioFormat, SpeechSynthesizer
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,98 @@ AVAILABLE_VOICES = {
 }
 
 DEFAULT_VOICE = "longxiaochun"
-DEFAULT_MODEL = "cosyvoice-v3-flash"
+# Default to a broadly compatible model. In environments with older DashScope SDKs
+# or restricted accounts, newer CosyVoice variants may return TaskFailed/InvalidParameter.
+DEFAULT_MODEL = "cosyvoice-v1"
+DEFAULT_AUDIO_FORMAT = AudioFormat.MP3_22050HZ_MONO_256KBPS
+
+
+def _is_auth_error_message(message: str) -> bool:
+    text = (message or "").lower()
+    return (
+        "invalidapikey" in text
+        or "unauthorized" in text
+        or "handshake status 401" in text
+        or "authentication" in text
+    )
+
+
+def _extract_error_json(message: str) -> Optional[Dict[str, Any]]:
+    """
+    Best-effort extraction of JSON error payloads from DashScope websocket errors.
+
+    Example substring:
+      b'{"code":"InvalidApiKey","message":"Invalid API-key provided.","request_id":"..."}'
+    """
+    if not message:
+        return None
+    candidates = []
+
+    # bytes-literal payload
+    m = re.search(r"b'(\{.*?\})'", message)
+    if m:
+        candidates.append(m.group(1))
+
+    # raw JSON object (fallback)
+    m2 = re.search(r"(\{\\?\"code\\?\".*?\})", message)
+    if m2:
+        candidates.append(m2.group(1))
+
+    for raw in candidates:
+        try:
+            raw = raw.replace("\\\"", "\"")
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            continue
+    return None
+
+
+def _summarize_error(exc: Exception) -> str:
+    text = str(exc).strip()
+    payload = _extract_error_json(text)
+    if isinstance(payload, dict):
+        code = str(payload.get("code") or "").strip()
+        msg = str(payload.get("message") or "").strip()
+        if code and msg:
+            return f"{code}: {msg}"
+        if msg:
+            return msg
+    # Keep messages short for API responses.
+    if len(text) > 300:
+        return text[:300] + "..."
+    return text or exc.__class__.__name__
+
+
+def _validate_dashscope_api_key(api_key: str) -> Optional[str]:
+    """
+    Validate DashScope credentials via a lightweight HTTP call.
+
+    This avoids relying on websocket error propagation (which can surface as a
+    generic "Connection is already closed.").
+
+    Returns:
+        None when the key appears valid, otherwise a short "CODE: message" string.
+    """
+    key = (api_key or "").strip()
+    if not key:
+        return "No API key configured"
+    try:
+        from dashscope import Models  # type: ignore
+        from http import HTTPStatus
+
+        resp = Models.list(page=1, page_size=1, api_key=key)
+        status = int(resp.get("status_code") or 0)
+        if status == int(HTTPStatus.OK):
+            return None
+        code = str(resp.get("code") or "").strip()
+        msg = str(resp.get("message") or "").strip()
+        if code and msg:
+            return f"{code}: {msg}"
+        return msg or f"DashScope API error (status={status})"
+    except Exception as e:
+        return _summarize_error(e)
 
 
 class TTSService:
@@ -45,6 +138,8 @@ class TTSService:
 
         dashscope.api_key = self.api_key
         self.enabled = True
+        self.last_error: Optional[str] = None
+        self.last_error_time: Optional[float] = None
         self._warn_if_old_sdk()
 
     def synthesize(
@@ -73,22 +168,62 @@ class TTSService:
         last_error: Optional[Exception] = None
         for attempt in range(1, max_retries + 1):
             try:
-                synthesizer = SpeechSynthesizer(model=model, voice=voice)
+                # Explicitly set an audio format. DashScope SDK versions around 1.20.x
+                # can send an invalid "Default"/0 format when using AudioFormat.DEFAULT,
+                # which causes the engine to fail with InvalidParameter.
+                synthesizer = SpeechSynthesizer(
+                    model=model,
+                    voice=voice,
+                    format=DEFAULT_AUDIO_FORMAT,
+                )
                 audio_data = synthesizer.call(text)
                 if audio_data:
                     break
                 last_error = RuntimeError("No audio data returned from DashScope.")
             except Exception as exc:  # noqa: PERF203
-                last_error = exc
-                logger.warning("TTS attempt %s/%s failed: %s", attempt, max_retries, exc)
+                # Preserve the most informative error (handshake/auth errors often appear only once).
+                exc_text = str(exc)
+                if last_error is None:
+                    last_error = exc
+                elif "connection is already closed" in exc_text.lower() and _is_auth_error_message(
+                    str(last_error)
+                ):
+                    # Don't overwrite an auth/handshake error with a generic close error.
+                    pass
+                else:
+                    last_error = exc
+
+                summary = _summarize_error(exc)
+                logger.warning("TTS attempt %s/%s failed: %s", attempt, max_retries, summary)
+
+                # DashScope websocket auth failures sometimes surface as a generic close error.
+                # If that happens, validate the key once and fail fast instead of retrying.
+                if attempt == 1 and "connection is already closed" in exc_text.lower():
+                    validated = _validate_dashscope_api_key(self.api_key)
+                    if validated:
+                        last_error = RuntimeError(validated)
+                        break
+
+                # Auth errors won't succeed on retry; fail fast.
+                if _is_auth_error_message(exc_text):
+                    break
             if attempt < max_retries:
                 time.sleep(retry_delay)
 
         if not audio_data:
-            raise RuntimeError(f"TTS failed after {max_retries} attempts: {last_error}")
+            summary = _summarize_error(last_error or RuntimeError("Unknown error"))
+            if "connection is already closed" in summary.lower():
+                validated = _validate_dashscope_api_key(self.api_key)
+                if validated:
+                    summary = validated
+            self.last_error = summary
+            self.last_error_time = time.time()
+            raise RuntimeError(f"TTS failed: {self.last_error}")
 
         audio_base64 = base64.b64encode(audio_data).decode("utf-8")
         logger.info("TTS success: %s chars -> %s bytes", len(text), len(audio_data))
+        self.last_error = None
+        self.last_error_time = None
 
         return {
             "success": True,

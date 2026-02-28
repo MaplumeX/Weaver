@@ -51,18 +51,44 @@ def _selector_llm() -> ChatOpenAI:
     return _build_llm(settings.tool_selector_model or "gpt-4o-mini", temperature=0)
 
 
+def _tool_selector_supported() -> bool:
+    """
+    LangChain's LLMToolSelectorMiddleware relies on structured output
+    (`with_structured_output`), which uses OpenAI `response_format`.
+
+    Many OpenAI-compatible gateways (e.g. DeepSeek) don't support that parameter,
+    causing 400 errors at runtime. We gate selector usage to known-supported
+    backends (OpenAI direct + Azure).
+    """
+    if settings.use_azure:
+        return True
+    base_url = (settings.openai_base_url or "").strip().lower()
+    if not base_url:
+        return True  # OpenAI default
+    return "api.openai.com" in base_url
+
+
 def _build_middlewares() -> List:
     mws: List = []
 
     # Tool selector
-    if settings.tool_selector:
-        mws.append(
-            LLMToolSelectorMiddleware(
-                model=_selector_llm(),
-                max_tools=settings.tool_selector_max_tools or 3,
-                always_include=settings.tool_selector_always_include_list,
-                system_prompt=settings.tool_selector_prompt or None,
-            )
+    if settings.tool_selector and _tool_selector_supported():
+        selector_kwargs = {
+            "model": _selector_llm(),
+            "max_tools": settings.tool_selector_max_tools or 3,
+            "always_include": settings.tool_selector_always_include_list,
+        }
+        # Don't pass `None` here — it overrides LangChain's DEFAULT_SYSTEM_PROMPT
+        # and will crash when the middleware appends max_tools guidance.
+        custom_prompt = (settings.tool_selector_prompt or "").strip()
+        if custom_prompt:
+            selector_kwargs["system_prompt"] = custom_prompt
+
+        mws.append(LLMToolSelectorMiddleware(**selector_kwargs))
+    elif settings.tool_selector and not _tool_selector_supported():
+        logger.warning(
+            "Tool selector is enabled but current LLM backend likely doesn't support "
+            "structured output (response_format). Skipping LLMToolSelectorMiddleware."
         )
 
     # Tool retry

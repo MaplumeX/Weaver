@@ -7,6 +7,7 @@ DashScope ASR (Automatic Speech Recognition) 语音识别工具
 import logging
 import os
 import tempfile
+import time
 from http import HTTPStatus
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
@@ -62,6 +63,8 @@ class ASRService:
             self.enabled = True
         else:
             self.enabled = False
+        self.last_error: Optional[str] = None
+        self.last_error_time: Optional[float] = None
 
     def recognize_file(
         self,
@@ -121,15 +124,21 @@ class ASRService:
 
                 logger.info(f"ASR success: {text[:50]}... | metrics: {metrics}")
 
+                self.last_error = None
+                self.last_error_time = None
                 return {"success": True, "text": text, "metrics": metrics, "error": None}
 
             error_msg = f"ASR failed: {result.message}"
             logger.error(error_msg)
+            self.last_error = error_msg
+            self.last_error_time = time.time()
             return {"success": False, "text": "", "error": error_msg}
 
         except Exception as e:
             error_msg = f"ASR exception: {str(e)}"
             logger.error(error_msg, exc_info=True)
+            self.last_error = error_msg
+            self.last_error_time = time.time()
             return {"success": False, "text": "", "error": error_msg}
 
     def recognize_bytes(

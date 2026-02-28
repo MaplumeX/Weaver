@@ -1549,10 +1549,16 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             planner_llm=planner_llm,
             researcher_llm=critic_llm,
             writer_llm=writer_llm,
-            search_func=lambda payload, config_payload=None: _search_query(
+            search_func=lambda payload, config_payload=None, **kwargs: _search_query(
                 (payload or {}).get("query", ""),
                 int((payload or {}).get("max_results", per_query_results)),
-                config_payload if isinstance(config_payload, dict) else config,
+                (
+                    kwargs.get("config")
+                    if isinstance(kwargs.get("config"), dict)
+                    else config_payload
+                    if isinstance(config_payload, dict)
+                    else config
+                ),
                 provider_profile=provider_profile,
             ),
             config=config,

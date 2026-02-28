@@ -4,12 +4,9 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { ChatSession, Message } from '@/types/chat'
 import { StorageService } from '@/lib/storage-service'
 
-// Smart title generation from message content
-function generateSmartTitle(content: string): string {
-  if (!content) return 'New Conversation'
-
-  // Clean markdown and special characters
-  const clean = content
+function normalizePlainText(content: string): string {
+  if (!content) return ''
+  return content
     .replace(/```[\s\S]*?```/g, '') // Remove code blocks
     .replace(/`[^`]+`/g, '') // Remove inline code
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Links -> text
@@ -17,6 +14,14 @@ function generateSmartTitle(content: string): string {
     .replace(/https?:\/\/\S+/g, '') // Remove URLs
     .replace(/\n+/g, ' ') // Newlines to spaces
     .trim()
+}
+
+// Smart title generation from message content
+function generateSmartTitle(content: string): string {
+  if (!content) return 'New Conversation'
+
+  // Clean markdown and special characters
+  const clean = normalizePlainText(content)
 
   if (!clean) return 'New Conversation'
 
@@ -40,6 +45,19 @@ function generateSmartTitle(content: string): string {
 
   const title = words.join(' ')
   return title.length > 50 ? title.slice(0, 47) + '...' : title
+}
+
+function generateSmartSummary(messages: Message[]): string {
+  if (!Array.isArray(messages) || messages.length === 0) return ''
+
+  const last = [...messages].reverse().find(m => (m.role || '').toLowerCase() !== 'system' && (m.content || '').trim())
+  if (!last) return ''
+
+  const clean = normalizePlainText(last.content || '')
+  if (!clean) return ''
+
+  // Keep it short enough to act as a list preview.
+  return clean.length > 120 ? clean.slice(0, 117) + '...' : clean
 }
 
 export function useChatHistory() {
@@ -130,6 +148,7 @@ export function useChatHistory() {
         updatedHistory[existingIndex] = {
           ...existingSession,
           updatedAt: timestamp,
+          summary: generateSmartSummary(messages) || existingSession.summary,
           // Update title if it's still the default "New Conversation" or generic
           // (Logic can be refined, here we just update timestamp primarily)
         }
@@ -154,6 +173,7 @@ export function useChatHistory() {
           createdAt: timestamp,
           updatedAt: timestamp,
           isPinned: false,
+          summary: generateSmartSummary(messages) || normalizePlainText(firstUserMsg?.content || ''),
           tags: []
         }
         return [newSession, ...prev]

@@ -7,6 +7,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from common.proxy_env import normalize_socks_proxy_env
+
 try:
     import tomllib  # Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover
@@ -107,7 +109,15 @@ class AppConfig(BaseModel):
 
 
 class Settings(BaseSettings):
-    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8-sig", case_sensitive=False)
+    # Local `.env` files often include variables for the frontend (e.g. `WEAVER_BASE_URL`)
+    # or optional providers that aren't always modeled here. Rejecting unknown keys makes
+    # local setup brittle, so we ignore extras.
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8-sig",
+        case_sensitive=False,
+        extra="ignore",
+    )
     """Application settings."""
 
     @classmethod
@@ -167,6 +177,7 @@ class Settings(BaseSettings):
     serper_api_key: str = ""
     serpapi_api_key: str = ""
     bing_api_key: str = ""
+    brave_api_key: str = ""
     exa_api_key: str = ""
     firecrawl_api_key: str = ""
     google_search_api_key: str = ""  # Google Custom Search API key
@@ -691,6 +702,12 @@ def apply_app_config_overrides(settings: Settings) -> None:
         # allow disabling sandbox via config
         settings.sandbox_mode = "none"
 
+
+try:
+    normalize_socks_proxy_env()
+except Exception:
+    # Best-effort only; never block settings initialization.
+    pass
 
 settings = Settings()
 apply_app_config_overrides(settings)

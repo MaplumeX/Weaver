@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
-import { Inter, JetBrains_Mono } from "next/font/google"
+import { GeistSans } from "geist/font/sans"
+import { GeistMono } from "geist/font/mono"
 import "./globals.css"
 import "katex/dist/katex.min.css"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -8,22 +9,6 @@ import { ChatErrorBoundary } from "@/components/ui/error-boundary"
 import { cn } from "@/lib/utils"
 import { Toaster } from "@/components/ui/sonner"
 import { WebVitals } from "@/components/analytics/WebVitals"
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-sans",
-  display: "swap",
-  preload: true,
-  fallback: ["system-ui", "-apple-system", "sans-serif"],
-})
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-  display: "swap",
-  preload: false, // Code font doesn't need to block rendering
-  fallback: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
-})
 
 export const metadata: Metadata = {
   title: {
@@ -91,8 +76,8 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={cn(
         "min-h-dvh bg-background font-sans antialiased",
-        inter.variable,
-        jetbrainsMono.variable
+        GeistSans.variable,
+        GeistMono.variable
       )}>
         {/* Skip-to-content link for keyboard/screen-reader users (WCAG 2.4.1) */}
         <a href="#main-content" className="skip-to-content">

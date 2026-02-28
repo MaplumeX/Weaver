@@ -6,7 +6,7 @@ import { Header } from './Header'
 import { EmptyState } from './EmptyState'
 import { ChatInput } from './ChatInput'
 import { ScrollToBottomButton, InterruptBanner, MobileArtifactsOverlay } from './ChatOverlays'
-import { Monitor } from 'lucide-react'
+import { Monitor } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Message } from '@/types/chat'
@@ -145,6 +145,7 @@ export function Chat() {
     setPendingInterrupt,
     threadId,
     setThreadId,
+    connectionState,
     processChat,
     processResearch,
     handleStop,
@@ -285,11 +286,11 @@ export function Chat() {
 
   // Render content based on current view
   const renderContent = () => {
-    if (ui.currentView === 'discover') return <Discover />
-    if (ui.currentView === 'library') return <Library />
+    if (ui.currentView === 'discover') return <div key="discover" className="animate-fade-in"><Discover /></div>
+    if (ui.currentView === 'library') return <div key="library" className="animate-fade-in"><Library /></div>
 
     return (
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col min-h-0 chat-ambient">
         {messages.length === 0 ? (
           <div className="h-full w-full p-4 overflow-y-auto">
             <EmptyState
@@ -317,6 +318,7 @@ export function Chat() {
               messages={messages}
               isLoading={isLoading}
               currentStatus={currentStatus}
+              connectionState={connectionState}
               onEditMessage={handleEditMessage}
               onAtBottomChange={handleAtBottomChange}
             />
@@ -353,6 +355,7 @@ export function Chat() {
         onOpenSettings={() => setSettings(true)}
         activeView={ui.currentView}
         onViewChange={(v: string) => setView(v as 'dashboard' | 'discover' | 'library')}
+        activeChatId={currentSessionId}
         history={history}
         isLoading={isHistoryLoading}
       />

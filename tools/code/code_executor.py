@@ -39,6 +39,17 @@ def execute_python_code(code: str) -> Dict[str, Any]:
             ),
             "image": None,
         }
+    if not e2b_key.startswith("e2b_"):
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": "",
+            "error": (
+                "E2B_API_KEY looks invalid (expected to start with 'e2b_'). "
+                "Get one at https://e2b.dev/docs/api-key"
+            ),
+            "image": None,
+        }
 
     try:
         from e2b_code_interpreter import Sandbox  # type: ignore
@@ -56,7 +67,7 @@ def execute_python_code(code: str) -> Dict[str, Any]:
 
     try:
         prepare_e2b_env()
-        with Sandbox(api_key=e2b_key) as sandbox:
+        with Sandbox.create(api_key=e2b_key) as sandbox:
             execution = sandbox.run_code(code)
 
             result = {

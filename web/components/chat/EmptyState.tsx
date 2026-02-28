@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { ArrowRight, Sparkles, TrendingUp, Code2, BookOpen } from 'lucide-react'
+import { ArrowRight, Sparkles, TrendingUp, Code2, BookOpen } from '@/components/ui/icons'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { cn } from '@/lib/utils'
 import { deriveUiModeId, searchModeFromId, type CoreModeId, type SearchMode } from '@/lib/chat-mode'
@@ -42,26 +42,26 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
   ]
 
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full max-w-[820px] mx-auto p-6">
+    <div className="flex flex-col items-center justify-center h-full w-full max-w-[820px] mx-auto p-6 animate-fade-in">
 
       {/* Hero Section */}
-      <div className="flex flex-col items-center space-y-6 mb-12 text-center">
-        <div className="flex size-24 items-center justify-center rounded-3xl border border-border/60 bg-card shadow-sm overflow-hidden">
+      <div className="flex flex-col items-center space-y-5 mb-14 text-center">
+        <div className="flex size-16 items-center justify-center rounded-2xl bg-card border border-border/20 shadow-sm overflow-hidden">
           <Image
             src="/logo.png"
             alt="Weaver"
-            width={80}
-            height={80}
-            className="h-20 w-20 object-contain"
+            width={48}
+            height={48}
+            className="h-12 w-12 object-contain"
             priority
           />
         </div>
 
-        <div className="space-y-2 max-w-lg">
-          <h2 className="text-3xl font-semibold text-balance">
+        <div className="space-y-2 max-w-md">
+          <h2 className="text-xl font-semibold text-foreground/90 text-balance tracking-tight">
             {t('emptyStateTitle')}
           </h2>
-          <p className="text-muted-foreground text-lg text-pretty">
+          <p className="text-muted-foreground/50 text-sm text-pretty leading-relaxed">
             {t('emptyStateSubtitle')} <br className="hidden sm:block" />
             {t('emptyStateDescription')}
           </p>
@@ -69,7 +69,7 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
       </div>
 
       {/* Starter Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-[820px]">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-[680px]">
         {starters.map((starter, i) => {
           const isActive = activeMode === starter.mode
           return (
@@ -80,24 +80,33 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
                 onStarterClick?.(starter.text, starter.mode)
               }}
               className={cn(
-                "group flex items-start gap-4 p-4 rounded-xl border border-border/60 bg-card text-left transition-colors duration-200",
+                "group flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all duration-200",
                 isActive
-                  ? "border-primary/30"
-                  : "hover:bg-accent"
+                  ? "border-primary/20 bg-primary/[0.04] shadow-sm shadow-primary/5"
+                  : "border-border/20 bg-card/40 hover:bg-card/80 hover:border-border/40 hover:shadow-sm"
               )}
+              style={{ animationDelay: `${i * 50}ms` }}
             >
-            <div className="p-2 rounded-lg bg-muted group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-              <starter.icon className="h-5 w-5" />
-            </div>
-            <div className="flex-1 space-y-1">
-              <p className="text-sm font-medium leading-snug group-hover:text-primary transition-colors">
-                {starter.text}
-              </p>
-              <div className={cn("mt-1 flex items-center gap-1 text-xs text-muted-foreground", isActive && "text-primary")}>
-                <span>{t('useMode')} {starter.mode} {t('mode')}</span>
-                <ArrowRight className="h-3 w-3" />
+              <div className={cn(
+                "p-2 rounded-lg transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "bg-muted/30 text-muted-foreground/50 group-hover:bg-primary/8 group-hover:text-primary"
+              )}>
+                <starter.icon className="h-4 w-4" />
               </div>
-            </div>
+              <div className="flex-1 space-y-1 min-w-0">
+                <p className="text-[13px] font-medium leading-snug group-hover:text-foreground transition-colors">
+                  {starter.text}
+                </p>
+                <div className={cn(
+                  "flex items-center gap-1 text-xs",
+                  isActive ? "text-primary/60" : "text-muted-foreground/35"
+                )}>
+                  <span>{t('useMode')} {starter.mode} {t('mode')}</span>
+                  <ArrowRight className="h-2.5 w-2.5" />
+                </div>
+              </div>
             </button>
           )
         })}

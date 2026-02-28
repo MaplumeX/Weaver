@@ -355,26 +355,43 @@ def firecrawl_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
     data = _safe_json(resp) or {}
     results: List[Dict[str, Any]] = []
 
-    items = data.get("data") or []
-    if isinstance(items, list):
-        for idx, item in enumerate(items, 1):
-            if not isinstance(item, dict):
-                continue
-            content = ""
-            if item.get("markdown"):
-                content = str(item.get("markdown") or "")[:300]
-            elif item.get("description"):
-                content = str(item.get("description") or "")
+    # Firecrawl responses can be:
+    # - {"data": [...]} (older)
+    # - {"data": {"web": [...]}} (v2)
+    raw_items: Any = data.get("data") or []
+    items: List[Any] = []
+    if isinstance(raw_items, list):
+        items = raw_items
+    elif isinstance(raw_items, dict):
+        # Prefer the "web" bucket when present (matches our request sources=["web"]).
+        web_items = raw_items.get("web")
+        if isinstance(web_items, list):
+            items = web_items
+        else:
+            # Fallback: first list-valued field.
+            for val in raw_items.values():
+                if isinstance(val, list):
+                    items = val
+                    break
 
-            results.append(
-                {
-                    "title": item.get("title", "") or "",
-                    "snippet": content,
-                    "url": item.get("url", "") or "",
-                    "source": "firecrawl",
-                    "position": idx,
-                    "markdown": item.get("markdown", "") or "",
-                }
-            )
+    for idx, item in enumerate(items, 1):
+        if not isinstance(item, dict):
+            continue
+        content = ""
+        if item.get("markdown"):
+            content = str(item.get("markdown") or "")[:300]
+        elif item.get("description"):
+            content = str(item.get("description") or "")
+
+        results.append(
+            {
+                "title": item.get("title", "") or "",
+                "snippet": content,
+                "url": item.get("url", "") or "",
+                "source": "firecrawl",
+                "position": idx,
+                "markdown": item.get("markdown", "") or "",
+            }
+        )
 
     return results[: int(max_results or 10)]

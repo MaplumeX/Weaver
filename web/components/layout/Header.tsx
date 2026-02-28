@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Brain } from 'lucide-react'
+import { Brain } from '@/components/ui/icons'
 
 interface HeaderProps {
   selectedModel: string

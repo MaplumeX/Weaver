@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useReducer } from 'react'
 import Image from 'next/image'
-import { Loader2, Globe, Maximize2, Minimize2, ExternalLink, Play, Pause, Camera } from 'lucide-react'
+import { Loader2, Globe, Maximize2, Minimize2, ExternalLink, Play, Pause, Camera } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
 import { BrowserScreenshot } from '@/types/browser'
 import { useBrowserEvents } from '@/hooks/useBrowserEvents'

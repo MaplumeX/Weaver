@@ -2,7 +2,7 @@
 
 import { useRef, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Mic, MicOff } from 'lucide-react'
+import { Mic, MicOff } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { getApiBaseUrl } from '@/lib/api'
@@ -165,8 +165,9 @@ export function AudioControls({ onTranscript, disabled }: AudioControlsProps) {
       aria-label={isListening ? 'Stop recording' : 'Start voice input'}
       aria-pressed={isListening}
       className={cn(
-        "h-8 w-8 rounded-full hover:bg-muted transition-colors duration-200",
-        isListening && "bg-red-500/10 text-red-500 hover:bg-red-500/20",
+        "h-8 w-8 rounded-full transition-colors duration-200",
+        "hover:bg-muted/50 active:bg-muted/70",
+        isListening && "bg-red-500/10 text-red-500 hover:bg-red-500/20 active:bg-red-500/30 animate-pulse",
         isProcessingAudio && "bg-primary/10 text-primary"
       )}
     >

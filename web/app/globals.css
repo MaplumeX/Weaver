@@ -4,68 +4,84 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Easing curves ──────────────────────────────────── */
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out-cubic: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ─── Design tokens ──────────────────────────────────── */
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --background: 0 0% 99%;
     --foreground: 240 10% 3.9%;
     --card: 0 0% 100%;
     --card-foreground: 240 10% 3.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 3.9%;
-    --primary: 221 83% 53%;
+    --primary: 220 72% 50%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 10%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 221 83% 53%;
-    --radius: 0.75rem;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 220 72% 50%;
+    --radius: 0.625rem;
   }
 
   .dark {
-    --background: 222 47% 6%;
-    --foreground: 0 0% 98%;
-    --card: 222 47% 8%;
-    --card-foreground: 0 0% 98%;
-    --popover: 222 47% 8%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 221 83% 60%;
+    --background: 230 15% 5.5%;
+    --foreground: 210 20% 95%;
+    --card: 228 16% 8%;
+    --card-foreground: 210 20% 95%;
+    --popover: 228 18% 9%;
+    --popover-foreground: 210 20% 95%;
+    --primary: 217 76% 56%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 222 47% 12%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 222 47% 12%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 222 47% 12%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --secondary: 228 14% 12%;
+    --secondary-foreground: 210 15% 90%;
+    --muted: 228 12% 14%;
+    --muted-foreground: 218 10% 50%;
+    --accent: 228 14% 14%;
+    --accent-foreground: 210 15% 90%;
+    --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 98%;
-    --border: 222 47% 15%;
-    --input: 222 47% 15%;
-    --ring: 221 83% 60%;
+    --border: 228 10% 17%;
+    --input: 228 10% 17%;
+    --ring: 217 76% 56%;
   }
 }
 
+/* ─── Global base ────────────────────────────────────── */
 @layer base {
   * {
     @apply border-border;
   }
 
   body {
-    @apply bg-background text-foreground antialiased transition-colors duration-300;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+    transition: background-color 0.2s, color 0.2s;
+  }
+
+  code, pre, kbd, samp {
+    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 }
 
-/* Custom Scrollbar for Webkit */
+/* ─── Scrollbar ──────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -73,274 +89,287 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/40 transition-colors;
+  @apply bg-muted-foreground/10 rounded-full;
+  transition: background-color 0.2s;
 }
 
-/* Firefox scrollbar */
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/25;
+}
+
 html {
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.1) transparent;
+  scrollbar-gutter: stable;
 }
 
-/* Typography Utilities */
+/* ─── Typography utilities ───────────────────────────── */
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
-
   .text-pretty {
     text-wrap: pretty;
   }
 }
 
-/* Surface Utilities (Enterprise Minimal) */
+/* ─── Surface utilities ──────────────────────────────── */
 @layer utilities {
   .surface {
-    @apply bg-card border border-border/60 shadow-sm;
+    @apply bg-card border border-border/40 shadow-sm;
   }
-
   .surface-muted {
-    @apply bg-muted/30 border border-border/60;
+    @apply bg-muted/20 border border-border/40;
   }
-
   .surface-inset {
-    @apply bg-background border border-border/60;
+    @apply bg-background border border-border/40;
+  }
+  .glass {
+    @apply bg-card/70 backdrop-blur-xl border border-white/[0.06];
+    box-shadow: 0 8px 32px -8px hsl(0 0% 0% / 0.3);
+  }
+  .glass-subtle {
+    @apply bg-card/85 backdrop-blur-md border border-white/[0.04];
+    box-shadow: 0 4px 16px -4px hsl(0 0% 0% / 0.2);
   }
 }
 
-/* Safe-area utilities (iOS notches / home indicator) */
+/* ─── Safe-area utilities ────────────────────────────── */
 @layer utilities {
   .safe-pb {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-
   .safe-pb-6 {
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
   }
-
   .safe-pt {
     padding-top: env(safe-area-inset-top, 0px);
   }
 }
 
-/* (Round 3) Decorative utilities removed for enterprise-minimal direction */
-
-/* Animation Utilities */
+/* ─── Animation utilities ────────────────────────────── */
 @layer utilities {
   .animate-fade-in {
-    animation: fadeIn 0.5s ease-out forwards;
+    animation: fadeIn 0.25s var(--ease-out-expo) forwards;
   }
-
   .animate-fade-in-up {
-    animation: fadeInUp 0.5s ease-out forwards;
+    animation: fadeInUp 0.3s var(--ease-out-expo) forwards;
   }
-
   .animate-slide-in-right {
-    animation: slideInRight 0.3s ease-out forwards;
+    animation: slideInRight 0.25s var(--ease-out-expo) forwards;
   }
-
   .animate-slide-in-left {
-    animation: slideInLeft 0.3s ease-out forwards;
+    animation: slideInLeft 0.25s var(--ease-out-expo) forwards;
   }
-
   .animate-scale-in {
-    animation: scaleIn 0.2s ease-out forwards;
+    animation: scaleIn 0.2s var(--ease-spring) forwards;
   }
-
   .animate-shimmer {
     animation: shimmer 2s linear infinite;
     background-size: 200% 100%;
   }
+  .animate-message-in {
+    animation: messageIn 0.3s var(--ease-out-expo) forwards;
+  }
+  .animate-panel-slide {
+    animation: panelSlide 0.25s var(--ease-out-expo) forwards;
+  }
 }
 
-/* Keyframe Definitions */
+/* ─── Keyframes ──────────────────────────────────────── */
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes slideInRight {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes slideInLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-
-  100% {
-    background-position: 200% 0;
-  }
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
-/* Research UI Specific Styles */
+@keyframes messageIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes panelSlide {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes thinkingBounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ─── Research UI ────────────────────────────────────── */
 @layer components {
   .research-card {
-    @apply rounded-xl p-4 bg-card border border-border/60 shadow-sm transition-shadow duration-200;
+    @apply rounded-xl p-4 bg-card border border-border/40 shadow-sm transition-shadow duration-200;
     contain: strict;
   }
-
   .research-card:hover {
     @apply shadow-md;
   }
-
   .source-badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
-    @apply bg-muted/40 border border-border/60 text-muted-foreground;
+    @apply bg-muted/30 border border-border/40 text-muted-foreground;
   }
-
   .progress-bar {
-    @apply relative h-1.5 rounded-full overflow-hidden;
-    @apply bg-muted;
+    @apply relative h-1 rounded-full overflow-hidden bg-muted;
   }
-
   .progress-bar-fill {
     @apply absolute inset-y-0 left-0 rounded-full bg-primary;
     transform-origin: left;
-    transition: transform 0.5s ease-out;
+    transition: transform 0.5s var(--ease-out-expo);
   }
-
   .tree-node {
     @apply relative pl-6 before:absolute before:left-2 before:top-0 before:h-full before:w-px;
-    @apply before:bg-border/60;
+    @apply before:bg-border/40;
   }
-
   .tree-node::after {
-    @apply absolute left-2 top-3 w-3 h-px;
-    @apply bg-border/60;
+    @apply absolute left-2 top-3 w-3 h-px bg-border/40;
     content: '';
   }
-
   .status-indicator {
     @apply relative inline-flex h-2 w-2 rounded-full;
   }
-
-  .status-indicator.pending {
-    @apply bg-yellow-500;
-  }
-
-  .status-indicator.in-progress {
-    @apply bg-primary;
-  }
-
-  .status-indicator.completed {
-    @apply bg-green-500;
-  }
-
-  .status-indicator.failed {
-    @apply bg-red-500;
-  }
+  .status-indicator.pending { @apply bg-yellow-500; }
+  .status-indicator.in-progress { @apply bg-primary; }
+  .status-indicator.completed { @apply bg-green-500; }
+  .status-indicator.failed { @apply bg-red-500; }
 }
 
-/* Sidebar Styles */
+/* ─── Sidebar ────────────────────────────────────────── */
 @layer components {
   .sidebar {
-    @apply bg-card border-r border-border/60;
+    @apply bg-card border-r border-border/30;
   }
-
   .sidebar-item {
     @apply flex items-center gap-3 px-3 py-2 rounded-lg;
     @apply text-muted-foreground hover:text-foreground;
-    @apply hover:bg-accent/50 transition-colors duration-200;
+    @apply hover:bg-accent/50 transition-all duration-150;
     content-visibility: auto;
   }
-
+  .sidebar-item:active {
+    transform: scale(0.98);
+  }
   .sidebar-item.active {
-    @apply text-foreground border-l-2 border-primary;
-    @apply bg-primary/10;
+    @apply text-foreground bg-primary/[0.06];
   }
 }
 
-/* Message Styles */
+/* ─── Messages ───────────────────────────────────────── */
 @layer components {
   .message-user {
-    @apply bg-primary/5 border border-primary/15 rounded-2xl rounded-br-md;
+    @apply bg-primary/[0.06] border border-primary/8 rounded-2xl rounded-br-sm;
+    box-shadow: 0 1px 2px 0 hsl(var(--primary) / 0.04);
     contain: content;
   }
-
   .message-assistant {
-    @apply rounded-2xl rounded-bl-md;
-    @apply bg-card border border-border/60;
+    @apply rounded-2xl rounded-bl-sm;
+    @apply bg-transparent border-none;
     contain: content;
   }
-
   .message-thinking {
-    @apply bg-muted/30 border border-border/60 rounded-xl;
+    @apply bg-muted/15 border border-border/20 rounded-xl;
   }
 }
 
-/* Selection styling */
+/* ─── Streaming cursor ───────────────────────────────── */
+@layer components {
+  .streaming-cursor::after {
+    content: '';
+    display: inline-block;
+    width: 2px;
+    height: 1.1em;
+    margin-left: 1px;
+    vertical-align: text-bottom;
+    background: hsl(var(--primary));
+    animation: cursorBlink 1s steps(2) infinite;
+  }
+}
+
+/* ─── Disclosure blocks ──────────────────────────────── */
+@layer components {
+  .weaver-disclosure > summary {
+    list-style: none;
+  }
+  .weaver-disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+  .weaver-disclosure[open] .weaver-disclosure-chevron {
+    transform: rotate(180deg);
+  }
+}
+
+/* ─── Ambient background ─────────────────────────────── */
+@layer components {
+  .chat-ambient {
+    position: relative;
+  }
+  .chat-ambient::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(
+      ellipse 60% 40% at 50% 0%,
+      hsl(var(--primary) / 0.012) 0%,
+      transparent 60%
+    );
+  }
+  .dark .chat-ambient::before {
+    background: radial-gradient(
+      ellipse 60% 40% at 50% 0%,
+      hsl(var(--primary) / 0.025) 0%,
+      transparent 60%
+    );
+  }
+}
+
+/* ─── Selection ──────────────────────────────────────── */
 ::selection {
-  background: hsl(var(--ring) / 0.18);
+  background: hsl(var(--ring) / 0.15);
 }
-
 .dark ::selection {
-  background: hsl(var(--ring) / 0.24);
+  background: hsl(var(--ring) / 0.2);
 }
 
-/* ==============================================================
-   Accessibility Enhancements (WCAG 2.2 AA)
-   ============================================================== */
-
-/* Focus-visible ring — clear keyboard focus indicator */
+/* ─── Focus ring ─────────────────────────────────────── */
 @layer base {
   *:focus-visible {
-    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+    @apply outline-none ring-2 ring-ring/40 ring-offset-2 ring-offset-background;
   }
 }
 
-/* Reduced motion — respect user preference */
+/* ─── Reduced motion ─────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-
   *,
   *::before,
   *::after {
@@ -351,7 +380,7 @@ html {
   }
 }
 
-/* Skip-to-content link for keyboard navigators */
+/* ─── Skip-to-content ────────────────────────────────── */
 @layer components {
   .skip-to-content {
     @apply sr-only focus:not-sr-only;
@@ -362,7 +391,7 @@ html {
   }
 }
 
-/* Screen-reader only utility */
+/* ─── Screen-reader only ─────────────────────────────── */
 @layer utilities {
   .sr-only {
     position: absolute;
@@ -377,13 +406,12 @@ html {
   }
 }
 
-/* High-contrast mode enhancements */
+/* ─── High-contrast mode ─────────────────────────────── */
 @media (prefers-contrast: high) {
   :root {
     --border: 0 0% 30%;
     --ring: 0 0% 0%;
   }
-
   .dark {
     --border: 0 0% 70%;
     --ring: 0 0% 100%;

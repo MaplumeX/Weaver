@@ -8,7 +8,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { Settings2, Search, Bot, Sparkles } from 'lucide-react'
+import { Settings2, Search, Bot, Sparkles } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n/i18n-context'
 

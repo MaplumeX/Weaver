@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { Plug, RefreshCw, CheckCircle2 } from 'lucide-react'
+import { Plug, RefreshCw, CheckCircle2 } from '@/components/ui/icons'
 import { getMcpConfig, updateMcpConfig } from '@/lib/api-client'
 
 export function McpConfigDialog() {

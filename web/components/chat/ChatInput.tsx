@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useState, useCallback, memo } from 'react'
 import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
-import { Send, Paperclip } from 'lucide-react'
+import { Send, Paperclip } from '@/components/ui/icons'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { cn } from '@/lib/utils'
 import { createFilePreview } from '@/lib/file-utils'
@@ -216,6 +216,8 @@ export const ChatInput = memo(function ChatInput({
 
   const mcpLabel = mcpMode ? `MCP: ${t(mcpProvider)}` : t('askAnything')
 
+  const hasContent = input.trim() || attachments.length > 0
+
   return (
     <div className="relative z-20 mx-auto w-full max-w-[820px] px-4 safe-pb-6 pt-2 md:pt-0">
       <div className="flex flex-col gap-2">
@@ -244,20 +246,22 @@ export const ChatInput = memo(function ChatInput({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={cn(
-            "relative group rounded-2xl border border-border/60 bg-background shadow-sm transition-colors duration-200 overflow-hidden",
-            isFocused ? "ring-2 ring-ring/15 border-ring/60" : "hover:border-ring/40",
-            isDragging ? "ring-2 ring-ring/20 border-ring/60 bg-primary/5" : "",
+            "relative group rounded-2xl border bg-card/80 backdrop-blur-sm transition-all duration-200 overflow-hidden",
+            isFocused
+              ? "border-primary/25 shadow-[0_0_0_1px_hsl(var(--primary)/0.12),0_0_0_4px_hsl(var(--primary)/0.04)]"
+              : "border-border/40 hover:border-border/60 shadow-sm",
+            isDragging && "border-primary/40 ring-2 ring-primary/10 bg-primary/[0.02]",
             isLoading && "opacity-80"
           )}
         >
           {/* Drag Overlay */}
           {isDragging && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/90">
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm">
               <div className="text-primary font-medium flex flex-col items-center gap-2">
-                <div className="p-4 rounded-full bg-primary/10">
-                  <Paperclip className="h-8 w-8" />
+                <div className="p-4 rounded-2xl bg-primary/10">
+                  <Paperclip className="h-7 w-7" />
                 </div>
-                <span>{t('dropFilesHere')}</span>
+                <span className="text-sm">{t('dropFilesHere')}</span>
               </div>
             </div>
           )}
@@ -276,7 +280,7 @@ export const ChatInput = memo(function ChatInput({
               type="button"
               variant="ghost"
               size="icon"
-              className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-full transition-colors"
+              className="h-8 w-8 text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/40 rounded-lg transition-colors"
               onClick={() => fileInputRef.current?.click()}
               aria-label="Attach files"
             >
@@ -308,7 +312,7 @@ export const ChatInput = memo(function ChatInput({
               rows={1}
               aria-describedby="chat-input-hint"
               className={cn(
-                "w-full resize-none bg-transparent px-14 min-h-[56px] max-h-[200px] text-base focus:outline-none placeholder:text-muted-foreground/50 scrollbar-thin scrollbar-thumb-muted",
+                "w-full resize-none bg-transparent px-14 min-h-[56px] max-h-[200px] text-base focus:outline-none placeholder:text-muted-foreground/40 scrollbar-thin scrollbar-thumb-muted",
                 attachments.length > 0 ? "pt-2 pb-4" : "py-4"
               )}
             />
@@ -318,7 +322,7 @@ export const ChatInput = memo(function ChatInput({
           </div>
 
           {/* Action Buttons */}
-          <div className="absolute bottom-3 right-3 flex items-center gap-2">
+          <div className="absolute bottom-3 right-3 flex items-center gap-1.5">
             {!isLoading && (
               <AudioControls onTranscript={handleTranscript} disabled={isLoading} />
             )}
@@ -329,34 +333,34 @@ export const ChatInput = memo(function ChatInput({
                 size="icon"
                 variant="ghost"
                 onClick={onStop}
-                className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive rounded-full"
+                className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive rounded-lg"
                 aria-label="Stop generation"
               >
-                <div className="h-2.5 w-2.5 bg-current rounded-sm animate-pulse" />
+                <div className="h-2.5 w-2.5 bg-current rounded-sm" />
               </Button>
             ) : (
               <Button
                 type="button"
                 size="icon"
                 onClick={(e) => onSubmit(e as any)}
-                disabled={!input.trim() && attachments.length === 0}
+                disabled={!hasContent}
                 aria-label="Send message"
                 className={cn(
-                  "h-8 w-8 rounded-full transition-colors duration-200 shadow-sm",
-                  (input.trim() || attachments.length > 0)
-                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                    : "bg-muted text-muted-foreground"
+                  "h-8 w-8 rounded-xl transition-all duration-200",
+                  hasContent
+                    ? "bg-primary text-primary-foreground shadow-sm shadow-primary/25 hover:bg-primary/90 hover:shadow-md hover:shadow-primary/20"
+                    : "bg-muted/40 text-muted-foreground/30"
                 )}
               >
-                <Send className="h-4 w-4 ml-0.5" />
+                <Send className="h-4 w-4" />
               </Button>
             )}
           </div>
         </div>
 
         {/* Footer hints */}
-        <div className="flex justify-between px-4 text-[11px] text-muted-foreground opacity-60">
-          <span><strong>/</strong> {t('forCommands')}</span>
+        <div className="flex justify-between px-3 text-xs text-muted-foreground/40">
+          <span><kbd className="font-mono">/</kbd> {t('forCommands')}</span>
           <span>{t('aiCanMakeMistakes')}</span>
         </div>
       </div>

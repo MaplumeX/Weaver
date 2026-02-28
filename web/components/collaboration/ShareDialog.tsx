@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { Copy, Check, Link, X, Clock, Eye, Lock } from 'lucide-react'
+import { Copy, Check, Link, X, Clock, Eye, Lock } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { showSuccess, showError } from '@/lib/toast-utils'
 import { getApiBaseUrl } from '@/lib/api'

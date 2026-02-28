@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { Download, FileText, File, X, Check } from 'lucide-react'
+import { Download, FileText, File, X, Check } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { showSuccess, showError } from '@/lib/toast-utils'
 import { getApiBaseUrl } from '@/lib/api'

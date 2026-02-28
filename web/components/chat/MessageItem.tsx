@@ -8,7 +8,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import dynamic from 'next/dynamic'
 import { cn } from '@/lib/utils'
-import { Check, Copy, Pencil, Volume2, VolumeX, Loader2, FolderPlus } from 'lucide-react'
+import { BookmarkPlus, Brain, Check, ChevronDown, ClipboardCopy, ListChecks, Loader2, PenLine, Play, Square } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { DataTableView } from './DataTableView'
 import { ErrorBoundary, type FallbackProps } from 'react-error-boundary'
@@ -55,6 +55,275 @@ const preprocessContent = (content: string) => {
   return content
     .replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$') // \( ... \) -> $ ... $
     .replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$') // \[ ... \] -> $$ ... $$
+}
+
+type AssistantContentBlock =
+  | { kind: 'markdown'; content: string }
+  | { kind: 'research_plan'; title: string; reasoning: string; queries: string[] }
+  | { kind: 'disclosure'; variant: 'plan' | 'reasoning'; title: string; content: string }
+
+function hasCjk(input: string): boolean {
+  return /[\u3400-\u9fff]/.test(input)
+}
+
+function normalizeHeadingToken(line: string): string {
+  const trimmed = String(line || '').trim()
+  const withoutHashes = trimmed.replace(/^#{1,6}\s+/, '')
+  const withoutBold = withoutHashes.replace(/^\*\*(.+)\*\*$/, '$1')
+  const withoutTrailingColon = withoutBold.replace(/[：:]\s*$/, '')
+  return withoutTrailingColon.trim().toLowerCase()
+}
+
+function parseResearchPlanMessage(content: string): { title: string; reasoning: string; queries: string[] } | null {
+  const normalized = String(content || '').replace(/\r\n/g, '\n')
+  const lines = normalized.split('\n')
+  const first = (lines[0] || '').trim()
+
+  if (!/^(research plan|研究计划)\s*[:：]\s*$/i.test(first)) return null
+
+  const title = hasCjk(first) ? '研究计划' : 'Research plan'
+
+  const queriesHeadingIndex = lines.findIndex((line, idx) => {
+    if (idx === 0) return false
+    return /^(queries|查询|搜索查询)\s*[:：]\s*$/i.test(line.trim())
+  })
+
+  const reasoningLines =
+    queriesHeadingIndex >= 0
+      ? lines.slice(1, queriesHeadingIndex)
+      : lines.slice(1)
+
+  const queryLines =
+    queriesHeadingIndex >= 0
+      ? lines.slice(queriesHeadingIndex + 1)
+      : []
+
+  const reasoning = reasoningLines.join('\n').trim()
+  const queries: string[] = []
+  for (const line of queryLines) {
+    const trimmed = String(line || '').trim()
+    if (!trimmed) continue
+    const m = trimmed.match(/^(?:\d+\.|\-|\*|•)\s*(.+)$/)
+    const candidate = (m && typeof m[1] === 'string' ? m[1] : trimmed).trim()
+    if (candidate) queries.push(candidate)
+  }
+
+  return { title, reasoning, queries }
+}
+
+const PLAN_TOKENS = new Set([
+  'plan',
+  'research plan',
+  'strategy',
+  'approach',
+  'queries',
+  'steps',
+  '计划',
+  '规划',
+  '研究计划',
+  '策略',
+  '查询',
+  '搜索查询',
+  '步骤',
+])
+
+const REASONING_TOKENS = new Set([
+  'reasoning',
+  'thinking',
+  'analysis',
+  'rationale',
+  'notes',
+  'method',
+  '思考',
+  '推理',
+  '分析',
+  '理由',
+  '方法',
+])
+
+const BOUNDARY_TOKENS = new Set([
+  'answer',
+  'final',
+  'final answer',
+  'response',
+  'conclusion',
+  '回答',
+  '最终',
+  '最终回答',
+  '结论',
+  '结果',
+])
+
+const TOKEN_TITLE: Record<string, string> = {
+  'research plan': 'Research plan',
+  plan: 'Plan',
+  strategy: 'Strategy',
+  approach: 'Approach',
+  queries: 'Queries',
+  steps: 'Steps',
+  reasoning: 'Reasoning',
+  thinking: 'Thinking',
+  analysis: 'Analysis',
+  rationale: 'Rationale',
+  notes: 'Notes',
+  method: 'Method',
+  // Chinese headings are already user-facing titles.
+  研究计划: '研究计划',
+  计划: '计划',
+  规划: '规划',
+  策略: '策略',
+  查询: '查询',
+  搜索查询: '搜索查询',
+  步骤: '步骤',
+  思考: '思考',
+  推理: '推理',
+  分析: '分析',
+  理由: '理由',
+  方法: '方法',
+}
+
+function matchStructuredHeading(line: string): { kind: 'plan' | 'reasoning' | 'boundary'; title: string; inlineContent?: string } | null {
+  const trimmed = String(line || '').trim()
+  if (!trimmed) return null
+
+  const withoutHashes = trimmed.replace(/^#{1,6}\s+/, '')
+
+  // Inline headings: "Reasoning: ...", "Plan: ...", "Answer: ..."
+  const inline = withoutHashes.match(/^(?:\*\*)?(.+?)(?:\*\*)?\s*[:：]\s*(.+)$/)
+  if (inline) {
+    const label = inline[1] || ''
+    const remainder = (inline[2] || '').trim()
+    const token = normalizeHeadingToken(label)
+    if (!token) return null
+
+    if (PLAN_TOKENS.has(token)) {
+      return { kind: 'plan', title: TOKEN_TITLE[token] || (hasCjk(label) ? '计划' : 'Plan'), inlineContent: remainder || undefined }
+    }
+    if (REASONING_TOKENS.has(token)) {
+      return { kind: 'reasoning', title: TOKEN_TITLE[token] || (hasCjk(label) ? '思考' : 'Reasoning'), inlineContent: remainder || undefined }
+    }
+    if (BOUNDARY_TOKENS.has(token) || token.startsWith('answer') || token.startsWith('final')) {
+      return { kind: 'boundary', title: 'Boundary' }
+    }
+    return null
+  }
+
+  // Non-inline headings: require either markdown heading syntax ("## Plan") or a trailing colon ("Plan:")
+  const looksLikeHeading = trimmed.startsWith('#') || /[:：]\s*$/.test(withoutHashes)
+  if (!looksLikeHeading) return null
+
+  const token = normalizeHeadingToken(withoutHashes)
+  if (!token) return null
+
+  const titleFallback = (kind: 'plan' | 'reasoning', raw: string) => {
+    if (hasCjk(raw)) return kind === 'plan' ? '计划' : '思考'
+    return kind === 'plan' ? 'Plan' : 'Reasoning'
+  }
+
+  if (PLAN_TOKENS.has(token)) return { kind: 'plan', title: TOKEN_TITLE[token] || titleFallback('plan', trimmed) }
+  if (REASONING_TOKENS.has(token)) return { kind: 'reasoning', title: TOKEN_TITLE[token] || titleFallback('reasoning', trimmed) }
+  if (BOUNDARY_TOKENS.has(token)) return { kind: 'boundary', title: 'Boundary' }
+
+  // Prefix matches for common headings like "Final Answer", "Answer (short)".
+  if (token.startsWith('answer')) return { kind: 'boundary', title: 'Boundary' }
+  if (token.startsWith('final')) return { kind: 'boundary', title: 'Boundary' }
+
+  return null
+}
+
+function parseAssistantContentBlocks(content: string): AssistantContentBlock[] {
+  const normalized = String(content || '').replace(/\r\n/g, '\n')
+  if (!normalized.trim()) return []
+
+  const plan = parseResearchPlanMessage(normalized)
+  if (plan) {
+    return [
+      { kind: 'research_plan', title: plan.title, reasoning: plan.reasoning, queries: plan.queries }
+    ]
+  }
+
+  const lines = normalized.split('\n')
+
+  type HeadingMatch = {
+    lineIndex: number
+    rawLine: string
+    kind: 'plan' | 'reasoning' | 'boundary'
+    title: string
+    inlineContent?: string
+  }
+
+  const matches: HeadingMatch[] = []
+  let inFence = false
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const rawLine = lines[i] ?? ''
+    const trimmed = rawLine.trim()
+
+    if (trimmed.startsWith('```')) {
+      inFence = !inFence
+      continue
+    }
+    if (inFence) continue
+
+    const m = matchStructuredHeading(trimmed)
+    if (!m) continue
+
+    matches.push({
+      lineIndex: i,
+      rawLine,
+      kind: m.kind,
+      title: m.title,
+      inlineContent: m.inlineContent,
+    })
+  }
+
+  // Conservative: only restructure if we have explicit boundaries.
+  // This avoids accidentally swallowing the final answer into a "Reasoning" section.
+  if (matches.length < 2) {
+    return [{ kind: 'markdown', content: normalized }]
+  }
+
+  const blocks: AssistantContentBlock[] = []
+
+  const pushMarkdown = (text: string) => {
+    const trimmed = String(text || '').trim()
+    if (!trimmed) return
+    blocks.push({ kind: 'markdown', content: text })
+  }
+
+  // Content before the first heading.
+  pushMarkdown(lines.slice(0, matches[0]!.lineIndex).join('\n'))
+
+  for (let i = 0; i < matches.length; i += 1) {
+    const cur = matches[i]!
+    const next = matches[i + 1] || null
+    const endLine = next ? next.lineIndex : lines.length
+    const sectionBody = lines.slice(cur.lineIndex + 1, endLine).join('\n')
+    const sectionText = cur.inlineContent
+      ? [cur.inlineContent, sectionBody].filter(Boolean).join('\n')
+      : sectionBody
+
+    if (cur.kind === 'plan' || cur.kind === 'reasoning') {
+      const contentTrimmed = sectionText.trim()
+      if (!contentTrimmed) {
+        // If a section is empty, keep the original heading line as markdown.
+        pushMarkdown(cur.rawLine)
+        continue
+      }
+      blocks.push({
+        kind: 'disclosure',
+        variant: cur.kind,
+        title: cur.title,
+        content: sectionText,
+      })
+      continue
+    }
+
+    // Boundary headings (Answer/Final/Conclusion) remain inline markdown.
+    pushMarkdown([cur.rawLine, sectionText].join('\n'))
+  }
+
+  return blocks
 }
 
 interface MessageItemProps {
@@ -259,10 +528,123 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
     })
   }, [renderStringWithCitations])
 
+  const contentBlocks = useMemo<AssistantContentBlock[]>(() => {
+    if (isUser) {
+      return [{ kind: 'markdown', content: displayContent }]
+    }
+    return parseAssistantContentBlocks(displayContent)
+  }, [displayContent, isUser])
+
+  const renderMarkdownBlock = useCallback((content: string, keyPrefix: string) => {
+    const safe = String(content || '')
+    if (!safe.trim()) return null
+
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={{
+          pre: ({ children }) => <>{children}</>,
+          h1: ({ children, ...props }) => (
+            <h1 className="mt-4 mb-2 text-2xl font-semibold leading-tight text-balance" {...props}>
+              {children}
+            </h1>
+          ),
+          h2: ({ children, ...props }) => (
+            <h2 className="mt-4 mb-2 text-xl font-semibold leading-tight text-balance" {...props}>
+              {children}
+            </h2>
+          ),
+          h3: ({ children, ...props }) => (
+            <h3 className="mt-3 mb-1 text-lg font-semibold leading-tight text-balance" {...props}>
+              {children}
+            </h3>
+          ),
+          h4: ({ children, ...props }) => (
+            <h4 className="mt-3 mb-1 text-base font-semibold leading-tight text-balance" {...props}>
+              {children}
+            </h4>
+          ),
+          p: ({ node, children, ...props }) => (
+            <p className="mb-2 last:mb-0 leading-7" {...props}>
+              {renderChildrenWithCitations(children, `${keyPrefix}-p`)}
+            </p>
+          ),
+          ul: ({ children, ...props }) => (
+            <ul className="my-2 ml-5 list-disc space-y-1" {...props}>
+              {children}
+            </ul>
+          ),
+          ol: ({ children, ...props }) => (
+            <ol className="my-2 ml-5 list-decimal space-y-1" {...props}>
+              {children}
+            </ol>
+          ),
+          li: ({ children, ...props }) => (
+            <li className="leading-7" {...props}>
+              {renderChildrenWithCitations(children, `${keyPrefix}-li`)}
+            </li>
+          ),
+          blockquote: ({ children, ...props }) => (
+            <blockquote className="my-3 border-l-2 border-border/60 pl-4 text-muted-foreground" {...props}>
+              {children}
+            </blockquote>
+          ),
+          code: ({ node, className, children, ...props }: any) => {
+            const match = /language-(\w+)/.exec(className || '')
+            const isInline = !match && !String(children).includes('\n')
+            const content = String(children).replace(/\n$/, '')
+
+            // Check for Mermaid
+            if (match && match[1] === 'mermaid') {
+              return (
+                <ErrorBoundary FallbackComponent={ErrorFallback}>
+                  <MermaidBlock code={content} />
+                </ErrorBoundary>
+              )
+            }
+
+            // Check for JSON/CSV
+            if (match && (match[1] === 'json' || match[1] === 'csv')) {
+              return (
+                <div className="flex flex-col gap-2">
+                  <ErrorBoundary FallbackComponent={() => null}>
+                    <DataTableView data={content} type={match[1] as 'json' | 'csv'} />
+                  </ErrorBoundary>
+                  <CodeBlock language={match[1]} value={content} />
+                </div>
+              )
+            }
+
+            if (isInline) {
+              return (
+                <code className="bg-muted/60 border border-border/40 px-1.5 py-0.5 rounded text-[13px] md:text-sm font-mono break-words whitespace-pre-wrap" {...props}>
+                  {children}
+                </code>
+              )
+            }
+
+            return (
+              <CodeBlock language={match?.[1] ?? 'text'} value={content} />
+            )
+          },
+          a: ({ node, ...props }) => (
+            <a
+              className="font-medium underline underline-offset-2 decoration-primary/40 text-primary hover:text-primary/80 hover:decoration-primary"
+              {...props}
+            />
+          )
+        }}
+      >
+        {safe}
+      </ReactMarkdown>
+    )
+  }, [renderChildrenWithCitations])
+
   return (
     <div
       className={cn(
-        'group flex w-full gap-2 py-4',
+        'group flex w-full gap-2 py-3',
         isUser ? 'justify-end' : 'justify-start'
       )}
     >
@@ -303,104 +685,97 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
               "max-w-none break-words leading-7 text-pretty",
               "text-[15px] md:text-base" // Slightly larger font
             )}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[rehypeKatex]}
-                components={{
-                  pre: ({ children }) => <>{children}</>,
-                  h1: ({ children, ...props }) => (
-                    <h1 className="mt-4 mb-2 text-2xl font-semibold leading-tight text-balance" {...props}>
-                      {children}
-                    </h1>
-                  ),
-                  h2: ({ children, ...props }) => (
-                    <h2 className="mt-4 mb-2 text-xl font-semibold leading-tight text-balance" {...props}>
-                      {children}
-                    </h2>
-                  ),
-                  h3: ({ children, ...props }) => (
-                    <h3 className="mt-3 mb-1 text-lg font-semibold leading-tight text-balance" {...props}>
-                      {children}
-                    </h3>
-                  ),
-                  h4: ({ children, ...props }) => (
-                    <h4 className="mt-3 mb-1 text-base font-semibold leading-tight text-balance" {...props}>
-                      {children}
-                    </h4>
-                  ),
-                  p: ({ node, children, ...props }) => (
-                    <p className="mb-2 last:mb-0 leading-7" {...props}>
-                      {renderChildrenWithCitations(children, 'p')}
-                    </p>
-                  ),
-                  ul: ({ children, ...props }) => (
-                    <ul className="my-2 ml-5 list-disc space-y-1" {...props}>
-                      {children}
-                    </ul>
-                  ),
-                  ol: ({ children, ...props }) => (
-                    <ol className="my-2 ml-5 list-decimal space-y-1" {...props}>
-                      {children}
-                    </ol>
-                  ),
-                  li: ({ children, ...props }) => (
-                    <li className="leading-7" {...props}>
-                      {renderChildrenWithCitations(children, 'li')}
-                    </li>
-                  ),
-                  blockquote: ({ children, ...props }) => (
-                    <blockquote className="my-3 border-l-2 border-border/60 pl-4 text-muted-foreground" {...props}>
-                      {children}
-                    </blockquote>
-                  ),
-                  code: ({ node, className, children, ...props }: any) => {
-                    const match = /language-(\w+)/.exec(className || '')
-                    const isInline = !match && !String(children).includes('\n')
-                    const content = String(children).replace(/\n$/, '')
+              {contentBlocks.length > 0
+                ? contentBlocks.map((block, idx) => {
+                  const keyBase = `${message.id}-${block.kind}-${idx}`
 
-                    // Check for Mermaid
-                    if (match && match[1] === 'mermaid') {
-                      return (
-                        <ErrorBoundary FallbackComponent={ErrorFallback}>
-                          <MermaidBlock code={content} />
-                        </ErrorBoundary>
-                      )
-                    }
+                  if (block.kind === 'markdown') {
+                    return (
+                      <React.Fragment key={keyBase}>
+                        {renderMarkdownBlock(block.content, `${message.id}-md-${idx}`)}
+                      </React.Fragment>
+                    )
+                  }
 
-                    // Check for JSON/CSV
-                    if (match && (match[1] === 'json' || match[1] === 'csv')) {
-                      return (
-                        <div className="flex flex-col gap-2">
-                          <ErrorBoundary FallbackComponent={() => null}>
-                            <DataTableView data={content} type={match[1] as 'json' | 'csv'} />
-                          </ErrorBoundary>
-                          <CodeBlock language={match[1]} value={content} />
-                        </div>
-                      )
-                    }
-
-                    if (isInline) {
-                      return (
-                        <code className="bg-muted/60 border border-border/40 px-1.5 py-0.5 rounded text-[13px] md:text-sm font-mono break-words whitespace-pre-wrap" {...props}>
-                          {children}
-                        </code>
-                      )
+                  if (block.kind === 'research_plan') {
+                    const copyAllQueries = async () => {
+                      const payload = block.queries.map((q, i) => `${i + 1}. ${q}`).join('\n').trim()
+                      if (!payload) return
+                      try {
+                        await navigator.clipboard.writeText(payload)
+                        toast.success('Queries copied')
+                      } catch {
+                        toast.error('Copy failed')
+                      }
                     }
 
                     return (
-                      <CodeBlock language={match?.[1] ?? 'text'} value={content} />
+                      <StructuredDisclosure
+                        key={keyBase}
+                        variant="plan"
+                        title={block.title}
+                        icon={ListChecks}
+                        meta={block.queries.length ? `${block.queries.length} queries` : undefined}
+                        contentClassName="text-sm"
+                      >
+                        {block.reasoning ? (
+                          <div className="text-muted-foreground">
+                            {renderMarkdownBlock(block.reasoning, `${message.id}-plan-${idx}-reasoning`)}
+                          </div>
+                        ) : null}
+
+                        {block.queries.length > 0 ? (
+                          <div className="mt-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[10px] font-semibold uppercase text-muted-foreground">
+                                Queries
+                              </p>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={copyAllQueries}
+                              >
+                                Copy queries
+                              </Button>
+                            </div>
+                            <ol className="mt-2 ml-5 list-decimal space-y-1 text-sm">
+                              {block.queries.map((q, i) => (
+                                <li key={`${keyBase}-q-${i}`} className="leading-6 text-foreground/90">
+                                  {q}
+                                </li>
+                              ))}
+                            </ol>
+                          </div>
+                        ) : null}
+                      </StructuredDisclosure>
                     )
-                  },
-                  a: ({ node, ...props }) => (
-                    <a
-                      className="font-medium underline underline-offset-2 decoration-primary/40 text-primary hover:text-primary/80 hover:decoration-primary"
-                      {...props}
-                    />
-                  )
-                }}
-              >
-                {displayContent || (hasTools ? "" : "")}
-              </ReactMarkdown>
+                  }
+
+                  if (block.kind === 'disclosure') {
+                    const variantIcon = block.variant === 'plan' ? ListChecks : Brain
+                    const meta = (() => {
+                      const lines = block.content.split('\n').filter(Boolean).length
+                      return lines >= 3 ? `${lines} lines` : undefined
+                    })()
+
+                    return (
+                      <StructuredDisclosure
+                        key={keyBase}
+                        variant={block.variant}
+                        title={block.title}
+                        icon={variantIcon}
+                        meta={meta}
+                        contentClassName={block.variant === 'reasoning' ? 'text-sm text-muted-foreground' : 'text-sm'}
+                      >
+                        {renderMarkdownBlock(block.content, `${message.id}-${block.variant}-${idx}`)}
+                      </StructuredDisclosure>
+                    )
+                  }
+
+                  return null
+                })
+                : null}
 
               {message.attachments && message.attachments.length > 0 && (
                 <div className="mt-3 grid grid-cols-2 gap-2">
@@ -460,25 +835,24 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
               <div
                 role="toolbar"
                 aria-label="Message actions"
-	                className={cn(
-	                  "absolute flex items-center gap-1",
-	                  "right-2 bottom-2 md:right-0 md:-bottom-6",
-	                  "opacity-100 md:opacity-0",
-	                  "md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-	                  "transition-opacity duration-200",
-	                  "max-md:rounded-full max-md:border max-md:border-border/60 max-md:bg-background max-md:shadow-sm max-md:px-1 max-md:py-1"
-	                )}
-	              >
+                className={cn(
+                  "absolute flex items-center gap-0.5 rounded-lg border border-border/40 bg-card/95 backdrop-blur-sm shadow-sm p-0.5",
+                  "right-2 bottom-2 md:right-0 md:-bottom-5",
+                  "opacity-100 md:opacity-0",
+                  "md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+                  "transition-all duration-150",
+                )}
+              >
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="rounded-full text-muted-foreground hover:text-foreground"
+                  className="h-7 w-7 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
                   onClick={handleCopy}
                   aria-label="Copy message"
-                  title="Copy message"
+                  title="Copy"
                 >
-                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <ClipboardCopy className="h-3.5 w-3.5" />}
                 </Button>
 
                 {!isUser ? (
@@ -488,32 +862,32 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                       variant="ghost"
                       size="icon-sm"
                       className={cn(
-                        "rounded-full text-muted-foreground hover:text-foreground",
-                        isPlaying && "text-primary"
+                        "h-7 w-7 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
+                        isPlaying && "text-primary bg-primary/10"
                       )}
                       onClick={handleSpeak}
                       disabled={isTTSLoading}
                       aria-label={isPlaying ? "Stop audio" : "Read aloud"}
-                      title={isPlaying ? "Stop audio" : "Read aloud"}
+                      title={isPlaying ? "Stop" : "Listen"}
                     >
                       {isTTSLoading ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : isPlaying ? (
-                        <VolumeX className="h-3.5 w-3.5" />
+                        <Square className="h-3 w-3 fill-current" />
                       ) : (
-                        <Volume2 className="h-3.5 w-3.5" />
+                        <Play className="h-3.5 w-3.5" />
                       )}
                     </Button>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon-sm"
-                      className="rounded-full text-muted-foreground hover:text-foreground"
+                      className="h-7 w-7 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
                       onClick={handleSaveToLibrary}
                       aria-label={saved ? "Saved to library" : "Save to library"}
-                      title={saved ? "Saved to library" : "Save to library"}
+                      title={saved ? "Saved" : "Save"}
                     >
-                      {saved ? <Check className="h-3.5 w-3.5 text-green-500" /> : <FolderPlus className="h-3.5 w-3.5" />}
+                      {saved ? <Check className="h-3.5 w-3.5 text-green-500" /> : <BookmarkPlus className="h-3.5 w-3.5" />}
                     </Button>
                   </>
                 ) : null}
@@ -523,12 +897,12 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="rounded-full text-muted-foreground hover:text-foreground"
+                    className="h-7 w-7 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
                     onClick={() => setIsEditing(true)}
                     aria-label="Edit message"
-                    title="Edit message"
+                    title="Edit"
                   >
-                    <Pencil className="h-3.5 w-3.5" />
+                    <PenLine className="h-3.5 w-3.5" />
                   </Button>
                 ) : null}
               </div>
@@ -537,6 +911,69 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
         )}
       </div>
     </div>
+  )
+}
+
+function StructuredDisclosure({
+  variant,
+  title,
+  meta,
+  icon: Icon,
+  contentClassName,
+  children,
+}: {
+  variant: 'plan' | 'reasoning'
+  title: string
+  meta?: string
+  icon: React.ComponentType<{ className?: string }>
+  contentClassName?: string
+  children: React.ReactNode
+}) {
+  const isPlan = variant === 'plan'
+
+  return (
+    <details
+      className={cn(
+        'weaver-disclosure my-3 rounded-xl border overflow-hidden',
+        isPlan
+          ? 'border-primary/10 bg-primary/[0.02]'
+          : 'border-border/40 bg-muted/[0.03]'
+      )}
+    >
+      <summary
+        className={cn(
+          "flex items-center justify-between gap-3 px-4 py-2.5 cursor-pointer select-none",
+          "hover:bg-accent/30 transition-colors",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        )}
+        aria-label={title}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className={cn(
+            "flex items-center justify-center size-6 rounded-md",
+            isPlan
+              ? "bg-primary/10 text-primary"
+              : "bg-muted/50 text-muted-foreground"
+          )}>
+            <Icon className="h-3.5 w-3.5" />
+          </span>
+          <span className="text-xs font-semibold text-foreground/80 truncate">
+            {title}
+          </span>
+          {meta ? (
+            <span className="hidden sm:inline-flex text-[10px] font-medium text-muted-foreground/50 tabular-nums truncate">
+              {meta}
+            </span>
+          ) : null}
+        </div>
+
+        <ChevronDown className="weaver-disclosure-chevron h-3.5 w-3.5 text-muted-foreground/40 transition-transform duration-200" />
+      </summary>
+
+      <div className={cn("px-4 pb-3 pt-1 border-t border-border/20", contentClassName)}>
+        {children}
+      </div>
+    </details>
   )
 }
 

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Papa from 'papaparse'
-import { Download, Table as TableIcon } from 'lucide-react'
+import { Download, Table as TableIcon } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 

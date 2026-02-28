@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { FolderOpen, History } from 'lucide-react'
+import { FolderOpen, History } from '@/components/ui/icons'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { VirtuosoGrid } from 'react-virtuoso'
 import { useChatHistory } from '@/hooks/useChatHistory'
@@ -176,8 +176,8 @@ export function Library() {
                 </ScrollArea>
               )
             ) : (
-              <div className="flex flex-col items-center justify-center h-80 rounded-3xl border border-dashed border-border/60 bg-muted/20 px-6">
-                <div className="h-16 w-16 rounded-full border border-border/60 bg-background flex items-center justify-center mb-4">
+              <div className="flex flex-col items-center justify-center h-80 rounded-3xl border border-dashed border-border/30 bg-muted/20 backdrop-blur-sm px-6">
+                <div className="h-16 w-16 rounded-full border border-border/30 bg-background flex items-center justify-center mb-4">
                     <History className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
                 </div>
                 <h3 className="text-xl font-semibold">No items found</h3>

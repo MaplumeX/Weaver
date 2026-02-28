@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import mermaid from 'mermaid'
-import { Loader2 } from 'lucide-react'
+import { Loader2 } from '@/components/ui/icons'
 
 mermaid.initialize({
   startOnLoad: false,

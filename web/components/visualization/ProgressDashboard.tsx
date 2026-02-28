@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Clock, GitBranch, BarChart3, FileText } from 'lucide-react'
+import { Clock, GitBranch, BarChart3, FileText } from '@/components/ui/icons'
 import { ResearchTimeline, TimelineStep } from './ResearchTimeline'
 import { ResearchTree, TreeNode } from './ResearchTree'
 import { QualityBadge } from './QualityBadge'

@@ -23,6 +23,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
@@ -67,6 +68,7 @@ from common.chat_stream_translate import translate_legacy_line_to_sse
 from common.config import settings
 from common.logger import get_logger, setup_logging
 from common.metrics import metrics_registry
+from common.proxy_env import normalize_socks_proxy_env
 from common.sse import format_sse_event, iter_with_sse_keepalive
 from common.thread_ownership import get_thread_owner, set_thread_owner
 from support_agent import create_support_graph
@@ -449,6 +451,13 @@ async def startup_event():
     logger.info("=" * 80)
     logger.info("Weaver Research Agent Starting...")
     logger.info("=" * 80)
+
+    # Normalize common proxy env quirks (e.g. `ALL_PROXY=socks://...`) so
+    # downstream httpx/OpenAI clients don't crash during request handling.
+    try:
+        normalize_socks_proxy_env()
+    except Exception as e:
+        logger.warning(f"Proxy env normalization failed: {e}")
 
     # Ensure the rate-limit bucket cleanup task is running (lifespan-managed).
     global _rate_limit_cleanup_task
@@ -3557,7 +3566,8 @@ async def recognize_speech(request: ASRRequest):
             raise HTTPException(status_code=400, detail=f"Invalid base64 audio data: {str(e)}")
 
         # 璋冪敤 ASR 鏈嶅姟
-        result = asr_service.recognize_bytes(
+        result = await run_in_threadpool(
+            asr_service.recognize_bytes,
             audio_data=audio_bytes,
             format=request.format,
             sample_rate=request.sample_rate,
@@ -3605,7 +3615,8 @@ async def recognize_speech_upload(file: UploadFile = File(...), sample_rate: int
                 detail="ASR service not available. Please configure DASHSCOPE_API_KEY.",
             )
 
-        result = asr_service.recognize_bytes(
+        result = await run_in_threadpool(
+            asr_service.recognize_bytes,
             audio_data=audio_bytes,
             format=format_ext,
             sample_rate=sample_rate,
@@ -3628,7 +3639,19 @@ async def recognize_speech_upload(file: UploadFile = File(...), sample_rate: int
 async def get_asr_status():
     """Get ASR service status."""
     asr_service = get_asr_service()
-    return {"enabled": asr_service.enabled, "api_key_configured": bool(settings.dashscope_api_key)}
+    last_error_time = None
+    try:
+        ts = getattr(asr_service, "last_error_time", None)
+        if isinstance(ts, (int, float)) and ts > 0:
+            last_error_time = datetime.fromtimestamp(ts).isoformat()
+    except Exception:
+        last_error_time = None
+    return {
+        "enabled": asr_service.enabled,
+        "api_key_configured": bool(settings.dashscope_api_key),
+        "last_error": getattr(asr_service, "last_error", None),
+        "last_error_time": last_error_time,
+    }
 
 
 # ==================== TTS 鏂囧瓧杞闊?API ====================
@@ -3653,7 +3676,9 @@ async def synthesize_speech(request: TTSRequest):
                 detail="TTS service not available. Please configure DASHSCOPE_API_KEY.",
             )
 
-        result = tts_service.synthesize(text=request.text, voice=request.voice)
+        result = await run_in_threadpool(
+            tts_service.synthesize, text=request.text, voice=request.voice
+        )
 
         if result["success"]:
             return {
@@ -3668,8 +3693,13 @@ async def synthesize_speech(request: TTSRequest):
     except HTTPException:
         raise
     except Exception as e:
+        message = str(e)
+        lowered = message.lower()
+        if "invalidapikey" in lowered or "unauthorized" in lowered or "handshake status 401" in lowered:
+            logger.warning("TTS auth error: %s", message)
+            raise HTTPException(status_code=401, detail=f"TTS authentication error: {message}")
         logger.error(f"TTS error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"TTS processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"TTS processing error: {message}")
 
 
 @app.get("/api/tts/voices")
@@ -3682,7 +3712,19 @@ async def get_tts_voices():
 async def get_tts_status():
     """Get TTS service status."""
     tts_service = get_tts_service()
-    return {"enabled": tts_service.enabled, "api_key_configured": bool(settings.dashscope_api_key)}
+    last_error_time = None
+    try:
+        ts = getattr(tts_service, "last_error_time", None)
+        if isinstance(ts, (int, float)) and ts > 0:
+            last_error_time = datetime.fromtimestamp(ts).isoformat()
+    except Exception:
+        last_error_time = None
+    return {
+        "enabled": tts_service.enabled,
+        "api_key_configured": bool(settings.dashscope_api_key),
+        "last_error": getattr(tts_service, "last_error", None),
+        "last_error_time": last_error_time,
+    }
 
 
 @app.post("/api/research")

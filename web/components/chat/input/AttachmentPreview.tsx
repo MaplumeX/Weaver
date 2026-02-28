@@ -2,7 +2,7 @@
 
 import { memo } from 'react'
 import Image from 'next/image'
-import { X, File as FileIcon } from 'lucide-react'
+import { X, File as FileIcon } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
 
 interface AttachmentPreviewItem {
@@ -29,9 +29,9 @@ const PreviewItem = memo(function PreviewItem({
 
   return (
     <div className="relative group/attachment flex-shrink-0">
-      <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/50 border text-xs font-medium max-w-[200px] overflow-hidden">
+      <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-muted/50 border border-border/40 text-xs font-medium max-w-[200px] overflow-hidden transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:scale-[1.02]">
         {isImage ? (
-          <div className="h-8 w-8 rounded overflow-hidden flex-shrink-0 bg-background">
+          <div className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-background border border-border/30">
             <Image
               src={item.previewUrl}
               alt={`Preview of ${item.file.name}`}
@@ -42,7 +42,7 @@ const PreviewItem = memo(function PreviewItem({
             />
           </div>
         ) : (
-          <div className="h-8 w-8 rounded bg-background flex items-center justify-center flex-shrink-0">
+          <div className="h-8 w-8 rounded-lg bg-background border border-border/30 flex items-center justify-center flex-shrink-0">
             <FileIcon className="h-4 w-4 text-orange-500" />
           </div>
         )}
@@ -54,7 +54,7 @@ const PreviewItem = memo(function PreviewItem({
         type="button"
         onClick={() => onRemove(index)}
         aria-label={`Remove ${item.file.name}`}
-        className="absolute -top-1 -right-1 bg-background border rounded-full p-0.5 text-muted-foreground hover:text-destructive shadow-sm opacity-0 group-hover/attachment:opacity-100 transition-opacity"
+        className="absolute -top-1.5 -right-1.5 bg-background border border-border/40 rounded-full p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shadow-sm opacity-0 group-hover/attachment:opacity-100 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
       >
         <X className="h-3 w-3" />
       </button>

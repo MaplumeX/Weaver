@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Compass, Sparkles, TrendingUp, Search, Plus, Check } from 'lucide-react'
+import { Compass, Sparkles, TrendingUp, Search, Plus, Check } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useArtifacts } from '@/hooks/useArtifacts'
@@ -53,16 +53,16 @@ export function Discover() {
 
         <div className="relative">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search templates..." className="pl-10 h-12 text-base rounded-xl" />
+          <Input placeholder="Search templates..." className="pl-10 h-12 text-base rounded-xl bg-card/80 border-border/30" />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {featured.map((item) => (
             <div
               key={item.id}
-              className="group relative rounded-2xl border border-border/60 bg-card p-6 transition-colors duration-200 hover:bg-accent"
+              className="group relative rounded-2xl border border-border/30 bg-card p-6 hover:translate-y-[-2px] hover:shadow-md transition-all duration-200 hover:bg-accent"
             >
-              <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/8 text-primary">
                 <item.icon className="h-6 w-6" />
               </div>
               <h3 className="font-semibold text-lg group-hover:text-primary transition-colors">{item.title}</h3>

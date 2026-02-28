@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState, useCallback } from 'react'
-import { ChevronDown, ChevronRight, Copy, ExternalLink, RefreshCcw } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, ExternalLink, RefreshCcw } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { LoadingInline, LoadingSkeleton } from '@/components/ui/loading'
 import { cn } from '@/lib/utils'

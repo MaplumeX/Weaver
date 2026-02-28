@@ -103,16 +103,21 @@ class CodeExecutorTool(WeaverTool):
             return self.fail_response(
                 "E2B API key not configured", metadata={"config_required": "E2B_API_KEY"}
             )
+        if not api_key.startswith("e2b_"):
+            return self.fail_response(
+                "E2B API key looks invalid (expected to start with 'e2b_')",
+                metadata={"config_required": "E2B_API_KEY"},
+            )
 
         if not code or not code.strip():
             return self.fail_response(
                 "Empty code provided", metadata={"error_type": "ValidationError"}
             )
 
-        try:
-            prepare_e2b_env()
-            with Sandbox(api_key=api_key, timeout=timeout) as sandbox:  # type: ignore[misc]
-                execution = sandbox.run_code(code)
+            try:
+                prepare_e2b_env()
+                with Sandbox.create(api_key=api_key, timeout=timeout) as sandbox:
+                    execution = sandbox.run_code(code)
 
                 # Extract execution results
                 stdout = execution.logs.stdout if execution.logs else ""

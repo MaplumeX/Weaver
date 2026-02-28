@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
-import { History, Clock, RotateCcw, X } from 'lucide-react'
+import { History, Clock, RotateCcw, X } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { getApiBaseUrl } from '@/lib/api'

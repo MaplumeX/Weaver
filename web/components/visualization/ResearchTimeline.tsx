@@ -2,7 +2,7 @@
 
 import React, { memo, useCallback } from 'react'
 import { cn } from '@/lib/utils'
-import { CheckCircle2, Circle, Clock, AlertCircle, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
+import { CheckCircle2, Circle, Clock, AlertCircle, ChevronDown, ChevronRight, ExternalLink } from '@/components/ui/icons'
 
 export interface TimelineStep {
   id: string
