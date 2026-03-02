@@ -440,6 +440,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/health/agent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Agent Health
+         * @description Lightweight agent subsystem health snapshot (no sandbox side effects).
+         */
+        get: operations["agent_health_api_health_agent_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/interrupt/resume": {
         parameters: {
             query?: never;
@@ -788,6 +808,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search/providers/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Search Providers
+         * @description Reset the global multi-search orchestrator (provider stats + circuit breaker state).
+         */
+        post: operations["reset_search_providers_api_search_providers_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sessions": {
         parameters: {
             query?: never;
@@ -1042,6 +1082,50 @@ export interface paths {
         get: operations["get_active_tasks_api_tasks_active_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tools/registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tool Registry
+         * @description Return current ToolRegistry stats + tool metadata (best-effort).
+         */
+        get: operations["get_tool_registry_api_tools_registry_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tools/registry/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Tool Registry
+         * @description Re-run enhanced tool discovery at runtime.
+         *
+         *     Notes:
+         *     - This is intended for dev/debug (e.g., after editing tool modules).
+         *     - `reset=true` clears the global registry before discovery.
+         */
+        post: operations["refresh_tool_registry_api_tools_registry_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1421,6 +1505,27 @@ export interface components {
              * @default 16000
              */
             sample_rate: number;
+        };
+        /** AgentHealthResponse */
+        AgentHealthResponse: {
+            /** Agent Ids */
+            agent_ids: string[];
+            /** Agents Count */
+            agents_count: number;
+            /** Enhanced Tool Discovery Enabled */
+            enhanced_tool_discovery_enabled: boolean;
+            /** Enhanced Tool Discovery Recursive */
+            enhanced_tool_discovery_recursive: boolean;
+            /** Rag Enabled */
+            rag_enabled: boolean;
+            /** Search Engines */
+            search_engines: string[];
+            /** Search Providers Available */
+            search_providers_available: string[];
+            /** Search Strategy */
+            search_strategy: string;
+            /** Tool Registry Total Tools */
+            tool_registry_total_tools: number;
         };
         /**
          * AgentProfile
@@ -2137,6 +2242,11 @@ export interface components {
             /** Total Calls */
             total_calls: number;
         };
+        /** SearchProvidersResetResponse */
+        SearchProvidersResetResponse: {
+            /** Reset */
+            reset: boolean;
+        };
         /** SearchProvidersResponse */
         SearchProvidersResponse: {
             /** Providers */
@@ -2257,6 +2367,131 @@ export interface components {
              * @default longxiaochun
              */
             voice: string;
+        };
+        /** ToolRegistryMostUsed */
+        ToolRegistryMostUsed: {
+            /** Call Count */
+            call_count: number;
+            /** Name */
+            name: string;
+        };
+        /** ToolRegistryRefreshResponse */
+        ToolRegistryRefreshResponse: {
+            /** Discovered */
+            discovered: number;
+            /** Total Tools */
+            total_tools: number;
+        };
+        /** ToolRegistryResponse */
+        ToolRegistryResponse: {
+            stats: components["schemas"]["ToolRegistryStats"];
+            /** Tools */
+            tools: components["schemas"]["ToolRegistryTool"][];
+        };
+        /** ToolRegistryStats */
+        ToolRegistryStats: {
+            /** By Type */
+            by_type: {
+                [key: string]: number;
+            };
+            /** Deprecated Tools */
+            deprecated_tools: number;
+            /** Enabled Tools */
+            enabled_tools: number;
+            /** Most Used */
+            most_used: components["schemas"]["ToolRegistryMostUsed"][];
+            /** Overall Success Rate */
+            overall_success_rate: number;
+            /** Tags */
+            tags: string[];
+            /** Total Calls */
+            total_calls: number;
+            /** Total Successes */
+            total_successes: number;
+            /** Total Tools */
+            total_tools: number;
+        };
+        /** ToolRegistryTool */
+        ToolRegistryTool: {
+            /**
+             * Average Duration Ms
+             * @default 0
+             */
+            average_duration_ms: number;
+            /**
+             * Call Count
+             * @default 0
+             */
+            call_count: number;
+            /**
+             * Class Name
+             * @default
+             */
+            class_name: string;
+            /**
+             * Deprecated
+             * @default false
+             */
+            deprecated: boolean;
+            /** Deprecation Message */
+            deprecation_message?: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Failure Count
+             * @default 0
+             */
+            failure_count: number;
+            /**
+             * Function Name
+             * @default
+             */
+            function_name: string;
+            /** Last Called */
+            last_called?: string | null;
+            /**
+             * Module Name
+             * @default
+             */
+            module_name: string;
+            /** Name */
+            name: string;
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+            /** Return Type */
+            return_type?: string | null;
+            /**
+             * Success Count
+             * @default 0
+             */
+            success_count: number;
+            /**
+             * Success Rate
+             * @default 0
+             */
+            success_rate: number;
+            /** Tags */
+            tags?: string[];
+            /**
+             * Tool Type
+             * @default
+             */
+            tool_type: string;
+            /**
+             * Version
+             * @default 1.0.0
+             */
+            version: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -2959,6 +3194,26 @@ export interface operations {
             };
         };
     };
+    agent_health_api_health_agent_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentHealthResponse"];
+                };
+            };
+        };
+    };
     resume_interrupt_api_interrupt_resume_post: {
         parameters: {
             query?: never;
@@ -3416,6 +3671,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchProvidersResponse"];
+                };
+            };
+        };
+    };
+    reset_search_providers_api_search_providers_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchProvidersResetResponse"];
                 };
             };
         };
@@ -3921,6 +4196,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_tool_registry_api_tools_registry_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolRegistryResponse"];
+                };
+            };
+        };
+    };
+    refresh_tool_registry_api_tools_registry_refresh_post: {
+        parameters: {
+            query?: {
+                reset?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolRegistryRefreshResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
