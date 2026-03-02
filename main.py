@@ -2378,6 +2378,51 @@ async def memory_status():
     }
 
 
+@app.get("/api/sandbox/browser/diagnose")
+async def sandbox_browser_diagnose():
+    """
+    Diagnose whether the E2B sandbox-backed browser tools are configured.
+
+    Fast path: validates env/config and local dependencies without cold-starting a sandbox.
+    Use this to troubleshoot "Capture failed: ..." errors in `/api/browser/{thread_id}/stream`.
+    """
+    import importlib.util
+    import os
+
+    missing: list[str] = []
+
+    e2b_key = (settings.e2b_api_key or "").strip()
+    if not e2b_key:
+        missing.append("E2B_API_KEY")
+    elif not e2b_key.startswith("e2b_"):
+        missing.append("E2B_API_KEY (invalid)")
+
+    template = (os.getenv("SANDBOX_TEMPLATE_BROWSER") or settings.sandbox_template_browser or "").strip()
+    if not template:
+        missing.append("SANDBOX_TEMPLATE_BROWSER")
+
+    deps = {
+        "e2b_code_interpreter": bool(importlib.util.find_spec("e2b_code_interpreter")),
+        "playwright": bool(importlib.util.find_spec("playwright")),
+    }
+    for dep, present in deps.items():
+        if not present:
+            missing.append(f"pip:{dep}")
+
+    ready = not missing
+    return {
+        "ready": ready,
+        "missing": missing,
+        "sandbox_mode": settings.sandbox_mode,
+        "allow_internet": bool(getattr(settings, "sandbox_allow_internet", True)),
+        "configured": {
+            "e2b_api_key": bool(e2b_key),
+            "sandbox_template_browser": bool(template),
+            **deps,
+        },
+    }
+
+
 # ==================== Tracing API ====================
 
 
