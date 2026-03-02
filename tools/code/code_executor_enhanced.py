@@ -114,87 +114,73 @@ class CodeExecutorTool(WeaverTool):
                 "Empty code provided", metadata={"error_type": "ValidationError"}
             )
 
-            try:
-                prepare_e2b_env()
-                with Sandbox.create(api_key=api_key, timeout=timeout) as sandbox:
-                    execution = sandbox.run_code(code)
+        try:
+            prepare_e2b_env()
+            with Sandbox.create(api_key=api_key, timeout=timeout) as sandbox:
+                execution = sandbox.run_code(code)
 
-                # Extract execution results
-                stdout = execution.logs.stdout if execution.logs else ""
-                stderr = execution.logs.stderr if execution.logs else ""
-                error = str(execution.error) if execution.error else None
-                success = not execution.error
+            # Extract execution results
+            stdout = execution.logs.stdout if execution.logs else ""
+            stderr = execution.logs.stderr if execution.logs else ""
+            error = str(execution.error) if execution.error else None
+            success = not execution.error
 
-                # Check for matplotlib/image output
-                images = []
-                if execution.results:
-                    for res in execution.results:
-                        if hasattr(res, "png") and res.png:
-                            images.append(
-                                {
-                                    "format": "png",
-                                    "data": res.png,  # Base64 encoded
-                                    "type": "image",
-                                }
-                            )
-                        elif hasattr(res, "jpeg") and res.jpeg:
-                            images.append(
-                                {
-                                    "format": "jpeg",
-                                    "data": res.jpeg,  # Base64 encoded
-                                    "type": "image",
-                                }
-                            )
-
-                # Build result data
-                result_data = {
-                    "success": success,
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "error": error,
-                    "images": images,
-                    "has_output": bool(stdout or stderr),
-                    "has_images": len(images) > 0,
-                }
-
-                # Determine output message
-                if success:
-                    if stdout:
-                        output_msg = f"Code executed successfully.\n\nOutput:\n{stdout}"
-                    elif images:
-                        output_msg = (
-                            f"Code executed successfully. Generated {len(images)} image(s)."
+            # Check for matplotlib/image output
+            images: List[Dict[str, Any]] = []
+            if execution.results:
+                for res in execution.results:
+                    if hasattr(res, "png") and res.png:
+                        images.append(
+                            {
+                                "format": "png",
+                                "data": res.png,  # Base64 encoded
+                                "type": "image",
+                            }
                         )
-                    else:
-                        output_msg = "Code executed successfully with no output."
+                    elif hasattr(res, "jpeg") and res.jpeg:
+                        images.append(
+                            {
+                                "format": "jpeg",
+                                "data": res.jpeg,  # Base64 encoded
+                                "type": "image",
+                            }
+                        )
 
-                    if images:
-                        output_msg += f"\n\nGenerated {len(images)} image(s) (base64 encoded)"
+            # Build result data
+            result_data = {
+                "success": success,
+                "stdout": stdout,
+                "stderr": stderr,
+                "error": error,
+                "images": images,
+                "has_output": bool(stdout or stderr),
+                "has_images": len(images) > 0,
+            }
 
-                    return self.success_response(
-                        result_data,
-                        metadata={
-                            "execution_time_ms": getattr(execution, "execution_time", None),
-                            "has_stdout": bool(stdout),
-                            "has_stderr": bool(stderr),
-                            "image_count": len(images),
-                            "sandbox_id": getattr(sandbox, "id", None),
-                        },
-                    )
-                else:
-                    error_msg = f"Code execution failed: {error}"
-                    if stderr:
-                        error_msg += f"\n\nStderr:\n{stderr}"
+            if success:
+                return self.success_response(
+                    result_data,
+                    metadata={
+                        "execution_time_ms": getattr(execution, "execution_time", None),
+                        "has_stdout": bool(stdout),
+                        "has_stderr": bool(stderr),
+                        "image_count": len(images),
+                        "sandbox_id": getattr(sandbox, "id", None),
+                    },
+                )
 
-                    return self.fail_response(
-                        error_msg,
-                        metadata={
-                            "error_type": "ExecutionError",
-                            "stderr": stderr,
-                            "has_partial_output": bool(stdout),
-                        },
-                    )
+            error_msg = f"Code execution failed: {error}"
+            if stderr:
+                error_msg += f"\n\nStderr:\n{stderr}"
 
+            return self.fail_response(
+                error_msg,
+                metadata={
+                    "error_type": "ExecutionError",
+                    "stderr": stderr,
+                    "has_partial_output": bool(stdout),
+                },
+            )
         except Exception as e:
             logger.error(f"Code execution error: {str(e)}")
             return self.fail_response(
