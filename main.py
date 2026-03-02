@@ -69,7 +69,7 @@ from common.config import settings
 from common.logger import get_logger, setup_logging
 from common.metrics import metrics_registry
 from common.proxy_env import normalize_socks_proxy_env
-from common.sse import format_sse_event, iter_with_sse_keepalive
+from common.sse import format_sse_event, iter_abort_on_disconnect, iter_with_sse_keepalive
 from common.thread_ownership import get_thread_owner, set_thread_owner
 from support_agent import create_support_graph
 from tools.browser.browser_session import browser_sessions
@@ -1784,7 +1784,7 @@ async def chat_sse(request: Request, payload: ChatRequest):
             yield format_sse_event(event="done", data={"thread_id": thread_id}, event_id=seq)
             return
 
-        async for maybe_line in iter_with_sse_keepalive(
+        source = iter_with_sse_keepalive(
             stream_agent_events(
                 last_message,
                 thread_id=thread_id,
@@ -1795,6 +1795,12 @@ async def chat_sse(request: Request, payload: ChatRequest):
                 user_id=user_id,
             ),
             interval_s=15.0,
+        )
+
+        async for maybe_line in iter_abort_on_disconnect(
+            source,
+            is_disconnected=request.is_disconnected,
+            check_interval_s=0.25,
         ):
             # Keepalive comments are already SSE frames.
             if maybe_line.startswith(":"):
@@ -3836,7 +3842,7 @@ async def research_sse(request: Request, payload: ResearchRequest):
             yield format_sse_event(event="done", data={"thread_id": thread_id}, event_id=seq)
             return
 
-        async for maybe_line in iter_with_sse_keepalive(
+        source = iter_with_sse_keepalive(
             stream_agent_events(
                 query,
                 thread_id=thread_id,
@@ -3847,6 +3853,12 @@ async def research_sse(request: Request, payload: ResearchRequest):
                 user_id=user_id,
             ),
             interval_s=15.0,
+        )
+
+        async for maybe_line in iter_abort_on_disconnect(
+            source,
+            is_disconnected=request.is_disconnected,
+            check_interval_s=0.25,
         ):
             # Keepalive comments are already SSE frames.
             if maybe_line.startswith(":"):
