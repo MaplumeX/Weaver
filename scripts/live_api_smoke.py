@@ -634,6 +634,18 @@ async def _scenario_calls(
     results.append(res)
     done.add(("GET", "/health"))
 
+    # Agent health snapshot (should be fast and side-effect free).
+    res, resp = await _raw_request(client, method="GET", path="/api/health/agent", timeout_s=timeout_s)
+    if resp is not None and resp.status_code == 200:
+        try:
+            data = resp.json()
+            if not isinstance(data, dict) or "agents_count" not in data or "tool_registry_total_tools" not in data:
+                res = replace(res, ok=False, note="invalid agent health shape")
+        except Exception:
+            res = replace(res, ok=False, note="invalid agent health JSON")
+    results.append(res)
+    done.add(("GET", "/api/health/agent"))
+
     # Optional services status (used to classify expected 503s).
     res, resp = await _raw_request(client, method="GET", path="/api/asr/status", timeout_s=timeout_s)
     results.append(res)

@@ -4,6 +4,7 @@
 # - backend unit tests
 # - OpenAPI TS drift guard
 # - real-HTTP live API smoke (spawns uvicorn)
+#   - includes /api/health/agent + tools/search diagnostics probes
 # - Playwright full-stack e2e (headless + headed via Xvfb)
 #
 # Notes:
@@ -43,4 +44,3 @@ if command -v xvfb-run >/dev/null 2>&1; then
 else
   echo "xvfb-run not found; skipping headed e2e"
 fi
-

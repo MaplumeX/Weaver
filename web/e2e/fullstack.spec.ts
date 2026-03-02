@@ -49,6 +49,8 @@ test('full-stack: chat + research + browser live + comments + export + share', a
   // Browser viewer is enabled by default; wait for LIVE indicator and at least one frame.
   await expect(page.getByText('LIVE', { exact: true })).toBeVisible({ timeout: 180_000 })
   await expect(page.getByAltText('Live browser view')).toBeVisible({ timeout: 180_000 })
+  // Ensure frames keep arriving (hook reports frames-per-second once per second).
+  await expect(page.getByText(/\b[1-9]\d* FPS\b/)).toBeVisible({ timeout: 60_000 })
 
   // 5) Comments (POST/GET real backend)
   await page.getByRole('button', { name: 'Open comments' }).click()
