@@ -17,8 +17,8 @@
 后端默认监听 `8001`。如端口冲突，可在根目录 `.env` 中设置：
 
 ```bash
-# 选一个你机器上没被占用的端口即可（示例：18080）
-PORT=18080
+# 选一个你机器上没被占用的端口即可（示例：60006）
+PORT=60006
 ```
 
 > 建议：避免使用你环境里常见“容易被占用”的端口（例如 `8000`）。
@@ -31,7 +31,15 @@ PORT=18080
 `OS file watch limit reached` 之类的崩溃。因此：
 
 - `python main.py` 默认 **不启用** 热重载（更稳定）
-- 需要热重载时，建议显式开启：
+- 需要热重载时，建议显式开启（推荐写进 `.env`，避免每次敲命令）：
+
+```bash
+# in .env
+DEBUG=true
+WEAVER_RELOAD=true
+```
+
+或临时用 shell env：
 
 ```bash
 DEBUG=true WEAVER_RELOAD=1 python main.py
@@ -107,6 +115,7 @@ NEXT_PUBLIC_RESEARCH_STREAM_PROTOCOL=sse
   "model": "gpt-4o",
   "enabled_tools": {
     "web_search": true,
+    "rag": false,
     "crawl": true,
     "python": true,
     "sandbox_browser": true,
@@ -121,6 +130,11 @@ NEXT_PUBLIC_RESEARCH_STREAM_PROTOCOL=sse
   }
 }
 ```
+
+其中 `rag` 需要同时满足：
+
+- 后端 `.env` 配置 `RAG_ENABLED=true`（或 `rag_enabled=true`）
+- 当前 agent 的 `enabled_tools.rag=true`
 
 ---
 

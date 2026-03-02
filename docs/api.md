@@ -47,6 +47,19 @@ python scripts/export_openapi.py --output /tmp/weaver-openapi.json
   - `GET /api/sessions/{thread_id}`
   - `GET /api/sessions/{thread_id}/evidence`
   - `GET /api/export/{thread_id}`
+- Diagnostics / Observability：
+  - `GET /health`（最小健康检查）
+  - `GET /api/health/agent`（agent 子系统快照：工具、搜索、RAG 等）
+  - `GET /api/config/public`（前端启动用的非敏感配置）
+  - `GET /api/tools/registry`（工具注册表：用于排查“为什么工具没被发现/没注册”）
+  - `POST /api/tools/registry/refresh`（开发/内网：触发重新发现工具）
+  - `GET /api/search/providers`（搜索 provider 列表与状态）
+  - `POST /api/search/providers/reset`（开发/内网：重置 provider 统计/状态）
+  - `GET /api/sandbox/browser/diagnose`（排查 browser live stream 的依赖与配置）
+- Browser：
+  - `GET /api/browser/{thread_id}/info`（返回 CDP endpoint / 是否已有会话）
+  - `POST /api/browser/{thread_id}/screenshot`（手动截图；需要已有会话）
+  - `WS /api/browser/{thread_id}/stream`（实时出帧：更接近“浏览器操作感”）
 - MCP：
   - `GET /api/mcp/config`
   - `POST /api/mcp/config`
