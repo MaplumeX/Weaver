@@ -4742,9 +4742,21 @@ async def handle_webhook(
 
 
 if __name__ == "__main__":
+    import os
     import uvicorn
 
     # `settings` reads from `.env` (see `common/config.py`). This makes the
     # backend port configurable via `PORT=...` in `.env`, not only via shell env.
     port = int(getattr(settings, "port", 8001) or 8001)
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=settings.debug, log_level="info")
+
+    # NOTE: `uvicorn` hot reload (watchfiles) watches the whole CWD tree.
+    # In this repo we have `web/node_modules`, which easily exceeds OS watcher limits
+    # and crashes reload with "OS file watch limit reached".
+    #
+    # Keep reload opt-in to make `python main.py` reliable out-of-the-box.
+    raw_reload = (os.getenv("WEAVER_RELOAD") or "").strip().lower()
+    reload_enabled = bool(settings.debug) and raw_reload in {"1", "true", "yes", "y", "on"}
+    if settings.debug and not reload_enabled:
+        logger.info("Hot reload disabled (set WEAVER_RELOAD=1 to enable).")
+
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=reload_enabled, log_level="info")
