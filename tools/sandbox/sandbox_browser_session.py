@@ -64,6 +64,7 @@ _E2B_PLACEHOLDER_KEYS = {
     "e2b_39ce8c3d299470afd09b42629c436edec32728d8",
 }
 _E2B_DISABLED_REASON: Optional[str] = None
+_E2B_SECURE_ACCESS_COMPAT: Dict[str, bool] = {}
 
 
 def _require_e2b() -> None:
@@ -295,14 +296,38 @@ class SandboxBrowserSession:
 
             prepare_e2b_env(domain)
             try:
-                sandbox = Sandbox.create(
-                    template=template,
-                    timeout=timeout,
-                    api_key=settings.e2b_api_key,
-                    domain=domain,
-                    metadata=metadata,
-                    allow_internet_access=_bool_env("SANDBOX_ALLOW_INTERNET", True),
-                )
+                allow_internet = _bool_env("SANDBOX_ALLOW_INTERNET", True)
+
+                # Some older/third-party templates are not compatible with E2B "secured access".
+                # In that case we retry with `secure=False` and remember the outcome to avoid
+                # repeated 400s during browser streaming.
+                def _create(*, secure: Optional[bool] = None):
+                    kwargs: Dict[str, Any] = {
+                        "template": template,
+                        "timeout": timeout,
+                        "api_key": settings.e2b_api_key,
+                        "domain": domain,
+                        "metadata": metadata,
+                        "allow_internet_access": allow_internet,
+                    }
+                    if secure is not None:
+                        kwargs["secure"] = secure
+                    return Sandbox.create(**kwargs)
+
+                compat = _E2B_SECURE_ACCESS_COMPAT.get(template)
+                if compat is False:
+                    sandbox = _create(secure=False)
+                else:
+                    try:
+                        sandbox = _create()
+                        _E2B_SECURE_ACCESS_COMPAT.setdefault(template, True)
+                    except Exception as e:
+                        msg = str(e).lower()
+                        if "secured access" in msg and "not compatible" in msg:
+                            _E2B_SECURE_ACCESS_COMPAT[template] = False
+                            sandbox = _create(secure=False)
+                        else:
+                            raise
             except Exception as e:
                 # Common failure mode: 401 Invalid API key → avoid repeated API calls.
                 msg = str(e)
