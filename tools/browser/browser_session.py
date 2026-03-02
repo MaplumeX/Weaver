@@ -93,17 +93,37 @@ class BrowserSession:
         self.timeout_s = timeout_s
         self.current: Optional[BrowserPage] = None
         self.history: List[BrowserPage] = []
+        self._client: Optional[httpx.Client] = None
+
+    def _get_client(self) -> httpx.Client:
+        if self._client is None:
+            headers = {"User-Agent": DEFAULT_UA}
+            self._client = httpx.Client(
+                timeout=self.timeout_s,
+                follow_redirects=True,
+                headers=headers,
+            )
+        return self._client
+
+    def close(self) -> None:
+        client = self._client
+        self._client = None
+        if client is None:
+            return
+        try:
+            client.close()
+        except Exception:
+            pass
 
     def navigate(self, url: str) -> BrowserPage:
         url = (url or "").strip()
         if not url:
             raise ValueError("url is required")
 
-        headers = {"User-Agent": DEFAULT_UA}
-        with httpx.Client(timeout=self.timeout_s, follow_redirects=True, headers=headers) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            html = resp.text or ""
+        client = self._get_client()
+        resp = client.get(url)
+        resp.raise_for_status()
+        html = resp.text or ""
 
         title = _extract_title(html)
         text = _strip_html(html)
@@ -155,7 +175,12 @@ class BrowserSessionManager:
     def reset(self, thread_id: str) -> None:
         thread_id = (thread_id or "").strip() or "default"
         with self._lock:
-            self._sessions.pop(thread_id, None)
+            session = self._sessions.pop(thread_id, None)
+        if session is not None:
+            try:
+                session.close()
+            except Exception:
+                pass
 
 
 browser_sessions = BrowserSessionManager()
