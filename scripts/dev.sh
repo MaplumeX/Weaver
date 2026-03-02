@@ -53,7 +53,31 @@ PY
     fi
 fi
 
-uvicorn main:app --reload --host 0.0.0.0 --port "${BACKEND_PORT}" &
+# Hot reload is opt-in to avoid watchfiles hitting OS file limits due to
+# `web/node_modules` (a very common crash in this repo).
+RELOAD_RAW="${WEAVER_RELOAD:-}"
+RELOAD_ENABLED="0"
+case "$(echo "${RELOAD_RAW}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|y|on) RELOAD_ENABLED="1" ;;
+esac
+
+UVICORN_RELOAD_ARGS=()
+if [ "${RELOAD_ENABLED}" = "1" ]; then
+  UVICORN_RELOAD_ARGS=(
+    --reload
+    --reload-dir agent
+    --reload-dir common
+    --reload-dir tools
+    --reload-dir triggers
+    --reload-dir prompts
+    --reload-dir sdk
+    --reload-exclude web
+    --reload-exclude web/node_modules
+    --reload-exclude web/.next
+  )
+fi
+
+uvicorn main:app --host 0.0.0.0 --port "${BACKEND_PORT}" "${UVICORN_RELOAD_ARGS[@]}" &
 BACKEND_PID=$!
 
 # Start web
