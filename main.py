@@ -6,6 +6,7 @@ import json
 import logging
 import time
 import uuid
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import datetime
 from enum import Enum
@@ -225,6 +226,7 @@ async def log_requests(request: Request, call_next):
             rate_limit_limit = chat_limit if is_chat else general_limit
             bucket_key = f"{identity}:{'chat' if is_chat else 'general'}"
             now = time.time()
+            max_buckets = int(getattr(settings, "rate_limit_max_buckets", 10_000) or 10_000)
 
             bucket = _rate_limit_buckets.get(bucket_key)
             if bucket is None or now - bucket["window_start"] >= window_seconds:
@@ -232,6 +234,17 @@ async def log_requests(request: Request, call_next):
                 _rate_limit_buckets[bucket_key] = bucket
             else:
                 bucket["tokens"] -= 1
+                try:
+                    _rate_limit_buckets.move_to_end(bucket_key)
+                except Exception:
+                    pass
+
+            # Cap memory usage under many unique clients.
+            try:
+                while len(_rate_limit_buckets) > max_buckets:
+                    _rate_limit_buckets.popitem(last=False)
+            except Exception:
+                pass
 
             rate_limit_remaining = int(max(bucket.get("tokens", 0), 0))
             rate_limit_reset_ts = int(bucket["window_start"] + window_seconds)
@@ -311,7 +324,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Rate Limiting Middleware (in-memory token bucket)
 # ---------------------------------------------------------------------------
-_rate_limit_buckets: Dict[str, Dict[str, Any]] = {}
+_rate_limit_buckets: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 _RATE_LIMIT_EXEMPT = {"/", "/health", "/metrics", "/docs", "/openapi.json", "/redoc"}
 _rate_limit_cleanup_task: asyncio.Task | None = None
 

@@ -229,6 +229,12 @@ class Settings(BaseSettings):
     )
     rate_limit_chat_per_minute: int = Field(default=20, ge=1, validation_alias="RATE_LIMIT_CHAT_PER_MINUTE")
     rate_limit_window_seconds: int = Field(default=60, ge=1, validation_alias="RATE_LIMIT_WINDOW_SECONDS")
+    rate_limit_max_buckets: int = Field(
+        default=10_000,
+        ge=1,
+        validation_alias="RATE_LIMIT_MAX_BUCKETS",
+        description="Cap in-memory token buckets to avoid unbounded growth under many unique clients.",
+    )
 
     # Database
     database_url: str = ""
