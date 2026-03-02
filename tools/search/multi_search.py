@@ -993,6 +993,12 @@ def get_search_orchestrator() -> MultiSearchOrchestrator:
     return _global_orchestrator
 
 
+def reset_search_orchestrator() -> None:
+    """Reset the global search orchestrator (provider health + reliability + stats)."""
+    global _global_orchestrator
+    _global_orchestrator = None
+
+
 def multi_search(
     query: str,
     max_results: int = 10,

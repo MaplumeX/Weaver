@@ -763,6 +763,59 @@ class SearchProvidersResponse(BaseModel):
     providers: List[SearchProviderSnapshot]
 
 
+class SearchProvidersResetResponse(BaseModel):
+    reset: bool
+
+
+class ToolRegistryMostUsed(BaseModel):
+    name: str
+    call_count: int
+
+
+class ToolRegistryStats(BaseModel):
+    total_tools: int
+    enabled_tools: int
+    deprecated_tools: int
+    total_calls: int
+    total_successes: int
+    overall_success_rate: float
+    most_used: List[ToolRegistryMostUsed]
+    by_type: Dict[str, int]
+    tags: List[str]
+
+
+class ToolRegistryTool(BaseModel):
+    name: str
+    description: str = ""
+    tool_type: str = ""
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    return_type: Optional[str] = None
+    module_name: str = ""
+    class_name: str = ""
+    function_name: str = ""
+    version: str = "1.0.0"
+    tags: List[str] = Field(default_factory=list)
+    call_count: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+    last_called: Optional[str] = None
+    average_duration_ms: float = 0.0
+    enabled: bool = True
+    deprecated: bool = False
+    deprecation_message: Optional[str] = None
+    success_rate: float = 0.0
+
+
+class ToolRegistryResponse(BaseModel):
+    stats: ToolRegistryStats
+    tools: List[ToolRegistryTool]
+
+
+class ToolRegistryRefreshResponse(BaseModel):
+    discovered: int
+    total_tools: int
+
+
 class PublicConfigDefaults(BaseModel):
     port: int
     primary_model: str
@@ -2147,6 +2200,71 @@ async def get_mcp_config():
     }
 
 
+@app.get("/api/tools/registry", response_model=ToolRegistryResponse)
+async def get_tool_registry():
+    """Return current ToolRegistry stats + tool metadata (best-effort)."""
+    from tools.core.registry import get_global_registry
+
+    registry = get_global_registry()
+    raw_stats = registry.get_statistics()
+
+    most_used: List[ToolRegistryMostUsed] = []
+    for entry in raw_stats.get("most_used", []) or []:
+        try:
+            name, call_count = entry
+            most_used.append(ToolRegistryMostUsed(name=str(name), call_count=int(call_count)))
+        except Exception:
+            continue
+
+    stats = ToolRegistryStats(
+        total_tools=int(raw_stats.get("total_tools", 0) or 0),
+        enabled_tools=int(raw_stats.get("enabled_tools", 0) or 0),
+        deprecated_tools=int(raw_stats.get("deprecated_tools", 0) or 0),
+        total_calls=int(raw_stats.get("total_calls", 0) or 0),
+        total_successes=int(raw_stats.get("total_successes", 0) or 0),
+        overall_success_rate=float(raw_stats.get("overall_success_rate", 0.0) or 0.0),
+        most_used=most_used,
+        by_type={str(k): int(v) for k, v in (raw_stats.get("by_type") or {}).items()},
+        tags=[str(t) for t in (raw_stats.get("tags") or [])],
+    )
+
+    tools_payload: List[ToolRegistryTool] = []
+    for m in registry.list_metadata():
+        try:
+            as_dict = m.to_dict()
+            as_dict["success_rate"] = float(getattr(m, "success_rate", 0.0) or 0.0)
+            tools_payload.append(ToolRegistryTool(**as_dict))
+        except Exception:
+            continue
+
+    tools_payload.sort(key=lambda t: t.name)
+    return {"stats": stats, "tools": tools_payload}
+
+
+@app.post("/api/tools/registry/refresh", response_model=ToolRegistryRefreshResponse)
+async def refresh_tool_registry(reset: bool = False):
+    """
+    Re-run enhanced tool discovery at runtime.
+
+    Notes:
+    - This is intended for dev/debug (e.g., after editing tool modules).
+    - `reset=true` clears the global registry before discovery.
+    """
+    from agent.workflows.nodes import initialize_enhanced_tools
+    from tools.core.registry import get_global_registry, reset_global_registry
+
+    if reset:
+        reset_global_registry()
+
+    registry = get_global_registry()
+    before = len(registry.list_names())
+
+    initialize_enhanced_tools()
+
+    after = len(get_global_registry().list_names())
+    return {"discovered": max(0, after - before), "total_tools": after}
+
+
 @app.get("/api/search/providers", response_model=SearchProvidersResponse)
 async def get_search_providers():
     """Expose multi-search provider availability, health, and circuit-breaker state."""
@@ -2186,6 +2304,15 @@ async def get_search_providers():
         )
 
     return {"providers": providers}
+
+
+@app.post("/api/search/providers/reset", response_model=SearchProvidersResetResponse)
+async def reset_search_providers():
+    """Reset the global multi-search orchestrator (provider stats + circuit breaker state)."""
+    from tools.search.multi_search import reset_search_orchestrator
+
+    reset_search_orchestrator()
+    return {"reset": True}
 
 
 @app.get("/api/search/cache/stats", response_model=SearchCacheStatsResponse)
