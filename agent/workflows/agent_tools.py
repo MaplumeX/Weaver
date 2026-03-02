@@ -98,6 +98,7 @@ def build_agent_tools(config: RunnableConfig) -> List[BaseTool]:
 
     Tool keys:
     - web_search: tavily_search
+    - rag: rag_search (local documents; requires rag_enabled)
     - browser: lightweight browser_* tools
     - sandbox_browser: Playwright-based browser tools
     - sandbox_web_search: visual web search using sandbox browser
@@ -134,6 +135,14 @@ def build_agent_tools(config: RunnableConfig) -> List[BaseTool]:
             tools.append(fallback_search)
         else:
             tools.append(tavily_search)
+
+    if _enabled(profile, "rag", default=False) and bool(getattr(settings, "rag_enabled", False)):
+        try:
+            from tools.rag.rag_tool import rag_search
+
+            tools.append(rag_search)
+        except Exception as e:
+            logger.warning(f"Failed to load rag_search tool: {e}")
 
     if _enabled(profile, "crawl", default=True):
         tools.extend(build_crawl_tools())
