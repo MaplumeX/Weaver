@@ -200,16 +200,66 @@ async def _stop_process(proc: asyncio.subprocess.Process, *, timeout_s: float = 
     await proc.wait()
 
 
-async def _wait_for_health(base_url: str, *, timeout_s: float) -> None:
+async def _wait_for_health(
+    base_url: str,
+    *,
+    timeout_s: float,
+    proc: Optional[asyncio.subprocess.Process] = None,
+    expected_openapi_title: str = "Weaver Research Agent API",
+) -> None:
+    """
+    Wait until the started server is ready *and* looks like Weaver.
+
+    Why we validate OpenAPI:
+    When binding to a fixed port, it's possible another service is already
+    listening on that port and also returns 200 for `/health`. In that case,
+    the smoke test would accidentally run against the wrong service.
+    """
+
     deadline = time.monotonic() + timeout_s
     async with httpx.AsyncClient(base_url=base_url, timeout=2.0, trust_env=False) as client:
         last_err: Optional[BaseException] = None
         while time.monotonic() < deadline:
+            if proc is not None and proc.returncode is not None:
+                raise RuntimeError(
+                    f"uvicorn exited early (code={proc.returncode}) before health check succeeded"
+                )
             try:
                 resp = await client.get("/health")
-                if resp.status_code == 200:
-                    return
-                last_err = RuntimeError(f"/health returned {resp.status_code}: {resp.text[:200]}")
+                if resp.status_code != 200:
+                    last_err = RuntimeError(
+                        f"/health returned {resp.status_code}: {(resp.text or '')[:200]}"
+                    )
+                    await asyncio.sleep(0.2)
+                    continue
+
+                # Additional identity check to avoid passing when the port is already in use.
+                try:
+                    openapi = await client.get("/openapi.json")
+                    if openapi.status_code != 200:
+                        last_err = RuntimeError(
+                            f"/openapi.json returned {openapi.status_code}: {(openapi.text or '')[:200]}"
+                        )
+                        await asyncio.sleep(0.2)
+                        continue
+                    data = openapi.json()
+                    title = (
+                        (data.get("info") or {}).get("title")
+                        if isinstance(data, dict)
+                        else None
+                    )
+                    if title != expected_openapi_title:
+                        last_err = RuntimeError(
+                            f"Unexpected OpenAPI title: {title!r} (expected {expected_openapi_title!r})"
+                        )
+                        await asyncio.sleep(0.2)
+                        continue
+                except Exception as e:
+                    last_err = e
+                    await asyncio.sleep(0.2)
+                    continue
+
+                return
             except Exception as e:
                 last_err = e
             await asyncio.sleep(0.2)
@@ -1030,7 +1080,7 @@ async def amain(argv: List[str]) -> int:
                 log_level=args.log_level,
             )
             try:
-                await _wait_for_health(base_url, timeout_s=30.0)
+                await _wait_for_health(base_url, timeout_s=30.0, proc=proc)
             except Exception:
                 if log_path and log_path.exists():
                     try:
