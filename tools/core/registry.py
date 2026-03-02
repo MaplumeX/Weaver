@@ -30,6 +30,11 @@ from typing import Any, Callable, Dict, List, Optional, Set, Type
 
 from langchain.tools import BaseTool
 
+try:  # LangChain 1.x canonical location
+    from langchain_core.tools import BaseTool as CoreBaseTool  # type: ignore
+except Exception:  # pragma: no cover
+    CoreBaseTool = None  # type: ignore[assignment]
+
 from tools.core.base import ToolResult, WeaverTool, tool_schema
 
 logger = logging.getLogger(__name__)
@@ -339,6 +344,51 @@ class ToolRegistry:
                     except Exception as e:
                         logger.error(f"Failed to instantiate {name}: {e}")
 
+        # Scan for module-level LangChain tools (BaseTool instances)
+        for _, obj in inspect.getmembers(module):
+            is_langchain_tool = False
+            if BaseTool and isinstance(obj, BaseTool):
+                is_langchain_tool = True
+            elif CoreBaseTool is not None and isinstance(obj, CoreBaseTool):
+                is_langchain_tool = True
+
+            if not is_langchain_tool:
+                continue
+
+            tool_name = getattr(obj, "name", "") or ""
+            if not tool_name:
+                continue
+            tool_name = prefix + str(tool_name)
+
+            tool_desc = getattr(obj, "description", "") or ""
+
+            parameters: Dict[str, Any] = {}
+            try:
+                args_schema = getattr(obj, "args_schema", None)
+                if args_schema is not None:
+                    # Pydantic v2
+                    if hasattr(args_schema, "model_json_schema"):
+                        parameters = args_schema.model_json_schema()  # type: ignore[assignment]
+                    # Pydantic v1 fallback
+                    elif hasattr(args_schema, "schema"):
+                        parameters = args_schema.schema()  # type: ignore[assignment]
+            except Exception:
+                parameters = {}
+
+            try:
+                metadata = self.register(
+                    name=tool_name,
+                    tool=getattr(obj, "invoke"),
+                    description=str(tool_desc),
+                    parameters=parameters,
+                    tags=(tags or []) + ["langchain_tool", "auto_discovered"],
+                )
+                registered.append(metadata)
+            except ValueError:
+                logger.warning(f"Tool {tool_name} already registered, skipping")
+            except Exception as e:
+                logger.error(f"Failed to register langchain tool {tool_name}: {e}")
+
         # Scan for functions with @tool_schema
         for name, obj in inspect.getmembers(module, inspect.isfunction):
             if hasattr(obj, "_tool_schema"):
@@ -548,6 +598,10 @@ class ToolRegistry:
             return "weaver"
         elif hasattr(tool, "__self__") and WeaverTool and isinstance(tool.__self__, WeaverTool):
             return "weaver"
+        elif hasattr(tool, "__self__") and BaseTool and isinstance(tool.__self__, BaseTool):
+            return "langchain"
+        elif hasattr(tool, "__self__") and CoreBaseTool is not None and isinstance(tool.__self__, CoreBaseTool):
+            return "langchain"
         elif BaseTool and isinstance(tool, BaseTool):
             return "langchain"
         elif hasattr(tool, "_tool_schema"):
