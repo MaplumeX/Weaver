@@ -38,7 +38,22 @@ if [ ! -d .venv ]; then
     exit 1
 fi
 source .venv/bin/activate
-uvicorn main:app --reload --host 0.0.0.0 --port 8001 &
+
+# Prefer explicit shell env, else fall back to `.env` (via pydantic settings).
+BACKEND_PORT="${PORT:-}"
+if [ -z "${BACKEND_PORT}" ]; then
+    if BACKEND_PORT_FROM_DOTENV="$(python - <<'PY' 2>/dev/null
+from common.config import settings
+print(getattr(settings, "port", 8001))
+PY
+    )"; then
+        BACKEND_PORT="${BACKEND_PORT_FROM_DOTENV}"
+    else
+        BACKEND_PORT="8001"
+    fi
+fi
+
+uvicorn main:app --reload --host 0.0.0.0 --port "${BACKEND_PORT}" &
 BACKEND_PID=$!
 
 # Start web
@@ -51,8 +66,8 @@ echo "✅ Development servers started!"
 echo ""
 echo "📍 URLs:"
 echo "   Web:      http://localhost:3100"
-echo "   Backend:  http://localhost:8001"
-echo "   API Docs: http://localhost:8001/docs"
+echo "   Backend:  http://localhost:${BACKEND_PORT}"
+echo "   API Docs: http://localhost:${BACKEND_PORT}/docs"
 echo ""
 echo "Press Ctrl+C to stop all servers"
 

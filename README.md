@@ -84,8 +84,8 @@ pnpm -C web dev
 访问入口：
 
 - 前端界面：http://localhost:3100
-- 后端 API：http://localhost:8001
-- OpenAPI 文档：http://localhost:8001/docs
+- 后端 API：http://localhost:8001（默认；可在根目录 `.env` 里设置 `PORT`）
+- OpenAPI 文档：http://localhost:8001/docs（默认；同上）
 
 ---
 

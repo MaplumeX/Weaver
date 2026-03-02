@@ -32,6 +32,8 @@ cd weaver
 cp .env.example .env
 ```
 
+> 端口说明：后端默认监听 `8001`。如端口冲突，可在根目录 `.env` 中设置 `PORT=60006` 之类的值。
+
 **最小可用配置**（在 `.env` 里填写）：
 
 ```bash
@@ -69,7 +71,7 @@ cp web/.env.local.example web/.env.local
 常用配置项：
 
 ```bash
-# 后端 API 地址（浏览器可访问的地址）
+# 后端 API 地址（浏览器可访问的地址；需要和后端 `PORT` 对齐）
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8001
 
 # Chat / Research 流式协议（默认 sse；遇到代理/平台不兼容可切换 legacy）
@@ -122,9 +124,9 @@ pnpm -C web dev
 访问入口：
 
 - 前端界面：http://localhost:3100
-- 后端 API：http://localhost:8001
-- OpenAPI 文档：http://localhost:8001/docs
-- Metrics：http://localhost:8001/metrics
+- 后端 API：http://localhost:8001（默认；以 `.env` 中 `PORT` 为准）
+- OpenAPI 文档：http://localhost:8001/docs（默认；以 `.env` 中 `PORT` 为准）
+- Metrics：http://localhost:8001/metrics（默认；以 `.env` 中 `PORT` 为准）
 
 ---
 

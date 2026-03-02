@@ -205,6 +205,13 @@ class Settings(BaseSettings):
     # Environment
     app_env: str = "dev"  # dev | test | prod
     enable_prometheus: bool = False  # expose /metrics in Prometheus format
+    port: int = Field(
+        default=8001,
+        ge=1,
+        le=65535,
+        validation_alias="PORT",
+        description="Backend listen port (used by `python main.py`).",
+    )
     internal_api_key: str = Field(default="", validation_alias="WEAVER_INTERNAL_API_KEY")
     auth_user_header: str = Field(
         default="X-Weaver-User",

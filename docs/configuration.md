@@ -12,6 +12,14 @@
 
 ## 后端 `.env`
 
+### 端口（可选）
+
+后端默认监听 `8001`。如端口冲突，可在根目录 `.env` 中设置：
+
+```bash
+PORT=60006
+```
+
 ### LLM Provider（择一）
 
 OpenAI：
@@ -59,6 +67,7 @@ MCP_SERVERS={"filesystem":{"type":"stdio","command":"npx","args":["-y","@modelco
 ## 前端 `web/.env.local`
 
 ```bash
+# 需要和后端 `.env` 中的 PORT 对齐（默认 8001）
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8001
 NEXT_PUBLIC_CHAT_STREAM_PROTOCOL=sse
 NEXT_PUBLIC_RESEARCH_STREAM_PROTOCOL=sse
