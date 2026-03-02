@@ -17,7 +17,24 @@
 后端默认监听 `8001`。如端口冲突，可在根目录 `.env` 中设置：
 
 ```bash
-PORT=60006
+# 选一个你机器上没被占用的端口即可（示例：18080）
+PORT=18080
+```
+
+> 建议：避免使用你环境里常见“容易被占用”的端口（例如 `8000`）。
+> 你可以用 `lsof -i :<port>`（macOS/Linux）或 `netstat -ano | findstr :<port>`（Windows）
+> 先确认端口空闲。
+
+### 热重载（可选）
+
+在这个仓库里，前端依赖树（`web/node_modules`）非常大，`uvicorn --reload` 很容易触发
+`OS file watch limit reached` 之类的崩溃。因此：
+
+- `python main.py` 默认 **不启用** 热重载（更稳定）
+- 需要热重载时，建议显式开启：
+
+```bash
+DEBUG=true WEAVER_RELOAD=1 python main.py
 ```
 
 ### LLM Provider（择一）
