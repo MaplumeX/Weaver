@@ -705,6 +705,39 @@ async def _scenario_calls(
     results.append(res)
     done.add(("GET", "/api/search/cache/stats"))
 
+    res, resp = await _raw_request(
+        client,
+        method="GET",
+        path="/api/tools/registry",
+        timeout_s=timeout_s,
+    )
+    if resp is not None and resp.status_code == 200:
+        try:
+            data = resp.json()
+            if not isinstance(data, dict) or "stats" not in data or "tools" not in data:
+                res = replace(res, ok=False, note="invalid tool registry shape")
+        except Exception:
+            res = replace(res, ok=False, note="invalid tool registry JSON")
+    results.append(res)
+    done.add(("GET", "/api/tools/registry"))
+
+    res, resp = await _raw_request(
+        client,
+        method="GET",
+        path="/api/search/providers",
+        timeout_s=timeout_s,
+    )
+    if resp is not None and resp.status_code == 200:
+        try:
+            data = resp.json()
+            providers = data.get("providers") if isinstance(data, dict) else None
+            if not isinstance(providers, list):
+                res = replace(res, ok=False, note="invalid provider stats shape")
+        except Exception:
+            res = replace(res, ok=False, note="invalid provider stats JSON")
+    results.append(res)
+    done.add(("GET", "/api/search/providers"))
+
     # Agents CRUD
     create_agent, resp = await _raw_request(
         client,
