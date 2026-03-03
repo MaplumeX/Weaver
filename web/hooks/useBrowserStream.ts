@@ -28,6 +28,7 @@ interface UseBrowserStreamReturn {
   stop: () => void
   capture: () => void
   sendInputAction: (action: BrowserWsInputAction) => Promise<WsAckMessage>
+  sendInputActionNoAck: (action: BrowserWsInputAction) => void
 }
 
 type BrowserWsMouseButton = 'left' | 'right' | 'middle'
@@ -271,6 +272,15 @@ export function useBrowserStream({
     return await ackPromise
   }, [])
 
+  const sendInputActionNoAck = useCallback((action: BrowserWsInputAction) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+
+    const existingId = typeof (action as any)?.id === 'string' ? String((action as any).id).trim() : ''
+    const id = existingId || `ui_${Date.now().toString(36)}_${++actionSeqRef.current}`
+    ws.send(JSON.stringify({ ...action, id }))
+  }, [])
+
   return {
     isConnected,
     isStreaming,
@@ -282,5 +292,6 @@ export function useBrowserStream({
     stop,
     capture,
     sendInputAction,
+    sendInputActionNoAck,
   }
 }

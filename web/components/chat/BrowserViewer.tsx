@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { BrowserScreenshot } from '@/types/browser'
 import { useBrowserEvents } from '@/hooks/useBrowserEvents'
 import { useBrowserStream } from '@/hooks/useBrowserStream'
+import { toPlaywrightKeyboardAction } from '@/lib/browser/keyboard'
 
 interface BrowserViewerProps {
   threadId: string | null
@@ -130,6 +131,7 @@ export function BrowserViewer({
     stop: stopStream,
     capture: captureFrame,
     sendInputAction,
+    sendInputActionNoAck,
   } = useBrowserStream({
     threadId: isLiveMode ? threadId : null,
     autoStart: true,
@@ -174,11 +176,14 @@ export function BrowserViewer({
 
   const controlSurfaceRef = useRef<HTMLDivElement | null>(null)
   const pointerStateRef = useRef<{
+    pointerType: 'mouse' | 'touch' | 'pen'
     pointerId: number
     startNormX: number
     startNormY: number
     startClientX: number
     startClientY: number
+    lastClientX: number
+    lastClientY: number
     dragStarted: boolean
     lastMoveSentAt: number
     button: 'left' | 'middle' | 'right'
@@ -197,22 +202,26 @@ export function BrowserViewer({
     if (!controlEnabled || !canControl) return
     if (!liveImageUrl) return
 
-    // Only primary/middle/right mouse buttons. Touch can be added later.
-    if (e.pointerType !== 'mouse') return
-    if (e.button !== 0 && e.button !== 1 && e.button !== 2) return
+    const pointerType = e.pointerType === 'pen' ? 'pen' : e.pointerType === 'touch' ? 'touch' : 'mouse'
+    if (pointerType === 'mouse' && e.button !== 0 && e.button !== 1 && e.button !== 2) return
 
     e.preventDefault()
     e.stopPropagation()
 
-    const button = e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left'
+    const button = pointerType === 'mouse'
+      ? (e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left')
+      : 'left'
     const { x, y } = getNormalizedPoint(e.currentTarget, e.clientX, e.clientY)
 
     pointerStateRef.current = {
+      pointerType,
       pointerId: e.pointerId,
       startNormX: x,
       startNormY: y,
       startClientX: e.clientX,
       startClientY: e.clientY,
+      lastClientX: e.clientX,
+      lastClientY: e.clientY,
       dragStarted: false,
       lastMoveSentAt: 0,
       button,
@@ -233,6 +242,33 @@ export function BrowserViewer({
     if (!state || state.pointerId !== e.pointerId) return
     if (!liveImageUrl) return
 
+    if (state.pointerType === 'touch' || state.pointerType === 'pen') {
+      const now = Date.now()
+      const deltaX = e.clientX - state.lastClientX
+      const deltaY = e.clientY - state.lastClientY
+      state.lastClientX = e.clientX
+      state.lastClientY = e.clientY
+
+      const movedFarEnough = Math.hypot(e.clientX - state.startClientX, e.clientY - state.startClientY) >= 6
+      if (!state.dragStarted && movedFarEnough) {
+        state.dragStarted = true
+      }
+
+      if (!state.dragStarted) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      if (now - state.lastMoveSentAt < 30) return
+      state.lastMoveSentAt = now
+
+      const dx = Math.round(-deltaX)
+      const dy = Math.round(-deltaY)
+      if (dx === 0 && dy === 0) return
+      sendInputActionNoAck({ action: 'scroll', dx, dy })
+      return
+    }
+
     const distX = e.clientX - state.startClientX
     const distY = e.clientY - state.startClientY
     const movedFarEnough = Math.hypot(distX, distY) >= 4
@@ -240,7 +276,7 @@ export function BrowserViewer({
     if (!state.dragStarted && movedFarEnough) {
       state.dragStarted = true
 
-      void sendInputAction({ action: 'mouse', type: 'move', x: state.startNormX, y: state.startNormY }).catch(() => {})
+      sendInputActionNoAck({ action: 'mouse', type: 'move', x: state.startNormX, y: state.startNormY })
       void sendInputAction({ action: 'mouse', type: 'down', button: state.button }).catch(() => {})
     }
 
@@ -251,8 +287,8 @@ export function BrowserViewer({
     state.lastMoveSentAt = now
 
     const { x, y } = getNormalizedPoint(e.currentTarget, e.clientX, e.clientY)
-    void sendInputAction({ action: 'mouse', type: 'move', x, y }).catch(() => {})
-  }, [canControl, controlEnabled, liveImageUrl, sendInputAction])
+    sendInputActionNoAck({ action: 'mouse', type: 'move', x, y })
+  }, [canControl, controlEnabled, liveImageUrl, sendInputAction, sendInputActionNoAck])
 
   const handleControlPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const state = pointerStateRef.current
@@ -272,8 +308,22 @@ export function BrowserViewer({
     }
 
     const { x, y } = getNormalizedPoint(e.currentTarget, e.clientX, e.clientY)
+    if (state.pointerType === 'touch' || state.pointerType === 'pen') {
+      if (!state.dragStarted) {
+        void sendInputAction({
+          action: 'mouse',
+          type: 'click',
+          x,
+          y,
+          button: 'left',
+          clicks: 1,
+        }).catch(() => {})
+      }
+      return
+    }
+
     if (state.dragStarted) {
-      void sendInputAction({ action: 'mouse', type: 'move', x, y }).catch(() => {})
+      sendInputActionNoAck({ action: 'mouse', type: 'move', x, y })
       void sendInputAction({ action: 'mouse', type: 'up', button: state.button }).catch(() => {})
       return
     }
@@ -286,7 +336,7 @@ export function BrowserViewer({
       button: state.button,
       clicks: 1,
     }).catch(() => {})
-  }, [canControl, controlEnabled, liveImageUrl, sendInputAction])
+  }, [canControl, controlEnabled, liveImageUrl, sendInputAction, sendInputActionNoAck])
 
   const handleControlPointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const state = pointerStateRef.current
@@ -300,7 +350,7 @@ export function BrowserViewer({
       // ignore
     }
 
-    if (state.dragStarted) {
+    if (state.dragStarted && state.pointerType === 'mouse') {
       void sendInputAction({ action: 'mouse', type: 'up', button: state.button }).catch(() => {})
     }
   }, [canControl, controlEnabled, sendInputAction])
@@ -314,8 +364,8 @@ export function BrowserViewer({
 
     const dx = Math.round(e.deltaX)
     const dy = Math.round(e.deltaY)
-    void sendInputAction({ action: 'scroll', dx, dy }).catch(() => {})
-  }, [canControl, controlEnabled, liveImageUrl, sendInputAction])
+    sendInputActionNoAck({ action: 'scroll', dx, dy })
+  }, [canControl, controlEnabled, liveImageUrl, sendInputActionNoAck])
 
   const handleControlKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!controlEnabled || !canControl) return
@@ -323,35 +373,23 @@ export function BrowserViewer({
     // Let tab move focus within the viewer (avoid trapping).
     if (e.key === 'Tab') return
 
-    // Skip pure modifier keys.
-    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return
-
-    const hasChord = e.ctrlKey || e.metaKey || e.altKey
-
-    if (e.key.length === 1 && !hasChord) {
-      e.preventDefault()
-      e.stopPropagation()
-      void sendInputAction({ action: 'keyboard', type: 'type', text: e.key }).catch(() => {})
-      return
-    }
-
-    const modifiers: string[] = []
-    if (e.metaKey) modifiers.push('Meta')
-    if (e.ctrlKey) modifiers.push('Control')
-    if (e.altKey) modifiers.push('Alt')
-    if (e.shiftKey) modifiers.push('Shift')
-
-    let key = e.key
-    if (key === ' ') key = 'Space'
-    if (key === 'Esc') key = 'Escape'
-
-    // For chord keys, Playwright expects e.g. "Control+L".
-    if (key.length === 1) key = key.toUpperCase()
-    const chord = modifiers.length ? `${modifiers.join('+')}+${key}` : key
+    const action = toPlaywrightKeyboardAction({
+      key: e.key,
+      ctrlKey: e.ctrlKey,
+      metaKey: e.metaKey,
+      altKey: e.altKey,
+      shiftKey: e.shiftKey,
+    })
+    if (action.kind === 'ignore') return
 
     e.preventDefault()
     e.stopPropagation()
-    void sendInputAction({ action: 'keyboard', type: 'press', key: chord }).catch(() => {})
+    if (action.kind === 'type') {
+      void sendInputAction({ action: 'keyboard', type: 'type', text: action.text }).catch(() => {})
+      return
+    }
+
+    void sendInputAction({ action: 'keyboard', type: 'press', key: action.key }).catch(() => {})
   }, [canControl, controlEnabled, sendInputAction])
 
   const handleControlPaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
@@ -651,7 +689,7 @@ export function BrowserViewer({
                   tabIndex={controlEnabled ? 0 : -1}
                   className={cn(
                     'relative w-full outline-none',
-                    controlEnabled && canControl && 'cursor-crosshair focus:ring-2 focus:ring-primary/40',
+                    controlEnabled && canControl && 'cursor-crosshair touch-none focus:ring-2 focus:ring-primary/40',
                   )}
                   onPointerDown={handleControlPointerDown}
                   onPointerMove={handleControlPointerMove}
