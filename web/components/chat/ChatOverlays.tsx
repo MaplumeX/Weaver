@@ -190,7 +190,9 @@ export function InterruptBanner({
       )}
       role="alert"
     >
-      <div className="text-[13px] font-medium">Tool approval required</div>
+      <div className="text-[13px] font-medium">
+        {toolApprovalRequest ? 'Tool approval required' : 'Approval required'}
+      </div>
       <div className="text-xs text-amber-900/60 dark:text-amber-100/60 text-pretty">
         {bannerMessage}
       </div>
