@@ -50,10 +50,10 @@ const ArtifactListItem = memo(function ArtifactListItem({
 }) {
   const icon = (() => {
     switch (artifact.type) {
-      case 'report': return <FileText className="h-3.5 w-3.5" />
-      case 'code': return <Code className="h-3.5 w-3.5" />
-      case 'chart': return <BarChart className="h-3.5 w-3.5" />
-      default: return <FileText className="h-3.5 w-3.5" />
+      case 'report': return <FileText className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
+      case 'code': return <Code className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400" />
+      case 'chart': return <BarChart className="h-3.5 w-3.5 text-violet-500 dark:text-violet-400" />
+      default: return <FileText className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
     }
   })()
 
@@ -245,7 +245,7 @@ export function ArtifactsPanel({
             </div>
           </div>
           <Button type="button" variant="ghost" onClick={() => setIsFullscreen(false)}>
-            <Minimize2 className="h-5 w-5 mr-2" />
+            <Minimize2 className="h-5 w-5 mr-2 text-slate-500/70" />
             Close
           </Button>
         </div>
@@ -304,7 +304,7 @@ export function ArtifactsPanel({
               aria-label={toggleLabel || 'Collapse inspector'}
               title={toggleTitle || 'Collapse inspector'}
             >
-              <PanelRightClose className="h-4 w-4" />
+              <PanelRightClose className="h-4 w-4 text-slate-500/70 dark:text-slate-400/70" />
             </Button>
           )}
           <div className="min-w-0">
@@ -330,7 +330,7 @@ export function ArtifactsPanel({
               aria-label="Open inspector fullscreen"
               title="Open fullscreen"
             >
-              <Maximize2 className="h-3.5 w-3.5" />
+              <Maximize2 className="h-3.5 w-3.5 text-slate-500/70 dark:text-slate-400/70" />
             </Button>
           ) : null}
         </div>
@@ -390,10 +390,10 @@ function ArtifactPreview({ artifact }: { artifact: Artifact | null }) {
 
   const icon = (() => {
     switch (artifact.type) {
-      case 'report': return <FileText className="h-4 w-4 text-primary" />
-      case 'code': return <Code className="h-4 w-4 text-primary" />
-      case 'chart': return <BarChart className="h-4 w-4 text-primary" />
-      default: return <FileText className="h-4 w-4 text-primary" />
+      case 'report': return <FileText className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
+      case 'code': return <Code className="h-4 w-4 text-sky-500 dark:text-sky-400" />
+      case 'chart': return <BarChart className="h-4 w-4 text-violet-500 dark:text-violet-400" />
+      default: return <FileText className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
     }
   })()
 
@@ -418,7 +418,7 @@ function ArtifactPreview({ artifact }: { artifact: Artifact | null }) {
             aria-label="Download chart"
             title="Download chart"
           >
-            <Download className="h-3.5 w-3.5" />
+            <Download className="h-3.5 w-3.5 text-emerald-500/70 dark:text-emerald-400/70" />
           </Button>
         ) : null}
       </div>
@@ -504,7 +504,7 @@ function ArtifactCard({ artifact, isFullscreen }: { artifact: Artifact, isFullsc
             aria-label="Download chart"
             title="Download chart"
           >
-            <Download className="h-3 w-3" />
+            <Download className="h-3 w-3 text-emerald-500/70 dark:text-emerald-400/70" />
           </Button>
         )}
       </CardHeader>

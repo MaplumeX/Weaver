@@ -31,7 +31,7 @@ export function ScrollToBottomButton({ visible, onClick }: ScrollButtonProps) {
         onClick={onClick}
         aria-label="Scroll to bottom"
       >
-        <ArrowDown className="h-4 w-4" />
+        <ArrowDown className="h-4 w-4 text-primary" />
       </Button>
     </div>
   )

@@ -10,6 +10,7 @@ interface Command {
   label: string
   icon: React.ComponentType<{ className?: string }>
   desc: string
+  iconColor: string
 }
 
 interface CommandPaletteProps {
@@ -20,15 +21,15 @@ interface CommandPaletteProps {
 
 // All available commands
 const ALL_COMMANDS: Command[] = [
-  { id: 'agent', label: 'Agent Mode', icon: Bot, desc: 'Plan & web search' },
-  { id: 'ultra', label: 'Deep Research', icon: Rocket, desc: 'Deep research (agent + deep search)' },
-  { id: 'research', label: 'Research', icon: Search, desc: 'Run a research job (SSE)' },
-  { id: 'web', label: 'Web Mode', icon: Globe, desc: 'Web search only' },
-  { id: 'fix', label: 'Fix Code', icon: Bug, desc: 'Debug & Fix' },
-  { id: 'explain', label: 'Explain', icon: BookOpen, desc: 'Explain concept' },
-  { id: 'refactor', label: 'Refactor', icon: PenTool, desc: 'Optimize code' },
-  { id: 'test', label: 'Write Tests', icon: TestTube, desc: 'Generate tests' },
-  { id: 'clear', label: 'Clear Chat', icon: Trash2, desc: 'Reset conversation' },
+  { id: 'agent', label: 'Agent Mode', icon: Bot, desc: 'Plan & web search', iconColor: 'text-sky-500 dark:text-sky-400' },
+  { id: 'ultra', label: 'Deep Research', icon: Rocket, desc: 'Deep research (agent + deep search)', iconColor: 'text-violet-500 dark:text-violet-400' },
+  { id: 'research', label: 'Research', icon: Search, desc: 'Run a research job (SSE)', iconColor: 'text-emerald-500 dark:text-emerald-400' },
+  { id: 'web', label: 'Web Mode', icon: Globe, desc: 'Web search only', iconColor: 'text-emerald-500 dark:text-emerald-400' },
+  { id: 'fix', label: 'Fix Code', icon: Bug, desc: 'Debug & Fix', iconColor: 'text-red-500 dark:text-red-400' },
+  { id: 'explain', label: 'Explain', icon: BookOpen, desc: 'Explain concept', iconColor: 'text-amber-500 dark:text-amber-400' },
+  { id: 'refactor', label: 'Refactor', icon: PenTool, desc: 'Optimize code', iconColor: 'text-violet-500 dark:text-violet-400' },
+  { id: 'test', label: 'Write Tests', icon: TestTube, desc: 'Generate tests', iconColor: 'text-sky-500 dark:text-sky-400' },
+  { id: 'clear', label: 'Clear Chat', icon: Trash2, desc: 'Reset conversation', iconColor: 'text-red-500/70 dark:text-red-400/70' },
 ]
 
 export function CommandPalette({ show, onSelect, onClose }: CommandPaletteProps) {
@@ -149,7 +150,7 @@ export function CommandPalette({ show, onSelect, onClose }: CommandPaletteProps)
                 )}
               >
                 <div className="flex items-center justify-center h-6 w-6 rounded bg-background border border-border/30 shadow-sm">
-                  <Icon className="h-3.5 w-3.5" />
+                  <Icon className={cn("h-3.5 w-3.5", cmd.iconColor)} />
                 </div>
                 <div>
                   <div className="font-medium">{cmd.label}</div>

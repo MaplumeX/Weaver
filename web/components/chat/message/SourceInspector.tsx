@@ -126,7 +126,7 @@ export function SourceInspector({
     <div className={cn('mt-3 rounded-xl border bg-muted/20 p-3', className)}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground">
-          <Filter className="h-3.5 w-3.5" />
+          <Filter className="h-3.5 w-3.5 text-amber-500/70 dark:text-amber-400/70" />
           Source Inspector
         </div>
         <select
@@ -195,9 +195,9 @@ export function SourceInspector({
                 rel="noreferrer"
                 className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
               >
-                <LinkIcon className="h-3 w-3" />
+                <LinkIcon className="h-3 w-3 text-sky-500/70 dark:text-sky-400/70" />
                 <span className="max-w-[420px] truncate">{href}</span>
-                <ExternalLink className="h-3 w-3" />
+                <ExternalLink className="h-3 w-3 text-sky-500/70 dark:text-sky-400/70" />
               </a>
             </div>
           )

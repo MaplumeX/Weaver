@@ -641,7 +641,7 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
             aria-label="Copy code"
             title="Copy code"
           >
-            {copied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5 text-sky-400/70" />}
           </Button>
           <Button
             type="button"
@@ -652,7 +652,7 @@ export function CodeBlock({ language, value, defaultCollapsed = false }: CodeBlo
             aria-label="Download code"
             title="Download"
           >
-            <Download className="h-4 w-4" />
+            <Download className="h-4 w-4 text-emerald-400/70" />
           </Button>
           <Button
             type="button"

@@ -53,6 +53,20 @@ const CATEGORY_ICON: Record<ToolCategory, typeof Globe> = {
   other: Wrench,
 }
 
+const CATEGORY_COLOR: Record<ToolCategory, string> = {
+  search: 'text-emerald-500 dark:text-emerald-400',
+  code: 'text-sky-500 dark:text-sky-400',
+  browser: 'text-violet-500 dark:text-violet-400',
+  other: 'text-slate-500 dark:text-slate-400',
+}
+
+const CATEGORY_BG: Record<ToolCategory, string> = {
+  search: 'bg-emerald-500/10 dark:bg-emerald-500/15',
+  code: 'bg-sky-500/10 dark:bg-sky-500/15',
+  browser: 'bg-violet-500/10 dark:bg-violet-500/15',
+  other: 'bg-slate-500/10 dark:bg-slate-500/15',
+}
+
 export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null)
@@ -141,7 +155,10 @@ export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
             return (
               <span
                 key={cat}
-                className="hidden sm:inline-flex items-center gap-1 rounded-md bg-muted/20 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/50 tabular-nums"
+                className={cn(
+                  "hidden sm:inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+                  CATEGORY_BG[cat], CATEGORY_COLOR[cat]
+                )}
               >
                 <CatIcon className="h-2.5 w-2.5" />
                 {count}
@@ -189,6 +206,7 @@ function LogItem({
   onToggleExpanded: () => void
 }) {
   const isRunning = tool.state === 'running'
+  const category = categorizeTool(tool.toolName)
   const query = typeof tool.args?.query === 'string' ? tool.args.query : null
   const url = typeof tool.args?.url === 'string' ? tool.args.url : null
   const path = typeof tool.args?.path === 'string' ? tool.args.path : null
@@ -268,7 +286,11 @@ function LogItem({
           <div
             className={cn(
               "w-1.5 h-1.5 rounded-full",
-              tool.state === 'failed' ? "bg-destructive" : isRunning ? "bg-primary animate-pulse" : "bg-border"
+              tool.state === 'failed'
+                ? "bg-red-500"
+                : isRunning
+                  ? "bg-primary animate-pulse"
+                  : CATEGORY_COLOR[category].replace('text-', 'bg-').replace(/dark:text-\S+/, '')
             )}
           />
           <div className="w-px h-full bg-border/30 group-last:hidden" />

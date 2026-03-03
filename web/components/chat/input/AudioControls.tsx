@@ -2,7 +2,7 @@
 
 import { useRef, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Mic, MicOff } from '@/components/ui/icons'
+import { Mic, AudioLines, Loader2 } from '@/components/ui/icons'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { getApiBaseUrl } from '@/lib/api'
@@ -18,7 +18,6 @@ export function AudioControls({ onTranscript, disabled }: AudioControlsProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
-  // Define fallbackToWebSpeech first since it's used by startListening
   const fallbackToWebSpeech = useCallback(() => {
     if (typeof window !== 'undefined' && !('webkitSpeechRecognition' in window)) {
       toast.error('Web Speech API not supported')
@@ -165,16 +164,22 @@ export function AudioControls({ onTranscript, disabled }: AudioControlsProps) {
       aria-label={isListening ? 'Stop recording' : 'Start voice input'}
       aria-pressed={isListening}
       className={cn(
-        "h-8 w-8 rounded-full transition-colors duration-200",
-        "hover:bg-muted/50 active:bg-muted/70",
-        isListening && "bg-red-500/10 text-red-500 hover:bg-red-500/20 active:bg-red-500/30 animate-pulse",
-        isProcessingAudio && "bg-primary/10 text-primary"
+        "h-8 w-8 rounded-lg transition-all duration-200",
+        "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/40",
+        isListening && [
+          "relative text-red-500 bg-red-500/10 hover:bg-red-500/15 hover:text-red-500",
+          "ring-2 ring-red-500/20 ring-offset-1 ring-offset-background",
+        ],
+        isProcessingAudio && "text-primary bg-primary/10 hover:bg-primary/15"
       )}
     >
       {isProcessingAudio ? (
-        <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+        <Loader2 className="h-4 w-4 animate-spin" />
       ) : isListening ? (
-        <MicOff className="h-4 w-4" />
+        <>
+          <AudioLines className="h-4 w-4 animate-pulse" />
+          <span className="absolute inset-0 rounded-lg animate-ping bg-red-500/10 pointer-events-none" />
+        </>
       ) : (
         <Mic className="h-4 w-4" />
       )}

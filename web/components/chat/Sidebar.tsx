@@ -287,9 +287,9 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
           </div>
 
           <div className="space-y-0.5" role="group" aria-label="Workspace navigation">
-            <SidebarItem icon={LayoutGrid} label={t('dashboard')} active={activeView === 'dashboard'} onClick={() => onViewChange('dashboard')} />
-            <SidebarItem icon={Compass} label={t('discover')} active={activeView === 'discover'} onClick={() => onViewChange('discover')} />
-            <SidebarItem icon={FolderOpen} label={t('library')} active={activeView === 'library'} onClick={() => onViewChange('library')} />
+            <SidebarItem icon={LayoutGrid} label={t('dashboard')} active={activeView === 'dashboard'} onClick={() => onViewChange('dashboard')} iconClassName="text-sky-500 dark:text-sky-400" />
+            <SidebarItem icon={Compass} label={t('discover')} active={activeView === 'discover'} onClick={() => onViewChange('discover')} iconClassName="text-amber-500 dark:text-amber-400" />
+            <SidebarItem icon={FolderOpen} label={t('library')} active={activeView === 'library'} onClick={() => onViewChange('library')} iconClassName="text-violet-500 dark:text-violet-400" />
           </div>
 
           <div>
@@ -332,10 +332,10 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
               onClick={toggleTheme}
               aria-label={t('toggleTheme')}
               title={t('toggleTheme')}
-              className="text-muted-foreground/60 hover:text-foreground rounded-lg"
+              className="hover:bg-accent/50 rounded-lg"
             >
-              <Sun className="h-4 w-4 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
-              <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
+              <Sun className="h-4 w-4 text-amber-500 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+              <Moon className="absolute h-4 w-4 text-indigo-400 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
             </Button>
             <Button
               type="button"
@@ -344,9 +344,9 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
               onClick={onOpenSettings}
               aria-label={t('settings')}
               title={t('settings')}
-              className="text-muted-foreground/60 hover:text-foreground rounded-lg"
+              className="hover:bg-accent/50 rounded-lg"
             >
-              <Settings className="h-4 w-4" />
+              <Settings className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             </Button>
           </div>
         </div>
@@ -379,34 +379,34 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
                 active={activeView === 'dashboard'}
                 onClick={() => onViewChange('dashboard')}
               >
-                <LayoutGrid className="h-4 w-4" />
+                <LayoutGrid className="h-4 w-4 text-sky-500 dark:text-sky-400" />
               </RailButton>
               <RailButton
                 label={t('discover')}
                 active={activeView === 'discover'}
                 onClick={() => onViewChange('discover')}
               >
-                <Compass className="h-4 w-4" />
+                <Compass className="h-4 w-4 text-amber-500 dark:text-amber-400" />
               </RailButton>
               <RailButton
                 label={t('library')}
                 active={activeView === 'library'}
                 onClick={() => onViewChange('library')}
               >
-                <FolderOpen className="h-4 w-4" />
+                <FolderOpen className="h-4 w-4 text-violet-500 dark:text-violet-400" />
               </RailButton>
             </div>
 
             <div className="flex flex-col items-center gap-1.5">
               <RailButton label={t('toggleTheme')} active={false} onClick={toggleTheme}>
                 <>
-                  <Sun className="h-4 w-4 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
-                  <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
+                  <Sun className="h-4 w-4 text-amber-500 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+                  <Moon className="absolute h-4 w-4 text-indigo-400 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
                 </>
               </RailButton>
 
               <RailButton label={t('settings')} active={false} onClick={onOpenSettings}>
-                <Settings className="h-4 w-4" />
+                <Settings className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               </RailButton>
             </div>
           </div>
@@ -676,7 +676,7 @@ function SidebarChatItem({
 }
 
 
-function SidebarItem({ icon: Icon, label, active, onClick }: { icon: any, label: string, active?: boolean, onClick?: () => void }) {
+function SidebarItem({ icon: Icon, label, active, onClick, iconClassName }: { icon: any, label: string, active?: boolean, onClick?: () => void, iconClassName?: string }) {
   return (
     <button
       onClick={onClick}
@@ -685,7 +685,7 @@ function SidebarItem({ icon: Icon, label, active, onClick }: { icon: any, label:
         "sidebar-item group",
         active && "active"
       )}>
-      <Icon className={cn("h-4 w-4 transition-colors", active ? "text-primary" : "text-muted-foreground/60 group-hover:text-foreground")} />
+      <Icon className={cn("h-4 w-4 transition-colors", iconClassName || (active ? "text-primary" : "text-muted-foreground/60 group-hover:text-foreground"))} />
       <span className="truncate text-sm">{label}</span>
     </button>
   )

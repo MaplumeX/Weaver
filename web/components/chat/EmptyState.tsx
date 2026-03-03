@@ -13,6 +13,37 @@ interface EmptyStateProps {
   onStarterClick?: (text: string, mode: CoreModeId) => void
 }
 
+const MODE_COLORS: Record<string, { icon: string; activeIcon: string; activeBg: string; activeBorder: string; activeShadow: string }> = {
+  ultra: {
+    icon: 'text-violet-500/50 dark:text-violet-400/50',
+    activeIcon: 'text-violet-500 dark:text-violet-400',
+    activeBg: 'bg-violet-500/[0.04]',
+    activeBorder: 'border-violet-500/20',
+    activeShadow: 'shadow-violet-500/5',
+  },
+  agent: {
+    icon: 'text-sky-500/50 dark:text-sky-400/50',
+    activeIcon: 'text-sky-500 dark:text-sky-400',
+    activeBg: 'bg-sky-500/[0.04]',
+    activeBorder: 'border-sky-500/20',
+    activeShadow: 'shadow-sky-500/5',
+  },
+  web: {
+    icon: 'text-emerald-500/50 dark:text-emerald-400/50',
+    activeIcon: 'text-emerald-500 dark:text-emerald-400',
+    activeBg: 'bg-emerald-500/[0.04]',
+    activeBorder: 'border-emerald-500/20',
+    activeShadow: 'shadow-emerald-500/5',
+  },
+  direct: {
+    icon: 'text-amber-500/50 dark:text-amber-400/50',
+    activeIcon: 'text-amber-500 dark:text-amber-400',
+    activeBg: 'bg-amber-500/[0.04]',
+    activeBorder: 'border-amber-500/20',
+    activeShadow: 'shadow-amber-500/5',
+  },
+}
+
 export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick }: EmptyStateProps) {
   const { t } = useI18n()
 
@@ -72,6 +103,7 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-[680px]">
         {starters.map((starter, i) => {
           const isActive = activeMode === starter.mode
+          const colors = (MODE_COLORS[starter.mode] ?? MODE_COLORS['direct'])!
           return (
             <button
               key={i}
@@ -82,7 +114,7 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
               className={cn(
                 "group flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all duration-200",
                 isActive
-                  ? "border-primary/20 bg-primary/[0.04] shadow-sm shadow-primary/5"
+                  ? [colors.activeBorder, colors.activeBg, "shadow-sm", colors.activeShadow]
                   : "border-border/20 bg-card/40 hover:bg-card/80 hover:border-border/40 hover:shadow-sm"
               )}
               style={{ animationDelay: `${i * 50}ms` }}
@@ -90,8 +122,8 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
               <div className={cn(
                 "p-2 rounded-lg transition-colors",
                 isActive
-                  ? "bg-primary/10 text-primary"
-                  : "bg-muted/30 text-muted-foreground/50 group-hover:bg-primary/8 group-hover:text-primary"
+                  ? [colors.activeBg, colors.activeIcon]
+                  : ["bg-muted/30", colors.icon, "group-hover:bg-muted/50"]
               )}>
                 <starter.icon className="h-4 w-4" />
               </div>
@@ -101,7 +133,7 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
                 </p>
                 <div className={cn(
                   "flex items-center gap-1 text-xs",
-                  isActive ? "text-primary/60" : "text-muted-foreground/35"
+                  isActive ? [colors.activeIcon, "opacity-60"] : "text-muted-foreground/35"
                 )}>
                   <span>{t('useMode')} {starter.mode} {t('mode')}</span>
                   <ArrowRight className="h-2.5 w-2.5" />

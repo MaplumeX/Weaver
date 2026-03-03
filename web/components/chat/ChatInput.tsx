@@ -259,7 +259,7 @@ export const ChatInput = memo(function ChatInput({
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm">
               <div className="text-primary font-medium flex flex-col items-center gap-2">
                 <div className="p-4 rounded-2xl bg-primary/10">
-                  <Paperclip className="h-7 w-7" />
+                  <Paperclip className="h-7 w-7 text-amber-500" />
                 </div>
                 <span className="text-sm">{t('dropFilesHere')}</span>
               </div>
@@ -284,7 +284,7 @@ export const ChatInput = memo(function ChatInput({
               onClick={() => fileInputRef.current?.click()}
               aria-label="Attach files"
             >
-              <Paperclip className="h-4 w-4" />
+              <Paperclip className="h-4 w-4 text-amber-500/70 dark:text-amber-400/70" />
             </Button>
           </div>
 
@@ -346,13 +346,13 @@ export const ChatInput = memo(function ChatInput({
                 disabled={!hasContent}
                 aria-label="Send message"
                 className={cn(
-                  "h-8 w-8 rounded-xl transition-all duration-200",
+                  "group h-8 w-8 rounded-xl transition-all duration-200",
                   hasContent
                     ? "bg-primary text-primary-foreground shadow-sm shadow-primary/25 hover:bg-primary/90 hover:shadow-md hover:shadow-primary/20"
                     : "bg-muted/40 text-muted-foreground/30"
                 )}
               >
-                <Send className="h-4 w-4" />
+                <Send className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
               </Button>
             )}
           </div>

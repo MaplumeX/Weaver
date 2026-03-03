@@ -110,6 +110,16 @@ function StreamStatus({
   const isError = connectionState === 'disconnected'
   const isWarning = connectionState === 'reconnecting'
 
+  const iconColor = (() => {
+    if (isError) return 'text-destructive/60'
+    if (isWarning) return 'text-amber-500/70'
+    if (Icon === Search) return 'text-emerald-500 dark:text-emerald-400'
+    if (Icon === Code) return 'text-sky-500 dark:text-sky-400'
+    if (Icon === PenLine) return 'text-violet-500 dark:text-violet-400'
+    if (Icon === ListChecks) return 'text-primary'
+    return 'text-muted-foreground/40'
+  })()
+
   return (
     <div className="py-3 animate-fade-in">
       <div
@@ -134,7 +144,7 @@ function StreamStatus({
         ) : (
           <Icon className={cn(
             "h-3.5 w-3.5 shrink-0",
-            isError ? "text-destructive/60" : "text-muted-foreground/40"
+            iconColor
           )} />
         )}
 

@@ -8,7 +8,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import dynamic from 'next/dynamic'
 import { cn } from '@/lib/utils'
-import { BookmarkPlus, Brain, Check, ChevronDown, ClipboardCopy, ListChecks, Loader2, PenLine, Play, Square } from '@/components/ui/icons'
+import { BookmarkPlus, Brain, Check, ChevronDown, ClipboardCopy, ListChecks, Loader2, PenLine, Volume2, Square } from '@/components/ui/icons'
 import { Button } from '@/components/ui/button'
 import { DataTableView } from './DataTableView'
 import { ErrorBoundary, type FallbackProps } from 'react-error-boundary'
@@ -852,7 +852,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                   aria-label="Copy message"
                   title="Copy"
                 >
-                  {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <ClipboardCopy className="h-3.5 w-3.5" />}
+                  {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <ClipboardCopy className="h-3.5 w-3.5 text-sky-500/70 dark:text-sky-400/70" />}
                 </Button>
 
                 {!isUser ? (
@@ -873,9 +873,9 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                       {isTTSLoading ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : isPlaying ? (
-                        <Square className="h-3 w-3 fill-current" />
+                        <Square className="h-3 w-3" />
                       ) : (
-                        <Play className="h-3.5 w-3.5" />
+                        <Volume2 className="h-3.5 w-3.5 text-violet-500/70 dark:text-violet-400/70" />
                       )}
                     </Button>
                     <Button
@@ -887,7 +887,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                       aria-label={saved ? "Saved to library" : "Save to library"}
                       title={saved ? "Saved" : "Save"}
                     >
-                      {saved ? <Check className="h-3.5 w-3.5 text-green-500" /> : <BookmarkPlus className="h-3.5 w-3.5" />}
+                      {saved ? <Check className="h-3.5 w-3.5 text-green-500" /> : <BookmarkPlus className="h-3.5 w-3.5 text-amber-500/70 dark:text-amber-400/70" />}
                     </Button>
                   </>
                 ) : null}
@@ -902,7 +902,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                     aria-label="Edit message"
                     title="Edit"
                   >
-                    <PenLine className="h-3.5 w-3.5" />
+                    <PenLine className="h-3.5 w-3.5 text-emerald-500/70 dark:text-emerald-400/70" />
                   </Button>
                 ) : null}
               </div>
@@ -931,13 +931,17 @@ function StructuredDisclosure({
 }) {
   const isPlan = variant === 'plan'
 
+  const iconColor = isPlan
+    ? 'text-sky-500 dark:text-sky-400'
+    : 'text-violet-500 dark:text-violet-400'
+
   return (
     <details
       className={cn(
         'weaver-disclosure my-3 rounded-xl border overflow-hidden',
         isPlan
-          ? 'border-primary/10 bg-primary/[0.02]'
-          : 'border-border/40 bg-muted/[0.03]'
+          ? 'border-sky-500/10 bg-sky-500/[0.02]'
+          : 'border-violet-500/10 bg-violet-500/[0.02]'
       )}
     >
       <summary
@@ -952,10 +956,10 @@ function StructuredDisclosure({
           <span className={cn(
             "flex items-center justify-center size-6 rounded-md",
             isPlan
-              ? "bg-primary/10 text-primary"
-              : "bg-muted/50 text-muted-foreground"
+              ? "bg-sky-500/10"
+              : "bg-violet-500/10"
           )}>
-            <Icon className="h-3.5 w-3.5" />
+            <Icon className={cn("h-3.5 w-3.5", iconColor)} />
           </span>
           <span className="text-xs font-semibold text-foreground/80 truncate">
             {title}

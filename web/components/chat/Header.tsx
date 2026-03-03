@@ -90,7 +90,7 @@ export const Header = memo(function Header({
           aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
           aria-expanded={sidebarOpen}
         >
-          <Menu className="h-[18px] w-[18px] text-muted-foreground" />
+          <Menu className="h-[18px] w-[18px] text-slate-500 dark:text-slate-400" />
         </Button>
 
         <div className="min-w-0">
@@ -116,7 +116,7 @@ export const Header = memo(function Header({
               aria-label="Share session"
               title="Share"
             >
-              <Share className="h-[18px] w-[18px]" />
+              <Share className="h-[18px] w-[18px] text-sky-500/70 dark:text-sky-400/70" />
             </Button>
 
             <Button
@@ -127,7 +127,7 @@ export const Header = memo(function Header({
               aria-label="Open comments"
               title="Comments"
             >
-              <MessageSquare className="h-[18px] w-[18px]" />
+              <MessageSquare className="h-[18px] w-[18px] text-violet-500/70 dark:text-violet-400/70" />
             </Button>
 
             <Button
@@ -138,7 +138,7 @@ export const Header = memo(function Header({
               aria-label="Export report"
               title="Export"
             >
-              <Download className="h-[18px] w-[18px]" />
+              <Download className="h-[18px] w-[18px] text-emerald-500/70 dark:text-emerald-400/70" />
             </Button>
           </>
         ) : null}
@@ -151,7 +151,7 @@ export const Header = memo(function Header({
             className="rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent xl:hidden"
             aria-label="Toggle inspector"
           >
-            <PanelRight className="h-[18px] w-[18px]" />
+            <PanelRight className="h-[18px] w-[18px] text-slate-500/70 dark:text-slate-400/70" />
           </Button>
         )}
 
@@ -180,8 +180,8 @@ export const Header = memo(function Header({
             className="rounded-lg hover:bg-accent"
             aria-label={t('toggleTheme')}
           >
-            <Sun className="h-[18px] w-[18px] rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute h-[18px] w-[18px] rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
+            <Sun className="h-[18px] w-[18px] text-amber-500 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute h-[18px] w-[18px] text-indigo-400 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
           </Button>
 
           <Button
@@ -191,7 +191,7 @@ export const Header = memo(function Header({
             className="rounded-lg hover:bg-accent"
             aria-label={t('settings')}
           >
-            <Settings className="h-[18px] w-[18px]" />
+            <Settings className="h-[18px] w-[18px] text-slate-500/70 dark:text-slate-400/70" />
           </Button>
         </div>
       </div>
