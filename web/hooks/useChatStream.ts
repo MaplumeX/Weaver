@@ -633,5 +633,6 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
     handleApproveInterrupt,
     handleRejectInterrupt,
     handleEditInterrupt,
+    resumeInterruptWithPayload,
   }
 }

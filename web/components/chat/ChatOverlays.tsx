@@ -43,6 +43,7 @@ interface InterruptBannerProps {
   onApprove: () => void
   onReject?: (message?: string) => void
   onEdit?: (editedArgs: Array<Record<string, unknown> | undefined>) => void
+  onResume?: (payload: unknown) => void
   onDismiss: () => void
 }
 
@@ -52,6 +53,7 @@ export function InterruptBanner({
   onApprove,
   onReject,
   onEdit,
+  onResume,
   onDismiss,
 }: InterruptBannerProps) {
   const prompt = pendingInterrupt?.prompts?.[0]
@@ -60,9 +62,26 @@ export function InterruptBanner({
     return null
   }, [prompt])
 
+  const contentPrompt = useMemo(() => {
+    if (toolApprovalRequest) return null
+    if (!prompt || typeof prompt !== 'object' || Array.isArray(prompt)) return null
+
+    const record = prompt as Record<string, unknown>
+    const instruction = typeof record.instruction === 'string' ? record.instruction.trim() : ''
+    const content = typeof record.content === 'string' ? record.content : null
+    const checkpoint = typeof record.checkpoint === 'string' ? record.checkpoint.trim() : ''
+
+    if (!instruction && content == null) return null
+
+    return { instruction, content: content ?? '', checkpoint }
+  }, [prompt, toolApprovalRequest])
+
   const [editMode, setEditMode] = useState(false)
   const [argsDrafts, setArgsDrafts] = useState<string[]>([])
   const [parseErrors, setParseErrors] = useState<Array<string | null>>([])
+
+  const [contentEditMode, setContentEditMode] = useState(false)
+  const [contentDraft, setContentDraft] = useState('')
 
   useEffect(() => {
     if (!toolApprovalRequest) {
@@ -84,6 +103,17 @@ export function InterruptBanner({
     setParseErrors(drafts.map(() => null))
   }, [toolApprovalRequest])
 
+  useEffect(() => {
+    if (!contentPrompt) {
+      setContentEditMode(false)
+      setContentDraft('')
+      return
+    }
+
+    setContentEditMode(false)
+    setContentDraft(contentPrompt.content || '')
+  }, [contentPrompt])
+
   const bannerMessage = useMemo(() => {
     if (!pendingInterrupt) return 'Approval required before continuing.'
     if (pendingInterrupt.message) return pendingInterrupt.message
@@ -97,12 +127,20 @@ export function InterruptBanner({
       if (count > 1) return `Approve to run ${count} tool calls.`
       return 'Approve tool execution to continue.'
     }
+    if (contentPrompt?.checkpoint) {
+      return `Approval required (${contentPrompt.checkpoint}).`
+    }
     return 'Approval required before continuing.'
-  }, [pendingInterrupt, prompt, toolApprovalRequest])
+  }, [pendingInterrupt, prompt, toolApprovalRequest, contentPrompt])
 
   const handleContinue = () => {
     if (!pendingInterrupt) return
     if (!toolApprovalRequest) {
+      if (contentPrompt && contentEditMode && onResume) {
+        onResume({ content: contentDraft })
+        return
+      }
+
       onApprove()
       return
     }
@@ -224,6 +262,54 @@ export function InterruptBanner({
             {editMode ? (
               <div className="text-[11px] text-amber-900/50 dark:text-amber-100/50">
                 JSON object only
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {contentPrompt ? (
+        <div className="mt-1 flex flex-col gap-2">
+          <div
+            className={cn(
+              'rounded-lg border border-border/40 bg-background/60 dark:bg-background/20 p-2.5',
+            )}
+          >
+            {contentPrompt.instruction ? (
+              <div className="text-[11px] leading-4 text-amber-950/70 dark:text-amber-50/70 whitespace-pre-wrap break-words">
+                {contentPrompt.instruction}
+              </div>
+            ) : null}
+
+            {!contentEditMode ? (
+              <pre className="mt-1.5 text-[11px] leading-4 whitespace-pre-wrap break-words text-amber-950/70 dark:text-amber-50/70 max-h-48 overflow-auto">
+                {contentPrompt.content || ''}
+              </pre>
+            ) : (
+              <div className="mt-1.5">
+                <Textarea
+                  value={contentDraft}
+                  onChange={(e) => setContentDraft(e.target.value)}
+                  className="font-mono text-[11px] leading-4 min-h-[160px]"
+                  spellCheck={false}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs"
+              onClick={() => setContentEditMode((v) => !v)}
+              disabled={isLoading || !onResume}
+            >
+              {contentEditMode ? 'Stop editing' : 'Edit content'}
+            </Button>
+            {contentEditMode ? (
+              <div className="text-[11px] text-amber-900/50 dark:text-amber-100/50">
+                Edits resume the graph
               </div>
             ) : null}
           </div>

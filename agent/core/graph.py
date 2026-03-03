@@ -15,6 +15,8 @@ from agent.workflows.nodes import (
     evaluator_node,
     human_review_node,
     initiate_research,
+    hitl_draft_review_node,
+    hitl_plan_review_node,
     perform_parallel_search,
     planner_node,
     refine_plan_node,
@@ -58,8 +60,10 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     workflow.add_node("planner", planner_node)
     workflow.add_node("web_plan", web_search_plan_node)
     workflow.add_node("refine_plan", refine_plan_node)
+    workflow.add_node("hitl_plan_review", hitl_plan_review_node)
     workflow.add_node("perform_parallel_search", perform_parallel_search)
     workflow.add_node("writer", writer_node)
+    workflow.add_node("hitl_draft_review", hitl_draft_review_node)
     workflow.add_node("evaluator", evaluator_node)
     workflow.add_node("reviser", revise_report_node)
     workflow.add_node("human_review", human_review_node)
@@ -130,11 +134,16 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     workflow.add_conditional_edges("clarify", after_clarify, ["planner", "human_review"])
 
     # Planning path (agent + deep)
-    workflow.add_conditional_edges("planner", initiate_research, ["perform_parallel_search"])
-    workflow.add_conditional_edges("refine_plan", initiate_research, ["perform_parallel_search"])
+    workflow.add_edge("planner", "hitl_plan_review")
+    workflow.add_edge("refine_plan", "hitl_plan_review")
 
     # Web search only path
-    workflow.add_conditional_edges("web_plan", initiate_research, ["perform_parallel_search"])
+    workflow.add_edge("web_plan", "hitl_plan_review")
+
+    # Plan review (optional HITL) then dispatch searches
+    workflow.add_conditional_edges(
+        "hitl_plan_review", initiate_research, ["perform_parallel_search"]
+    )
 
     # After search: deep mode goes through compressor, others go directly to writer
     def after_search(state: AgentState) -> str:
@@ -157,7 +166,8 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     writer_targets = ["evaluator", "human_review"]
     if use_hierarchical:
         writer_targets.append("coordinator")
-    workflow.add_conditional_edges("writer", after_writer, writer_targets)
+    workflow.add_edge("writer", "hitl_draft_review")
+    workflow.add_conditional_edges("hitl_draft_review", after_writer, writer_targets)
 
     def after_evaluator(state: AgentState) -> str:
         """
@@ -214,31 +224,17 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     workflow.add_edge("deepsearch", "human_review")
     workflow.add_edge("human_review", END)
 
-    # Parse HITL checkpoints from settings
+    # HITL checkpoints are implemented via explicit review nodes that use
+    # `langgraph.types.interrupt()` (see agent/workflows/nodes.py).
     hitl_checkpoints = getattr(settings, "hitl_checkpoints", "") or ""
-    hitl_nodes = []
-    if hitl_checkpoints:
-        checkpoint_map = {
-            "plan": "planner",        # Pause after planning
-            "sources": "compressor",  # Pause after source compression
-            "draft": "writer",        # Pause after draft generation
-            "final": "human_review",  # Pause before final review
-        }
-        for cp in hitl_checkpoints.split(","):
-            cp = cp.strip().lower()
-            if cp in checkpoint_map:
-                hitl_nodes.append(checkpoint_map[cp])
-        logger.info(f"HITL checkpoints enabled: {hitl_nodes}")
-
-    # Merge HITL nodes with any provided interrupt_before
-    all_interrupts = list(interrupt_before or []) + hitl_nodes
-    final_interrupts = list(set(all_interrupts)) if all_interrupts else None
+    if hitl_checkpoints.strip():
+        logger.info(f"HITL checkpoints enabled: {hitl_checkpoints}")
 
     # Compile the graph
     graph = workflow.compile(
         checkpointer=checkpointer,
         store=store,
-        interrupt_before=final_interrupts,
+        interrupt_before=interrupt_before,
     )
 
     logger.info("Research graph compiled successfully")

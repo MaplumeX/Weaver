@@ -897,6 +897,152 @@ def planner_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
         }
 
 
+def _hitl_checkpoints_enabled() -> set[str]:
+    raw = (getattr(settings, "hitl_checkpoints", "") or "").strip()
+    if not raw:
+        return set()
+    return {part.strip().lower() for part in raw.split(",") if part.strip()}
+
+
+def _hitl_checkpoint_active(config: RunnableConfig, checkpoint: str) -> bool:
+    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+    allow_interrupts = bool(configurable.get("allow_interrupts"))
+    if not allow_interrupts:
+        return False
+    return checkpoint.strip().lower() in _hitl_checkpoints_enabled()
+
+
+def _parse_research_plan_content(value: Any) -> List[str] | None:
+    """
+    Parse a user-edited plan payload into a normalized list of queries.
+
+    Accepts:
+    - JSON list of strings: ["q1", "q2"]
+    - JSON object with "queries": {"queries": ["q1", ...]}
+    - Plain text lines: one query per line (bullets/numbers ok)
+    """
+    if isinstance(value, list):
+        raw = value
+    elif isinstance(value, dict) and isinstance(value.get("queries"), list):
+        raw = value["queries"]
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            # Fallback: treat as newline-separated list
+            raw = [line.strip() for line in text.splitlines()]
+        else:
+            if isinstance(parsed, list):
+                raw = parsed
+            elif isinstance(parsed, dict) and isinstance(parsed.get("queries"), list):
+                raw = parsed["queries"]
+            else:
+                return None
+    else:
+        return None
+
+    seen = set()
+    queries: List[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        q = item.strip()
+        # strip common bullets / numbering
+        q = q.lstrip("-*•").strip()
+        if not q:
+            continue
+        key = q.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        queries.append(q)
+        if len(queries) >= 10:
+            break
+
+    return queries or None
+
+
+def hitl_plan_review_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
+    """
+    Optional HITL checkpoint: review/edit the research plan after it is generated.
+
+    This node is safe to interrupt because it does not call the LLM. It is intended
+    to be inserted AFTER planning nodes (planner/refine_plan/web_plan) so the
+    plan exists in state before the interrupt occurs.
+    """
+    if not _hitl_checkpoint_active(config, "plan"):
+        return {}
+
+    plan = state.get("research_plan", []) or []
+    if not isinstance(plan, list) or not plan:
+        return {}
+
+    prompt = {
+        "checkpoint": "plan",
+        "instruction": (
+            "Review the research plan. You can edit the query list.\n\n"
+            "Return one of:\n"
+            "- {\"content\": \"<JSON array of strings>\"}\n"
+            "- {\"research_plan\": [\"q1\", ...]}\n"
+            "- or a plain string (JSON array or newline-separated queries)."
+        ),
+        "content": json.dumps(plan, indent=2, ensure_ascii=False),
+    }
+
+    updated = interrupt(prompt)
+
+    edited_value: Any = updated
+    if isinstance(updated, dict):
+        if "research_plan" in updated:
+            edited_value = updated.get("research_plan")
+        elif "content" in updated:
+            edited_value = updated.get("content")
+
+    parsed = _parse_research_plan_content(edited_value)
+    if not parsed:
+        return {}
+
+    return {"research_plan": parsed}
+
+
+def hitl_draft_review_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
+    """
+    Optional HITL checkpoint: review/edit the draft report before evaluation/finalization.
+    """
+    if not _hitl_checkpoint_active(config, "draft"):
+        return {}
+
+    draft = state.get("draft_report") or state.get("final_report", "")
+    if not isinstance(draft, str) or not draft.strip():
+        return {}
+
+    prompt = {
+        "checkpoint": "draft",
+        "instruction": (
+            "Review and optionally edit the draft report. Return:\n"
+            "- {\"content\": \"<updated report>\"}\n"
+            "- or a plain string."
+        ),
+        "content": draft,
+    }
+
+    updated = interrupt(prompt)
+
+    content: str | None = None
+    if isinstance(updated, dict) and isinstance(updated.get("content"), str):
+        content = updated["content"]
+    elif isinstance(updated, str):
+        content = updated
+
+    if content is None or not content.strip():
+        return {}
+
+    return {"draft_report": content, "final_report": content}
+
+
 def refine_plan_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
     """
     Refinement node: creates follow-up queries based on evaluator feedback.
@@ -1751,7 +1897,8 @@ def human_review_node(state: AgentState, config: RunnableConfig) -> Dict[str, An
     logger.info("Executing human review node")
     configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
     allow_interrupts = bool(configurable.get("allow_interrupts"))
-    require_review = bool(configurable.get("human_review"))
+    force_final_checkpoint = "final" in _hitl_checkpoints_enabled()
+    require_review = bool(configurable.get("human_review")) or force_final_checkpoint
 
     report = state.get("final_report") or state.get("draft_report", "")
 
@@ -1764,6 +1911,7 @@ def human_review_node(state: AgentState, config: RunnableConfig) -> Dict[str, An
 
     updated = interrupt(
         {
+            "checkpoint": "final",
             "instruction": "Review and edit the report if needed. Return the updated content or approve as-is.",
             "content": report,
         }

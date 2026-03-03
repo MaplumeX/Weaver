@@ -169,7 +169,8 @@ export function Chat() {
     handleStop,
     handleApproveInterrupt,
     handleRejectInterrupt,
-    handleEditInterrupt
+    handleEditInterrupt,
+    resumeInterruptWithPayload
   } = useChatStream({
     selectedModel: ui.selectedModel,
     searchMode: ui.searchMode,
@@ -429,6 +430,7 @@ export function Chat() {
               onApprove={handleApproveInterrupt}
               onReject={handleRejectInterrupt}
               onEdit={handleEditInterrupt}
+              onResume={resumeInterruptWithPayload}
               onDismiss={() => setPendingInterrupt(null)}
             />
           </>
