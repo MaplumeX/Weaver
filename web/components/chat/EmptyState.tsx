@@ -13,34 +13,34 @@ interface EmptyStateProps {
   onStarterClick?: (text: string, mode: CoreModeId) => void
 }
 
-const MODE_COLORS: Record<string, { icon: string; activeIcon: string; activeBg: string; activeBorder: string; activeShadow: string }> = {
+const MODE_COLORS: Record<string, { icon: string; activeIcon: string; activeBg: string; activeRing: string; activeShadow: string }> = {
   ultra: {
-    icon: 'text-violet-500/50 dark:text-violet-400/50',
-    activeIcon: 'text-violet-500 dark:text-violet-400',
+    icon: 'text-violet-600 dark:text-violet-400',
+    activeIcon: 'text-violet-700 dark:text-violet-300',
     activeBg: 'bg-card',
-    activeBorder: 'border-violet-500/15',
-    activeShadow: 'shadow-sm',
+    activeRing: 'ring-violet-500/20',
+    activeShadow: 'shadow-md',
   },
   agent: {
-    icon: 'text-sky-500/50 dark:text-sky-400/50',
-    activeIcon: 'text-sky-500 dark:text-sky-400',
+    icon: 'text-sky-600 dark:text-sky-400',
+    activeIcon: 'text-sky-700 dark:text-sky-300',
     activeBg: 'bg-card',
-    activeBorder: 'border-sky-500/15',
-    activeShadow: 'shadow-sm',
+    activeRing: 'ring-sky-500/20',
+    activeShadow: 'shadow-md',
   },
   web: {
-    icon: 'text-emerald-500/50 dark:text-emerald-400/50',
-    activeIcon: 'text-emerald-500 dark:text-emerald-400',
+    icon: 'text-emerald-600 dark:text-emerald-400',
+    activeIcon: 'text-emerald-700 dark:text-emerald-300',
     activeBg: 'bg-card',
-    activeBorder: 'border-emerald-500/15',
-    activeShadow: 'shadow-sm',
+    activeRing: 'ring-emerald-500/20',
+    activeShadow: 'shadow-md',
   },
   direct: {
-    icon: 'text-amber-500/50 dark:text-amber-400/50',
-    activeIcon: 'text-amber-500 dark:text-amber-400',
+    icon: 'text-amber-600 dark:text-amber-400',
+    activeIcon: 'text-amber-700 dark:text-amber-300',
     activeBg: 'bg-card',
-    activeBorder: 'border-amber-500/15',
-    activeShadow: 'shadow-sm',
+    activeRing: 'ring-amber-500/20',
+    activeShadow: 'shadow-md',
   },
 }
 
@@ -112,11 +112,11 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
                 onStarterClick?.(starter.text, starter.mode)
               }}
               className={cn(
-                "group flex items-start gap-3.5 p-4 rounded-xl border text-left transition-all duration-200",
-                "hover:shadow-md hover:-translate-y-0.5",
+                "group flex items-start gap-3.5 p-4 rounded-xl text-left transition-all duration-200",
+                "bg-card shadow-sm hover:shadow-md hover:-translate-y-0.5",
                 isActive
-                  ? [colors.activeBorder, colors.activeBg, "shadow-sm", colors.activeShadow]
-                  : "border-border/30 bg-card hover:bg-card hover:border-border/50"
+                  ? ["ring-1", colors.activeRing, colors.activeBg, colors.activeShadow]
+                  : "hover:bg-card"
               )}
               style={{ animationDelay: `${i * 50}ms` }}
             >

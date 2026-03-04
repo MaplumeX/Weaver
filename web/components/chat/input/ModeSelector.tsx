@@ -32,24 +32,25 @@ interface McpOption {
 
 const MODE_STYLES: Record<string, { color: string; activeColor: string; activeBg: string }> = {
   web: {
-    color: 'text-emerald-500/70 dark:text-emerald-400/70',
-    activeColor: 'text-emerald-600 dark:text-emerald-400',
-    activeBg: 'bg-emerald-500/10 dark:bg-emerald-500/15 border-emerald-500/20',
+    // Avoid opacity-based "disabled" visuals; prefer lighter shades for hierarchy.
+    color: 'text-emerald-600 dark:text-emerald-400',
+    activeColor: 'text-emerald-700 dark:text-emerald-300',
+    activeBg: 'bg-emerald-500/[0.12] dark:bg-emerald-500/[0.20]',
   },
   agent: {
-    color: 'text-sky-500/70 dark:text-sky-400/70',
-    activeColor: 'text-sky-600 dark:text-sky-400',
-    activeBg: 'bg-sky-500/10 dark:bg-sky-500/15 border-sky-500/20',
+    color: 'text-sky-600 dark:text-sky-400',
+    activeColor: 'text-sky-700 dark:text-sky-300',
+    activeBg: 'bg-sky-500/[0.12] dark:bg-sky-500/[0.20]',
   },
   ultra: {
-    color: 'text-violet-500/70 dark:text-violet-400/70',
-    activeColor: 'text-violet-600 dark:text-violet-400',
-    activeBg: 'bg-violet-500/10 dark:bg-violet-500/15 border-violet-500/20',
+    color: 'text-violet-600 dark:text-violet-400',
+    activeColor: 'text-violet-700 dark:text-violet-300',
+    activeBg: 'bg-violet-500/[0.12] dark:bg-violet-500/[0.20]',
   },
   mcp: {
-    color: 'text-amber-500/70 dark:text-amber-400/70',
-    activeColor: 'text-amber-600 dark:text-amber-400',
-    activeBg: 'bg-amber-500/10 dark:bg-amber-500/15 border-amber-500/20',
+    color: 'text-amber-600 dark:text-amber-400',
+    activeColor: 'text-amber-700 dark:text-amber-300',
+    activeBg: 'bg-amber-500/[0.12] dark:bg-amber-500/[0.20]',
   },
 }
 
@@ -108,7 +109,14 @@ export function ModeSelector({
   const mcpStyle = MODE_STYLES['mcp']!
 
   return (
-    <div className="flex items-center gap-1 self-start ml-1 mb-1 p-0.5 rounded-xl bg-muted/20 border border-border/20" role="radiogroup" aria-label="Search mode">
+    <div
+      className={cn(
+        "flex items-center gap-1 self-start ml-1 mb-1 p-1 rounded-2xl",
+        "bg-card/70 backdrop-blur-md shadow-sm",
+      )}
+      role="radiogroup"
+      aria-label="Search mode"
+    >
       {modes.map((mode) => {
         const Icon = mode.icon
         const isActive = activeMode === mode.id
@@ -120,10 +128,11 @@ export function ModeSelector({
             aria-checked={isActive}
             onClick={() => handleModeClick(mode.id)}
             className={cn(
-              "relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 border border-transparent",
+              "relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0",
               isActive
                 ? [mode.activeBg, "text-foreground shadow-sm"]
-                : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+                : "text-foreground/70 hover:text-foreground hover:bg-muted/30"
             )}
           >
             <Icon className={cn("h-3.5 w-3.5 transition-colors", isActive ? mode.activeColor : mode.color)} />
@@ -140,10 +149,11 @@ export function ModeSelector({
           aria-expanded={isMcpOpen}
           onClick={handleMcpToggle}
           className={cn(
-            "relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 border border-transparent",
+            "relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0",
             mcpMode
               ? [mcpStyle.activeBg, "text-foreground shadow-sm"]
-              : "text-muted-foreground hover:text-foreground hover:bg-card/50"
+              : "text-foreground/70 hover:text-foreground hover:bg-muted/30"
           )}
         >
           <Plug className={cn("h-3.5 w-3.5 transition-colors", mcpMode ? mcpStyle.activeColor : mcpStyle.color)} />
@@ -155,7 +165,11 @@ export function ModeSelector({
           <div
             role="listbox"
             aria-label="MCP providers"
-            className="absolute bottom-full left-0 mb-2 w-40 bg-popover/90 backdrop-blur-xl border border-border/30 rounded-xl shadow-lg z-50 overflow-hidden animate-scale-in"
+            className={cn(
+              "absolute bottom-full left-0 mb-2 w-40 rounded-xl z-50 overflow-hidden animate-scale-in",
+              "bg-popover/92 backdrop-blur-xl shadow-lg",
+              "ring-1 ring-border/20",
+            )}
           >
             <div className="p-1">
               {mcpOptions.map(opt => (

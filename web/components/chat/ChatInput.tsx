@@ -246,11 +246,11 @@ export const ChatInput = memo(function ChatInput({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={cn(
-            "relative group rounded-2xl border bg-card/80 backdrop-blur-sm transition-all duration-200 overflow-hidden",
+            "relative group rounded-2xl bg-card/85 backdrop-blur-sm transition-all duration-200 overflow-hidden shadow-sm",
             isFocused
-              ? "border-border/50 ring-2 ring-primary/15 ring-offset-0 shadow-sm"
-              : "border-border/30 hover:border-border/50 shadow-sm",
-            isDragging && "border-primary/40 ring-2 ring-primary/10 bg-primary/[0.02]",
+              ? "ring-2 ring-primary/15 ring-offset-0 shadow-md"
+              : "hover:shadow-md",
+            isDragging && "ring-2 ring-primary/10 bg-primary/[0.02]",
             isLoading && "opacity-80"
           )}
         >

@@ -388,7 +388,7 @@ export function Chat() {
       />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0 relative bg-muted/10">
+      <div className="flex-1 flex flex-col min-w-0 relative bg-muted/20">
         <Header
           sidebarOpen={ui.sidebarOpen}
           onToggleSidebar={toggleSidebar}
