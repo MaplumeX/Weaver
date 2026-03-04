@@ -13,26 +13,22 @@ interface EmptyStateProps {
   onStarterClick?: (text: string, mode: CoreModeId) => void
 }
 
-const MODE_COLORS: Record<string, { icon: string; activeIcon: string; activeRing: string }> = {
+const MODE_COLORS: Record<string, { icon: string; activeIcon: string }> = {
   ultra: {
     icon: 'text-violet-600 dark:text-violet-400',
     activeIcon: 'text-violet-700 dark:text-violet-300',
-    activeRing: 'ring-violet-500/20',
   },
   agent: {
     icon: 'text-sky-600 dark:text-sky-400',
     activeIcon: 'text-sky-700 dark:text-sky-300',
-    activeRing: 'ring-sky-500/20',
   },
   web: {
     icon: 'text-emerald-600 dark:text-emerald-400',
     activeIcon: 'text-emerald-700 dark:text-emerald-300',
-    activeRing: 'ring-emerald-500/20',
   },
   direct: {
     icon: 'text-amber-600 dark:text-amber-400',
     activeIcon: 'text-amber-700 dark:text-amber-300',
-    activeRing: 'ring-amber-500/20',
   },
 }
 
@@ -105,10 +101,10 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
               }}
               className={cn(
                 "group flex items-start gap-3.5 p-4 rounded-xl text-left transition-all duration-200",
-                "bg-background shadow-[0_8px_30px_rgba(0,0,0,0.04)] hover:shadow-[0_12px_36px_rgba(0,0,0,0.06)] hover:-translate-y-0.5",
+                "bg-background hover:-translate-y-0.5",
                 isActive
-                  ? ["ring-1", colors.activeRing]
-                  : "ring-1 ring-border/10"
+                  ? "shadow-[0_14px_48px_rgba(0,0,0,0.07)] hover:shadow-[0_18px_56px_rgba(0,0,0,0.08)]"
+                  : "shadow-[0_10px_40px_rgba(0,0,0,0.04)] hover:shadow-[0_14px_48px_rgba(0,0,0,0.06)]"
               )}
               style={{ animationDelay: `${i * 50}ms` }}
             >

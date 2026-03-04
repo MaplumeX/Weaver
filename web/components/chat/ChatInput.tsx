@@ -237,11 +237,10 @@ export const ChatInput = memo(function ChatInput({
           onDrop={handleDrop}
           className={cn(
             "relative overflow-hidden rounded-3xl bg-background transition-all duration-200",
-            "ring-1 ring-border/20",
             "shadow-[0_0_40px_rgba(0,0,0,0.06)]",
-            isFocused && "ring-primary/20 shadow-[0_0_48px_rgba(0,0,0,0.08)]",
+            isFocused && "ring-2 ring-primary/15 shadow-[0_0_48px_rgba(0,0,0,0.08)]",
             !isFocused && "hover:shadow-[0_0_48px_rgba(0,0,0,0.075)]",
-            isDragging && "ring-primary/25 bg-primary/[0.015]",
+            isDragging && "ring-2 ring-primary/10 bg-primary/[0.015]",
             isLoading && "opacity-80"
           )}
         >
