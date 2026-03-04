@@ -151,7 +151,9 @@ type MakeIconOptions = {
 }
 
 function makeWeaverIcon(IconComponent: Icon, options: MakeIconOptions = {}): Icon {
-  const defaultWeight: IconWeight = options.defaultWeight || 'regular'
+  // Default to `bold` for better legibility at our typical UI icon sizes (12–18px).
+  // This also makes the visual switch from Lucide → Phosphor more noticeable.
+  const defaultWeight: IconWeight = options.defaultWeight || 'bold'
   const defaultProps = options.defaultProps || {}
   const Wrapped = React.forwardRef<SVGSVGElement, IconProps>(({ weight, ...props }, ref) => {
     return (
