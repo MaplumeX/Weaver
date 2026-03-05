@@ -111,7 +111,7 @@ export function Library() {
             <SearchInput 
               onSearch={setSearchQuery} 
               placeholder="Search in library..." 
-              className="w-full md:w-80"
+              containerClassName="w-full md:w-80"
             />
           </div>
         </div>

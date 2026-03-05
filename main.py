@@ -4174,16 +4174,29 @@ async def recognize_speech(request: ASRRequest):
         asr_service = get_asr_service()
 
         if not asr_service.enabled:
-            raise HTTPException(
+            # Frontend expects a stable `{success:false, error}` shape even on 503
+            # so it can trigger a browser fallback when the server-side ASR is off.
+            return JSONResponse(
                 status_code=503,
-                detail="ASR service not available. Please configure DASHSCOPE_API_KEY.",
+                content={
+                    "success": False,
+                    "text": "",
+                    "error": "ASR service not available. Please configure DASHSCOPE_API_KEY.",
+                },
             )
 
         # 瑙ｇ爜 Base64 闊抽鏁版嵁
         try:
             audio_bytes = base64.b64decode(request.audio_data)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid base64 audio data: {str(e)}")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "text": "",
+                    "error": f"Invalid base64 audio data: {str(e)}",
+                },
+            )
 
         # 璋冪敤 ASR 鏈嶅姟
         result = await run_in_threadpool(
@@ -4203,7 +4216,14 @@ async def recognize_speech(request: ASRRequest):
         raise
     except Exception as e:
         logger.error(f"ASR error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"ASR processing error: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "text": "",
+                "error": f"ASR processing error: {str(e)}",
+            },
+        )
 
 
 @app.post("/api/asr/upload")
@@ -4557,6 +4577,33 @@ async def stream_tool_events(thread_id: str, request: Request, last_event_id: Op
     _require_thread_owner(request, thread_id)
 
     async def event_generator():
+        def _as_message_event(frame: str) -> str:
+            """
+            Frontend compatibility: emit *message* events only.
+
+            The v0.4 frontend uses `EventSource.onmessage`, which only receives
+            events with the default type ("message"). If we include an explicit
+            `event:` field (e.g. `event: tool_start`), the browser will dispatch
+            it as a *named* event and `onmessage` will not fire.
+
+            Our internal emitter uses typed SSE events; this endpoint strips the
+            `event:` line while keeping `id:` + `data:` so the client still gets
+            resume cursors via `lastEventId`.
+            """
+            if not frame:
+                return frame
+            # Keep comments/keepalives unchanged.
+            if frame.lstrip().startswith(":"):
+                return frame
+
+            lines: list[str] = []
+            for line in frame.splitlines():
+                if line.startswith("event:"):
+                    continue
+                lines.append(line)
+
+            return "\n".join(lines).rstrip("\n") + "\n\n"
+
         gauge = None
         try:
             gauge = sse_active_connections.labels("tool_events")
@@ -4569,7 +4616,7 @@ async def stream_tool_events(thread_id: str, request: Request, last_event_id: Op
             async for event_sse in event_stream_generator(
                 thread_id, timeout=300.0, last_event_id=cursor
             ):
-                yield event_sse
+                yield _as_message_event(event_sse)
         finally:
             try:
                 if gauge is not None:

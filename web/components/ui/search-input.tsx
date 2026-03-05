@@ -8,10 +8,12 @@ import { cn } from "@/lib/utils"
 interface SearchInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   onSearch: (value: string) => void
   debounceMs?: number
+  containerClassName?: string
 }
 
 export function SearchInput({ 
-  className, 
+  containerClassName,
+  className,
   onSearch, 
   debounceMs = 300,
   ...props 
@@ -30,15 +32,15 @@ export function SearchInput({
     setValue("")
     onSearch("")
   }
-
+  
   return (
-    <div className={cn("relative flex items-center", className)}>
+    <div className={cn("relative flex items-center", containerClassName)}>
       <Search className="absolute left-3 h-4 w-4 text-muted-foreground" />
       <Input
         {...props}
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        className={cn("pl-10 pr-10", props.className)}
+        className={cn("pl-10 pr-10", className)}
       />
       {value && (
         <button

@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Artifact } from '@/types/chat'
-import { FileText, Code, Image as ImageIcon, File, MoreVertical, Trash2, Download, Clock } from 'lucide-react'
+import { FileText, Code, BarChart, Image as ImageIcon, File, MoreVertical, Trash2, Download, Clock } from 'lucide-react'
 import { formatRelativeTime, formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,7 +22,9 @@ export function ArtifactItem({ artifact, onDelete, onDownload }: ArtifactItemPro
     code: Code,
     image: ImageIcon,
     text: FileText,
-    file: File
+    file: File,
+    report: FileText,
+    chart: BarChart,
   }[artifact.type] || File
 
   return (

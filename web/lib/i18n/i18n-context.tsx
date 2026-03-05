@@ -30,7 +30,9 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   // Translation function
   const t = (key: TranslationKey): string => {
-    return translations[language][key] || translations.en[key] || key
+    // Other languages may be partial. Fall back to English.
+    const table = translations[language] as Partial<Record<TranslationKey, string>>
+    return table[key] || translations.en[key] || key
   }
 
   return (
