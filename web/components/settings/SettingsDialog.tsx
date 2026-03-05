@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -14,13 +14,10 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/lib/i18n/i18n-context'
-import { TranslationKey, Language } from '@/lib/i18n/translations'
 import { cn } from '@/lib/utils'
-import { Check, ChevronDown, Plug, RefreshCw, CheckCircle2, Search } from '@/components/ui/icons'
+import { Check, ChevronDown, Plug, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { getMcpConfig, updateMcpConfig, getSearchProviders, type SearchProviderSnapshot } from '@/lib/api-client'
 import { getApiBaseUrl } from '@/lib/api'
-import { StorageService } from '@/lib/storage-service'
 
 interface SettingsDialogProps {
   open: boolean
@@ -35,7 +32,7 @@ interface ModelProvider {
   models: { id: string; name: string }[]
 }
 
-const getModelProviders = (t: (key: TranslationKey) => string): ModelProvider[] => [
+const getModelProviders = (t: (key: any) => string): ModelProvider[] => [
   {
     id: 'openai',
     name: 'OpenAI',
@@ -91,45 +88,6 @@ interface ApiKeys {
   [key: string]: string
 }
 
-type McpServersPreset = Record<string, unknown>
-
-const MCP_PRESET_FILESYSTEM_MEMORY: McpServersPreset = {
-  filesystem: {
-    type: 'stdio',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-filesystem', '/ABS/PATH/TO/ALLOW'],
-  },
-  memory: {
-    type: 'stdio',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-memory'],
-  },
-}
-
-const MCP_PRESET_GITHUB: McpServersPreset = {
-  github: {
-    type: 'stdio',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-github'],
-  },
-}
-
-const MCP_PRESET_BRAVE_SEARCH: McpServersPreset = {
-  brave_search: {
-    type: 'stdio',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-brave-search'],
-  },
-}
-
-const MCP_PRESET_POSTGRES: McpServersPreset = {
-  postgres: {
-    type: 'stdio',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-postgres', 'postgresql://USER:PASSWORD@HOST:5432/DB'],
-  },
-}
-
 export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChange }: SettingsDialogProps) {
   const { language, setLanguage, t } = useI18n()
   const [tempModel, setTempModel] = useState(selectedModel)
@@ -142,75 +100,30 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   const [mcpConfig, setMcpConfig] = useState('')
   const [mcpLoadedTools, setMcpLoadedTools] = useState(0)
   const [mcpLoading, setMcpLoading] = useState(false)
-  const [mcpError, setMcpError] = useState<string | null>(null)
-
-  // Search providers state
-  const [searchProviders, setSearchProviders] = useState<SearchProviderSnapshot[]>([])
-  const [searchProvidersLoading, setSearchProvidersLoading] = useState(false)
-  const [searchProvidersError, setSearchProvidersError] = useState<string | null>(null)
 
   const modelProviders = getModelProviders(t)
 
   // Fetch MCP config
-  const fetchMcpConfig = useCallback(async () => {
+  const fetchMcpConfig = async () => {
     try {
       setMcpLoading(true)
-      setMcpError(null)
-      const data = await getMcpConfig()
-      setMcpEnabled(Boolean(data.enabled))
-      setMcpConfig(JSON.stringify(data.servers || {}, null, 2))
+      const res = await fetch(`${getApiBaseUrl()}/api/mcp/config`)
+      if (!res.ok) throw new Error('Failed to fetch config')
+      const data = await res.json()
+      setMcpEnabled(data.enabled)
+      setMcpConfig(JSON.stringify(data.servers, null, 2))
       setMcpLoadedTools(data.loaded_tools || 0)
     } catch (e) {
       console.error(e)
-      setMcpError(t('mcpLoadFailed'))
-      toast.error(t('mcpLoadFailed'))
     } finally {
       setMcpLoading(false)
     }
-  }, [t])
-
-  const fetchSearchProviderStatus = useCallback(async () => {
-    try {
-      setSearchProvidersLoading(true)
-      setSearchProvidersError(null)
-      const data = await getSearchProviders()
-      setSearchProviders(Array.isArray(data.providers) ? data.providers : [])
-    } catch (e) {
-      console.error(e)
-      setSearchProvidersError(t('error'))
-    } finally {
-      setSearchProvidersLoading(false)
-    }
-  }, [t])
-
-  const applyMcpPreset = useCallback((preset: McpServersPreset) => {
-    setMcpEnabled(true)
-    setMcpConfig((prev) => {
-      const raw = String(prev || '').trim()
-      if (!raw || raw === '{}' || raw === 'null') {
-        return JSON.stringify(preset, null, 2)
-      }
-
-      try {
-        const parsed = JSON.parse(raw)
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          // Merge without overwriting existing server ids.
-          return JSON.stringify({ ...preset, ...(parsed as Record<string, unknown>) }, null, 2)
-        }
-      } catch {
-        // Ignore invalid JSON; replace with preset.
-      }
-
-      return JSON.stringify(preset, null, 2)
-    })
-    toast.success(t('mcpPresetApplied'))
-  }, [t])
+  }
 
   // Save MCP config
   const saveMcpConfig = async () => {
     try {
       setMcpLoading(true)
-      setMcpError(null)
       let parsedServers = {}
       try {
         parsedServers = JSON.parse(mcpConfig)
@@ -220,36 +133,48 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
         return false
       }
 
-      const data = await updateMcpConfig({
-        enable: mcpEnabled,
-        servers: parsedServers,
+      const res = await fetch(`${getApiBaseUrl()}/api/mcp/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enable: mcpEnabled,
+          servers: parsedServers
+        })
       })
 
+      if (!res.ok) throw new Error('Failed to save config')
+
+      const data = await res.json()
       setMcpLoadedTools(data.loaded_tools || 0)
-      toast.success('MCP configuration saved')
+      toast.success(data.message || 'MCP configuration saved')
       return true
     } catch (e) {
       console.error(e)
-      setMcpError(t('mcpSaveFailed'))
-      toast.error(t('mcpSaveFailed'))
+      toast.error('Failed to save MCP config')
       return false
     } finally {
       setMcpLoading(false)
     }
   }
 
-  // Load API keys from StorageService
+  // Load API keys from localStorage
   useEffect(() => {
-    setApiKeys(StorageService.getApiKeys())
+    const savedKeys = localStorage.getItem('weaver-api-keys')
+    if (savedKeys) {
+      try {
+        setApiKeys(JSON.parse(savedKeys))
+      } catch (e) {
+        console.error('Failed to parse API keys', e)
+      }
+    }
   }, [])
 
   // Fetch MCP config when dialog opens
   useEffect(() => {
     if (open) {
-      void fetchMcpConfig()
-      void fetchSearchProviderStatus()
+      fetchMcpConfig()
     }
-  }, [open, fetchMcpConfig, fetchSearchProviderStatus])
+  }, [open])
 
   useEffect(() => {
     setTempModel(selectedModel)
@@ -268,8 +193,8 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
 
   const handleSave = async () => {
     onModelChange(tempModel)
-    setLanguage(tempLanguage as Language)
-    StorageService.saveApiKeys(apiKeys)
+    setLanguage(tempLanguage as any)
+    localStorage.setItem('weaver-api-keys', JSON.stringify(apiKeys))
     await saveMcpConfig()
     onOpenChange(false)
   }
@@ -278,22 +203,20 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
     setTempModel(selectedModel)
     setTempLanguage(language)
     // Reload saved API keys
-    setApiKeys(StorageService.getApiKeys())
+    const savedKeys = localStorage.getItem('weaver-api-keys')
+    if (savedKeys) {
+      try {
+        setApiKeys(JSON.parse(savedKeys))
+      } catch (e) {
+        console.error('Failed to parse API keys', e)
+      }
+    }
     onOpenChange(false)
   }
 
   const allModels = modelProviders.flatMap(provider =>
     provider.models.map(model => ({ ...model, provider: provider.id }))
   )
-
-  const formatSeconds = (value: number | null | undefined) => {
-    if (value == null || Number.isNaN(value)) return null
-    const seconds = Math.max(0, value)
-    if (seconds < 60) return `${Math.round(seconds)}s`
-    const mins = seconds / 60
-    if (mins < 10) return `${mins.toFixed(1)}m`
-    return `${Math.round(mins)}m`
-  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -307,17 +230,17 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
           <div className="space-y-3">
             <Label className="text-sm font-medium">{t('language')}</Label>
             <div className="grid grid-cols-2 gap-2">
-	              {languages.map((lang) => (
-	                <button
-	                  key={lang.id}
-	                  onClick={() => setTempLanguage(lang.id as Language)}
-	                  className={cn(
-	                    'flex items-center justify-between rounded-lg border-2 p-3 text-left transition-colors duration-200 hover:bg-muted/50',
-	                    tempLanguage === lang.id
-	                      ? 'border-primary bg-primary/5'
-	                      : 'border-border'
-	                  )}
-	                >
+              {languages.map((lang) => (
+                <button
+                  key={lang.id}
+                  onClick={() => setTempLanguage(lang.id as any)}
+                  className={cn(
+                    'flex items-center justify-between rounded-lg border-2 p-3 text-left transition-all hover:bg-muted/50',
+                    tempLanguage === lang.id
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border'
+                  )}
+                >
                   <div>
                     <div className="font-medium">{lang.nativeName}</div>
                     <div className="text-xs text-muted-foreground">{lang.name}</div>
@@ -334,17 +257,17 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
           <div className="space-y-3">
             <Label className="text-sm font-medium">{t('defaultModel')}</Label>
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-	              {allModels.map((model) => (
-	                <button
-	                  key={model.id}
-	                  onClick={() => setTempModel(model.id)}
-	                  className={cn(
-	                    'flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors duration-200 hover:bg-muted/50',
-	                    tempModel === model.id
-	                      ? 'border-primary bg-primary/5 font-medium'
-	                      : 'border-border'
-	                  )}
-	                >
+              {allModels.map((model) => (
+                <button
+                  key={model.id}
+                  onClick={() => setTempModel(model.id)}
+                  className={cn(
+                    'flex w-full items-center justify-between rounded-lg border p-3 text-left transition-all hover:bg-muted/50',
+                    tempModel === model.id
+                      ? 'border-primary bg-primary/5 font-medium'
+                      : 'border-border'
+                  )}
+                >
                   <div>
                     <div className="font-medium">{model.name}</div>
                     <div className="text-xs text-muted-foreground">
@@ -388,7 +311,7 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
                   </button>
 
                   {expandedProvider === provider.id && (
-                    <div className="p-3 border-t border-border/30 bg-muted/20 space-y-3">
+                    <div className="p-3 border-t bg-muted/20 space-y-3">
                       <div>
                         <Label className="text-xs font-medium mb-1.5 block">{t('apiKey')}</Label>
                         <Input
@@ -423,7 +346,7 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
               {t('mcpDescription')}
             </p>
 
-            <div className="flex items-center justify-between space-x-2 border border-border/30 p-3 rounded-lg bg-muted/20">
+            <div className="flex items-center justify-between space-x-2 border p-3 rounded-lg bg-muted/20">
               <div className="space-y-0.5">
                 <Label className="text-sm font-medium">{t('enableMcp')}</Label>
                 <div className="text-xs text-muted-foreground">
@@ -436,209 +359,26 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
               />
             </div>
 
-            {mcpError ? (
-              <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                <div className="font-medium">{mcpError}</div>
-                <div className="mt-1 text-destructive/80">{t('mcpLoadHint')}</div>
-                <div className="mt-1 font-mono text-[11px] text-destructive/70">{getApiBaseUrl()}</div>
-              </div>
-            ) : null}
-
             <div className="space-y-2">
               <Label className="text-xs font-medium">{t('serversConfiguration')}</Label>
+              <Textarea
+                value={mcpConfig}
+                onChange={(e) => setMcpConfig(e.target.value)}
+                className="font-mono text-xs min-h-[120px]"
+                placeholder='{ "server-name": { "command": "...", "args": [...] } }'
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('serversConfigHint')}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 p-2 rounded">
               {mcpLoading ? (
-                <div className="space-y-2 animate-pulse">
-                  <div className="h-[120px] w-full bg-muted/30 rounded-lg" />
-                  <div className="h-4 w-2/3 bg-muted/20 rounded" />
-                </div>
+                <RefreshCw className="h-3 w-3 animate-spin" />
               ) : (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <Label className="text-xs font-medium">{t('mcpPresets')}</Label>
-                      <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs whitespace-nowrap"
-                          onClick={() => applyMcpPreset(MCP_PRESET_FILESYSTEM_MEMORY)}
-                        >
-                          {t('mcpPresetFsMemory')}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs whitespace-nowrap"
-                          onClick={() => applyMcpPreset(MCP_PRESET_GITHUB)}
-                        >
-                          {t('mcpPresetGithub')}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs whitespace-nowrap"
-                          onClick={() => applyMcpPreset(MCP_PRESET_BRAVE_SEARCH)}
-                        >
-                          {t('mcpPresetBraveSearch')}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs whitespace-nowrap"
-                          onClick={() => applyMcpPreset(MCP_PRESET_POSTGRES)}
-                        >
-                          {t('mcpPresetPostgres')}
-                        </Button>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {t('mcpPresetsHint')}
-                    </p>
-                  </div>
-                  <Textarea
-                    value={mcpConfig}
-                    onChange={(e) => setMcpConfig(e.target.value)}
-                    className="font-mono text-xs min-h-[120px]"
-                    placeholder='{ "server-name": { "command": "...", "args": [...] } }'
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t('serversConfigHint')}
-                  </p>
-                </>
+                <CheckCircle2 className="h-3 w-3 text-green-500" />
               )}
-            </div>
-
-            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/30 border border-border/30 p-2 rounded">
-              <div className="flex items-center gap-2">
-                {mcpLoading ? (
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="h-3 w-3 text-green-500" />
-                )}
-                <span>{t('loadedTools')}: {mcpLoadedTools}</span>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                disabled={mcpLoading}
-                onClick={fetchMcpConfig}
-                aria-label={t('refresh')}
-                title={t('refresh')}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-
-          {/* Search Providers */}
-          <div className="space-y-3 border-t pt-4">
-            <Label className="text-sm font-medium flex items-center gap-2">
-              <Search className="h-4 w-4" />
-              {t('searchProviders')}
-            </Label>
-            <p className="text-xs text-muted-foreground">{t('searchProvidersDesc')}</p>
-
-            {searchProvidersError ? (
-              <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                {searchProvidersError}
-              </div>
-            ) : null}
-
-            {searchProvidersLoading ? (
-              <div className="space-y-2 animate-pulse">
-                <div className="h-10 w-full bg-muted/30 rounded-lg" />
-                <div className="h-10 w-full bg-muted/20 rounded-lg" />
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {searchProviders.length === 0 ? (
-                  <div className="rounded-lg border border-border/30 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                    {t('noResults')}
-                  </div>
-                ) : (
-                  searchProviders.map((p) => {
-                    const circuitOpen = Boolean(p.circuit?.is_open)
-                    const resetsIn = formatSeconds(p.circuit?.resets_in_seconds)
-                    const availabilityLabel = p.available ? t('available') : t('unavailable')
-                    const healthLabel = p.healthy ? t('healthy') : t('unhealthy')
-                    const circuitLabel = circuitOpen ? t('circuitOpen') : t('circuitClosed')
-
-                    return (
-                      <div key={p.name} className="rounded-lg border border-border/30 bg-muted/10 px-3 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="font-medium text-sm">{p.name}</div>
-                          <div className="flex items-center gap-1.5 text-[11px]">
-                            <span
-                              className={cn(
-                                'rounded-full px-2 py-0.5 border tabular-nums',
-                                p.available ? 'border-green-500/20 bg-green-500/10 text-green-700' : 'border-border bg-muted text-muted-foreground'
-                              )}
-                            >
-                              {availabilityLabel}
-                            </span>
-                            <span
-                              className={cn(
-                                'rounded-full px-2 py-0.5 border tabular-nums',
-                                p.healthy ? 'border-border bg-muted text-muted-foreground' : 'border-amber-500/20 bg-amber-500/10 text-amber-800'
-                              )}
-                            >
-                              {healthLabel}
-                            </span>
-                            <span
-                              className={cn(
-                                'rounded-full px-2 py-0.5 border tabular-nums',
-                                circuitOpen ? 'border-amber-500/20 bg-amber-500/10 text-amber-800' : 'border-border bg-muted text-muted-foreground'
-                              )}
-                              title={resetsIn ? `${circuitLabel} · ${resetsIn}` : circuitLabel}
-                            >
-                              {circuitLabel}{resetsIn ? ` · ${resetsIn}` : ''}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground tabular-nums">
-                          <span>
-                            SR {(p.success_rate * 100).toFixed(0)}% · {Math.round(p.avg_latency_ms)}ms · Q {p.avg_result_quality.toFixed(2)}
-                          </span>
-                          <span>
-                            {p.success_count}/{p.total_calls} ok · {p.error_count} err
-                          </span>
-                        </div>
-
-                        {p.last_error ? (
-                          <div className="mt-1 text-[11px] text-muted-foreground truncate" title={p.last_error}>
-                            {p.last_error}
-                          </div>
-                        ) : null}
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            )}
-
-            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/30 border border-border/30 p-2 rounded">
-              <span className="tabular-nums">
-                {t('results')}: {searchProviders.length}
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                disabled={searchProvidersLoading}
-                onClick={fetchSearchProviderStatus}
-                aria-label={t('refresh')}
-                title={t('refresh')}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <RefreshCw className={cn('h-4 w-4', searchProvidersLoading && 'animate-spin')} />
-              </Button>
+              <span>{t('loadedTools')}: {mcpLoadedTools}</span>
             </div>
           </div>
         </div>

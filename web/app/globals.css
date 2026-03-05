@@ -1,41 +1,29 @@
-@config "./tailwind.config.js";
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Easing curves ──────────────────────────────────── */
-:root {
-  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
-  --ease-in-out-cubic: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-/* ─── Design tokens ──────────────────────────────────── */
 @layer base {
   :root {
-    /* Neutral (zinc-like) theme — closer to the OpenAI/ChatGPT UI feel. */
     --background: 0 0% 100%;
     --foreground: 240 10% 3.9%;
     --card: 0 0% 100%;
     --card-foreground: 240 10% 3.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 3.9%;
-    --primary: 220 72% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 4.8% 96%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
     --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 96%;
+    --muted: 240 4.8% 95.9%;
     --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 96%;
+    --accent: 240 4.8% 95.9%;
     --accent-foreground: 240 5.9% 10%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
-    --ring: 220 72% 50%;
-    --radius: 0.625rem;
+    --ring: 240 5.9% 10%;
+    --radius: 0.75rem;
   }
 
   .dark {
@@ -45,351 +33,47 @@
     --card-foreground: 0 0% 98%;
     --popover: 240 10% 3.9%;
     --popover-foreground: 0 0% 98%;
-    --primary: 217 76% 56%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
     --secondary: 240 3.7% 15.9%;
     --secondary-foreground: 0 0% 98%;
     --muted: 240 3.7% 15.9%;
     --muted-foreground: 240 5% 64.9%;
     --accent: 240 3.7% 15.9%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 0 62% 40%;
+    --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
-    --ring: 217 76% 56%;
+    --ring: 240 4.9% 83.9%;
   }
 }
 
-/* ─── Global base ────────────────────────────────────── */
 @layer base {
   * {
     @apply border-border;
   }
-
   body {
-    @apply bg-background text-foreground antialiased;
-    font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
-    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
-    transition: background-color 0.2s, color 0.2s;
-  }
-
-  code, pre, kbd, samp {
-    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+    @apply bg-background text-foreground antialiased transition-colors duration-300;
+    font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
 
-/* ─── Scrollbar ──────────────────────────────────────── */
+/* Custom Scrollbar for Webkit */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/10 rounded-full;
-  transition: background-color 0.2s;
+  @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/40 transition-colors;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-muted-foreground/25;
-}
-
-html {
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.1) transparent;
-  scrollbar-gutter: stable;
-}
-
-/* ─── Typography utilities ───────────────────────────── */
+/* Typography Utilities */
 @layer utilities {
   .text-balance {
     text-wrap: balance;
-  }
-  .text-pretty {
-    text-wrap: pretty;
-  }
-}
-
-/* ─── Surface utilities ──────────────────────────────── */
-@layer utilities {
-  .surface {
-    @apply bg-card border border-border/40 shadow-sm;
-  }
-  .surface-muted {
-    @apply bg-muted/20 border border-border/40;
-  }
-  .surface-inset {
-    @apply bg-background border border-border/40;
-  }
-  .glass {
-    @apply bg-card border border-border/40;
-    box-shadow: 0 8px 32px -8px hsl(0 0% 0% / 0.3);
-  }
-  .glass-subtle {
-    @apply bg-card border border-border/30;
-    box-shadow: 0 4px 16px -4px hsl(0 0% 0% / 0.2);
-  }
-}
-
-/* ─── Safe-area utilities ────────────────────────────── */
-@layer utilities {
-  .safe-pb {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  .safe-pb-6 {
-    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
-  }
-  .safe-pt {
-    padding-top: env(safe-area-inset-top, 0px);
-  }
-}
-
-/* ─── Animation utilities ────────────────────────────── */
-@layer utilities {
-  .animate-fade-in {
-    animation: fadeIn 0.25s var(--ease-out-expo) forwards;
-  }
-  .animate-fade-in-up {
-    animation: fadeInUp 0.3s var(--ease-out-expo) forwards;
-  }
-  .animate-slide-in-right {
-    animation: slideInRight 0.25s var(--ease-out-expo) forwards;
-  }
-  .animate-slide-in-left {
-    animation: slideInLeft 0.25s var(--ease-out-expo) forwards;
-  }
-  .animate-scale-in {
-    animation: scaleIn 0.2s var(--ease-spring) forwards;
-  }
-  .animate-shimmer {
-    animation: shimmer 2s linear infinite;
-    background-size: 200% 100%;
-  }
-  .animate-message-in {
-    animation: messageIn 0.3s var(--ease-out-expo) forwards;
-  }
-  .animate-panel-slide {
-    animation: panelSlide 0.25s var(--ease-out-expo) forwards;
-  }
-}
-
-/* ─── Keyframes ──────────────────────────────────────── */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes slideInRight {
-  from { opacity: 0; transform: translateX(12px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-12px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-@keyframes messageIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes panelSlide {
-  from { opacity: 0; transform: translateX(-8px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes thinkingBounce {
-  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-  40% { transform: scale(1); opacity: 1; }
-}
-
-@keyframes cursorBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-/* ─── Research UI ────────────────────────────────────── */
-@layer components {
-  .research-card {
-    @apply rounded-xl p-4 bg-card border border-border/40 shadow-sm transition-shadow duration-200;
-    contain: strict;
-  }
-  .research-card:hover {
-    @apply shadow-md;
-  }
-  .source-badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
-    @apply bg-muted/30 border border-border/40 text-muted-foreground;
-  }
-  .progress-bar {
-    @apply relative h-1 rounded-full overflow-hidden bg-muted;
-  }
-  .progress-bar-fill {
-    @apply absolute inset-y-0 left-0 rounded-full bg-primary;
-    transform-origin: left;
-    transition: transform 0.5s var(--ease-out-expo);
-  }
-  .tree-node {
-    @apply relative pl-6 before:absolute before:left-2 before:top-0 before:h-full before:w-px;
-    @apply before:bg-border/40;
-  }
-  .tree-node::after {
-    @apply absolute left-2 top-3 w-3 h-px bg-border/40;
-    content: '';
-  }
-  .status-indicator {
-    @apply relative inline-flex h-2 w-2 rounded-full;
-  }
-  .status-indicator.pending { @apply bg-yellow-500; }
-  .status-indicator.in-progress { @apply bg-primary; }
-  .status-indicator.completed { @apply bg-green-500; }
-  .status-indicator.failed { @apply bg-red-500; }
-}
-
-/* ─── Sidebar ────────────────────────────────────────── */
-@layer components {
-  .sidebar {
-    @apply bg-muted border-r border-border/40;
-  }
-  .sidebar-item {
-    @apply flex items-center gap-3 px-3 py-2 rounded-lg;
-    @apply text-muted-foreground hover:text-foreground;
-    @apply hover:bg-background/60 transition-colors duration-150;
-    content-visibility: auto;
-  }
-  .sidebar-item:active {
-    transform: scale(0.98);
-  }
-  .sidebar-item.active {
-    @apply text-foreground bg-background;
-  }
-}
-
-/* ─── Messages ───────────────────────────────────────── */
-@layer components {
-  .message-user {
-    @apply bg-primary/[0.06] border border-primary/8 rounded-2xl rounded-br-sm;
-    box-shadow: 0 1px 2px 0 hsl(var(--primary) / 0.04);
-    contain: content;
-  }
-  .message-assistant {
-    @apply rounded-2xl rounded-bl-sm;
-    @apply bg-transparent border-none;
-    contain: content;
-  }
-  .message-thinking {
-    @apply bg-muted/15 border border-border/20 rounded-xl;
-  }
-}
-
-/* ─── Streaming cursor ───────────────────────────────── */
-@layer components {
-  .streaming-cursor::after {
-    content: '';
-    display: inline-block;
-    width: 2px;
-    height: 1.1em;
-    margin-left: 1px;
-    vertical-align: text-bottom;
-    background: hsl(var(--primary));
-    animation: cursorBlink 1s steps(2) infinite;
-  }
-}
-
-/* ─── Disclosure blocks ──────────────────────────────── */
-@layer components {
-  .weaver-disclosure > summary {
-    list-style: none;
-  }
-  .weaver-disclosure > summary::-webkit-details-marker {
-    display: none;
-  }
-  .weaver-disclosure[open] .weaver-disclosure-chevron {
-    transform: rotate(180deg);
-  }
-}
-
-/* ─── Selection ──────────────────────────────────────── */
-::selection {
-  background: hsl(var(--ring) / 0.15);
-}
-.dark ::selection {
-  background: hsl(var(--ring) / 0.2);
-}
-
-/* ─── Focus ring ─────────────────────────────────────── */
-@layer base {
-  *:focus-visible {
-    @apply outline-none ring-2 ring-ring/40 ring-offset-2 ring-offset-background;
-  }
-}
-
-/* ─── Reduced motion ─────────────────────────────────── */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* ─── Skip-to-content ────────────────────────────────── */
-@layer components {
-  .skip-to-content {
-    @apply sr-only focus:not-sr-only;
-    @apply fixed top-4 left-4 z-50 px-4 py-2 rounded-lg;
-    @apply bg-primary text-primary-foreground font-medium text-sm;
-    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2;
-    transition: transform 0.2s;
-  }
-}
-
-/* ─── Screen-reader only ─────────────────────────────── */
-@layer utilities {
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-}
-
-/* ─── High-contrast mode ─────────────────────────────── */
-@media (prefers-contrast: high) {
-  :root {
-    --border: 0 0% 30%;
-    --ring: 0 0% 0%;
-  }
-  .dark {
-    --border: 0 0% 70%;
-    --ring: 0 0% 100%;
   }
 }

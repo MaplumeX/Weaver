@@ -1,5 +1,6 @@
 'use client'
 
+import React from 'react'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import {
@@ -8,9 +9,8 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { Settings2, Search, Bot, Sparkles } from '@/components/ui/icons'
+import { Settings2, Search, Bot, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useI18n } from '@/lib/i18n/i18n-context'
 
 export interface SearchMode {
   useWebSearch: boolean
@@ -24,8 +24,6 @@ interface SearchModeSelectorProps {
 }
 
 export function SearchModeSelector({ mode, onChange }: SearchModeSelectorProps) {
-  const { t } = useI18n()
-
   const updateMode = (key: keyof SearchMode, value: boolean) => {
     onChange({ ...mode, [key]: value })
   }
@@ -44,7 +42,7 @@ export function SearchModeSelector({ mode, onChange }: SearchModeSelectorProps) 
           )}
         >
           <Settings2 className="h-4 w-4" />
-          <span className="hidden sm:inline">{t('searchMode')}</span>
+          <span className="hidden sm:inline">搜索模式</span>
           {activeCount > 0 && (
             <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
               {activeCount}
@@ -55,9 +53,9 @@ export function SearchModeSelector({ mode, onChange }: SearchModeSelectorProps) 
       <PopoverContent className="w-80" align="start">
         <div className="space-y-4">
           <div className="space-y-2">
-            <h4 className="font-medium leading-none">{t('searchModeSettings')}</h4>
+            <h4 className="font-medium leading-none">搜索模式设置</h4>
             <p className="text-sm text-muted-foreground">
-              {t('searchModeSubtitle')}
+              选择 AI 助手的工作模式
             </p>
           </div>
 
@@ -65,15 +63,15 @@ export function SearchModeSelector({ mode, onChange }: SearchModeSelectorProps) 
             {/* Web Search */}
             <div className="flex items-center justify-between space-x-2">
               <div className="flex items-center space-x-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Search className="h-5 w-5 text-primary" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+                  <Search className="h-5 w-5 text-blue-500" />
                 </div>
                 <div className="space-y-0.5">
                   <Label htmlFor="web-search" className="cursor-pointer">
-                    {t('webSearch')}
+                    网络搜索
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    {t('webSearchDesc')}
+                    使用 Tavily 进行实时网络搜索
                   </p>
                 </div>
               </div>
@@ -87,15 +85,15 @@ export function SearchModeSelector({ mode, onChange }: SearchModeSelectorProps) 
             {/* Agent Mode */}
             <div className="flex items-center justify-between space-x-2">
               <div className="flex items-center space-x-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Bot className="h-5 w-5 text-primary" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10">
+                  <Bot className="h-5 w-5 text-purple-500" />
                 </div>
                 <div className="space-y-0.5">
                   <Label htmlFor="agent" className="cursor-pointer">
-                    {t('agentMode')}
+                    Agent 模式
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    {t('agentModeDesc')}
+                    使用 LangGraph Agent 进行规划
                   </p>
                 </div>
               </div>
@@ -109,15 +107,15 @@ export function SearchModeSelector({ mode, onChange }: SearchModeSelectorProps) 
             {/* Deep Search */}
             <div className="flex items-center justify-between space-x-2">
               <div className="flex items-center space-x-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Sparkles className="h-5 w-5 text-primary" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">
+                  <Sparkles className="h-5 w-5 text-amber-500" />
                 </div>
                 <div className="space-y-0.5">
                   <Label htmlFor="deep-search" className="cursor-pointer">
-                    {t('deepSearchLabel')}
+                    深度搜索
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    {t('deepSearchDesc')}
+                    多步骤深度研究（需要 Agent）
                   </p>
                 </div>
               </div>
@@ -132,16 +130,16 @@ export function SearchModeSelector({ mode, onChange }: SearchModeSelectorProps) 
 
           {mode.useDeepSearch && !mode.useAgent && (
             <div className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-600">
-              {t('deepSearchRequiresAgent')}
+              深度搜索需要启用 Agent 模式
             </div>
           )}
 
           <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-            <strong>{t('tipLabel')}</strong>
+            <strong>提示：</strong>
             <ul className="mt-1 ml-4 list-disc space-y-1">
-              <li>{t('tipOnlyWeb')}</li>
-              <li>{t('tipAgent')}</li>
-              <li>{t('tipDeep')}</li>
+              <li>只启用网络搜索：快速查找信息</li>
+              <li>启用 Agent：智能规划和多步推理</li>
+              <li>启用深度搜索：全面深入的研究报告</li>
             </ul>
           </div>
         </div>

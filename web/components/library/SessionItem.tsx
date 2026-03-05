@@ -1,11 +1,11 @@
 'use client'
 
+import React from 'react'
 import { ChatSession } from '@/types/chat'
-import { MessageSquare, MoreVertical, PencilLine, Trash2, Star, StarOff, Clock } from '@/components/ui/icons'
+import { MessageSquare, MoreVertical, Pencil, Trash2, Pin, PinOff, Tag as TagIcon, Clock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 import {
   Popover,
   PopoverContent,
@@ -20,44 +20,38 @@ interface SessionItemProps {
   onTogglePin: (id: string) => void
 }
 
-export function SessionItem({
-  session,
-  onSelect,
-  onDelete,
-  onRename,
-  onTogglePin
+export function SessionItem({ 
+  session, 
+  onSelect, 
+  onDelete, 
+  onRename, 
+  onTogglePin 
 }: SessionItemProps) {
   return (
-    <div
-      className={cn(
-        "group relative p-4 rounded-xl border bg-card cursor-pointer transition-all duration-200 hover:shadow-sm hover:translate-y-[-1px]",
-        session.isPinned
-          ? "border-l-2 border-l-primary border-t-border/30 border-r-border/30 border-b-border/30"
-          : "border-border/30 hover:border-border/50",
-      )}
-      onClick={() => onSelect(session.id)}
-    >
+    <div className="group relative p-4 rounded-xl border bg-card hover:bg-muted/50 transition-all cursor-pointer border-l-4" 
+         style={{ borderLeftColor: session.isPinned ? 'var(--primary)' : 'transparent' }}
+         onClick={() => onSelect(session.id)}>
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <MessageSquare className="h-4 w-4 text-primary/70 shrink-0" />
-            <h3 className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+            <MessageSquare className="h-4 w-4 text-primary shrink-0" />
+            <h3 className="font-semibold text-base truncate group-hover:text-primary transition-colors">
               {session.title}
             </h3>
-            {session.isPinned && <Star className="h-3 w-3 text-primary fill-primary" />}
+            {session.isPinned && <Pin className="h-3 w-3 text-primary fill-primary" />}
           </div>
-
-          <p className="text-[13px] text-muted-foreground/80 line-clamp-1 mb-3 pl-6">
+          
+          <p className="text-sm text-muted-foreground line-clamp-1 mb-3">
             {session.summary || "No summary available"}
           </p>
-
-          <div className="flex flex-wrap items-center gap-2 pl-6">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground/50 mr-2">
+          
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mr-2">
               <Clock className="h-3 w-3" />
               {formatRelativeTime(session.updatedAt)}
             </div>
             {session.tags?.map(tag => (
-              <Badge key={tag} variant="secondary" className="px-1.5 py-0 text-[10px] font-medium bg-muted/40 border-border/30">
+              <Badge key={tag} variant="secondary" className="px-1.5 py-0 text-[10px]">
                 {tag}
               </Badge>
             ))}
@@ -67,32 +61,20 @@ export function SessionItem({
         <div onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100 rounded-lg"
-                aria-label="Session actions"
-                title="Session actions"
-              >
-                <MoreVertical className="h-3.5 w-3.5" />
+              <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                <MoreVertical className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-40 p-1 border-border/40" align="end">
-              <Button type="button" variant="ghost" className="w-full justify-start text-xs h-8 gap-2" onClick={() => onTogglePin(session.id)}>
-                {session.isPinned ? <StarOff className="h-3.5 w-3.5" /> : <Star className="h-3.5 w-3.5" />}
+            <PopoverContent className="w-40 p-1" align="end">
+              <Button variant="ghost" className="w-full justify-start text-sm h-9" onClick={() => onTogglePin(session.id)}>
+                {session.isPinned ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />}
                 {session.isPinned ? 'Unpin' : 'Pin'}
               </Button>
-              <Button type="button" variant="ghost" className="w-full justify-start text-xs h-8 gap-2" onClick={() => onRename(session.id)}>
-                <PencilLine className="h-3.5 w-3.5" /> Rename
+              <Button variant="ghost" className="w-full justify-start text-sm h-9" onClick={() => onRename(session.id)}>
+                <Pencil className="mr-2 h-4 w-4" /> Rename
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full justify-start text-xs h-8 gap-2 text-destructive hover:text-destructive"
-                onClick={() => onDelete(session.id)}
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Delete
+              <Button variant="ghost" className="w-full justify-start text-sm h-9 text-destructive hover:text-destructive" onClick={() => onDelete(session.id)}>
+                <Trash2 className="mr-2 h-4 w-4" /> Delete
               </Button>
             </PopoverContent>
           </Popover>

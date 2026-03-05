@@ -1,16 +1,72 @@
 'use client'
 
-import { ThemeProvider as NextThemesProvider, useTheme as useNextTheme } from 'next-themes'
-import type { ThemeProviderProps as NextThemesProviderProps } from 'next-themes'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 
-export type ThemeProviderProps = NextThemesProviderProps
+type Theme = 'dark' | 'light' | 'system'
 
-export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
+interface ThemeProviderProps {
+  children: React.ReactNode
+  defaultTheme?: Theme
+  storageKey?: string
+}
+
+interface ThemeProviderState {
+  theme: Theme
+  setTheme: (theme: Theme) => void
+}
+
+const initialState: ThemeProviderState = {
+  theme: 'system',
+  setTheme: () => null,
+}
+
+const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
+
+export function ThemeProvider({
+  children,
+  defaultTheme = 'system',
+  storageKey = 'vite-ui-theme',
+  ...props
+}: ThemeProviderProps) {
+  const [theme, setTheme] = useState<Theme>(defaultTheme)
+
+  useEffect(() => {
+    const root = window.document.documentElement
+
+    root.classList.remove('light', 'dark')
+
+    if (theme === 'system') {
+      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
+        .matches
+        ? 'dark'
+        : 'light'
+
+      root.classList.add(systemTheme)
+      return
+    }
+
+    root.classList.add(theme)
+  }, [theme])
+
+  const value = {
+    theme,
+    setTheme: (theme: Theme) => {
+      setTheme(theme)
+    },
+  }
+
   return (
-    <NextThemesProvider attribute="class" {...props}>
+    <ThemeProviderContext.Provider {...props} value={value}>
       {children}
-    </NextThemesProvider>
+    </ThemeProviderContext.Provider>
   )
 }
 
-export const useTheme = useNextTheme
+export const useTheme = () => {
+  const context = useContext(ThemeProviderContext)
+
+  if (context === undefined)
+    throw new Error('useTheme must be used within a ThemeProvider')
+
+  return context
+}

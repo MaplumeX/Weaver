@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from "react"
-import { Search, X } from "@/components/ui/icons"
+import { Search, X } from "lucide-react"
 import { Input } from "./input"
 import { cn } from "@/lib/utils"
 
@@ -10,19 +10,19 @@ interface SearchInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   debounceMs?: number
 }
 
-export function SearchInput({
-  className,
-  onSearch,
+export function SearchInput({ 
+  className, 
+  onSearch, 
   debounceMs = 300,
-  ...props
+  ...props 
 }: SearchInputProps) {
   const [value, setValue] = React.useState("")
-
+  
   React.useEffect(() => {
     const timer = setTimeout(() => {
       onSearch(value)
     }, debounceMs)
-
+    
     return () => clearTimeout(timer)
   }, [value, onSearch, debounceMs])
 
@@ -38,15 +38,12 @@ export function SearchInput({
         {...props}
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        className={cn("pl-10 pr-10")}
+        className={cn("pl-10 pr-10", props.className)}
       />
       {value && (
         <button
-          type="button"
           onClick={handleClear}
-          aria-label="Clear search"
-          title="Clear search"
-          className="absolute right-3 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="absolute right-3 hover:text-foreground text-muted-foreground transition-colors"
         >
           <X className="h-4 w-4" />
         </button>

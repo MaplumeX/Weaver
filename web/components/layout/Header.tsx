@@ -1,5 +1,7 @@
 'use client'
 
+import React from 'react'
+import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -7,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Brain } from '@/components/ui/icons'
+import { Brain } from 'lucide-react'
 
 interface HeaderProps {
   selectedModel: string

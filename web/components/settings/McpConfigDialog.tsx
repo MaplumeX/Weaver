@@ -1,14 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { Plug, RefreshCw, CheckCircle2 } from '@/components/ui/icons'
-import { getMcpConfig, updateMcpConfig } from '@/lib/api-client'
+import { Plug, Server, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react'
+import { getApiBaseUrl } from '@/lib/api'
 
 export function McpConfigDialog() {
   const [open, setOpen] = useState(false)
@@ -20,9 +20,11 @@ export function McpConfigDialog() {
   const fetchConfig = async () => {
     try {
       setLoading(true)
-      const data = await getMcpConfig()
-      setEnabled(Boolean(data.enabled))
-      setConfig(JSON.stringify(data.servers || {}, null, 2))
+      const res = await fetch(`${getApiBaseUrl()}/api/mcp/config`)
+      if (!res.ok) throw new Error('Failed to fetch config')
+      const data = await res.json()
+      setEnabled(data.enabled)
+      setConfig(JSON.stringify(data.servers, null, 2))
       setLoadedTools(data.loaded_tools || 0)
     } catch (e) {
       console.error(e)
@@ -51,12 +53,20 @@ export function McpConfigDialog() {
         return
       }
 
-      const data = await updateMcpConfig({
-        enable: enabled,
-        servers: parsedServers,
+      const res = await fetch(`${getApiBaseUrl()}/api/mcp/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enable: enabled,
+          servers: parsedServers
+        })
       })
+
+      if (!res.ok) throw new Error('Failed to save config')
+      
+      const data = await res.json()
       setLoadedTools(data.loaded_tools || 0)
-      toast.success('Configuration saved')
+      toast.success(data.message || 'Configuration saved')
       setOpen(false)
     } catch (e) {
       console.error(e)
@@ -69,15 +79,8 @@ export function McpConfigDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="rounded-full hover:bg-accent"
-          aria-label="MCP configuration"
-          title="MCP configuration"
-        >
-            <Plug className="h-5 w-5 text-muted-foreground transition-colors" />
+        <Button variant="ghost" size="icon" className="rounded-full hover:bg-muted/50" title="MCP Configuration">
+            <Plug className="h-5 w-5 text-muted-foreground transition-all" />
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[600px]">
@@ -117,7 +120,7 @@ export function McpConfigDialog() {
               Define servers with transport, command, and args.
             </p>
           </div>
-
+          
           <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 p-2 rounded">
              {loading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 text-green-500" />}
              <span>Loaded Tools: {loadedTools}</span>

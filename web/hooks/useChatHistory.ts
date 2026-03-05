@@ -1,77 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { ChatSession, Message } from '@/types/chat'
 import { StorageService } from '@/lib/storage-service'
-
-function normalizePlainText(content: string): string {
-  if (!content) return ''
-  return content
-    .replace(/```[\s\S]*?```/g, '') // Remove code blocks
-    .replace(/`[^`]+`/g, '') // Remove inline code
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Links -> text
-    .replace(/[#*_~\[\]]/g, '') // Remove markdown symbols
-    .replace(/https?:\/\/\S+/g, '') // Remove URLs
-    .replace(/\n+/g, ' ') // Newlines to spaces
-    .trim()
-}
-
-// Smart title generation from message content
-function generateSmartTitle(content: string): string {
-  if (!content) return 'New Conversation'
-
-  // Clean markdown and special characters
-  const clean = normalizePlainText(content)
-
-  if (!clean) return 'New Conversation'
-
-  // Extract meaningful words (skip common filler words)
-  const stopWords = new Set(['the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-    'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-    'should', 'may', 'might', 'must', 'can', 'i', 'you', 'he', 'she', 'it', 'we',
-    'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our',
-    'their', 'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom',
-    'how', 'when', 'where', 'why', 'please', 'help', 'want', 'need', 'like', 'just'])
-
-  const words = clean
-    .split(/\s+/)
-    .filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()))
-    .slice(0, 6) // Take first 6 meaningful words
-
-  if (words.length === 0) {
-    // Fallback to first N characters
-    return clean.length > 40 ? clean.slice(0, 37) + '...' : clean
-  }
-
-  const title = words.join(' ')
-  return title.length > 50 ? title.slice(0, 47) + '...' : title
-}
-
-function generateSmartSummary(messages: Message[]): string {
-  if (!Array.isArray(messages) || messages.length === 0) return ''
-
-  const last = [...messages].reverse().find(m => (m.role || '').toLowerCase() !== 'system' && (m.content || '').trim())
-  if (!last) return ''
-
-  const clean = normalizePlainText(last.content || '')
-  if (!clean) return ''
-
-  // Keep it short enough to act as a list preview.
-  return clean.length > 120 ? clean.slice(0, 117) + '...' : clean
-}
 
 export function useChatHistory() {
   const [history, setHistory] = useState<ChatSession[]>([])
   const [isHistoryLoading, setIsHistoryLoading] = useState(true)
-
-  // Debounce timer for localStorage persistence
-  const saveTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const historyRef = useRef<ChatSession[]>(history)
-
-  // Keep ref in sync
-  useEffect(() => {
-    historyRef.current = history
-  }, [history])
 
   // Load History
   useEffect(() => {
@@ -86,7 +21,7 @@ export function useChatHistory() {
           isPinned: session.isPinned || false,
           tags: session.tags || []
         }))
-
+        
         // Sort: Pinned first, then by updatedAt desc
         const sorted = migratedHistory.sort((a, b) => {
           if (a.isPinned && !b.isPinned) return -1
@@ -105,25 +40,10 @@ export function useChatHistory() {
     loadHistory()
   }, [])
 
-  // Debounced persistence - only save every 2 seconds to avoid localStorage thrashing
+  // Persist changes whenever history updates
   useEffect(() => {
-    if (isHistoryLoading) return
-
-    // Clear existing timer
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current)
-    }
-
-    // Set new timer
-    saveTimerRef.current = setTimeout(() => {
-      StorageService.saveHistory(historyRef.current)
-    }, 2000)
-
-    // Cleanup
-    return () => {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current)
-      }
+    if (!isHistoryLoading) {
+      StorageService.saveHistory(history)
     }
   }, [history, isHistoryLoading])
 
@@ -140,15 +60,13 @@ export function useChatHistory() {
 
     setHistory(prev => {
       const existingIndex = sessionId ? prev.findIndex(s => s.id === sessionId) : -1
-
+      
       if (existingIndex !== -1) {
         // Update existing session
         const updatedHistory = [...prev]
-        const existingSession = updatedHistory[existingIndex]!
         updatedHistory[existingIndex] = {
-          ...existingSession,
+          ...updatedHistory[existingIndex],
           updatedAt: timestamp,
-          summary: generateSmartSummary(messages) || existingSession.summary,
           // Update title if it's still the default "New Conversation" or generic
           // (Logic can be refined, here we just update timestamp primarily)
         }
@@ -159,13 +77,11 @@ export function useChatHistory() {
            return b.updatedAt - a.updatedAt
         })
       } else {
-        // Create new session with smart title
+        // Create new session
         sessionId = sessionId || timestamp.toString()
         const firstUserMsg = messages.find(m => m.role === 'user')
-        const title = firstUserMsg
-          ? generateSmartTitle(firstUserMsg.content)
-          : 'New Conversation'
-
+        const title = firstUserMsg ? firstUserMsg.content.slice(0, 40) : 'New Conversation'
+        
         const newSession: ChatSession = {
           id: sessionId,
           title,
@@ -173,7 +89,6 @@ export function useChatHistory() {
           createdAt: timestamp,
           updatedAt: timestamp,
           isPinned: false,
-          summary: generateSmartSummary(messages) || normalizePlainText(firstUserMsg?.content || ''),
           tags: []
         }
         return [newSession, ...prev]
@@ -184,7 +99,7 @@ export function useChatHistory() {
     if (sessionId) {
       StorageService.saveSessionMessages(sessionId, messages)
     }
-
+    
     return sessionId
   }
 

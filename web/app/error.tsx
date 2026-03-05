@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { AlertTriangle } from '@/components/ui/icons'
+import { AlertTriangle } from 'lucide-react'
 
 export default function Error({
   error,
@@ -16,7 +16,7 @@ export default function Error({
   }, [error])
 
   return (
-    <div className="flex h-dvh w-full flex-col items-center justify-center gap-4 bg-background text-foreground">
+    <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-background text-foreground">
       <div className="flex h-20 w-20 items-center justify-center rounded-full bg-destructive/10">
         <AlertTriangle className="h-10 w-10 text-destructive" />
       </div>

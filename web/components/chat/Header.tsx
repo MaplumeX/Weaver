@@ -1,200 +1,158 @@
 'use client'
 
-import { useMemo, memo } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Menu, Settings, Sun, Moon, PanelRight, Share, MessageSquare, Download } from '@/components/ui/icons'
+import { PanelLeft, Sun, Moon, ChevronDown, Check, LayoutPanelLeft, Settings } from 'lucide-react'
 import { useTheme } from '@/components/theme-provider'
 import { useI18n } from '@/lib/i18n/i18n-context'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { SettingsDialog } from '@/components/settings/SettingsDialog'
+import { cn } from '@/lib/utils'
 
 interface HeaderProps {
   sidebarOpen: boolean
   onToggleSidebar: () => void
   selectedModel: string
   onModelChange: (model: string) => void
-  onOpenSettings: () => void
-  onToggleInspector?: () => void
-  hasInspector?: boolean
-  currentView: 'dashboard' | 'discover' | 'library'
-  sessionTitle?: string | null
-  threadId?: string | null
-  onOpenShare?: () => void
-  onOpenComments?: () => void
-  onOpenExport?: () => void
+  onToggleArtifacts?: () => void
+  hasArtifacts?: boolean
 }
 
-export const Header = memo(function Header({
-  sidebarOpen,
-  onToggleSidebar,
-  selectedModel,
-  onModelChange,
-  onOpenSettings,
-  onToggleInspector,
-  hasInspector,
-  currentView,
-  sessionTitle,
-  threadId,
-  onOpenShare,
-  onOpenComments,
-  onOpenExport,
-}: HeaderProps) {
-  const { theme, setTheme, resolvedTheme } = useTheme()
+export function Header({ sidebarOpen, onToggleSidebar, selectedModel, onModelChange, onToggleArtifacts, hasArtifacts }: HeaderProps) {
+  const { theme, setTheme } = useTheme()
   const { t } = useI18n()
+  const [isModelOpen, setIsModelOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const toggleTheme = () => {
-    const currentTheme = resolvedTheme || theme
-    setTheme(currentTheme === 'dark' ? 'light' : 'dark')
+    if (theme === 'dark') setTheme('light')
+    else setTheme('dark')
   }
 
-  const models = useMemo(
-    () => [
-      { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI' },
-      { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI' },
-      { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI' },
-      { id: 'claude-sonnet-4-5-20250514', name: 'Claude Sonnet 4.5', provider: 'Anthropic' },
-      { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', provider: 'Anthropic' },
-      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'Anthropic' },
-      { id: 'deepseek-chat', name: 'deepseek-chat', provider: t('deepseek') },
-      { id: 'deepseek-reasoner', name: 'deepseek-reasoner', provider: t('deepseek') },
-      { id: 'qwen-plus', name: 'qwen-plus', provider: t('qwen') },
-      { id: 'qwen3-vl-flash', name: 'qwen3-vl-flash', provider: t('qwen') },
-      { id: 'glm-4.6', name: 'GLM-4.6', provider: t('zhipu') },
-      { id: 'glm-4.6v', name: 'glm-4.6v', provider: t('zhipu') },
-    ],
-    [t],
-  )
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsModelOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
 
-  const currentModelName = useMemo(
-    () => models.find((m) => m.id === selectedModel)?.name || selectedModel,
-    [models, selectedModel],
-  )
+  const models = [
+    // OpenAI 系列
+    { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI' },
+    { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI' },
+    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI' },
 
-  const viewLabel = useMemo(() => {
-    return t(currentView)
-  }, [currentView, t])
+    // Anthropic 系列
+    { id: 'claude-sonnet-4-5-20250514', name: 'Claude Sonnet 4.5', provider: 'Anthropic' },
+    { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', provider: 'Anthropic' },
+    { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'Anthropic' },
+
+    // DeepSeek 系列
+    { id: 'deepseek-chat', name: 'deepseek-chat', provider: t('deepseek') },
+    { id: 'deepseek-reasoner', name: 'deepseek-reasoner', provider: t('deepseek') },
+
+    // 通义千问系列
+    { id: 'qwen-plus', name: 'qwen-plus', provider: t('qwen') },
+    { id: 'qwen3-vl-flash', name: 'qwen3-vl-flash 🖼️', provider: t('qwen') },
+
+    // 智谱 GLM 系列
+    { id: 'glm-4.6', name: 'GLM-4.6', provider: t('zhipu') },
+    { id: 'glm-4.6v', name: 'glm-4.6v 🖼️', provider: t('zhipu') },
+  ]
+
+  const currentModelName = models.find(m => m.id === selectedModel)?.name || selectedModel
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border/10 bg-background px-5 transition-colors duration-200">
-      <div className="flex items-center gap-4 min-w-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onToggleSidebar}
-          className="rounded-lg hover:bg-accent md:hidden"
-          aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-          aria-expanded={sidebarOpen}
-        >
-          <Menu className="h-[18px] w-[18px] text-muted-foreground" />
-        </Button>
-
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-foreground truncate text-balance">
-            {viewLabel}
-          </div>
-          {currentView === 'dashboard' ? (
-            <div className="text-xs font-medium text-muted-foreground truncate text-pretty">
-              {sessionTitle || t('newInvestigation')}
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-1.5">
-        {currentView === 'dashboard' && threadId ? (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onOpenShare}
-              className="rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-              aria-label="Share session"
-              title="Share"
+    <header className="flex h-16 items-center justify-between border-b px-4 bg-background/80 backdrop-blur-md sticky top-0 z-30 transition-all">
+      <div className="flex items-center gap-3">
+        {!sidebarOpen && (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={onToggleSidebar} 
+              className="hidden md:flex hover:bg-muted/50 rounded-full"
             >
-              <Share className="h-[18px] w-[18px]" />
+              <PanelLeft className="h-5 w-5 text-muted-foreground" />
             </Button>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onOpenComments}
-              className="rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-              aria-label="Open comments"
-              title="Comments"
-            >
-              <MessageSquare className="h-[18px] w-[18px]" />
-            </Button>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onOpenExport}
-              className="rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-              aria-label="Export report"
-              title="Export"
-            >
-              <Download className="h-[18px] w-[18px]" />
-            </Button>
-          </>
-        ) : null}
-
-        {hasInspector && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onToggleInspector}
-            className="rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent xl:hidden"
-            aria-label="Toggle inspector"
-          >
-            <PanelRight className="h-[18px] w-[18px] text-muted-foreground" />
-          </Button>
         )}
-
-        <Select value={selectedModel} onValueChange={onModelChange}>
-          <SelectTrigger
-            aria-label="Select model"
-            className="h-8 w-auto min-w-[120px] rounded-lg border-border/30 bg-muted/20 px-3 py-1.5 text-xs font-medium shadow-none transition-colors duration-200 hover:bg-accent focus:ring-offset-0"
-          >
-            <SelectValue placeholder={currentModelName} />
-          </SelectTrigger>
-          <SelectContent className="w-64 max-h-80 rounded-xl border-border/40">
-            {models.map((model) => (
-              <SelectItem key={model.id} value={model.id}>
-                <span className="font-medium">{model.name}</span>
-                <span className="ml-1.5 text-muted-foreground">({model.provider})</span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <div className="flex items-center gap-1 md:hidden">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleTheme}
-            className="rounded-lg hover:bg-accent"
-            aria-label={t('toggleTheme')}
-          >
-            <Sun className="h-[18px] w-[18px] text-muted-foreground rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute h-[18px] w-[18px] text-muted-foreground rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onOpenSettings}
-            className="rounded-lg hover:bg-accent"
-            aria-label={t('settings')}
-          >
-            <Settings className="h-[18px] w-[18px] text-muted-foreground" />
-          </Button>
-        </div>
       </div>
+
+      <div className="flex items-center gap-2">
+         {/* Artifacts Toggle (Mobile/Tablet) */}
+         {hasArtifacts && (
+             <Button
+                variant="ghost"
+                size="icon"
+                onClick={onToggleArtifacts}
+                className="xl:hidden hover:bg-muted/50 rounded-full text-orange-500"
+             >
+                <LayoutPanelLeft className="h-5 w-5" />
+             </Button>
+         )}
+
+                  {/* Custom Model Dropdown - Refreshed */}
+                  <div className="relative" ref={dropdownRef}>
+                     <button
+                       onClick={() => setIsModelOpen(!isModelOpen)}
+                       className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-muted/20 hover:bg-muted/50 text-sm font-medium transition-colors"
+                     >
+                       <span>{currentModelName}</span>
+                       <ChevronDown className={cn("h-3.5 w-3.5 opacity-50 transition-transform", isModelOpen && "rotate-180")} />
+                     </button>
+                     
+                     {isModelOpen && (
+                       <div className="absolute right-0 top-full mt-2 w-56 max-h-80 overflow-y-auto rounded-xl border bg-popover p-1 shadow-lg animate-in fade-in zoom-in-95 z-50">
+                         {models.map((model) => (
+                           <button
+                             key={model.id}
+                             onClick={() => {
+                               onModelChange(model.id)
+                               setIsModelOpen(false)
+                             }}
+                             className={cn(
+                               "flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm transition-colors hover:bg-muted",
+                               selectedModel === model.id && "bg-muted font-medium text-primary"
+                             )}
+                           >
+                             {model.name}
+                             {selectedModel === model.id && <Check className="h-3.5 w-3.5" />}
+                           </button>
+                         ))}
+                       </div>
+                     )}
+                  </div>
+
+                  <Button 
+                    variant="ghost"           size="icon"
+           onClick={toggleTheme}
+           className="rounded-full hover:bg-muted/50"
+         >
+            <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+            <span className="sr-only">Toggle theme</span>
+         </Button>
+
+         <Button
+           variant="ghost"
+           size="icon"
+           onClick={() => setIsSettingsOpen(true)}
+           className="rounded-full hover:bg-muted/50"
+         >
+            <Settings className="h-5 w-5" />
+            <span className="sr-only">Settings</span>
+         </Button>
+      </div>
+
+      <SettingsDialog
+        open={isSettingsOpen}
+        onOpenChange={setIsSettingsOpen}
+        selectedModel={selectedModel}
+        onModelChange={onModelChange}
+      />
     </header>
   )
-})
+}

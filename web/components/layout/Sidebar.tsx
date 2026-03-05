@@ -11,7 +11,7 @@ import {
   History,
   Settings,
   Trash2
-} from '@/components/ui/icons'
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface SidebarProps {
@@ -55,28 +55,25 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   return (
     <div
       className={cn(
-        'relative flex h-full flex-col border-r border-border/60 bg-muted/10',
+        'relative flex h-full flex-col border-r bg-muted/10 transition-all duration-300',
         isCollapsed ? 'w-16' : 'w-64'
       )}
     >
       {/* Logo & Toggle */}
-      <div className="flex items-center justify-between border-b border-border/60 p-4">
+      <div className="flex items-center justify-between border-b p-4">
         {!isCollapsed && (
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <span className="text-lg font-bold">M</span>
             </div>
-            <span className="text-lg font-semibold">Weaver</span>
+            <span className="text-lg font-semibold">Manus</span>
           </div>
         )}
         <Button
-          type="button"
           variant="ghost"
           size="icon"
           onClick={onToggle}
           className={cn(isCollapsed && 'mx-auto')}
-          aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {isCollapsed ? (
             <PanelLeftOpen className="h-5 w-5" />

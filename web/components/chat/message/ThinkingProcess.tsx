@@ -1,355 +1,176 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import {
-  AlertTriangle,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ClipboardCopy,
-  Code,
-  Globe,
-  Loader2,
-  Monitor,
-  Wrench,
-  XCircle,
-} from '@/components/ui/icons'
+import React, { useState, useEffect } from 'react'
+import { ChevronDown, Loader2, BrainCircuit, Globe, Code, FileText, CheckCircle2, Circle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ToolInvocation } from '@/types/chat'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { showError, showSuccess } from '@/lib/toast-utils'
 
 interface ThinkingProcessProps {
   tools: ToolInvocation[]
   isThinking: boolean
 }
 
-type ToolCategory = 'search' | 'code' | 'browser' | 'other'
-
-function normalizeToolName(name: string): string {
-  return String(name || '').replace(/_/g, ' ').trim() || 'tool'
-}
-
-function categorizeTool(name: string): ToolCategory {
-  const lowered = String(name || '').toLowerCase()
-  if (lowered.includes('search')) return 'search'
-  if (lowered.includes('python') || lowered.includes('code') || lowered.includes('execute')) return 'code'
-  if (lowered.includes('browser') || lowered.includes('crawl') || lowered.startsWith('sb_browser_')) return 'browser'
-  return 'other'
-}
-
-function scoreToolState(state: ToolInvocation['state']): number {
-  if (state === 'running') return 0
-  if (state === 'failed') return 1
-  return 2
-}
-
-const CATEGORY_ICON: Record<ToolCategory, typeof Globe> = {
-  search: Globe,
-  code: Code,
-  browser: Monitor,
-  other: Wrench,
-}
-
-const CATEGORY_COLOR: Record<ToolCategory, string> = {
-  search: 'text-emerald-500 dark:text-emerald-400',
-  code: 'text-sky-500 dark:text-sky-400',
-  browser: 'text-violet-500 dark:text-violet-400',
-  other: 'text-muted-foreground',
-}
-
-const CATEGORY_BG: Record<ToolCategory, string> = {
-  search: 'bg-emerald-500/10 dark:bg-emerald-500/15',
-  code: 'bg-sky-500/10 dark:bg-sky-500/15',
-  browser: 'bg-violet-500/10 dark:bg-violet-500/15',
-  other: 'bg-muted/50',
-}
-
 export function ThinkingProcess({ tools, isThinking }: ThinkingProcessProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [expandedToolId, setExpandedToolId] = useState<string | null>(null)
+  const [activeStep, setActiveStep] = useState(0)
 
-  const stats = useMemo(() => {
-    const toolList = tools || []
-    const byCategory: Record<ToolCategory, number> = { search: 0, code: 0, browser: 0, other: 0 }
-    for (const tool of toolList) {
-      byCategory[categorizeTool(tool.toolName)] += 1
-    }
-    const total = toolList.length
-    const running = toolList.filter(t => t.state === 'running').length
-    const completed = toolList.filter(t => t.state === 'completed').length
-    const failed = toolList.filter(t => t.state === 'failed').length
-    return { total, running, completed, failed, byCategory }
-  }, [tools])
+  // Determine active phase based on tools
+  const hasSearch = tools.some(t => t.toolName.includes('search'))
+  const hasCode = tools.some(t => t.toolName.includes('code'))
+  const isComplete = !isThinking && tools.length > 0
 
-  const sortedTools = useMemo(() => {
-    return [...(tools || [])].sort((a, b) => scoreToolState(a.state) - scoreToolState(b.state))
-  }, [tools])
-
-  const runningTool = useMemo(() => {
-    return (tools || []).find(t => t.state === 'running') || null
-  }, [tools])
+  useEffect(() => {
+      if (isComplete) setActiveStep(3)
+      else if (hasCode) setActiveStep(2)
+      else if (hasSearch) setActiveStep(1)
+      else setActiveStep(0)
+  }, [hasSearch, hasCode, isComplete])
 
   if (!tools || tools.length === 0) return null
 
-  const isActive = stats.running > 0 || isThinking
-  const hasFailed = stats.failed > 0
+  const steps = [
+      { label: 'Plan', icon: BrainCircuit },
+      { label: 'Search', icon: Globe },
+      { label: 'Analyze', icon: Code },
+      { label: 'Report', icon: FileText },
+  ]
 
   return (
-    <Card className="w-full my-3 overflow-hidden border-border/30 rounded-xl animate-fade-in">
+    <Card className="w-full max-w-md my-3 border-border/60 bg-card/40 backdrop-blur-sm shadow-sm overflow-hidden transition-all duration-300 hover:shadow-md hover:border-border/80">
       {/* Header */}
-      <button
-        type="button"
-        className={cn(
-          "w-full flex items-center justify-between gap-3 px-4 py-3 text-left",
-          "cursor-pointer hover:bg-accent/30 transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        )}
-        onClick={() => setIsOpen(prev => !prev)}
-        aria-expanded={isOpen}
-        aria-label={isOpen ? "Collapse activity" : "Expand activity"}
+      <div 
+        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+        onClick={() => setIsOpen(!isOpen)}
       >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={cn(
-            "flex items-center justify-center size-7 rounded-lg transition-colors duration-200 shrink-0",
-            isActive
-              ? "bg-primary/10 text-primary"
-              : hasFailed
-                ? "bg-destructive/10 text-destructive"
-                : "bg-muted/50 text-muted-foreground"
-          )}>
-            {isActive ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : hasFailed ? (
-              <AlertTriangle className="w-3.5 h-3.5" />
-            ) : (
-              <Check className="w-3.5 h-3.5" />
-            )}
+         <div className="flex items-center gap-3">
+            <div className={cn(
+                "flex items-center justify-center w-8 h-8 rounded-full ring-1 ring-border shadow-sm transition-all",
+                isThinking ? "bg-primary/10 text-primary ring-primary/20" : "bg-muted text-muted-foreground"
+            )}>
+                {isThinking ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+            </div>
+            <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold tracking-tight text-foreground/90">
+                    {isThinking ? "Deep Researching" : "Research Completed"}
+                </span>
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    {isThinking ? "Processing..." : `${tools.length} Steps Executed`}
+                </span>
+            </div>
+         </div>
+         <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-full"
+         >
+            <ChevronDown className={cn("h-4 w-4 transition-transform duration-300", isOpen && "rotate-180")} />
+         </Button>
+      </div>
+
+      {/* Stepper (Always Visible) */}
+      <div className="px-4 pb-4 pt-1">
+          <div className="relative flex items-center justify-between mt-2">
+              {/* Connecting Line */}
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-[2px] bg-muted z-0 rounded-full" />
+              <div 
+                  className="absolute left-0 top-1/2 -translate-y-1/2 h-[2px] bg-primary transition-all duration-700 ease-in-out z-0 rounded-full"
+                  style={{ width: `${(activeStep / (steps.length - 1)) * 100}%` }}
+              />
+
+              {steps.map((step, index) => {
+                  const isActive = index === activeStep
+                  const isCompleted = index < activeStep
+                  const Icon = step.icon
+
+                  return (
+                      <div key={step.label} className="relative z-10 flex flex-col items-center gap-2 group">
+                          <div className={cn(
+                              "w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 bg-background shadow-sm",
+                              isActive ? "border-primary text-primary scale-110 ring-4 ring-primary/10" :
+                              isCompleted ? "border-primary bg-primary text-primary-foreground border-transparent" :
+                              "border-muted-foreground/30 text-muted-foreground"
+                          )}>
+                              <Icon className="w-3.5 h-3.5" />
+                          </div>
+                          <span className={cn(
+                              "text-[10px] font-semibold transition-colors duration-300 absolute -bottom-6 whitespace-nowrap",
+                              isActive ? "text-primary" :
+                              isCompleted ? "text-foreground/80" :
+                              "text-muted-foreground/60"
+                          )}>
+                              {step.label}
+                          </span>
+                      </div>
+                  )
+              })}
           </div>
-
-          <div className="flex flex-col gap-0 min-w-0">
-            <span className="text-[13px] font-semibold text-foreground">
-              Activity
-              <span className="ml-2 text-xs font-normal text-muted-foreground tabular-nums">
-                {stats.total} tools
-              </span>
-            </span>
-            <span className="text-xs font-medium text-muted-foreground truncate">
-              {runningTool
-                ? normalizeToolName(runningTool.toolName)
-                : hasFailed
-                  ? `${stats.completed} done, ${stats.failed} failed`
-                  : `${stats.completed} completed`}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1 shrink-0">
-          {/* Compact category pills - desktop only */}
-          {(['search', 'code', 'browser'] as const).map(cat => {
-            const count = stats.byCategory[cat]
-            if (count === 0) return null
-            const CatIcon = CATEGORY_ICON[cat]
-            return (
-              <span
-                key={cat}
-                className={cn(
-                  "hidden sm:inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium tabular-nums",
-                  CATEGORY_BG[cat], CATEGORY_COLOR[cat]
-                )}
-              >
-                <CatIcon className="h-2.5 w-2.5" />
-                {count}
-              </span>
-            )
-          })}
-
-          <ChevronDown className={cn(
-            "h-3.5 w-3.5 text-muted-foreground transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ml-1",
-            isOpen && "rotate-180"
-          )} />
-        </div>
-      </button>
+          <div className="h-4" /> {/* Spacer for labels */}
+      </div>
 
       {/* Logs (Collapsible) */}
-      {isOpen ? (
-        <div className="border-t border-border/30 bg-muted/[0.03] transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
-          <ScrollArea className="h-60">
-            <div className="p-2.5 space-y-1">
-              {sortedTools.map((tool) => (
-                <LogItem
-                  key={tool.toolCallId}
-                  tool={tool}
-                  isExpanded={expandedToolId === tool.toolCallId}
-                  onToggleExpanded={() =>
-                    setExpandedToolId(prev => (prev === tool.toolCallId ? null : tool.toolCallId))
-                  }
-                />
-              ))}
-            </div>
-          </ScrollArea>
+      {isOpen && (
+        <div className="border-t border-border/50 bg-muted/10 animate-in slide-in-from-top-2 duration-300">
+            <ScrollArea className="h-[240px]">
+                <div className="p-3 space-y-2">
+                    {tools.map((tool, i) => (
+                        <LogItem key={tool.toolCallId} tool={tool} index={i} />
+                    ))}
+                </div>
+            </ScrollArea>
         </div>
-      ) : null}
+      )}
     </Card>
   )
 }
 
-function LogItem({
-  tool,
-  isExpanded,
-  onToggleExpanded,
-}: {
-  tool: ToolInvocation
-  isExpanded: boolean
-  onToggleExpanded: () => void
-}) {
+function LogItem({ tool, index }: { tool: ToolInvocation, index: number }) {
   const isRunning = tool.state === 'running'
-  const category = categorizeTool(tool.toolName)
-  const query = typeof tool.args?.query === 'string' ? tool.args.query : null
-  const url = typeof tool.args?.url === 'string' ? tool.args.url : null
-  const path = typeof tool.args?.path === 'string' ? tool.args.path : null
-  const command = typeof tool.args?.command === 'string' ? tool.args.command : null
-  const code = typeof tool.args?.code === 'string' ? tool.args.code : null
-
-  const copyPayload = (() => {
-    if (command) return command
-    if (code) return code
-    if (url) return url
-    if (query) return query
-    if (path) return path
-    try {
-      return JSON.stringify(tool.args || {}, null, 2)
-    } catch {
-      return String(tool.args || '')
-    }
-  })()
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(copyPayload)
-      showSuccess('Copied', 'tool-activity-copy')
-    } catch {
-      showError('Copy failed', 'tool-activity-copy-failed')
-    }
-  }
-
-  const preview = (() => {
-    if (query) return `"${query}"`
-    if (url) return url
-    if (path) return path
-    if (command) return command
-    if (code) return code.slice(0, 100) + (code.length > 100 ? '...' : '')
-
-    const args = tool.args || {}
-    const keys = Object.keys(args)
-    if (keys.length === 0) return null
-    try {
-      const text = JSON.stringify(args)
-      return text.length > 140 ? text.slice(0, 140) + '...' : text
-    } catch {
-      return null
-    }
-  })()
-
-  const details = (() => {
-    const args = tool.args || {}
-    try {
-      const text = JSON.stringify(args, null, 2)
-      if (text && text !== '{}') return text
-    } catch {
-      // ignore
-    }
-    if (code) return code
-    if (command) return command
-    return null
-  })()
-
+  
   return (
-    <div className="group rounded-lg hover:bg-accent/30 transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
-      <div
-        role="button"
-        tabIndex={0}
-        className="flex gap-2.5 p-2 text-left cursor-pointer"
-        onClick={onToggleExpanded}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onToggleExpanded()
-          }
-        }}
-        aria-expanded={isExpanded}
-        aria-label={isExpanded ? "Collapse tool details" : "Expand tool details"}
-      >
-        <div className="flex flex-col items-center gap-1 pt-1">
-          <div
-            className={cn(
-              "w-1.5 h-1.5 rounded-full",
-              tool.state === 'failed'
-                ? "bg-red-500"
-                : isRunning
-                  ? "bg-primary animate-pulse"
-                  : CATEGORY_COLOR[category].replace('text-', 'bg-').replace(/dark:text-\S+/, '')
-            )}
-          />
-          <div className="w-px h-full bg-border/30 group-last:hidden" />
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0 flex items-center gap-1.5">
-              <span className="text-[11px] font-mono font-medium text-muted-foreground shrink-0">
-                {normalizeToolName(tool.toolName)}
-              </span>
-              {preview ? (
-                <span className="text-xs font-medium text-muted-foreground truncate">
-                  {preview}
-                </span>
-              ) : null}
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0">
-              {isRunning ? (
-                <Loader2 className="h-3 w-3 animate-spin text-primary" />
-              ) : tool.state === 'failed' ? (
-                <XCircle className="h-3 w-3 text-destructive" />
-              ) : (
-                <Check className="h-3 w-3 text-muted-foreground" />
-              )}
-
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="size-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 opacity-0 group-hover:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleCopy()
-                }}
-                aria-label="Copy tool details"
-                title="Copy"
-              >
-                <ClipboardCopy className="h-3 w-3" />
-              </Button>
-
-              {isExpanded ? (
-                <ChevronDown className="h-3 w-3 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-3 w-3 text-muted-foreground" />
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {isExpanded && details ? (
-        <div className="px-2 pb-2 pl-6">
-          <div className="rounded-md border border-border/30 bg-muted/[0.03] p-2 font-mono text-xs font-medium leading-5 text-muted-foreground overflow-x-auto whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-            {details}
-          </div>
-        </div>
-      ) : null}
+    <div className="group flex gap-3 p-2.5 rounded-lg hover:bg-muted/40 border border-transparent hover:border-border/40 transition-all duration-200">
+       <div className="flex flex-col items-center gap-1">
+           <div className={cn(
+               "w-1.5 h-1.5 rounded-full mt-1.5",
+               isRunning ? "bg-blue-500 animate-pulse" : "bg-muted-foreground/40"
+           )} />
+           <div className="w-[1px] h-full bg-border/40 group-last:hidden" />
+       </div>
+       
+       <div className="flex-1 min-w-0">
+           <div className="flex items-center justify-between mb-0.5">
+               <div className="flex items-center gap-2">
+                   <Badge variant="outline" className={cn(
+                       "text-[10px] h-5 px-1.5 font-mono uppercase tracking-wider",
+                       tool.toolName.includes('search') ? "bg-blue-500/10 text-blue-600 border-blue-200 dark:border-blue-800" :
+                       tool.toolName.includes('code') ? "bg-purple-500/10 text-purple-600 border-purple-200 dark:border-purple-800" :
+                       "bg-zinc-500/10 text-zinc-600 border-zinc-200 dark:border-zinc-800"
+                   )}>
+                       {tool.toolName.replace(/_/g, ' ')}
+                   </Badge>
+                   <span className="text-[10px] text-muted-foreground font-mono">
+                       {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                   </span>
+               </div>
+               <span className={cn(
+                   "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
+                   isRunning ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-400"
+               )}>
+                   {tool.state}
+               </span>
+           </div>
+           
+           {(tool.args?.query || tool.args?.code) && (
+               <div className="mt-1.5 p-2 rounded bg-muted/40 border border-border/40 font-mono text-[10px] text-muted-foreground overflow-x-auto whitespace-pre-wrap break-all">
+                   {tool.toolName === 'tavily_search' ? `Query: "${tool.args.query}"` : 
+                    tool.toolName === 'execute_python_code' ? tool.args.code?.slice(0, 100) + (tool.args.code?.length > 100 ? '...' : '') : 
+                    JSON.stringify(tool.args)}
+               </div>
+           )}
+       </div>
     </div>
   )
 }

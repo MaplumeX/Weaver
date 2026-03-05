@@ -1,10 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import Papa from 'papaparse'
-import { Download, Table as TableIcon } from '@/components/ui/icons'
+import { Download, Table as TableIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 
 interface DataTableViewProps {
   data: string
@@ -70,7 +71,7 @@ export function DataTableView({ data, type }: DataTableViewProps) {
             Download
         </Button>
       </div>
-
+      
       <ScrollArea className="w-full">
           <div className="w-full overflow-auto">
             <table className="w-full caption-bottom text-sm text-left">
@@ -104,19 +105,19 @@ export function DataTableView({ data, type }: DataTableViewProps) {
                   Page {page + 1} of {totalPages}
               </span>
               <div className="flex gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2"
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-7 px-2" 
                     disabled={page === 0}
                     onClick={() => setPage(p => p - 1)}
                   >
                       Prev
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2"
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-7 px-2" 
                     disabled={page >= totalPages - 1}
                     onClick={() => setPage(p => p + 1)}
                   >

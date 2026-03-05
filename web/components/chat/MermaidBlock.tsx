@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import mermaid from 'mermaid'
-import { Loader2 } from '@/components/ui/icons'
+import { Loader2 } from 'lucide-react'
 
 mermaid.initialize({
   startOnLoad: false,
@@ -59,9 +59,9 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
           <span>Rendering chart...</span>
         </div>
       ) : (
-        <div
+        <div 
             className="w-full overflow-x-auto flex justify-center bg-white dark:bg-zinc-950/50"
-            dangerouslySetInnerHTML={{ __html: svg }}
+            dangerouslySetInnerHTML={{ __html: svg }} 
         />
       )}
     </div>

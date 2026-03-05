@@ -30,9 +30,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   // Translation function
   const t = (key: TranslationKey): string => {
-    // Non-English locales are allowed to be partial (fallback to English).
-    const locale = translations[language] as Partial<Record<TranslationKey, string>>
-    return locale[key] || translations.en[key] || key
+    return translations[language][key] || translations.en[key] || key
   }
 
   return (

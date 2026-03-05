@@ -1,30 +1,24 @@
 'use client'
 
-import React, { useState } from 'react'
-import { Compass, Sparkles, TrendingUp, Search, Plus, Check } from '@/components/ui/icons'
+import React from 'react'
+import { Compass, Sparkles, TrendingUp, Search, Plus, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useArtifacts } from '@/hooks/useArtifacts'
 import { toast } from 'sonner'
-
-type FeaturedTemplate = {
-  id: string
-  title: string
-  desc: string
-  icon: React.ComponentType<{ className?: string }>
-}
+import { useState } from 'react'
 
 export function Discover() {
   const { saveArtifact } = useArtifacts()
   const [addedIds, setAddedIds] = useState<string[]>([])
 
-  const featured: FeaturedTemplate[] = [
-    { id: 't1', title: 'Market Trends 2025', desc: 'Deep dive into emerging tech markets', icon: TrendingUp },
-    { id: 't2', title: 'Academic Research', desc: 'Find latest papers on LLM agents', icon: Search },
-    { id: 't3', title: 'Creative Writing', desc: 'Story brainstorming with AI', icon: Sparkles },
+  const featured = [
+    { id: 't1', title: 'Market Trends 2025', desc: 'Deep dive into emerging tech markets', icon: TrendingUp, color: 'text-blue-500' },
+    { id: 't2', title: 'Academic Research', desc: 'Find latest papers on LLM agents', icon: Search, color: 'text-purple-500' },
+    { id: 't3', title: 'Creative Writing', desc: 'Story brainstorming with AI', icon: Sparkles, color: 'text-amber-500' },
   ]
 
-  const handleAddTemplate = (item: FeaturedTemplate) => {
+  const handleAddTemplate = (item: any) => {
     saveArtifact({
         type: 'text',
         title: item.title,
@@ -42,43 +36,37 @@ export function Discover() {
     <div className="flex-1 h-full overflow-y-auto p-6 md:p-10">
       <div className="max-w-4xl mx-auto space-y-8">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3 text-balance">
+          <h1 className="text-3xl font-bold flex items-center gap-3">
             <Compass className="h-8 w-8 text-primary" />
             Discover
           </h1>
-          <p className="text-muted-foreground mt-2 text-lg text-pretty">
+          <p className="text-muted-foreground mt-2 text-lg">
             Explore curated research templates and community prompts.
           </p>
         </div>
 
         <div className="relative">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search templates..." className="pl-10 h-12 text-base rounded-xl bg-card/80 border-border/30" />
+          <Input placeholder="Search templates..." className="pl-10 h-12 text-base rounded-xl" />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {featured.map((item) => (
-            <div
-              key={item.id}
-              className="group relative rounded-2xl border border-border/30 bg-card p-6 hover:translate-y-[-2px] hover:shadow-md transition-all duration-200 hover:bg-accent"
-            >
-              <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/8 text-primary">
-                <item.icon className="h-6 w-6" />
+          {featured.map((item, i) => (
+            <div key={i} className="group relative p-6 rounded-2xl border bg-card hover:bg-muted/50 transition-all cursor-pointer shadow-sm hover:shadow-md">
+              <div className={`h-12 w-12 rounded-xl bg-muted flex items-center justify-center mb-4 ${item.color} bg-opacity-10`}>
+                <item.icon className={`h-6 w-6 ${item.color}`} />
               </div>
               <h3 className="font-semibold text-lg group-hover:text-primary transition-colors">{item.title}</h3>
               <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{item.desc}</p>
-
-              <Button
-                type="button"
-                size="icon"
-                variant="secondary"
-                className="absolute top-4 right-4 h-8 w-8 rounded-full opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
+              
+              <Button 
+                size="icon" 
+                variant="secondary" 
+                className="absolute top-4 right-4 h-8 w-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                 onClick={(e) => {
                     e.stopPropagation()
                     handleAddTemplate(item)
                 }}
-                aria-label={addedIds.includes(item.id) ? "Added template" : "Add template to library"}
-                title={addedIds.includes(item.id) ? "Added" : "Add to library"}
               >
                 {addedIds.includes(item.id) ? <Check className="h-4 w-4 text-green-500" /> : <Plus className="h-4 w-4" />}
               </Button>

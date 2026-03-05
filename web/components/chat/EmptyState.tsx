@@ -1,118 +1,92 @@
 'use client'
 
-import Image from 'next/image'
-import { ArrowRight, Sparkles, TrendingUp, Code2, BookOpen } from '@/components/ui/icons'
+import React from 'react'
+import { Button } from '@/components/ui/button'
+import { ArrowRight, Sparkles, TrendingUp, Code2, BookOpen } from 'lucide-react'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { cn } from '@/lib/utils'
-import { deriveUiModeId, searchModeFromId, type CoreModeId, type SearchMode } from '@/lib/chat-mode'
 
 interface EmptyStateProps {
-  selectedMode: SearchMode
-  mcpMode: boolean
-  onModeSelect: (mode: SearchMode) => void
-  onStarterClick?: (text: string, mode: CoreModeId) => void
+  selectedMode: string
+  onModeSelect: (mode: string) => void
+  onStarterClick?: (text: string, mode: string) => void
 }
 
-export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick }: EmptyStateProps) {
+export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: EmptyStateProps) {
   const { t } = useI18n()
-
-  const activeMode = deriveUiModeId(selectedMode, mcpMode)
 
   const starters = [
     {
       icon: TrendingUp,
       text: t('starterAnalyze'),
-      mode: "ultra" as CoreModeId
+      mode: "ultra"
     },
     {
       icon: Code2,
       text: t('starterWrite'),
-      mode: "agent" as CoreModeId
+      mode: "agent"
     },
     {
       icon: BookOpen,
       text: t('starterSummarize'),
-      mode: "web" as CoreModeId
+      mode: "web"
     },
     {
       icon: Sparkles,
       text: t('starterPlan'),
-      mode: "direct" as CoreModeId
+      mode: "direct"
     }
   ]
 
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full max-w-[820px] mx-auto p-6 animate-fade-in">
-
+    <div className="flex flex-col items-center justify-center h-full w-full max-w-4xl mx-auto p-6 animate-in fade-in zoom-in-95 duration-500">
+      
       {/* Hero Section */}
-      <div className="flex flex-col items-center space-y-5 mb-14 text-center">
-        <div className="flex size-18 items-center justify-center rounded-2xl bg-background border border-border/40 shadow-sm overflow-hidden">
-          <Image
-            src="/logo.png"
-            alt="Weaver"
-            width={56}
-            height={56}
-            className="h-14 w-14 object-contain"
-            priority
-          />
+      <div className="flex flex-col items-center space-y-6 mb-12 text-center">
+        <div className="relative group cursor-default">
+            <div className="absolute inset-0 bg-primary/20 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500 opacity-50" />
+            <div className="relative h-24 w-24 rounded-3xl flex items-center justify-center shadow-xl shadow-primary/20 ring-1 ring-white/20 overflow-hidden bg-white">
+              <img src="/logo.png" alt="Weaver" className="h-20 w-20 object-contain" />
+            </div>
         </div>
-
-        <div className="space-y-3 max-w-md">
-          <h2 className="text-2xl font-semibold text-foreground text-balance">
-            {t('emptyStateTitle')}
-          </h2>
-          <p className="text-muted-foreground text-base text-pretty leading-relaxed">
-            {t('emptyStateSubtitle')} <br className="hidden sm:block" />
-            {t('emptyStateDescription')}
-          </p>
+        
+        <div className="space-y-2 max-w-lg">
+            <h2 className="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-b from-foreground to-foreground/70">
+                {t('emptyStateTitle')}
+            </h2>
+            <p className="text-muted-foreground text-lg">
+                {t('emptyStateSubtitle')} <br className="hidden sm:block"/>
+                {t('emptyStateDescription')}
+            </p>
         </div>
       </div>
 
       {/* Starter Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-[680px]">
-        {starters.map((starter, i) => {
-          const isActive = activeMode === starter.mode
-          return (
-            <button
-              key={i}
-              onClick={() => {
-                onModeSelect(searchModeFromId(starter.mode))
-                onStarterClick?.(starter.text, starter.mode)
-              }}
-              className={cn(
-                "group flex items-start gap-3.5 p-4 rounded-xl text-left transition-colors duration-200",
-                "border border-border/40 bg-background",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-0",
-                isActive
-                  ? "bg-muted/70 text-foreground border-border/60"
-                  : "hover:bg-muted/50 hover:border-border/60"
-              )}
-              style={{ animationDelay: `${i * 50}ms` }}
-            >
-              <div className={cn(
-                "p-2.5 rounded-lg transition-colors",
-                "bg-muted",
-                isActive && "bg-background"
-              )}>
-                <starter.icon className={cn(
-                  "h-5 w-5 transition-colors",
-                  isActive ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
-                )} />
-              </div>
-              <div className="flex-1 space-y-1.5 min-w-0">
-                <p className="text-sm font-medium leading-snug group-hover:text-foreground transition-colors">
-                  {starter.text}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl">
+        {starters.map((starter, i) => (
+          <button
+            key={i}
+            onClick={() => {
+                if (onStarterClick) {
+                    onStarterClick(starter.text, starter.mode)
+                }
+            }}
+            className="group flex items-start gap-4 p-4 rounded-xl border bg-card/50 hover:bg-card hover:shadow-md hover:border-primary/20 transition-all duration-300 text-left"
+          >
+            <div className="p-2 rounded-lg bg-muted group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                <starter.icon className="h-5 w-5" />
+            </div>
+            <div className="flex-1 space-y-1">
+                <p className="text-sm font-medium leading-snug group-hover:text-primary transition-colors">
+                    {starter.text}
                 </p>
-                <div className={cn(
-                  "flex items-center gap-1 text-xs font-medium text-muted-foreground"
-                )}>
-                  <span>{t('useMode')} {starter.mode} {t('mode')}</span>
-                  <ArrowRight className="h-2.5 w-2.5" />
+                <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider font-semibold opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0">
+                    <span>{t('useMode')} {starter.mode} {t('mode')}</span>
+                    <ArrowRight className="h-3 w-3" />
                 </div>
-              </div>
-            </button>
-          )
-        })}
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   )
