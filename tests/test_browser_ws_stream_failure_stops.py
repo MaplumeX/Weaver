@@ -39,6 +39,9 @@ class _FailingSandboxBrowserSessions:
 def test_browser_stream_ws_emits_stopped_status_after_consecutive_capture_failures(monkeypatch):
     # Ensure WS auth is not required for this unit test.
     monkeypatch.setitem(main.settings.__dict__, "internal_api_key", "")
+    # Bypass sandbox config guards so this test focuses on capture failure behavior.
+    monkeypatch.setitem(main.settings.__dict__, "e2b_api_key", "e2b_test_key")
+    monkeypatch.setitem(main.settings.__dict__, "sandbox_template_browser", "sandbox_template_test_browser")
 
     monkeypatch.setattr(main, "sandbox_browser_sessions", _FailingSandboxBrowserSessions())
 

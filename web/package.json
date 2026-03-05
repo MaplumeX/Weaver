@@ -6,7 +6,7 @@
     "dev": "next dev -H localhost -p 3100",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.118",
@@ -44,13 +44,15 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
-    "eslint": "^10.0.2",
-    "eslint-config-next": "^16.1.6",
+    "@tailwindcss/postcss": "^4.2.1",
     "@types/node": "^25.3.3",
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.27",
+    "eslint": "^9.39.3",
+    "eslint-config-next": "^16.1.6",
+    "openapi-typescript": "^7.13.0",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3"

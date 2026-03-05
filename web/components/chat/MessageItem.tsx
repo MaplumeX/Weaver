@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import { Bot, Check, Copy, Pencil, Volume2, VolumeX, Loader2, FolderPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DataTableView } from './DataTableView'
-import { ErrorBoundary } from 'react-error-boundary'
+import { ErrorBoundary, type FallbackProps } from 'react-error-boundary'
 import { toast } from 'sonner'
 import { Message, Artifact } from '@/types/chat'
 import { ThinkingProcess } from './message/ThinkingProcess'
@@ -30,11 +30,12 @@ const MermaidBlock = dynamic(() => import('./MermaidBlock').then(mod => mod.Merm
     ssr: false 
 })
 
-function ErrorFallback({ error }: { error: Error }) {
+function ErrorFallback({ error }: FallbackProps) {
+    const message = error instanceof Error ? error.message : String(error)
     return (
         <div className="p-4 rounded-lg bg-destructive/10 text-destructive text-xs">
             <p className="font-semibold">Visualization Error</p>
-            <pre className="mt-1 opacity-70">{error.message}</pre>
+            <pre className="mt-1 opacity-70">{message}</pre>
         </div>
     )
 }

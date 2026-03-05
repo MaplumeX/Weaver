@@ -29,12 +29,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     spec = build_openapi_spec()
-    payload = json.dumps(spec, ensure_ascii=False, indent=2, sort_keys=True)
 
     output_path = (args.output or "").strip()
     if output_path:
+        payload = json.dumps(spec, ensure_ascii=False, indent=2, sort_keys=True)
         Path(output_path).write_text(payload, encoding="utf-8")
     else:
+        # Keep stdout ASCII-only so it works under Windows locale encodings
+        # (e.g. cp936/gbk) and in subprocess capture_output(text=True).
+        payload = json.dumps(spec, ensure_ascii=True, indent=2, sort_keys=True)
         sys.stdout.write(payload)
 
     return 0

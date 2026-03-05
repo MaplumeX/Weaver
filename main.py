@@ -5430,17 +5430,23 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                     except Exception:
                         pass
 
+                    # Send the start status before starting the frame loop so clients/tests
+                    # observe a stable ordering (status first, then potential capture errors).
                     streaming = True
-                    stream_task = asyncio.create_task(
-                        stream_frames(quality=int(quality or 70), max_fps=int(max_fps or 5))
-                    )
-                    await _safe_send_json(
+                    ok = await _safe_send_json(
                         {
                             "type": "status",
                             "message": "Screencast started",
                             "quality": quality,
                             "max_fps": max_fps,
                         }
+                    )
+                    if not ok:
+                        streaming = False
+                        break
+
+                    stream_task = asyncio.create_task(
+                        stream_frames(quality=int(quality or 70), max_fps=int(max_fps or 5))
                     )
 
                 elif action == "stop":

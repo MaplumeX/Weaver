@@ -251,6 +251,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/config/public": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Public Config
+         * @description Public, non-secret runtime configuration for frontend bootstrapping.
+         *
+         *     This endpoint is intentionally safe to expose: it must not include API keys,
+         *     tokens, raw MCP server configs, or any user data.
+         */
+        get: operations["public_config_api_config_public_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/list": {
         parameters: {
             query?: never;
@@ -376,6 +399,10 @@ export interface paths {
         /**
          * List Export Templates
          * @description List available export templates.
+         *
+         *     Note: This route must be registered before `/api/export/{thread_id}`.
+         *     Otherwise, the dynamic route will capture `templates` as a thread_id and
+         *     this endpoint becomes unreachable.
          */
         get: operations["list_export_templates_api_export_templates_get"];
         put?: never;
@@ -404,6 +431,26 @@ export interface paths {
          *         template: Template style (default, academic, business, minimal)
          */
         get: operations["export_report_endpoint_api_export__thread_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/health/agent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Agent Health
+         * @description Lightweight agent subsystem health snapshot (no sandbox side effects).
+         */
+        get: operations["agent_health_api_health_agent_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -610,6 +657,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sandbox/browser/diagnose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sandbox Browser Diagnose
+         * @description Diagnose whether the E2B sandbox-backed browser tools are configured.
+         *
+         *     Fast path: validates env/config and local dependencies without cold-starting a sandbox.
+         *     Use this to troubleshoot "Capture failed: ..." errors in `/api/browser/{thread_id}/stream`.
+         */
+        get: operations["sandbox_browser_diagnose_api_sandbox_browser_diagnose_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/screenshots": {
         parameters: {
             query?: never;
@@ -671,6 +741,86 @@ export interface paths {
         get: operations["get_screenshot_api_screenshots__filename__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/search/cache/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear Search Cache Endpoint
+         * @description Clear the in-memory search cache (best-effort).
+         */
+        post: operations["clear_search_cache_endpoint_api_search_cache_clear_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/search/cache/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Search Cache Stats
+         * @description Return in-memory search cache statistics (LRU + TTL).
+         */
+        get: operations["get_search_cache_stats_api_search_cache_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/search/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Search Providers
+         * @description Expose multi-search provider availability, health, and circuit-breaker state.
+         */
+        get: operations["get_search_providers_api_search_providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/search/providers/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Search Providers
+         * @description Reset the global multi-search orchestrator (provider stats + circuit breaker state).
+         */
+        post: operations["reset_search_providers_api_search_providers_reset_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -931,6 +1081,50 @@ export interface paths {
         get: operations["get_active_tasks_api_tasks_active_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tools/registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tool Registry
+         * @description Return current ToolRegistry stats + tool metadata (best-effort).
+         */
+        get: operations["get_tool_registry_api_tools_registry_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tools/registry/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Tool Registry
+         * @description Re-run enhanced tool discovery at runtime.
+         *
+         *     Notes:
+         *     - This is intended for dev/debug (e.g., after editing tool modules).
+         *     - `reset=true` clears the global registry before discovery.
+         */
+        post: operations["refresh_tool_registry_api_tools_registry_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1311,6 +1505,27 @@ export interface components {
              */
             sample_rate: number;
         };
+        /** AgentHealthResponse */
+        AgentHealthResponse: {
+            /** Agent Ids */
+            agent_ids: string[];
+            /** Agents Count */
+            agents_count: number;
+            /** Enhanced Tool Discovery Enabled */
+            enhanced_tool_discovery_enabled: boolean;
+            /** Enhanced Tool Discovery Recursive */
+            enhanced_tool_discovery_recursive: boolean;
+            /** Rag Enabled */
+            rag_enabled: boolean;
+            /** Search Engines */
+            search_engines: string[];
+            /** Search Providers Available */
+            search_providers_available: string[];
+            /** Search Strategy */
+            search_strategy: string;
+            /** Tool Registry Total Tools */
+            tool_registry_total_tools: number;
+        };
         /**
          * AgentProfile
          * @description Lightweight “GPTs-like” agent profile.
@@ -1401,18 +1616,12 @@ export interface components {
         };
         /** Body_recognize_speech_upload_api_asr_upload_post */
         Body_recognize_speech_upload_api_asr_upload_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Body_upload_document_api_documents_upload_post */
         Body_upload_document_api_documents_upload_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /**
@@ -1436,10 +1645,7 @@ export interface components {
             messages: components["schemas"]["Message"][];
             /** Model */
             model?: string | null;
-            /** Search Mode */
-            search_mode?: components["schemas"]["SearchMode"] | {
-                [key: string]: unknown;
-            } | string | null;
+            search_mode?: components["schemas"]["SearchMode"] | null;
             /**
              * Stream
              * @default true
@@ -1752,10 +1958,7 @@ export interface components {
             model?: string | null;
             /** Payload */
             payload: unknown;
-            /** Search Mode */
-            search_mode?: components["schemas"]["SearchMode"] | {
-                [key: string]: unknown;
-            } | string | null;
+            search_mode?: components["schemas"]["SearchMode"] | null;
             /** Thread Id */
             thread_id: string;
         };
@@ -1806,6 +2009,59 @@ export interface components {
             /** Role */
             role: string;
         };
+        /** ProviderCircuitSnapshot */
+        ProviderCircuitSnapshot: {
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Is Open */
+            is_open: boolean;
+            /** Opened For Seconds */
+            opened_for_seconds?: number | null;
+            /** Resets In Seconds */
+            resets_in_seconds?: number | null;
+        };
+        /** PublicConfigDefaults */
+        PublicConfigDefaults: {
+            /** Port */
+            port: number;
+            /** Primary Model */
+            primary_model: string;
+            /** Reasoning Model */
+            reasoning_model: string;
+        };
+        /** PublicConfigFeatures */
+        PublicConfigFeatures: {
+            /** Mcp Enabled */
+            mcp_enabled: boolean;
+            /** Prometheus Enabled */
+            prometheus_enabled: boolean;
+            /** Sandbox Mode */
+            sandbox_mode: string;
+            /** Tracing Enabled */
+            tracing_enabled: boolean;
+        };
+        /** PublicConfigResponse */
+        PublicConfigResponse: {
+            defaults: components["schemas"]["PublicConfigDefaults"];
+            features: components["schemas"]["PublicConfigFeatures"];
+            streaming: components["schemas"]["PublicConfigStreaming"];
+            /** Version */
+            version: string;
+        };
+        /** PublicConfigStreamEndpoint */
+        PublicConfigStreamEndpoint: {
+            /** Endpoint */
+            endpoint: string;
+            /** Protocol */
+            protocol: string;
+        };
+        /** PublicConfigStreaming */
+        PublicConfigStreaming: {
+            browser: components["schemas"]["PublicConfigStreamEndpoint"];
+            chat: components["schemas"]["PublicConfigStreamEndpoint"];
+            events: components["schemas"]["PublicConfigStreamEndpoint"];
+            research: components["schemas"]["PublicConfigStreamEndpoint"];
+        };
         /** ResearchRequest */
         ResearchRequest: {
             /** Agent Id */
@@ -1816,17 +2072,28 @@ export interface components {
             model?: string | null;
             /** Query */
             query: string;
-            /** Search Mode */
-            search_mode?: components["schemas"]["SearchMode"] | {
-                [key: string]: unknown;
-            } | string | null;
+            search_mode?: components["schemas"]["SearchMode"] | null;
             /** User Id */
             user_id?: string | null;
         };
         /** RunEvidenceSummary */
         RunEvidenceSummary: {
+            /** Citation Coverage */
+            citation_coverage?: number | null;
+            /** Claim Verifier Contradicted */
+            claim_verifier_contradicted?: number | null;
+            /** Claim Verifier Total */
+            claim_verifier_total?: number | null;
+            /** Claim Verifier Unsupported */
+            claim_verifier_unsupported?: number | null;
+            /** Claim Verifier Verified */
+            claim_verifier_verified?: number | null;
             /** Freshness Ratio 30D */
             freshness_ratio_30d?: number | null;
+            /** Freshness Warning */
+            freshness_warning?: string | null;
+            /** Query Coverage Score */
+            query_coverage_score?: number | null;
             /** Sources Count */
             sources_count: number;
             /** Unsupported Claims Count */
@@ -1865,6 +2132,65 @@ export interface components {
             /** Started At */
             started_at: string;
         };
+        /** SandboxBrowserConfigured */
+        SandboxBrowserConfigured: {
+            /** E2B Api Key */
+            e2b_api_key: boolean;
+            /** E2B Code Interpreter */
+            e2b_code_interpreter: boolean;
+            /** Playwright */
+            playwright: boolean;
+            /** Sandbox Template Browser */
+            sandbox_template_browser: boolean;
+        };
+        /** SandboxBrowserDeepResult */
+        SandboxBrowserDeepResult: {
+            /** Error */
+            error?: string | null;
+            /** Frame Bytes */
+            frame_bytes?: number | null;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Ok */
+            ok: boolean;
+        };
+        /** SandboxBrowserDiagnoseResponse */
+        SandboxBrowserDiagnoseResponse: {
+            /** Allow Internet */
+            allow_internet: boolean;
+            configured: components["schemas"]["SandboxBrowserConfigured"];
+            deep?: components["schemas"]["SandboxBrowserDeepResult"] | null;
+            /** Missing */
+            missing: string[];
+            /** Ready */
+            ready: boolean;
+            /** Sandbox Mode */
+            sandbox_mode: string;
+        };
+        /** SearchCacheClearResponse */
+        SearchCacheClearResponse: {
+            /** Cleared */
+            cleared: boolean;
+        };
+        /** SearchCacheStats */
+        SearchCacheStats: {
+            /** Hit Rate */
+            hit_rate: number;
+            /** Hits */
+            hits: number;
+            /** Max Size */
+            max_size: number;
+            /** Misses */
+            misses: number;
+            /** Similar Hits */
+            similar_hits: number;
+            /** Size */
+            size: number;
+        };
+        /** SearchCacheStatsResponse */
+        SearchCacheStatsResponse: {
+            stats: components["schemas"]["SearchCacheStats"];
+        };
         /** SearchMode */
         SearchMode: {
             /**
@@ -1882,6 +2208,42 @@ export interface components {
              * @default false
              */
             useWebSearch: boolean;
+        };
+        /** SearchProviderSnapshot */
+        SearchProviderSnapshot: {
+            /** Available */
+            available: boolean;
+            /** Avg Latency Ms */
+            avg_latency_ms: number;
+            /** Avg Result Quality */
+            avg_result_quality: number;
+            circuit: components["schemas"]["ProviderCircuitSnapshot"];
+            /** Error Count */
+            error_count: number;
+            /** Healthy */
+            healthy: boolean;
+            /** Last Error */
+            last_error?: string | null;
+            /** Last Error Time */
+            last_error_time?: string | null;
+            /** Name */
+            name: string;
+            /** Success Count */
+            success_count: number;
+            /** Success Rate */
+            success_rate: number;
+            /** Total Calls */
+            total_calls: number;
+        };
+        /** SearchProvidersResetResponse */
+        SearchProvidersResetResponse: {
+            /** Reset */
+            reset: boolean;
+        };
+        /** SearchProvidersResponse */
+        SearchProvidersResponse: {
+            /** Providers */
+            providers: components["schemas"]["SearchProviderSnapshot"][];
         };
         /** SessionComment */
         SessionComment: {
@@ -1998,6 +2360,131 @@ export interface components {
              * @default longxiaochun
              */
             voice: string;
+        };
+        /** ToolRegistryMostUsed */
+        ToolRegistryMostUsed: {
+            /** Call Count */
+            call_count: number;
+            /** Name */
+            name: string;
+        };
+        /** ToolRegistryRefreshResponse */
+        ToolRegistryRefreshResponse: {
+            /** Discovered */
+            discovered: number;
+            /** Total Tools */
+            total_tools: number;
+        };
+        /** ToolRegistryResponse */
+        ToolRegistryResponse: {
+            stats: components["schemas"]["ToolRegistryStats"];
+            /** Tools */
+            tools: components["schemas"]["ToolRegistryTool"][];
+        };
+        /** ToolRegistryStats */
+        ToolRegistryStats: {
+            /** By Type */
+            by_type: {
+                [key: string]: number;
+            };
+            /** Deprecated Tools */
+            deprecated_tools: number;
+            /** Enabled Tools */
+            enabled_tools: number;
+            /** Most Used */
+            most_used: components["schemas"]["ToolRegistryMostUsed"][];
+            /** Overall Success Rate */
+            overall_success_rate: number;
+            /** Tags */
+            tags: string[];
+            /** Total Calls */
+            total_calls: number;
+            /** Total Successes */
+            total_successes: number;
+            /** Total Tools */
+            total_tools: number;
+        };
+        /** ToolRegistryTool */
+        ToolRegistryTool: {
+            /**
+             * Average Duration Ms
+             * @default 0
+             */
+            average_duration_ms: number;
+            /**
+             * Call Count
+             * @default 0
+             */
+            call_count: number;
+            /**
+             * Class Name
+             * @default
+             */
+            class_name: string;
+            /**
+             * Deprecated
+             * @default false
+             */
+            deprecated: boolean;
+            /** Deprecation Message */
+            deprecation_message?: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Failure Count
+             * @default 0
+             */
+            failure_count: number;
+            /**
+             * Function Name
+             * @default
+             */
+            function_name: string;
+            /** Last Called */
+            last_called?: string | null;
+            /**
+             * Module Name
+             * @default
+             */
+            module_name: string;
+            /** Name */
+            name: string;
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+            /** Return Type */
+            return_type?: string | null;
+            /**
+             * Success Count
+             * @default 0
+             */
+            success_count: number;
+            /**
+             * Success Rate
+             * @default 0
+             */
+            success_rate: number;
+            /** Tags */
+            tags?: string[];
+            /**
+             * Tool Type
+             * @default
+             */
+            tool_type: string;
+            /**
+             * Version
+             * @default 1.0.0
+             */
+            version: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -2412,7 +2899,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["CancelRequest"];
+                "application/json": components["schemas"]["CancelRequest"] | null;
             };
         };
         responses: {
@@ -2465,6 +2952,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    public_config_api_config_public_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicConfigResponse"];
                 };
             };
         };
@@ -2680,6 +3187,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_health_api_health_agent_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentHealthResponse"];
                 };
             };
         };
@@ -2971,6 +3498,37 @@ export interface operations {
             };
         };
     };
+    sandbox_browser_diagnose_api_sandbox_browser_diagnose_get: {
+        parameters: {
+            query?: {
+                deep?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SandboxBrowserDiagnoseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_screenshots_api_screenshots_get: {
         parameters: {
             query?: {
@@ -3050,6 +3608,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_search_cache_endpoint_api_search_cache_clear_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchCacheClearResponse"];
+                };
+            };
+        };
+    };
+    get_search_cache_stats_api_search_cache_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchCacheStatsResponse"];
+                };
+            };
+        };
+    };
+    get_search_providers_api_search_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchProvidersResponse"];
+                };
+            };
+        };
+    };
+    reset_search_providers_api_search_providers_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchProvidersResetResponse"];
                 };
             };
         };
@@ -3555,6 +4193,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_tool_registry_api_tools_registry_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolRegistryResponse"];
+                };
+            };
+        };
+    };
+    refresh_tool_registry_api_tools_registry_refresh_post: {
+        parameters: {
+            query?: {
+                reset?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolRegistryRefreshResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
