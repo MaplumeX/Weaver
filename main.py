@@ -5322,6 +5322,111 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                     # real browser (continuous frames).
                     await _start_cdp_screencast(quality=int(quality or 70))
 
+                    # The sandbox browser starts at `about:blank`, which produces an all-white
+                    # first frame. Render a lightweight animated status page so the Live viewer
+                    # feels "alive" even before the agent navigates to real sites.
+                    try:
+
+                        def _set_status_page_if_blank():
+                            session = sandbox_browser_sessions.get(thread_id)
+                            page = session.get_page()
+                            try:
+                                current_url = str(getattr(page, "url", "") or "").strip().lower()
+                            except Exception:
+                                current_url = ""
+
+                            if current_url.startswith("http://") or current_url.startswith("https://"):
+                                return
+
+                            title = "Live view ready"
+                            detail = "Waiting for browser activity…"
+                            safe_title = (title or "").strip()[:120]
+                            safe_detail = (detail or "").strip()[:240]
+
+                            html = f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Weaver</title>
+    <style>
+      :root {{ color-scheme: light; }}
+      body {{
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        background: radial-gradient(80% 120% at 10% 10%, #f5f5f4 0%, #ffffff 55%, #fafaf9 100%);
+        color: #1c1917;
+      }}
+      .wrap {{ min-height: 100vh; display: grid; place-items: center; padding: 32px; }}
+      .card {{
+        width: min(720px, 92vw);
+        background: rgba(255, 255, 255, 0.82);
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        border-radius: 16px;
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.08);
+        padding: 18px 18px 16px 18px;
+      }}
+      .row {{ display: flex; align-items: center; gap: 12px; }}
+      .spinner {{
+        width: 18px; height: 18px; border-radius: 999px;
+        border: 2px solid rgba(0,0,0,0.12);
+        border-top-color: rgba(16,185,129,0.9);
+        animation: spin 0.9s linear infinite;
+      }}
+      @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+      .title {{ font-size: 14px; font-weight: 600; letter-spacing: 0.2px; }}
+      .detail {{
+        margin-top: 8px;
+        font-size: 12px;
+        color: rgba(41, 37, 36, 0.70);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }}
+      .bar {{
+        margin-top: 12px;
+        height: 6px;
+        width: 100%;
+        background: rgba(0,0,0,0.06);
+        border-radius: 999px;
+        overflow: hidden;
+      }}
+      .bar > div {{
+        height: 100%;
+        width: 45%;
+        background: linear-gradient(90deg, rgba(16,185,129,0.25), rgba(16,185,129,0.9));
+        animation: slide 1.4s ease-in-out infinite;
+        border-radius: 999px;
+      }}
+      @keyframes slide {{
+        0% {{ transform: translateX(-20%); opacity: 0.5; }}
+        50% {{ transform: translateX(90%); opacity: 1; }}
+        100% {{ transform: translateX(220%); opacity: 0.5; }}
+      }}
+      .hint {{ margin-top: 10px; font-size: 11px; color: rgba(41, 37, 36, 0.55); }}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="row">
+          <div class="spinner" aria-hidden="true"></div>
+          <div class="title">{safe_title}</div>
+        </div>
+        <div class="detail">{safe_detail}</div>
+        <div class="bar"><div></div></div>
+        <div class="hint">Weaver sandbox browser · live preview</div>
+      </div>
+    </div>
+  </body>
+</html>
+"""
+                            page.set_content(html)
+
+                        await sandbox_browser_sessions.run_async(thread_id, _set_status_page_if_blank)
+                    except Exception:
+                        pass
+
                     streaming = True
                     stream_task = asyncio.create_task(
                         stream_frames(quality=int(quality or 70), max_fps=int(max_fps or 5))

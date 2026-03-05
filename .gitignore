@@ -80,6 +80,9 @@ pnpm-debug.log*
 logs/
 *.log.*
 
+# Runtime artifacts
+screenshots/
+
 # OS
 .DS_Store
 .DS_Store?

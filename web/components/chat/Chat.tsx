@@ -399,6 +399,7 @@ export function Chat() {
                 className="shadow-2xl"
                 defaultExpanded={true}
                 alwaysShow={true}
+                mode="stream"
                 onClose={() => setShowBrowserViewer(false)}
               />
             </div>

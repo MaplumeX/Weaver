@@ -377,11 +377,48 @@ def perform_parallel_search(state: QueryState, config: RunnableConfig) -> Dict[s
         # Check cancellation before search
         check_cancellation(state)
 
+        # Best-effort UX: keep the Live browser viewer non-blank while API search runs.
+        # Run in a daemon thread to avoid blocking the research pipeline on sandbox cold starts.
+        try:
+            import threading
+
+            from agent.workflows.browser_visualizer import show_browser_status_page
+
+            threading.Thread(
+                target=lambda: show_browser_status_page(
+                    state=state,
+                    config=config,
+                    title="Searching the web…",
+                    detail=query,
+                ),
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
+
         # Check cache first
         cache = get_search_cache()
         cached_results = cache.get(query)
         if cached_results is not None:
             logger.info(f"[search] Cache hit for: {query[:50]}")
+            # Best-effort: preview a cached top result so the browser viewer still shows activity.
+            try:
+                import threading
+
+                from agent.workflows.browser_visualizer import visualize_urls_from_results
+
+                threading.Thread(
+                    target=lambda rs=cached_results: visualize_urls_from_results(
+                        state=state,
+                        config=config,
+                        results=rs if isinstance(rs, list) else [],
+                        max_urls=1,
+                        reason="web_plan:search:cached",
+                    ),
+                    daemon=True,
+                ).start()
+            except Exception:
+                pass
             return {
                 "scraped_content": [
                     {
@@ -412,6 +449,24 @@ def perform_parallel_search(state: QueryState, config: RunnableConfig) -> Dict[s
         # Cache the results
         if results:
             cache.set(query, results)
+            # Best-effort: preview a top result in the sandbox browser so Live view keeps moving.
+            try:
+                import threading
+
+                from agent.workflows.browser_visualizer import visualize_urls_from_results
+
+                threading.Thread(
+                    target=lambda rs=results: visualize_urls_from_results(
+                        state=state,
+                        config=config,
+                        results=rs if isinstance(rs, list) else [],
+                        max_urls=1,
+                        reason="web_plan:search",
+                    ),
+                    daemon=True,
+                ).start()
+            except Exception:
+                pass
 
         search_data = {
             "query": query,

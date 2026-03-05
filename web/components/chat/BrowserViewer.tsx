@@ -508,6 +508,13 @@ export function BrowserViewer({
                   <div className="text-center">
                     <Globe className="w-8 h-8 mx-auto mb-2 opacity-50" />
                     <p className="text-sm">Waiting for browser activity...</p>
+                    <button
+                      type="button"
+                      onClick={() => setViewerMode('stream')}
+                      className="mt-2 text-xs text-primary hover:underline underline-offset-2"
+                    >
+                      Switch to live view
+                    </button>
                   </div>
                 </div>
               )}
