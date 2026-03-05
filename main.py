@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -1462,6 +1463,45 @@ def _sanitize_thinking_text(text: str, max_len: int = 1800) -> str:
     return t
 
 
+def _contains_cjk(text: str) -> bool:
+    try:
+        return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
+    except Exception:
+        return False
+
+
+def _thinking_intro_for_node(node_name: str, *, use_zh: bool) -> str:
+    name = (node_name or "").strip().lower()
+    if not name:
+        return ""
+
+    # Keep these as short, user-facing progress narratives (NOT chain-of-thought).
+    if "clarify" in name:
+        return "我先确认是否需要你补充信息，避免跑偏。" if use_zh else "I'll check if any clarification is needed so we don't go off-track."
+    if "planner" in name or "web_plan" in name or "refine_plan" in name:
+        return "我会先拆解问题并生成一组检索关键词。" if use_zh else "I'll break the question down and generate targeted search queries."
+    if "perform_parallel_search" in name or (("search" in name) and "research" not in name):
+        return "接下来我会检索并收集资料，多来源交叉验证。" if use_zh else "Next I'll search and collect sources, cross-checking across providers."
+    if "deepsearch" in name:
+        return (
+            "我会进行迭代式深度检索（生成查询 → 搜索 → 阅读 → 汇总），直到覆盖充分。"
+            if use_zh
+            else "I'll run an iterative deep-search loop (query → search → read → summarize) until coverage is solid."
+        )
+    if "compressor" in name:
+        return "我会去重并压缩信息，保留最相关证据。" if use_zh else "I'll deduplicate and compress sources, keeping the most relevant evidence."
+    if "writer" in name:
+        return "我会把证据整理成结构化的最终回答。" if use_zh else "I'll synthesize the evidence into a clear final answer."
+    if "evaluator" in name:
+        return "我会自检覆盖度/准确性，必要时补充检索或修订。" if use_zh else "I'll self-check coverage/accuracy and revise or research more if needed."
+    if "reviser" in name or "revise" in name:
+        return "我会根据自检结果修订答案，让表述更清晰。" if use_zh else "I'll revise the draft for clarity and completeness."
+    if name == "agent":
+        return "我会调用工具完成任务步骤，并记录关键过程。" if use_zh else "I'll call tools to execute steps and log key actions."
+
+    return ""
+
+
 def _compact_tool_args(tool_input: Any) -> Dict[str, Any]:
     """
     Best-effort compact tool args for streaming UI previews.
@@ -1692,6 +1732,8 @@ async def stream_agent_events(
     start_time = time.time()
     was_interrupted = False
     emit_main_text = False
+    use_zh = _contains_cjk(input_text)
+    last_thinking_text = ""
     images = images or []
     user_id = user_id or settings.memory_user_id
     model = (model or settings.primary_model).strip()
@@ -1866,6 +1908,18 @@ async def stream_agent_events(
                 event_count += 1
                 metrics.mark_event(event_type, node_name)
                 emit_main_text = _should_emit_main_text_for_node(node_name)
+                # Emit a short, safe narrative line to make the accordion feel more "DeepSeek-like".
+                try:
+                    intro = _thinking_intro_for_node(node_name, use_zh=use_zh)
+                    intro = _sanitize_thinking_text(intro, max_len=240)
+                    if intro and intro != last_thinking_text:
+                        last_thinking_text = intro
+                        yield await format_stream_event(
+                            "thinking",
+                            {"text": intro, "node": node_name},
+                        )
+                except Exception:
+                    pass
                 if "clarify" in node_name:
                     logger.debug(f"  Clarify node started | Thread: {thread_id}")
                     yield await format_stream_event(
