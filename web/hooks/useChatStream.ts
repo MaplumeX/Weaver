@@ -84,6 +84,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
 
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
+      let buffer = ''
 
       if (!reader) {
         throw new Error('No reader available')
@@ -135,143 +136,165 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
         )
       }
 
+      const handleStreamLine = (line: string, setInterrupted: () => void) => {
+        const trimmed = line.trim()
+        if (!trimmed) return
+        if (!trimmed.startsWith('0:')) return
+
+        try {
+          const data = JSON.parse(trimmed.slice(2))
+
+          if (data.type === 'status') {
+            setCurrentStatus(data.data.text)
+            pushProcessEvent('status', data.data)
+            syncAssistantMessage()
+          } else if (data.type === 'text') {
+            assistantMessage.content += data.data.content
+            console.log('[useChatStream] Updating message (text):', {
+              id: assistantMessage.id,
+              role: assistantMessage.role,
+              contentLength: assistantMessage.content.length
+            })
+            syncAssistantMessage()
+          } else if (data.type === 'message') {
+            assistantMessage.content = data.data.content
+            syncAssistantMessage()
+          } else if (data.type === 'interrupt') {
+            setInterrupted()
+            setPendingInterrupt(data.data)
+            const msg = data.data?.message || data.data?.prompts?.[0]?.message
+            setCurrentStatus(msg || 'Approval required before continuing')
+            assistantMessage.isStreaming = false
+            assistantMessage.completedAt = Date.now()
+            pushProcessEvent('interrupt', data.data)
+            syncAssistantMessage()
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `interrupt-${Date.now()}`,
+                role: 'assistant',
+                content: msg || 'Approval required before running a tool.',
+              },
+            ])
+          } else if (data.type === 'tool') {
+            const toolCallId =
+              data.data.toolCallId || `tool-${Date.now()}-${Math.random()}`
+
+            const state: ToolInvocation['state'] =
+              data.data.status === 'completed'
+                ? 'completed'
+                : data.data.status === 'failed'
+                  ? 'failed'
+                  : 'running'
+
+            const toolInvocation: ToolInvocation = {
+              toolCallId,
+              toolName: data.data.name,
+              state,
+              args: data.data.args || (data.data.query ? { query: data.data.query } : {}),
+            }
+
+            const prevTools = assistantMessage.toolInvocations || []
+            const existingIndex = prevTools.findIndex((t) => t.toolCallId === toolCallId)
+            if (existingIndex >= 0) {
+              const nextTools = [...prevTools]
+              nextTools[existingIndex] = { ...nextTools[existingIndex], ...toolInvocation }
+              assistantMessage.toolInvocations = nextTools
+            } else {
+              assistantMessage.toolInvocations = [...prevTools, toolInvocation]
+            }
+
+            pushProcessEvent('tool', data.data)
+            syncAssistantMessage()
+          } else if (
+            [
+              'thinking',
+              'tool_start',
+              'tool_result',
+              'tool_error',
+              'search',
+              'screenshot',
+              'task_update',
+              'research_node_start',
+              'research_node_complete',
+              'research_tree_update',
+              'quality_update',
+            ].includes(data.type)
+          ) {
+            pushProcessEvent(data.type, data.data)
+            syncAssistantMessage()
+          } else if (data.type === 'sources') {
+            const items = (data.data?.items || []) as MessageSource[]
+            assistantMessage.sources = items
+            syncAssistantMessage()
+          } else if (data.type === 'completion') {
+            assistantMessage.content = data.data.content
+            assistantMessage.isStreaming = false
+            assistantMessage.completedAt = Date.now()
+            syncAssistantMessage()
+          } else if (data.type === 'done') {
+            const metrics = (data.data?.metrics || {}) as RunMetrics
+            assistantMessage.metrics = metrics
+            assistantMessage.isStreaming = false
+            if (!assistantMessage.completedAt) assistantMessage.completedAt = Date.now()
+            pushProcessEvent('done', data.data)
+            syncAssistantMessage()
+          } else if (data.type === 'cancelled') {
+            const msg = data.data?.message || 'Task was cancelled'
+            assistantMessage.content = assistantMessage.content || msg
+            assistantMessage.isStreaming = false
+            assistantMessage.completedAt = Date.now()
+            pushProcessEvent('cancelled', data.data)
+            syncAssistantMessage()
+          } else if (data.type === 'error') {
+            const msg = data.data?.message || 'An error occurred'
+            assistantMessage.content = assistantMessage.content || msg
+            assistantMessage.isStreaming = false
+            assistantMessage.completedAt = Date.now()
+            pushProcessEvent('error', data.data)
+            syncAssistantMessage()
+          } else if (data.type === 'artifact') {
+            const newArtifact = data.data as Artifact
+            setArtifacts((prev) => {
+              if (prev.some(a => a.id === newArtifact.id)) return prev
+              return [...prev, newArtifact]
+            })
+          }
+        } catch (err) {
+          console.error('Error parsing stream data:', err)
+        }
+      }
+
       let interrupted = false
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n').filter((line) => line.trim())
+        buffer += decoder.decode(value, { stream: true })
+        while (true) {
+          const newlineIndex = buffer.indexOf('\n')
+          if (newlineIndex < 0) break
 
-        for (const line of lines) {
-          if (line.startsWith('0:')) {
-            try {
-              const data = JSON.parse(line.slice(2))
+          const line = buffer.slice(0, newlineIndex).replace(/\r$/, '')
+          buffer = buffer.slice(newlineIndex + 1)
 
-              if (data.type === 'status') {
-                setCurrentStatus(data.data.text)
-                pushProcessEvent('status', data.data)
-                syncAssistantMessage()
-              } else if (data.type === 'text') {
-                assistantMessage.content += data.data.content
-                console.log('[useChatStream] Updating message (text):', {
-                  id: assistantMessage.id,
-                  role: assistantMessage.role,
-                  contentLength: assistantMessage.content.length
-                })
-                syncAssistantMessage()
-              } else if (data.type === 'message') {
-                assistantMessage.content = data.data.content
-                syncAssistantMessage()
-              } else if (data.type === 'interrupt') {
-                interrupted = true
-                setPendingInterrupt(data.data)
-                const msg = data.data?.message || data.data?.prompts?.[0]?.message
-                setCurrentStatus(msg || 'Approval required before continuing')
-                assistantMessage.isStreaming = false
-                assistantMessage.completedAt = Date.now()
-                pushProcessEvent('interrupt', data.data)
-                syncAssistantMessage()
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: `interrupt-${Date.now()}`,
-                    role: 'assistant',
-                    content: msg || 'Approval required before running a tool.',
-                  },
-                ])
-                break
-              } else if (data.type === 'tool') {
-                const toolCallId =
-                  data.data.toolCallId || `tool-${Date.now()}-${Math.random()}`
-
-                const state: ToolInvocation['state'] =
-                  data.data.status === 'completed'
-                    ? 'completed'
-                    : data.data.status === 'failed'
-                      ? 'failed'
-                      : 'running'
-
-                const toolInvocation: ToolInvocation = {
-                  toolCallId,
-                  toolName: data.data.name,
-                  state,
-                  args: data.data.args || (data.data.query ? { query: data.data.query } : {}),
-                }
-
-                const prevTools = assistantMessage.toolInvocations || []
-                const existingIndex = prevTools.findIndex((t) => t.toolCallId === toolCallId)
-                if (existingIndex >= 0) {
-                  const nextTools = [...prevTools]
-                  nextTools[existingIndex] = { ...nextTools[existingIndex], ...toolInvocation }
-                  assistantMessage.toolInvocations = nextTools
-                } else {
-                  assistantMessage.toolInvocations = [...prevTools, toolInvocation]
-                }
-
-                pushProcessEvent('tool', data.data)
-                syncAssistantMessage()
-              } else if (
-                [
-                  'thinking',
-                  'tool_start',
-                  'tool_result',
-                  'tool_error',
-                  'search',
-                  'screenshot',
-                  'task_update',
-                  'research_node_start',
-                  'research_node_complete',
-                  'research_tree_update',
-                  'quality_update',
-                ].includes(data.type)
-              ) {
-                pushProcessEvent(data.type, data.data)
-                syncAssistantMessage()
-              } else if (data.type === 'sources') {
-                const items = (data.data?.items || []) as MessageSource[]
-                assistantMessage.sources = items
-                syncAssistantMessage()
-              } else if (data.type === 'completion') {
-                assistantMessage.content = data.data.content
-                assistantMessage.isStreaming = false
-                assistantMessage.completedAt = Date.now()
-                syncAssistantMessage()
-              } else if (data.type === 'done') {
-                const metrics = (data.data?.metrics || {}) as RunMetrics
-                assistantMessage.metrics = metrics
-                assistantMessage.isStreaming = false
-                if (!assistantMessage.completedAt) assistantMessage.completedAt = Date.now()
-                pushProcessEvent('done', data.data)
-                syncAssistantMessage()
-              } else if (data.type === 'cancelled') {
-                const msg = data.data?.message || 'Task was cancelled'
-                assistantMessage.content = assistantMessage.content || msg
-                assistantMessage.isStreaming = false
-                assistantMessage.completedAt = Date.now()
-                pushProcessEvent('cancelled', data.data)
-                syncAssistantMessage()
-              } else if (data.type === 'error') {
-                const msg = data.data?.message || 'An error occurred'
-                assistantMessage.content = assistantMessage.content || msg
-                assistantMessage.isStreaming = false
-                assistantMessage.completedAt = Date.now()
-                pushProcessEvent('error', data.data)
-                syncAssistantMessage()
-              } else if (data.type === 'artifact') {
-                const newArtifact = data.data as Artifact
-                setArtifacts((prev) => {
-                  if (prev.some(a => a.id === newArtifact.id)) return prev
-                  return [...prev, newArtifact]
-                })
-              }
-            } catch (err) {
-              console.error('Error parsing stream data:', err)
-            }
-          }
+          handleStreamLine(line, () => {
+            interrupted = true
+          })
+          if (interrupted) break
         }
 
         if (interrupted) break
+      }
+
+      if (!interrupted) {
+        buffer += decoder.decode()
+        const tail = buffer.replace(/\r$/, '')
+        if (tail.trim()) {
+          handleStreamLine(tail, () => {
+            interrupted = true
+          })
+        }
       }
 
       if (assistantMessage.isStreaming) {
