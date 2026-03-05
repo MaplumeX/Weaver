@@ -17,12 +17,14 @@ interface StreamFrame {
 interface UseBrowserStreamReturn {
   isConnected: boolean
   isStreaming: boolean
+  isStarting: boolean
   currentFrame: StreamFrame | null
   fps: number
   error: string | null
   start: () => void
   stop: () => void
   capture: () => void
+  sendAction: (payload: Record<string, any>) => void
 }
 
 /**
@@ -37,6 +39,7 @@ export function useBrowserStream({
 }: UseBrowserStreamProps): UseBrowserStreamReturn {
   const [isConnected, setIsConnected] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isStarting, setIsStarting] = useState(false)
   const [currentFrame, setCurrentFrame] = useState<StreamFrame | null>(null)
   const [fps, setFps] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -45,6 +48,14 @@ export function useBrowserStream({
   const frameCountRef = useRef(0)
   const fpsIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  const readWsMessage = useCallback(async (raw: unknown): Promise<string | null> => {
+    if (typeof raw === 'string') return raw
+    if (raw instanceof Blob) return await raw.text()
+    if (raw instanceof ArrayBuffer) return new TextDecoder().decode(raw)
+    if (ArrayBuffer.isView(raw)) return new TextDecoder().decode(raw.buffer)
+    return null
+  }, [])
 
   // Calculate FPS every second
   useEffect(() => {
@@ -82,6 +93,7 @@ export function useBrowserStream({
 
       // Auto-start streaming if enabled
       if (autoStart) {
+        setIsStarting(true)
         ws.send(JSON.stringify({
           action: 'start',
           quality,
@@ -90,9 +102,11 @@ export function useBrowserStream({
       }
     }
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
-        const data = JSON.parse(event.data)
+        const raw = await readWsMessage(event.data)
+        if (!raw) return
+        const data = JSON.parse(raw)
 
         if (data.type === 'frame') {
           frameCountRef.current++
@@ -101,16 +115,25 @@ export function useBrowserStream({
             timestamp: data.timestamp,
             metadata: data.metadata
           })
+          setIsStarting(false)
         } else if (data.type === 'status') {
           console.log('[useBrowserStream] Status:', data.message)
           if (data.message === 'Screencast started') {
+            setIsStarting(false)
             setIsStreaming(true)
           } else if (data.message === 'Screencast stopped') {
+            setIsStarting(false)
             setIsStreaming(false)
+          } else if (data.message === 'Screencast already running') {
+            setIsStarting(false)
+            setIsStreaming(true)
           }
         } else if (data.type === 'error') {
           console.error('[useBrowserStream] Error:', data.message)
           setError(data.message)
+          setIsStarting(false)
+        } else if (data.type === 'ping') {
+          // keepalive - ignore
         }
       } catch (err) {
         console.error('[useBrowserStream] Failed to parse message:', err)
@@ -120,12 +143,14 @@ export function useBrowserStream({
     ws.onerror = (event) => {
       console.error('[useBrowserStream] WebSocket error:', event)
       setError('WebSocket connection error')
+      setIsStarting(false)
     }
 
     ws.onclose = (event) => {
       console.log('[useBrowserStream] Disconnected:', event.code, event.reason)
       setIsConnected(false)
       setIsStreaming(false)
+      setIsStarting(false)
       wsRef.current = null
 
       // Attempt to reconnect after 3 seconds if not intentionally closed
@@ -159,6 +184,7 @@ export function useBrowserStream({
 
   const start = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      setIsStarting(true)
       wsRef.current.send(JSON.stringify({
         action: 'start',
         quality,
@@ -169,6 +195,7 @@ export function useBrowserStream({
 
   const stop = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      setIsStarting(false)
       wsRef.current.send(JSON.stringify({ action: 'stop' }))
     }
   }, [])
@@ -182,11 +209,17 @@ export function useBrowserStream({
   return {
     isConnected,
     isStreaming,
+    isStarting,
     currentFrame,
     fps,
     error,
     start,
     stop,
-    capture
+    capture,
+    sendAction: (payload: Record<string, any>) => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify(payload))
+      }
+    }
   }
 }

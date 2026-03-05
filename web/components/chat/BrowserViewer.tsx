@@ -1,7 +1,18 @@
 'use client'
 
-import React, { useState, useCallback } from 'react'
-import { Loader2, Globe, X, Maximize2, Minimize2, ExternalLink, Play, Pause, Camera } from 'lucide-react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
+import {
+  Loader2,
+  Globe,
+  X,
+  Maximize2,
+  Minimize2,
+  ExternalLink,
+  Play,
+  Pause,
+  Camera,
+  CornerDownLeft
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { BrowserScreenshot } from '@/types/browser'
 import { useBrowserEvents } from '@/hooks/useBrowserEvents'
@@ -31,7 +42,12 @@ export function BrowserViewer({
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
   const [selectedScreenshot, setSelectedScreenshot] = useState<BrowserScreenshot | null>(null)
   const [viewerMode, setViewerMode] = useState<'events' | 'stream'>(mode)
+  const [isInteracting, setIsInteracting] = useState(false)
+  const [urlDraft, setUrlDraft] = useState('')
+  const [isEditingUrl, setIsEditingUrl] = useState(false)
   const isLiveMode = viewerMode === 'stream'
+  const liveViewportRef = useRef<HTMLDivElement | null>(null)
+  const liveImageRef = useRef<HTMLImageElement | null>(null)
 
   // SSE-based screenshot events
   const {
@@ -51,12 +67,14 @@ export function BrowserViewer({
   const {
     isConnected,
     isStreaming,
+    isStarting,
     currentFrame,
     fps,
     error: streamError,
     start: startStream,
     stop: stopStream,
-    capture: captureFrame
+    capture: captureFrame,
+    sendAction
   } = useBrowserStream({
     threadId: isLiveMode ? threadId : null,
     autoStart: true,
@@ -64,7 +82,13 @@ export function BrowserViewer({
     maxFps: 10
   })
 
-  const isActive = isLiveMode ? isStreaming : isEventsActive
+  const isActive = isLiveMode ? (isStreaming || isStarting) : isEventsActive
+
+  // Reset interaction state when switching modes/threads.
+  useEffect(() => {
+    setIsInteracting(false)
+    setIsEditingUrl(false)
+  }, [threadId, viewerMode])
 
   const handleClose = useCallback(() => {
     if (isLiveMode) {
@@ -101,6 +125,112 @@ export function BrowserViewer({
       liveMetaUrl.startsWith('about:blank') ||
       liveMetaUrl.startsWith('chrome://') ||
       liveMetaUrl.startsWith('edge://'))
+
+  // Keep a draft URL synced with the latest live URL (unless user is editing).
+  useEffect(() => {
+    if (!isLiveMode) return
+    if (isEditingUrl) return
+    if (canOpenAddressUrl) {
+      setUrlDraft(addressUrl)
+    } else {
+      // Avoid locking the input to about:blank; leave it empty so users can paste quickly.
+      setUrlDraft('')
+    }
+  }, [isLiveMode, isEditingUrl, canOpenAddressUrl, addressUrl])
+
+  const sendNavigate = useCallback(
+    (url: string) => {
+      let target = (url || '').trim()
+      if (!target) return
+      if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(target)) {
+        target = `https://${target}`
+      }
+      sendAction({ action: 'navigate', url: target })
+    },
+    [sendAction]
+  )
+
+  const normalizePoint = useCallback((clientX: number, clientY: number) => {
+    const img = liveImageRef.current
+    if (!img) return null
+    const rect = img.getBoundingClientRect()
+    if (!rect.width || !rect.height) return null
+    const x = (clientX - rect.left) / rect.width
+    const y = (clientY - rect.top) / rect.height
+    const xClamped = Math.max(0, Math.min(1, x))
+    const yClamped = Math.max(0, Math.min(1, y))
+    return { x: xClamped, y: yClamped }
+  }, [])
+
+  const handleLiveClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (!isLiveMode || !isConnected) return
+      const pt = normalizePoint(e.clientX, e.clientY)
+      if (!pt) return
+      setIsInteracting(true)
+      liveViewportRef.current?.focus()
+      sendAction({ action: 'mouse', type: 'click', x: pt.x, y: pt.y, button: 'left', clicks: 1 })
+    },
+    [isLiveMode, isConnected, normalizePoint, sendAction]
+  )
+
+  const handleLiveWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (!isLiveMode || !isConnected) return
+      if (!isInteracting) return
+      e.preventDefault()
+      e.stopPropagation()
+      const dx = Math.round(e.deltaX)
+      const dy = Math.round(e.deltaY)
+      if (!dx && !dy) return
+      sendAction({ action: 'scroll', dx, dy })
+    },
+    [isLiveMode, isConnected, isInteracting, sendAction]
+  )
+
+  const keyToPress = (key: string): string | null => {
+    if (key === 'Enter') return 'Enter'
+    if (key === 'Tab') return 'Tab'
+    if (key === 'Backspace') return 'Backspace'
+    if (key === 'Delete') return 'Delete'
+    if (key === 'ArrowUp') return 'ArrowUp'
+    if (key === 'ArrowDown') return 'ArrowDown'
+    if (key === 'ArrowLeft') return 'ArrowLeft'
+    if (key === 'ArrowRight') return 'ArrowRight'
+    if (key === 'Home') return 'Home'
+    if (key === 'End') return 'End'
+    if (key === 'PageUp') return 'PageUp'
+    if (key === 'PageDown') return 'PageDown'
+    return null
+  }
+
+  const handleLiveKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!isLiveMode || !isConnected) return
+      if (!isInteracting) return
+
+      if (e.key === 'Escape') {
+        setIsInteracting(false)
+        return
+      }
+
+      // Avoid hijacking global shortcuts.
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+
+      const pressKey = keyToPress(e.key)
+      if (pressKey) {
+        e.preventDefault()
+        sendAction({ action: 'keyboard', type: 'press', key: pressKey })
+        return
+      }
+
+      if (e.key && e.key.length === 1) {
+        e.preventDefault()
+        sendAction({ action: 'keyboard', type: 'type', text: e.key })
+      }
+    },
+    [isLiveMode, isConnected, isInteracting, sendAction]
+  )
 
   // Don't render if no screenshots/frames and not active (unless alwaysShow is true)
   if (!alwaysShow) {
@@ -144,9 +274,39 @@ export function BrowserViewer({
         {/* Address Bar */}
         <div className="flex-1 flex items-center gap-2 bg-background/60 rounded px-2 py-1 text-xs">
           <Globe className="w-3 h-3 text-muted-foreground flex-shrink-0" />
-          <span className="truncate text-muted-foreground">
-            {addressLabel}
-          </span>
+          {isLiveMode ? (
+            <form
+              className="flex-1 flex items-center gap-2 min-w-0"
+              onSubmit={(e) => {
+                e.preventDefault()
+                sendNavigate(urlDraft)
+                setIsEditingUrl(false)
+              }}
+            >
+              <input
+                value={urlDraft}
+                onChange={(e) => setUrlDraft(e.target.value)}
+                onFocus={() => setIsEditingUrl(true)}
+                onBlur={() => setIsEditingUrl(false)}
+                placeholder={canOpenAddressUrl ? '' : 'Enter URL (https://...)'}
+                className={cn(
+                  'flex-1 min-w-0 bg-transparent outline-none placeholder:text-muted-foreground/60',
+                  isEditingUrl ? 'text-foreground' : 'text-muted-foreground'
+                )}
+              />
+              <button
+                type="submit"
+                className="flex-shrink-0 p-0.5 rounded hover:bg-background/60 transition-colors"
+                title="Navigate"
+              >
+                <CornerDownLeft className="w-3.5 h-3.5 text-muted-foreground" />
+              </button>
+            </form>
+          ) : (
+            <span className="truncate text-muted-foreground">
+              {addressLabel}
+            </span>
+          )}
           {canOpenAddressUrl && (
             <a
               href={addressUrl}
@@ -240,12 +400,37 @@ export function BrowserViewer({
               {/* Live stream mode */}
               {isLiveMode ? (
                 liveImageUrl ? (
-                  <div className="relative">
+                  <div
+                    className={cn(
+                      'relative outline-none',
+                      isInteracting ? 'ring-2 ring-primary/40 ring-offset-2 ring-offset-background' : ''
+                    )}
+                    ref={liveViewportRef}
+                    tabIndex={0}
+                    onKeyDown={handleLiveKeyDown}
+                    onWheel={handleLiveWheel}
+                  >
                     <img
                       src={liveImageUrl}
                       alt="Live browser view"
-                      className="block w-full h-auto bg-white"
+                      className="block w-full h-auto bg-white cursor-crosshair"
+                      ref={liveImageRef}
+                      onClick={handleLiveClick}
+                      draggable={false}
                     />
+
+                    <div className="absolute top-2 left-2">
+                      <div className="rounded bg-background/80 backdrop-blur px-2 py-1 text-[10px] text-muted-foreground shadow-sm border">
+                        {isInteracting ? (
+                          <span>
+                            Control: <span className="text-foreground/80">ON</span> · Press{' '}
+                            <span className="font-mono">Esc</span> to exit
+                          </span>
+                        ) : (
+                          <span>Click the view to control · Scroll + type supported</span>
+                        )}
+                      </div>
+                    </div>
 
                     {/* If the sandbox browser hasn't navigated anywhere yet, the live view is literally blank.
                         Show a subtle explanation so users don't assume the stream is broken. */}
@@ -283,7 +468,7 @@ export function BrowserViewer({
                       </p>
                     </div>
                   </div>
-                ) : isStreaming ? (
+                ) : isStarting ? (
                   <div className="flex items-center justify-center min-h-[240px] text-muted-foreground">
                     <div className="text-center">
                       <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin opacity-60" />
@@ -291,6 +476,14 @@ export function BrowserViewer({
                       <p className="text-xs mt-1 opacity-70">
                         Waiting for the first frame. If this takes too long, check the error banner below.
                       </p>
+                    </div>
+                  </div>
+                ) : isStreaming ? (
+                  <div className="flex items-center justify-center min-h-[240px] text-muted-foreground">
+                    <div className="text-center">
+                      <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin opacity-60" />
+                      <p className="text-sm">Waiting for first frame...</p>
+                      <p className="text-xs mt-1 opacity-70">This can take a bit if the sandbox is cold-starting.</p>
                     </div>
                   </div>
                 ) : (
