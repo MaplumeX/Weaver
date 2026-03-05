@@ -357,6 +357,7 @@ class Settings(BaseSettings):
     deepsearch_freshness_warning_min_ratio: float = 0.4  # warn if fresh_30_ratio drops below this
     deepsearch_event_results_limit: int = 5  # max search results included in SSE event payloads
     deepsearch_report_sources_limit: int = 20  # max sources exposed to writer + appended to report
+    deepsearch_visualize_browser: bool = True  # drive sandbox browser so Live view isn't blank
     deepsearch_claim_verifier_use_passages: bool = True  # use fetched passages for claim evidence
     deepsearch_claim_verifier_min_overlap_tokens: int = 2  # token overlap threshold for claim evidence
     deepsearch_claim_verifier_max_evidence_per_claim: int = 3  # max evidence passages/urls stored per claim

@@ -1041,6 +1041,21 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
                         },
                     )
 
+                    # Keep the sandbox browser Live view "alive" by previewing a top result.
+                    # This is best-effort UX only; failures must not break research.
+                    try:
+                        from agent.workflows.browser_visualizer import visualize_urls_from_results
+
+                        visualize_urls_from_results(
+                            state=state,
+                            config=config,
+                            results=results if isinstance(results, list) else [],
+                            max_urls=1,
+                            reason=f"deepsearch:search:epoch{epoch + 1}",
+                        )
+                    except Exception:
+                        pass
+
                     # Record all searched URLs (dedupe with O(1) set lookup)
                     for r in results:
                         url = canonicalize_source_url(r.get("url"))
@@ -1137,6 +1152,20 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
                 # Update selected URLs list and set
                 selected_urls.extend(chosen_urls)
                 selected_urls_set.update(chosen_urls)
+
+                # Preview chosen URLs in the sandbox browser (helps Live view match "selected sources").
+                try:
+                    from agent.workflows.browser_visualizer import visualize_urls
+
+                    visualize_urls(
+                        state=state,
+                        config=config,
+                        urls=chosen_urls,
+                        max_urls=min(3, len(chosen_urls)),
+                        reason=f"deepsearch:selected:epoch{epoch + 1}",
+                    )
+                except Exception:
+                    pass
 
                 new_pages, new_passages = _build_fetcher_evidence(chosen_urls)
                 fetched_pages.extend(new_pages)

@@ -456,6 +456,20 @@ class TreeExplorer:
                     config=self.config,
                 )
 
+                # Best-effort: preview a top result in the sandbox browser so the Live view stays active.
+                try:
+                    from agent.workflows.browser_visualizer import visualize_urls_from_results
+
+                    visualize_urls_from_results(
+                        state=state,
+                        config=self.config,
+                        results=results if isinstance(results, list) else [],
+                        max_urls=1,
+                        reason=f"research_tree:{node.id}:search",
+                    )
+                except Exception:
+                    pass
+
                 for r in results:
                     url = r.get("url")
                     if url and url not in self.all_searched_urls:
@@ -708,6 +722,23 @@ class TreeExplorer:
                         config=self.config,
                     )
                 )
+
+                # Best-effort: run browser preview off the event loop (does not affect research correctness).
+                try:
+                    from agent.workflows.browser_visualizer import visualize_urls_from_results
+
+                    loop.run_in_executor(
+                        None,
+                        lambda rs=results: visualize_urls_from_results(
+                            state=state,
+                            config=self.config,
+                            results=rs if isinstance(rs, list) else [],
+                            max_urls=1,
+                            reason=f"research_tree:{node.id}:search_async",
+                        ),
+                    )
+                except Exception:
+                    pass
 
                 for r in results:
                     url = r.get("url")
