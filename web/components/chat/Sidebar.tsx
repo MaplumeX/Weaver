@@ -248,7 +248,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
         className={cn(
           "fixed inset-y-0 left-0 z-50 md:hidden",
           "w-[300px] max-w-[85vw]",
-          "bg-background shadow-[0_0_60px_rgba(0,0,0,0.10)]",
+          "bg-muted border-r border-border/40 shadow-lg",
           "transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
@@ -297,7 +297,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
               onChange={(e) => setHistoryQuery(e.target.value)}
               placeholder={t('searchPlaceholder')}
               aria-label="Search chat history"
-              className="h-8 text-xs font-medium rounded-lg bg-background border-transparent shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+              className="h-8 text-xs font-medium rounded-lg bg-background border-border/40 shadow-none"
             />
           </div>
 
@@ -352,10 +352,10 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
       </div>
 
       {/* Desktop Rail + Panel */}
-      <aside className="hidden md:flex h-dvh shrink-0 shadow-[12px_0_44px_rgba(0,0,0,0.05)]">
+      <aside className="hidden md:flex h-dvh shrink-0 bg-muted border-r border-border/40">
         <TooltipProvider delayDuration={200}>
           <div
-            className="flex h-full flex-col items-center justify-between bg-background pt-3 pb-5"
+            className="flex h-full flex-col items-center justify-between bg-transparent pt-3 pb-5"
             style={{ width: WORKSPACE_RAIL_W }}
           >
             <div className="flex flex-col items-center gap-1.5">
@@ -413,7 +413,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
 
         <div
           className={cn(
-            "h-full bg-background overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            "h-full bg-transparent overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
           )}
           style={{ width: isOpen ? WORKSPACE_PANEL_W : 0 }}
           aria-hidden={!isOpen}
@@ -437,7 +437,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
                   onChange={(e) => setHistoryQuery(e.target.value)}
                   placeholder={t('searchPlaceholder')}
                   aria-label="Search chat history"
-                  className="h-8 text-xs font-medium rounded-lg bg-background border-transparent shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+                  className="h-8 text-xs font-medium rounded-lg bg-background border-border/40 shadow-none"
                 />
               </div>
 
