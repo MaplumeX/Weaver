@@ -1388,6 +1388,29 @@ async def format_stream_event(event_type: str, data: Any) -> str:
     return f"0:{json.dumps(payload)}\n"
 
 
+def _should_emit_main_text_for_node(node_name: str) -> bool:
+    """
+    Decide whether streamed LLM tokens should be forwarded to the *main answer*
+    (the assistant bubble), based on which LangGraph node is currently running.
+
+    Goal: keep the main answer clean (OpenAI/DeepSeek-style) by preventing
+    planner/query-gen/decomposition nodes from leaking their intermediate output.
+    """
+    name = (node_name or "").strip().lower()
+    if not name:
+        return False
+
+    # Only allow "final writing" style nodes to stream tokens into the main answer.
+    # Everything else should be represented via status/process events.
+    allow_tokens = (
+        "writer",
+        "direct_answer",
+        "agent",
+        "reviser",
+    )
+    return any(token in name for token in allow_tokens)
+
+
 def _compact_tool_args(tool_input: Any) -> Dict[str, Any]:
     """
     Best-effort compact tool args for streaming UI previews.
@@ -1617,6 +1640,7 @@ async def stream_agent_events(
     event_count = 0
     start_time = time.time()
     was_interrupted = False
+    emit_main_text = False
     images = images or []
     user_id = user_id or settings.memory_user_id
     model = (model or settings.primary_model).strip()
@@ -1790,6 +1814,7 @@ async def stream_agent_events(
             if event_type in {"on_chain_start", "on_node_start", "on_graph_start"}:
                 event_count += 1
                 metrics.mark_event(event_type, node_name)
+                emit_main_text = _should_emit_main_text_for_node(node_name)
                 if "clarify" in node_name:
                     logger.debug(f"  Clarify node started | Thread: {thread_id}")
                     yield await format_stream_event(
@@ -1832,12 +1857,6 @@ async def stream_agent_events(
                             {"thread_id": thread_id, "prompts": _serialize_interrupts(interrupts)},
                         )
                         return
-
-                    messages = output.get("messages", [])
-                    if messages:
-                        for msg in messages:
-                            content = msg.content if hasattr(msg, "content") else str(msg)
-                            yield await format_stream_event("message", {"content": content})
 
                     # Check for completion and final report artifact
                     if output.get("is_complete"):
@@ -1989,7 +2008,7 @@ async def stream_agent_events(
                         content = chunk.content
                     elif isinstance(chunk, dict):
                         content = chunk.get("content")
-                    if content:
+                    if content and emit_main_text:
                         yield await format_stream_event("text", {"content": content})
 
         # Send final completion
