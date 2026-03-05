@@ -85,6 +85,22 @@ export function BrowserViewer({
   // Determine what to display
   const displayScreenshot = selectedScreenshot || latestScreenshot
   const liveImageUrl = currentFrame ? `data:image/jpeg;base64,${currentFrame.data}` : null
+  const liveMetaUrlRaw = (currentFrame?.metadata?.url || currentFrame?.metadata?.page_url || '') as string
+  const liveMetaTitleRaw = (currentFrame?.metadata?.title || '') as string
+  const liveMetaUrl = typeof liveMetaUrlRaw === 'string' ? liveMetaUrlRaw : ''
+  const liveMetaTitle = typeof liveMetaTitleRaw === 'string' ? liveMetaTitleRaw : ''
+
+  const addressUrl = isLiveMode ? liveMetaUrl : (displayScreenshot?.pageUrl || '')
+  const addressLabel = addressUrl || (isLiveMode ? 'Live Browser' : 'Browser')
+  const canOpenAddressUrl = addressUrl.startsWith('http://') || addressUrl.startsWith('https://')
+  const isBlankLivePage =
+    isLiveMode &&
+    Boolean(liveImageUrl) &&
+    (!liveMetaUrl ||
+      liveMetaUrl === 'about:blank' ||
+      liveMetaUrl.startsWith('about:blank') ||
+      liveMetaUrl.startsWith('chrome://') ||
+      liveMetaUrl.startsWith('edge://'))
 
   // Don't render if no screenshots/frames and not active (unless alwaysShow is true)
   if (!alwaysShow) {
@@ -129,11 +145,11 @@ export function BrowserViewer({
         <div className="flex-1 flex items-center gap-2 bg-background/60 rounded px-2 py-1 text-xs">
           <Globe className="w-3 h-3 text-muted-foreground flex-shrink-0" />
           <span className="truncate text-muted-foreground">
-            {displayScreenshot?.pageUrl || 'Browser'}
+            {addressLabel}
           </span>
-          {displayScreenshot?.pageUrl && (
+          {canOpenAddressUrl && (
             <a
-              href={displayScreenshot.pageUrl}
+              href={addressUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-shrink-0 hover:text-primary"
@@ -224,11 +240,39 @@ export function BrowserViewer({
               {/* Live stream mode */}
               {isLiveMode ? (
                 liveImageUrl ? (
-                  <img
-                    src={liveImageUrl}
-                    alt="Live browser view"
-                    className="block w-full h-auto bg-white"
-                  />
+                  <div className="relative">
+                    <img
+                      src={liveImageUrl}
+                      alt="Live browser view"
+                      className="block w-full h-auto bg-white"
+                    />
+
+                    {/* If the sandbox browser hasn't navigated anywhere yet, the live view is literally blank.
+                        Show a subtle explanation so users don't assume the stream is broken. */}
+                    {isBlankLivePage && (
+                      <div className="absolute inset-x-0 bottom-0 p-3">
+                        <div className="rounded-lg border bg-background/80 backdrop-blur px-3 py-2 text-xs text-muted-foreground shadow-sm">
+                          <div className="font-medium text-foreground/80">Live view is ready</div>
+                          <div className="mt-0.5">
+                            No page has been opened yet. Deep search often uses API search and may not navigate the
+                            browser.
+                          </div>
+                          <div className="mt-1 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setViewerMode('events')}
+                              className="text-primary hover:underline underline-offset-2"
+                            >
+                              Switch to screenshots
+                            </button>
+                            {liveMetaTitle ? (
+                              <span className="truncate font-mono text-[10px] opacity-80">{liveMetaTitle}</span>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : !isConnected ? (
                   <div className="flex items-center justify-center min-h-[240px] text-muted-foreground">
                     <div className="text-center">
