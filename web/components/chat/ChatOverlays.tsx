@@ -27,7 +27,7 @@ export function ScrollToBottomButton({ visible, onClick }: ScrollButtonProps) {
       <Button
         variant="outline"
         size="icon"
-        className="rounded-full bg-card/80 backdrop-blur-xl border-border/30 shadow-lg hover:bg-card hover:shadow-xl transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] h-9 w-9"
+        className="rounded-full bg-card border-border/40 shadow-lg hover:bg-card hover:shadow-xl transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] h-9 w-9"
         onClick={onClick}
         aria-label="Scroll to bottom"
       >
@@ -352,7 +352,7 @@ export function MobileArtifactsOverlay({ show, artifacts, threadId, onClose }: M
   if (!show) return null
 
   return (
-    <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-xl xl:hidden flex flex-col transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
+    <div className="fixed inset-0 z-50 bg-background/80 xl:hidden flex flex-col transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
       <ArtifactsPanel
         artifacts={artifacts}
         threadId={threadId}

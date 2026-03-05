@@ -234,7 +234,7 @@ export function ArtifactsPanel({
   if (isFullscreen) {
     return (
       <div className="fixed inset-0 z-50 bg-background flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-border/60 backdrop-blur-xl">
+        <div className="flex items-center justify-between p-4 border-b border-border/60">
           <div className="flex items-center gap-3 min-w-0">
             <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center text-primary-foreground font-semibold">
               I
@@ -292,7 +292,7 @@ export function ArtifactsPanel({
 
   return (
     <div className="flex flex-col h-full bg-card border-l border-border/60 transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] w-full">
-      <div className="flex items-center justify-between p-4 border-b border-border/60 bg-background backdrop-blur-xl">
+      <div className="flex items-center justify-between p-4 border-b border-border/60 bg-background">
         <div className="flex items-center gap-2 min-w-0">
           {onToggle && (
             <Button
@@ -486,7 +486,7 @@ function ArtifactCard({ artifact, isFullscreen }: { artifact: Artifact, isFullsc
       "overflow-hidden border-border/60 group transition-colors duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-border/80",
       isFullscreen ? "shadow-md" : undefined
     )}>
-      <CardHeader className="p-3 bg-muted/20 border-b border-border/60 backdrop-blur-xl flex flex-row items-center justify-between space-y-0">
+      <CardHeader className="p-3 bg-muted/20 border-b border-border/60 flex flex-row items-center justify-between space-y-0">
         <div className="flex items-center gap-2 overflow-hidden">
           <div className="p-1.5 bg-background rounded-md shadow-sm">
             {getIcon()}
@@ -504,7 +504,7 @@ function ArtifactCard({ artifact, isFullscreen }: { artifact: Artifact, isFullsc
             aria-label="Download chart"
             title="Download chart"
           >
-            <Download className="h-3 w-3 text-emerald-500/70 dark:text-emerald-400/70" />
+            <Download className="h-3 w-3 text-muted-foreground" />
           </Button>
         )}
       </CardHeader>

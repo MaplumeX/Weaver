@@ -20,9 +20,6 @@ interface ModeOption {
   id: string
   label: string
   icon: React.ComponentType<{ className?: string }>
-  color: string
-  activeColor: string
-  activeBg: string
 }
 
 interface McpOption {
@@ -30,29 +27,8 @@ interface McpOption {
   label: string
 }
 
-const MODE_STYLES: Record<string, { color: string; activeColor: string; activeBg: string }> = {
-  web: {
-    // Avoid opacity-based "disabled" visuals; prefer lighter shades for hierarchy.
-    color: 'text-emerald-600 dark:text-emerald-400',
-    activeColor: 'text-emerald-700 dark:text-emerald-300',
-    activeBg: 'bg-muted/40 dark:bg-muted/25',
-  },
-  agent: {
-    color: 'text-sky-600 dark:text-sky-400',
-    activeColor: 'text-sky-700 dark:text-sky-300',
-    activeBg: 'bg-muted/40 dark:bg-muted/25',
-  },
-  ultra: {
-    color: 'text-violet-600 dark:text-violet-400',
-    activeColor: 'text-violet-700 dark:text-violet-300',
-    activeBg: 'bg-muted/40 dark:bg-muted/25',
-  },
-  mcp: {
-    color: 'text-amber-600 dark:text-amber-400',
-    activeColor: 'text-amber-700 dark:text-amber-300',
-    activeBg: 'bg-muted/40 dark:bg-muted/25',
-  },
-}
+const MODE_CONTAINER =
+  "inline-flex items-center gap-1 rounded-xl border border-border/40 bg-muted p-1"
 
 export function ModeSelector({
   searchMode,
@@ -68,9 +44,9 @@ export function ModeSelector({
   const activeMode = deriveUiModeId(searchMode, mcpMode)
 
   const modes: ModeOption[] = [
-    { id: 'web', label: t('web'), icon: Globe, ...MODE_STYLES['web']! },
-    { id: 'agent', label: t('agent'), icon: Bot, ...MODE_STYLES['agent']! },
-    { id: 'ultra', label: t('ultra'), icon: Rocket, ...MODE_STYLES['ultra']! },
+    { id: 'web', label: t('web'), icon: Globe },
+    { id: 'agent', label: t('agent'), icon: Bot },
+    { id: 'ultra', label: t('ultra'), icon: Rocket },
   ]
 
   const mcpOptions: McpOption[] = [
@@ -106,12 +82,10 @@ export function ModeSelector({
     setIsMcpOpen(false)
   }, [onMcpModeChange, onMcpProviderChange, onSearchModeChange])
 
-  const mcpStyle = MODE_STYLES['mcp']!
-
   return (
     <div
       className={cn(
-        "flex items-center gap-1",
+        MODE_CONTAINER,
       )}
       role="radiogroup"
       aria-label="Search mode"
@@ -127,14 +101,14 @@ export function ModeSelector({
             aria-checked={isActive}
             onClick={() => handleModeClick(mode.id)}
             className={cn(
-              "relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0",
+              "relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-200",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-0",
               isActive
-                ? [mode.activeBg, "text-foreground"]
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground hover:bg-background"
             )}
           >
-            <Icon className={cn("h-3.5 w-3.5 transition-colors", isActive ? mode.activeColor : mode.color)} />
+            <Icon className="h-3.5 w-3.5" />
             {mode.label}
           </button>
         )
@@ -148,14 +122,14 @@ export function ModeSelector({
           aria-expanded={isMcpOpen}
           onClick={handleMcpToggle}
           className={cn(
-            "relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0",
+            "relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-200",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-0",
             mcpMode
-              ? [mcpStyle.activeBg, "text-foreground"]
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-background"
           )}
         >
-          <Plug className={cn("h-3.5 w-3.5 transition-colors", mcpMode ? mcpStyle.activeColor : mcpStyle.color)} />
+          <Plug className="h-3.5 w-3.5" />
           {mcpMode ? (mcpOptions.find(o => o.id === mcpProvider)?.label || 'MCP') : 'MCP'}
           <ChevronDown className="h-3 w-3 opacity-60" />
         </button>
@@ -166,8 +140,7 @@ export function ModeSelector({
             aria-label="MCP providers"
             className={cn(
               "absolute bottom-full left-0 mb-2 w-40 rounded-xl z-50 overflow-hidden animate-scale-in",
-              "bg-popover/92 backdrop-blur-xl shadow-lg",
-              "ring-1 ring-border/20",
+              "bg-popover border border-border/40 shadow-md",
             )}
           >
             <div className="p-1">
@@ -179,11 +152,11 @@ export function ModeSelector({
                   onClick={() => handleMcpSelect(opt.id)}
                   className={cn(
                     "flex w-full items-center justify-between rounded-lg px-2 py-2 text-xs transition-colors hover:bg-muted",
-                    mcpProvider === opt.id && mcpMode && "bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400"
+                    mcpProvider === opt.id && mcpMode && "bg-muted font-medium text-foreground"
                   )}
                 >
                   {opt.label}
-                  {mcpProvider === opt.id && mcpMode && <Check className="h-3 w-3 text-amber-500" />}
+                  {mcpProvider === opt.id && mcpMode && <Check className="h-3 w-3 text-primary" />}
                 </button>
               ))}
             </div>

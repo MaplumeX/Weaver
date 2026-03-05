@@ -237,7 +237,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
       {/* Mobile Overlay */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-black/25 backdrop-blur-[3px] md:hidden transition-opacity duration-300",
+          "fixed inset-0 z-40 bg-black/25 md:hidden transition-opacity duration-300",
           isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         )}
         onClick={onToggle}

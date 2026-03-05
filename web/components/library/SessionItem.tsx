@@ -78,7 +78,7 @@ export function SessionItem({
                 <MoreVertical className="h-3.5 w-3.5" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-40 p-1 bg-popover/90 backdrop-blur-xl border-border/30" align="end">
+            <PopoverContent className="w-40 p-1 border-border/40" align="end">
               <Button type="button" variant="ghost" className="w-full justify-start text-xs h-8 gap-2" onClick={() => onTogglePin(session.id)}>
                 {session.isPinned ? <StarOff className="h-3.5 w-3.5" /> : <Star className="h-3.5 w-3.5" />}
                 {session.isPinned ? 'Unpin' : 'Pin'}

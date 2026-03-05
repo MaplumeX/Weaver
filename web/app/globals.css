@@ -126,11 +126,11 @@ html {
     @apply bg-background border border-border/40;
   }
   .glass {
-    @apply bg-card/70 backdrop-blur-xl border border-white/[0.06];
+    @apply bg-card border border-border/40;
     box-shadow: 0 8px 32px -8px hsl(0 0% 0% / 0.3);
   }
   .glass-subtle {
-    @apply bg-card/85 backdrop-blur-md border border-white/[0.04];
+    @apply bg-card border border-border/30;
     box-shadow: 0 4px 16px -4px hsl(0 0% 0% / 0.2);
   }
 }

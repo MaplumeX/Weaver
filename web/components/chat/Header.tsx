@@ -116,7 +116,7 @@ export const Header = memo(function Header({
               aria-label="Share session"
               title="Share"
             >
-              <Share className="h-[18px] w-[18px] text-sky-500 dark:text-sky-400" />
+              <Share className="h-[18px] w-[18px]" />
             </Button>
 
             <Button
@@ -127,7 +127,7 @@ export const Header = memo(function Header({
               aria-label="Open comments"
               title="Comments"
             >
-              <MessageSquare className="h-[18px] w-[18px] text-violet-500 dark:text-violet-400" />
+              <MessageSquare className="h-[18px] w-[18px]" />
             </Button>
 
             <Button
@@ -138,7 +138,7 @@ export const Header = memo(function Header({
               aria-label="Export report"
               title="Export"
             >
-              <Download className="h-[18px] w-[18px] text-emerald-500 dark:text-emerald-400" />
+              <Download className="h-[18px] w-[18px]" />
             </Button>
           </>
         ) : null}
@@ -162,7 +162,7 @@ export const Header = memo(function Header({
           >
             <SelectValue placeholder={currentModelName} />
           </SelectTrigger>
-          <SelectContent className="w-64 max-h-80 rounded-xl border-border/30 bg-popover/90 backdrop-blur-xl">
+          <SelectContent className="w-64 max-h-80 rounded-xl border-border/40">
             {models.map((model) => (
               <SelectItem key={model.id} value={model.id}>
                 <span className="font-medium">{model.name}</span>
@@ -180,8 +180,8 @@ export const Header = memo(function Header({
             className="rounded-lg hover:bg-accent"
             aria-label={t('toggleTheme')}
           >
-            <Sun className="h-[18px] w-[18px] text-amber-500 rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute h-[18px] w-[18px] text-indigo-400 rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
+            <Sun className="h-[18px] w-[18px] text-muted-foreground rotate-0 scale-100 transition-transform duration-200 dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute h-[18px] w-[18px] text-muted-foreground rotate-90 scale-0 transition-transform duration-200 dark:rotate-0 dark:scale-100" />
           </Button>
 
           <Button

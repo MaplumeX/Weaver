@@ -246,7 +246,7 @@ export const ChatInput = memo(function ChatInput({
         >
           {/* Drag Overlay */}
           {isDragging && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm">
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/90">
               <div className="text-primary font-medium flex flex-col items-center gap-2">
                 <div className="p-4 rounded-2xl bg-primary/10">
                   <Paperclip className="h-7 w-7 text-amber-500" />

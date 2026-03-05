@@ -103,7 +103,7 @@ export function CommandPalette({ show, onSelect, onClose }: CommandPaletteProps)
       onKeyDown={handleKeyDown}
       role="listbox"
       aria-label="Commands"
-      className="absolute bottom-full left-4 mb-2 w-72 bg-popover/90 backdrop-blur-xl border border-border/30 rounded-xl shadow-lg overflow-hidden animate-in slide-in-from-bottom-2 fade-in animate-scale-in z-50 focus:outline-none"
+      className="absolute bottom-full left-4 mb-2 w-72 bg-popover border border-border/40 rounded-xl shadow-lg overflow-hidden animate-in slide-in-from-bottom-2 fade-in animate-scale-in z-50 focus:outline-none"
     >
       {/* Search Input */}
       <div className="px-3 py-2 border-b border-border/30 bg-muted/30">

@@ -13,25 +13,6 @@ interface EmptyStateProps {
   onStarterClick?: (text: string, mode: CoreModeId) => void
 }
 
-const MODE_COLORS: Record<string, { icon: string; activeIcon: string }> = {
-  ultra: {
-    icon: 'text-violet-600 dark:text-violet-400',
-    activeIcon: 'text-violet-700 dark:text-violet-300',
-  },
-  agent: {
-    icon: 'text-sky-600 dark:text-sky-400',
-    activeIcon: 'text-sky-700 dark:text-sky-300',
-  },
-  web: {
-    icon: 'text-emerald-600 dark:text-emerald-400',
-    activeIcon: 'text-emerald-700 dark:text-emerald-300',
-  },
-  direct: {
-    icon: 'text-amber-600 dark:text-amber-400',
-    activeIcon: 'text-amber-700 dark:text-amber-300',
-  },
-}
-
 export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick }: EmptyStateProps) {
   const { t } = useI18n()
 
@@ -65,7 +46,7 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
 
       {/* Hero Section */}
       <div className="flex flex-col items-center space-y-5 mb-14 text-center">
-        <div className="flex size-18 items-center justify-center rounded-2xl bg-background shadow-[0_12px_36px_rgba(0,0,0,0.08)] overflow-hidden">
+        <div className="flex size-18 items-center justify-center rounded-2xl bg-background border border-border/40 shadow-sm overflow-hidden">
           <Image
             src="/logo.png"
             alt="Weaver"
@@ -77,7 +58,7 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
         </div>
 
         <div className="space-y-3 max-w-md">
-          <h2 className="text-2xl font-semibold text-foreground text-balance tracking-tight">
+          <h2 className="text-2xl font-semibold text-foreground text-balance">
             {t('emptyStateTitle')}
           </h2>
           <p className="text-muted-foreground text-base text-pretty leading-relaxed">
@@ -91,7 +72,6 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-[680px]">
         {starters.map((starter, i) => {
           const isActive = activeMode === starter.mode
-          const colors = (MODE_COLORS[starter.mode] ?? MODE_COLORS['direct'])!
           return (
             <button
               key={i}
@@ -100,21 +80,24 @@ export function EmptyState({ selectedMode, mcpMode, onModeSelect, onStarterClick
                 onStarterClick?.(starter.text, starter.mode)
               }}
               className={cn(
-                "group flex items-start gap-3.5 p-4 rounded-xl text-left transition-all duration-200",
-                "bg-background hover:-translate-y-0.5",
+                "group flex items-start gap-3.5 p-4 rounded-xl text-left transition-colors duration-200",
+                "border border-border/40 bg-background",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-0",
                 isActive
-                  ? "shadow-[0_14px_48px_rgba(0,0,0,0.07)] hover:shadow-[0_18px_56px_rgba(0,0,0,0.08)]"
-                  : "shadow-[0_10px_40px_rgba(0,0,0,0.04)] hover:shadow-[0_14px_48px_rgba(0,0,0,0.06)]"
+                  ? "bg-muted/70 text-foreground border-border/60"
+                  : "hover:bg-muted/50 hover:border-border/60"
               )}
               style={{ animationDelay: `${i * 50}ms` }}
             >
               <div className={cn(
                 "p-2.5 rounded-lg transition-colors",
-                isActive
-                  ? ["bg-muted/30", colors.activeIcon]
-                  : ["bg-muted/20", colors.icon, "group-hover:bg-muted/40"]
+                "bg-muted",
+                isActive && "bg-background"
               )}>
-                <starter.icon className="h-5 w-5" />
+                <starter.icon className={cn(
+                  "h-5 w-5 transition-colors",
+                  isActive ? "text-foreground" : "text-muted-foreground group-hover:text-foreground"
+                )} />
               </div>
               <div className="flex-1 space-y-1.5 min-w-0">
                 <p className="text-sm font-medium leading-snug group-hover:text-foreground transition-colors">

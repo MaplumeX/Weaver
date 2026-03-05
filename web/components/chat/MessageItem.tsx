@@ -836,7 +836,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                 role="toolbar"
                 aria-label="Message actions"
                 className={cn(
-                  "absolute flex items-center gap-0.5 rounded-lg border border-border/40 bg-card/95 backdrop-blur-sm shadow-sm p-0.5",
+                  "absolute flex items-center gap-0.5 rounded-lg border border-border/40 bg-card shadow-sm p-0.5",
                   "right-2 bottom-2 md:right-0 md:-bottom-5",
                   "opacity-100 md:opacity-0",
                   "md:group-hover:opacity-100 md:group-focus-within:opacity-100",
