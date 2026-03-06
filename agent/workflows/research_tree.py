@@ -423,32 +423,11 @@ class TreeExplorer:
         logger.info(f"[TreeExplorer] Exploring branch: {node.id} - '{node.topic}'")
 
         try:
-            # Generate queries for this topic
-            from prompts.templates.deepsearch import formulate_query_prompt
+            # Bootstrap: run one search on the raw topic before invoking the planner.
+            # This reduces time-to-first-search for tree mode when query generation is slow.
+            node.queries = [node.topic] if node.topic else []
 
-            prompt = ChatPromptTemplate.from_messages([
-                ("user", formulate_query_prompt)
-            ])
-
-            msg = prompt.format_messages(
-                topic=node.topic,
-                have_query=", ".join(node.queries) or "[]",
-                summary_search=node.summary or "暂无",
-                query_num=self.queries_per_branch,
-            )
-
-            response = self.planner_llm.invoke(msg, config=self.config)
-            queries = self._parse_list_output(getattr(response, "content", ""))
-
-            # Add original topic as a query if not present
-            if node.topic not in queries:
-                queries.insert(0, node.topic)
-
-            node.queries = queries[:self.queries_per_branch]
-            logger.info(f"[TreeExplorer] Generated {len(node.queries)} queries for branch {node.id}")
-
-            # Execute searches
-            for query in node.queries:
+            def _search_one(query: str) -> None:
                 self._check_cancel(state)
 
                 # Keep the Live browser view non-blank while API search runs.
@@ -505,6 +484,47 @@ class TreeExplorer:
                         "result": r,
                         "timestamp": datetime.now().isoformat(),
                     })
+
+            if node.queries:
+                _search_one(node.queries[0])
+
+            # Generate additional queries for this topic (best-effort).
+            remaining = max(0, int(self.queries_per_branch) - len(node.queries))
+            if remaining > 0:
+                from prompts.templates.deepsearch import formulate_query_prompt
+
+                prompt = ChatPromptTemplate.from_messages([("user", formulate_query_prompt)])
+                msg = prompt.format_messages(
+                    topic=node.topic,
+                    have_query=", ".join(node.queries) or "[]",
+                    summary_search=node.summary or "暂无",
+                    query_num=remaining,
+                )
+
+                response = self.planner_llm.invoke(msg, config=self.config)
+                queries = self._parse_list_output(getattr(response, "content", ""))
+
+                seen = {q.strip().lower() for q in (node.queries or []) if isinstance(q, str)}
+                for q in queries:
+                    if not isinstance(q, str):
+                        continue
+                    q = q.strip()
+                    if not q:
+                        continue
+                    key = q.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    node.queries.append(q)
+                    if len(node.queries) >= int(self.queries_per_branch):
+                        break
+
+            logger.info(f"[TreeExplorer] Prepared {len(node.queries)} queries for branch {node.id}")
+
+            # Execute remaining searches (topic search already done above).
+            for query in (node.queries or [])[1:]:
+                self._check_cancel(state)
+                _search_one(query)
 
             # Summarize findings
             if node.findings:
@@ -707,37 +727,11 @@ class TreeExplorer:
         logger.info(f"[TreeExplorer] Async exploring branch: {node.id} - '{node.topic}'")
 
         try:
-            # Generate queries for this topic
-            from prompts.templates.deepsearch import formulate_query_prompt
-
-            prompt = ChatPromptTemplate.from_messages([
-                ("user", formulate_query_prompt)
-            ])
-
-            msg = prompt.format_messages(
-                topic=node.topic,
-                have_query=", ".join(node.queries) or "[]",
-                summary_search=node.summary or "暂无",
-                query_num=self.queries_per_branch,
-            )
-
-            # Run LLM call in executor to not block event loop
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.planner_llm.invoke(msg, config=self.config)
-            )
-            queries = self._parse_list_output(getattr(response, "content", ""))
 
-            # Add original topic as a query if not present
-            if node.topic not in queries:
-                queries.insert(0, node.topic)
+            node.queries = [node.topic] if node.topic else []
 
-            node.queries = queries[:self.queries_per_branch]
-            logger.info(f"[TreeExplorer] Generated {len(node.queries)} queries for branch {node.id}")
-
-            # Execute searches (in executor)
-            for query in node.queries:
+            async def _search_one_async(query: str) -> None:
                 self._check_cancel(state)
 
                 # Keep the Live browser view non-blank while API search runs (off the event loop).
@@ -791,6 +785,50 @@ class TreeExplorer:
                         "result": r,
                         "timestamp": datetime.now().isoformat(),
                     })
+
+            if node.queries:
+                await _search_one_async(node.queries[0])
+
+            # Generate additional queries for this topic (best-effort).
+            remaining = max(0, int(self.queries_per_branch) - len(node.queries))
+            if remaining > 0:
+                from prompts.templates.deepsearch import formulate_query_prompt
+
+                prompt = ChatPromptTemplate.from_messages([("user", formulate_query_prompt)])
+                msg = prompt.format_messages(
+                    topic=node.topic,
+                    have_query=", ".join(node.queries) or "[]",
+                    summary_search=node.summary or "暂无",
+                    query_num=remaining,
+                )
+
+                # Run LLM call in executor to not block event loop
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: self.planner_llm.invoke(msg, config=self.config)
+                )
+                queries = self._parse_list_output(getattr(response, "content", ""))
+
+                seen = {q.strip().lower() for q in (node.queries or []) if isinstance(q, str)}
+                for q in queries:
+                    if not isinstance(q, str):
+                        continue
+                    q = q.strip()
+                    if not q:
+                        continue
+                    key = q.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    node.queries.append(q)
+                    if len(node.queries) >= int(self.queries_per_branch):
+                        break
+
+            logger.info(f"[TreeExplorer] Prepared {len(node.queries)} queries for branch {node.id}")
+
+            # Execute remaining searches (topic search already done above).
+            for query in (node.queries or [])[1:]:
+                await _search_one_async(query)
 
             # Summarize findings (in executor)
             if node.findings:

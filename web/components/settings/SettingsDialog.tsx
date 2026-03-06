@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { Check, ChevronDown, Plug, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getApiBaseUrl } from '@/lib/api'
+import { usePublicModels } from '@/hooks/usePublicModels'
 
 interface SettingsDialogProps {
   open: boolean
@@ -90,6 +91,7 @@ interface ApiKeys {
 
 export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChange }: SettingsDialogProps) {
   const { language, setLanguage, t } = useI18n()
+  const { models: publicModels } = usePublicModels()
   const [tempModel, setTempModel] = useState(selectedModel)
   const [tempLanguage, setTempLanguage] = useState(language)
   const [apiKeys, setApiKeys] = useState<ApiKeys>({})
@@ -101,7 +103,31 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   const [mcpLoadedTools, setMcpLoadedTools] = useState(0)
   const [mcpLoading, setMcpLoading] = useState(false)
 
-  const modelProviders = getModelProviders(t)
+  const staticModelProviders = getModelProviders(t)
+  const allowlistKey = publicModels?.options?.length ? publicModels.options.join('|') : ''
+  const allowlist = publicModels?.options?.length ? new Set(publicModels.options) : null
+
+  const modelProviders: ModelProvider[] = allowlist
+    ? (() => {
+        const known = staticModelProviders.flatMap((p) => p.models.map((m) => m.id))
+        const filtered = staticModelProviders
+          .map((provider) => ({
+            ...provider,
+            models: provider.models.filter((m) => allowlist.has(m.id)),
+          }))
+          .filter((provider) => provider.models.length > 0)
+
+        const unknown = publicModels!.options.filter((id) => !known.includes(id))
+        if (unknown.length > 0) {
+          filtered.push({
+            id: 'custom',
+            name: 'Custom',
+            models: unknown.map((id) => ({ id, name: id })),
+          })
+        }
+        return filtered
+      })()
+    : staticModelProviders
 
   // Fetch MCP config
   const fetchMcpConfig = async () => {
@@ -179,6 +205,17 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   useEffect(() => {
     setTempModel(selectedModel)
   }, [selectedModel])
+
+  // If backend allowlist arrives and the saved model isn't supported, clamp to backend default.
+  useEffect(() => {
+    if (!allowlist || modelProviders.length === 0) return
+    if (allowlist.has(tempModel)) return
+    const next =
+      (publicModels?.default && allowlist.has(publicModels.default) && publicModels.default) ||
+      modelProviders[0]!.models[0]!.id
+    setTempModel(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowlistKey])
 
   useEffect(() => {
     setTempLanguage(language)

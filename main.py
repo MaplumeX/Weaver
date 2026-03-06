@@ -880,11 +880,17 @@ class PublicConfigStreaming(BaseModel):
     browser: PublicConfigStreamEndpoint
 
 
+class PublicConfigModels(BaseModel):
+    default: str
+    options: List[str]
+
+
 class PublicConfigResponse(BaseModel):
     version: str
     defaults: PublicConfigDefaults
     features: PublicConfigFeatures
     streaming: PublicConfigStreaming
+    models: PublicConfigModels
 
 
 class SandboxBrowserConfigured(BaseModel):
@@ -2999,12 +3005,104 @@ async def public_config():
     This endpoint is intentionally safe to expose: it must not include API keys,
     tokens, raw MCP server configs, or any user data.
     """
+
+    def _public_model_options() -> List[str]:
+        """
+        A conservative allowlist for the frontend model dropdown.
+
+        Goal: avoid offering models that are unlikely to work with the configured
+        provider/gateway (e.g. selecting GPT-4o when OPENAI_BASE_URL points to DeepSeek).
+        """
+
+        def _norm(value: Any) -> str:
+            if not isinstance(value, str):
+                return ""
+            return value.strip()
+
+        def _is_openai_family(name: str) -> bool:
+            lowered = name.lower()
+            return "gpt" in lowered or lowered.startswith("o1") or lowered.startswith("o3")
+
+        def _is_anthropic_family(name: str) -> bool:
+            return "claude" in name.lower()
+
+        def _is_deepseek_family(name: str) -> bool:
+            return "deepseek" in name.lower()
+
+        def _is_qwen_family(name: str) -> bool:
+            return "qwen" in name.lower()
+
+        def _is_glm_family(name: str) -> bool:
+            lowered = name.lower()
+            return lowered.startswith("glm") or "glm" in lowered
+
+        primary = _norm(settings.primary_model)
+        reasoning = _norm(settings.reasoning_model)
+        base_url = _norm(settings.openai_base_url).lower()
+        opts: list[str] = []
+        seen: set[str] = set()
+
+        def _add(name: str) -> None:
+            name = _norm(name)
+            if not name:
+                return
+            key = name.lower()
+            if key in seen:
+                return
+            seen.add(key)
+            opts.append(name)
+
+        # Always allow the configured primary model.
+        _add(primary)
+
+        # Provider-aware suggestions.
+        if _is_deepseek_family(primary) or "deepseek" in base_url:
+            _add("deepseek-chat")
+            _add("deepseek-reasoner")
+            if _is_deepseek_family(reasoning):
+                _add(reasoning)
+        elif _is_anthropic_family(primary):
+            if (settings.anthropic_api_key or "").strip():
+                _add("claude-sonnet-4-5-20250514")
+                _add("claude-opus-4-20250514")
+                _add("claude-sonnet-4-20250514")
+            if _is_anthropic_family(reasoning):
+                _add(reasoning)
+        elif _is_openai_family(primary):
+            if (settings.openai_api_key or "").strip():
+                _add("gpt-5")
+                _add("gpt-4.1")
+                _add("gpt-4o")
+                _add("o1-mini")
+                if _is_openai_family(reasoning):
+                    _add(reasoning)
+        elif _is_qwen_family(primary) or "dashscope" in base_url or "aliyuncs" in base_url:
+            _add("qwen-plus")
+            _add("qwen3-vl-flash")
+            if _is_qwen_family(reasoning):
+                _add(reasoning)
+        elif _is_glm_family(primary) or "bigmodel" in base_url or "zhipu" in base_url:
+            _add("glm-4.6")
+            _add("glm-4.6v")
+            if _is_glm_family(reasoning):
+                _add(reasoning)
+
+        # Include task-specific overrides if they are explicitly configured.
+        for attr in ("planner_model", "researcher_model", "writer_model", "evaluator_model", "critic_model"):
+            _add(_norm(getattr(settings, attr, "")))
+
+        return opts
+
     return {
         "version": app.version,
         "defaults": {
             "port": settings.port,
             "primary_model": settings.primary_model,
             "reasoning_model": settings.reasoning_model,
+        },
+        "models": {
+            "default": settings.primary_model,
+            "options": _public_model_options(),
         },
         "features": {
             "mcp_enabled": bool(mcp_enabled),
@@ -5037,6 +5135,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
 
     streaming = False
     stream_task: Optional[asyncio.Task] = None
+    init_task: Optional[asyncio.Task] = None
     ping_task: Optional[asyncio.Task] = None
     dropped_messages = 0
 
@@ -5084,6 +5183,19 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
     async def capture_frame(*, quality: int = 70) -> Dict[str, Any]:
         """Capture a single JPEG frame from the sandbox browser session."""
         q = max(1, min(100, int(quality or 70)))
+        capture_timeout_s = 90.0
+
+        async def _run_capture():
+            try:
+                return await asyncio.wait_for(
+                    sandbox_browser_sessions.run_async(thread_id, _capture), timeout=capture_timeout_s
+                )
+            except asyncio.TimeoutError as e:
+                raise TimeoutError(
+                    "Timed out waiting for sandbox browser frame. "
+                    "The sandbox may be cold-starting or stuck. "
+                    "Check GET /api/sandbox/browser/diagnose (and ?deep=1), then retry."
+                ) from e
 
         def _capture():
             session = sandbox_browser_sessions.get(thread_id)
@@ -5106,7 +5218,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
             return jpg_bytes, metadata
 
         try:
-            jpg_bytes, metadata = await sandbox_browser_sessions.run_async(thread_id, _capture)
+            jpg_bytes, metadata = await _run_capture()
         except Exception as e:
             if not _looks_like_browser_closed_error(e):
                 raise
@@ -5117,7 +5229,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                 )
             except Exception:
                 pass
-            jpg_bytes, metadata = await sandbox_browser_sessions.run_async(thread_id, _capture)
+            jpg_bytes, metadata = await _run_capture()
         return {
             "data": base64.b64encode(jpg_bytes).decode("ascii"),
             "metadata": metadata,
@@ -5162,7 +5274,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
             return None
 
     async def stream_frames(*, quality: int, max_fps: int):
-        nonlocal streaming
+        nonlocal streaming, init_task
         interval = 1.0 / max(1, int(max_fps or 5))
         next_frame_due = time.perf_counter()
         last_frame_id: Optional[int] = None
@@ -5237,6 +5349,34 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                 consecutive_failures = 0
             except Exception as e:
                 consecutive_failures += 1
+                if isinstance(e, TimeoutError) and last_frame_payload is None:
+                    # Special-case startup timeouts: don't leave the UI stuck in "LIVE" with
+                    # zero frames. Stop immediately with an actionable error.
+                    streaming = False
+                    if init_task:
+                        init_task.cancel()
+                        init_task = None
+                    await _stop_cdp_screencast()
+                    await _safe_send_json(
+                        {
+                            "type": "error",
+                            "message": str(e),
+                            "hint": (
+                                "If this happens repeatedly, verify your sandbox config and dependencies via "
+                                "GET /api/sandbox/browser/diagnose?deep=1."
+                            ),
+                        },
+                        timeout_s=1.0,
+                    )
+                    await _safe_send_json(
+                        {
+                            "type": "status",
+                            "message": "Screencast stopped",
+                            "reason": "startup_timeout",
+                        },
+                        timeout_s=1.0,
+                    )
+                    break
                 await _safe_send_json(
                     {
                         "type": "error",
@@ -5249,6 +5389,9 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                     # The stream is unhealthy; stop the screencast so the frontend
                     # doesn't stay stuck in "LIVE" while frames are no longer flowing.
                     streaming = False
+                    if init_task:
+                        init_task.cancel()
+                        init_task = None
                     await _stop_cdp_screencast()
                     await _safe_send_json(
                         {
@@ -5374,25 +5517,23 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                     # The sandbox browser starts at `about:blank`, which produces an all-white
                     # first frame. Render a lightweight animated status page before
                     # starting the screencast so Chrome can capture an already-live page.
-                    try:
+                    def _set_status_page_if_blank():
+                        session = sandbox_browser_sessions.get(thread_id)
+                        page = session.get_page()
+                        try:
+                            current_url = str(getattr(page, "url", "") or "").strip().lower()
+                        except Exception:
+                            current_url = ""
 
-                        def _set_status_page_if_blank():
-                            session = sandbox_browser_sessions.get(thread_id)
-                            page = session.get_page()
-                            try:
-                                current_url = str(getattr(page, "url", "") or "").strip().lower()
-                            except Exception:
-                                current_url = ""
+                        if current_url.startswith("http://") or current_url.startswith("https://"):
+                            return
 
-                            if current_url.startswith("http://") or current_url.startswith("https://"):
-                                return
+                        title = "Live view ready"
+                        detail = "Waiting for browser activity…"
+                        safe_title = (title or "").strip()[:120]
+                        safe_detail = (detail or "").strip()[:240]
 
-                            title = "Live view ready"
-                            detail = "Waiting for browser activity…"
-                            safe_title = (title or "").strip()[:120]
-                            safe_detail = (detail or "").strip()[:240]
-
-                            html = f"""<!doctype html>
+                        html = f"""<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -5470,19 +5611,10 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
   </body>
 </html>
 """
-                            page.set_content(html)
+                        page.set_content(html)
 
-                        await sandbox_browser_sessions.run_async(thread_id, _set_status_page_if_blank)
-                    except Exception:
-                        pass
-
-                    # Kick off a CDP screencast (best-effort). If it fails we still
-                    # stream via screenshots, but CDP makes the viewer feel like a
-                    # real browser (continuous frames).
-                    await _start_cdp_screencast(quality=int(quality or 70))
-
-                    # Send the start status before starting the frame loop so clients/tests
-                    # observe a stable ordering (status first, then potential capture errors).
+                    # Acknowledge the start immediately. Sandbox cold starts can be slow; the
+                    # client should not be stuck in "Starting live view..." while we initialize.
                     streaming = True
                     ok = await _safe_send_json(
                         {
@@ -5496,8 +5628,40 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         streaming = False
                         break
 
+                    # Start the streaming loop after the start status so clients/tests observe
+                    # a stable ordering (status first, then frames/errors).
                     stream_task = asyncio.create_task(
-                        stream_frames(quality=int(quality or 70), max_fps=int(max_fps or 5))
+                        stream_frames(quality=int(quality or 70), max_fps=int(max_fps or 5)),
+                        name=f"weaver-browser-ws-stream-{thread_id}",
+                    )
+
+                    # Do not block start on sandbox initialization; run best-effort init in
+                    # the background. If CDP fails, the stream will fall back to screenshots.
+                    async def _init_screencast() -> None:
+                        try:
+                            try:
+                                await asyncio.wait_for(
+                                    _start_cdp_screencast(quality=int(quality or 70)), timeout=120.0
+                                )
+                            except asyncio.TimeoutError:
+                                pass
+                            except Exception:
+                                pass
+
+                            try:
+                                await asyncio.wait_for(
+                                    sandbox_browser_sessions.run_async(thread_id, _set_status_page_if_blank),
+                                    timeout=10.0,
+                                )
+                            except asyncio.TimeoutError:
+                                pass
+                            except Exception:
+                                pass
+                        except asyncio.CancelledError:
+                            raise
+
+                    init_task = asyncio.create_task(
+                        _init_screencast(), name=f"weaver-browser-ws-init-{thread_id}"
                     )
 
                 elif action == "stop":
@@ -5505,6 +5669,9 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                     if stream_task:
                         stream_task.cancel()
                         stream_task = None
+                    if init_task:
+                        init_task.cancel()
+                        init_task = None
                     await _stop_cdp_screencast()
                     await _safe_send_json(
                         {
@@ -6013,6 +6180,8 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
         streaming = False
         if stream_task:
             stream_task.cancel()
+        if init_task:
+            init_task.cancel()
         if ping_task:
             ping_task.cancel()
         await _stop_cdp_screencast()

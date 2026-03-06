@@ -7,6 +7,7 @@ import { useTheme } from '@/components/theme-provider'
 import { useI18n } from '@/lib/i18n/i18n-context'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { cn } from '@/lib/utils'
+import { usePublicModels } from '@/hooks/usePublicModels'
 
 interface HeaderProps {
   sidebarOpen: boolean
@@ -20,6 +21,7 @@ interface HeaderProps {
 export function Header({ sidebarOpen, onToggleSidebar, selectedModel, onModelChange, onToggleArtifacts, hasArtifacts }: HeaderProps) {
   const { theme, setTheme } = useTheme()
   const { t } = useI18n()
+  const { models: publicModels } = usePublicModels()
   const [isModelOpen, setIsModelOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -40,7 +42,7 @@ export function Header({ sidebarOpen, onToggleSidebar, selectedModel, onModelCha
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  const models = [
+  const staticModels = [
     // OpenAI 系列
     { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI' },
     { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI' },
@@ -64,7 +66,31 @@ export function Header({ sidebarOpen, onToggleSidebar, selectedModel, onModelCha
     { id: 'glm-4.6v', name: 'glm-4.6v 🖼️', provider: t('zhipu') },
   ]
 
+  const allowlistKey = publicModels?.options?.length ? publicModels.options.join('|') : ''
+  const allowlist = publicModels?.options?.length ? new Set(publicModels.options) : null
+
+  const models = allowlist
+    ? [
+        ...staticModels.filter((m) => allowlist.has(m.id)),
+        ...publicModels!.options
+          .filter((id) => !staticModels.some((m) => m.id === id))
+          .map((id) => ({ id, name: id, provider: 'Custom' })),
+      ]
+    : staticModels
+
   const currentModelName = models.find(m => m.id === selectedModel)?.name || selectedModel
+
+  // If the backend provides an allowlist and the user has an unsupported model saved,
+  // reset to the backend default so requests don't error upstream.
+  useEffect(() => {
+    if (!allowlist || models.length === 0) return
+    if (allowlist.has(selectedModel)) return
+    const next =
+      (publicModels?.default && allowlist.has(publicModels.default) && publicModels.default) ||
+      models[0]!.id
+    onModelChange(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowlistKey])
 
   return (
     <header className="flex h-16 items-center justify-between border-b px-4 bg-background/80 backdrop-blur-md sticky top-0 z-30 transition-all">
