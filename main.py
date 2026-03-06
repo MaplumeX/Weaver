@@ -5180,6 +5180,117 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
             if not ok:
                 break
 
+    def _render_live_status_html(*, title: str, detail: str) -> str:
+        safe_title = (title or "").strip()[:120]
+        safe_detail = (detail or "").strip()[:240]
+        return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Weaver</title>
+    <style>
+      :root {{ color-scheme: light; }}
+      body {{
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        background: radial-gradient(80% 120% at 10% 10%, #f5f5f4 0%, #ffffff 55%, #fafaf9 100%);
+        color: #1c1917;
+      }}
+      .wrap {{ min-height: 100vh; display: grid; place-items: center; padding: 32px; }}
+      .card {{
+        width: min(720px, 92vw);
+        background: rgba(255, 255, 255, 0.82);
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        border-radius: 16px;
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.08);
+        padding: 18px 18px 16px 18px;
+      }}
+      .row {{ display: flex; align-items: center; gap: 12px; }}
+      .spinner {{
+        width: 18px; height: 18px; border-radius: 999px;
+        border: 2px solid rgba(0,0,0,0.12);
+        border-top-color: rgba(16,185,129,0.9);
+        animation: spin 0.9s linear infinite;
+      }}
+      @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+      .title {{ font-size: 14px; font-weight: 600; letter-spacing: 0.2px; }}
+      .detail {{
+        margin-top: 8px;
+        font-size: 12px;
+        color: rgba(41, 37, 36, 0.70);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }}
+      .bar {{
+        margin-top: 12px;
+        height: 6px;
+        width: 100%;
+        background: rgba(0,0,0,0.06);
+        border-radius: 999px;
+        overflow: hidden;
+      }}
+      .bar > div {{
+        height: 100%;
+        width: 45%;
+        background: linear-gradient(90deg, rgba(16,185,129,0.25), rgba(16,185,129,0.9));
+        animation: slide 1.4s ease-in-out infinite;
+        border-radius: 999px;
+      }}
+      @keyframes slide {{
+        0% {{ transform: translateX(-20%); opacity: 0.5; }}
+        50% {{ transform: translateX(90%); opacity: 1; }}
+        100% {{ transform: translateX(220%); opacity: 0.5; }}
+      }}
+      .hint {{ margin-top: 10px; font-size: 11px; color: rgba(41, 37, 36, 0.55); }}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="row">
+          <div class="spinner" aria-hidden="true"></div>
+          <div class="title">{safe_title}</div>
+        </div>
+        <div class="detail">{safe_detail}</div>
+        <div class="bar"><div></div></div>
+        <div class="hint">Weaver sandbox browser · live preview</div>
+      </div>
+    </div>
+  </body>
+</html>
+"""
+
+    def _maybe_set_live_status_page(page: Any) -> None:
+        """
+        Ensure `about:blank` isn't a misleading empty white frame.
+
+        A simple status page makes the viewer feel responsive during sandbox
+        cold-starts, and also triggers a paint so CDP screencast has something
+        non-empty to capture.
+        """
+        try:
+            current_url = str(getattr(page, "url", "") or "").strip().lower()
+        except Exception:
+            current_url = ""
+
+        if current_url.startswith("http://") or current_url.startswith("https://"):
+            return
+
+        try:
+            existing_title = str(page.title() or "").strip().lower()
+        except Exception:
+            existing_title = ""
+        if existing_title.startswith("weaver"):
+            return
+
+        html = _render_live_status_html(
+            title="Live view ready",
+            detail="Waiting for browser activity…",
+        )
+        page.set_content(html)
+
     async def capture_frame(*, quality: int = 70) -> Dict[str, Any]:
         """Capture a single JPEG frame from the sandbox browser session."""
         q = max(1, min(100, int(quality or 70)))
@@ -5201,6 +5312,10 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
             session = sandbox_browser_sessions.get(thread_id)
             page = session.get_page()
             try:
+                _maybe_set_live_status_page(page)
+            except Exception:
+                pass
+            try:
                 # Live streaming should preserve animations so the viewer can
                 # actually reflect motion between frames.
                 jpg_bytes = page.screenshot(type="jpeg", quality=q, full_page=False, caret="hide")
@@ -5213,6 +5328,10 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                 pass
             try:
                 metadata["title"] = page.title() or ""
+            except Exception:
+                pass
+            try:
+                session.set_page_meta(url=metadata.get("url"), title=metadata.get("title"))
             except Exception:
                 pass
             return jpg_bytes, metadata
@@ -5521,98 +5640,24 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         session = sandbox_browser_sessions.get(thread_id)
                         page = session.get_page()
                         try:
-                            current_url = str(getattr(page, "url", "") or "").strip().lower()
+                            _maybe_set_live_status_page(page)
                         except Exception:
-                            current_url = ""
+                            pass
 
-                        if current_url.startswith("http://") or current_url.startswith("https://"):
-                            return
-
-                        title = "Live view ready"
-                        detail = "Waiting for browser activity…"
-                        safe_title = (title or "").strip()[:120]
-                        safe_detail = (detail or "").strip()[:240]
-
-                        html = f"""<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Weaver</title>
-    <style>
-      :root {{ color-scheme: light; }}
-      body {{
-        margin: 0;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-        background: radial-gradient(80% 120% at 10% 10%, #f5f5f4 0%, #ffffff 55%, #fafaf9 100%);
-        color: #1c1917;
-      }}
-      .wrap {{ min-height: 100vh; display: grid; place-items: center; padding: 32px; }}
-      .card {{
-        width: min(720px, 92vw);
-        background: rgba(255, 255, 255, 0.82);
-        border: 1px solid rgba(0, 0, 0, 0.06);
-        border-radius: 16px;
-        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.08);
-        padding: 18px 18px 16px 18px;
-      }}
-      .row {{ display: flex; align-items: center; gap: 12px; }}
-      .spinner {{
-        width: 18px; height: 18px; border-radius: 999px;
-        border: 2px solid rgba(0,0,0,0.12);
-        border-top-color: rgba(16,185,129,0.9);
-        animation: spin 0.9s linear infinite;
-      }}
-      @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-      .title {{ font-size: 14px; font-weight: 600; letter-spacing: 0.2px; }}
-      .detail {{
-        margin-top: 8px;
-        font-size: 12px;
-        color: rgba(41, 37, 36, 0.70);
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }}
-      .bar {{
-        margin-top: 12px;
-        height: 6px;
-        width: 100%;
-        background: rgba(0,0,0,0.06);
-        border-radius: 999px;
-        overflow: hidden;
-      }}
-      .bar > div {{
-        height: 100%;
-        width: 45%;
-        background: linear-gradient(90deg, rgba(16,185,129,0.25), rgba(16,185,129,0.9));
-        animation: slide 1.4s ease-in-out infinite;
-        border-radius: 999px;
-      }}
-      @keyframes slide {{
-        0% {{ transform: translateX(-20%); opacity: 0.5; }}
-        50% {{ transform: translateX(90%); opacity: 1; }}
-        100% {{ transform: translateX(220%); opacity: 0.5; }}
-      }}
-      .hint {{ margin-top: 10px; font-size: 11px; color: rgba(41, 37, 36, 0.55); }}
-    </style>
-  </head>
-  <body>
-    <div class="wrap">
-      <div class="card">
-        <div class="row">
-          <div class="spinner" aria-hidden="true"></div>
-          <div class="title">{safe_title}</div>
-        </div>
-        <div class="detail">{safe_detail}</div>
-        <div class="bar"><div></div></div>
-        <div class="hint">Weaver sandbox browser · live preview</div>
-      </div>
-    </div>
-  </body>
-</html>
-"""
-                        page.set_content(html)
-
+                        meta: Dict[str, Any] = {}
+                        try:
+                            meta["url"] = page.url
+                        except Exception:
+                            pass
+                        try:
+                            meta["title"] = page.title() or ""
+                        except Exception:
+                            pass
+                        try:
+                            session.set_page_meta(url=meta.get("url"), title=meta.get("title"))
+                        except Exception:
+                            pass
+                        return meta
                     # Acknowledge the start immediately. Sandbox cold starts can be slow; the
                     # client should not be stuck in "Starting live view..." while we initialize.
                     streaming = True
@@ -5641,7 +5686,8 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         try:
                             try:
                                 await asyncio.wait_for(
-                                    _start_cdp_screencast(quality=int(quality or 70)), timeout=120.0
+                                    sandbox_browser_sessions.run_async(thread_id, _set_status_page_if_blank),
+                                    timeout=10.0,
                                 )
                             except asyncio.TimeoutError:
                                 pass
@@ -5650,8 +5696,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
 
                             try:
                                 await asyncio.wait_for(
-                                    sandbox_browser_sessions.run_async(thread_id, _set_status_page_if_blank),
-                                    timeout=10.0,
+                                    _start_cdp_screencast(quality=int(quality or 70)), timeout=120.0
                                 )
                             except asyncio.TimeoutError:
                                 pass
@@ -5817,7 +5862,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                             ):
                                 session = sandbox_browser_sessions.get(thread_id)
                                 page = session.get_page()
-
                                 width, height = _resolve_viewport_size(page)
 
                                 x_px = int(x_norm * float(width))
@@ -5842,8 +5886,11 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                                     meta["title"] = page.title() or ""
                                 except Exception:
                                     pass
+                                try:
+                                    session.set_page_meta(url=meta.get("url"), title=meta.get("title"))
+                                except Exception:
+                                    pass
                                 return meta
-
                             try:
                                 metadata = await sandbox_browser_sessions.run_async(thread_id, _click)
                                 ok = await _send_ack(ok=True, action_name="mouse", metadata=metadata)
@@ -5858,7 +5905,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                             def _move(x_norm=x_norm, y_norm=y_norm):
                                 session = sandbox_browser_sessions.get(thread_id)
                                 page = session.get_page()
-
                                 width, height = _resolve_viewport_size(page)
 
                                 x_px = int(x_norm * float(width))
@@ -5883,8 +5929,11 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                                     meta["title"] = page.title() or ""
                                 except Exception:
                                     pass
+                                try:
+                                    session.set_page_meta(url=meta.get("url"), title=meta.get("title"))
+                                except Exception:
+                                    pass
                                 return meta
-
                             try:
                                 metadata = await sandbox_browser_sessions.run_async(thread_id, _move)
                                 ok = await _send_ack(ok=True, action_name="mouse", metadata=metadata)
@@ -5899,7 +5948,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         def _down(button=button):
                             session = sandbox_browser_sessions.get(thread_id)
                             page = session.get_page()
-
                             page.mouse.down(button=button)
 
                             meta: Dict[str, Any] = {}
@@ -5911,8 +5959,11 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                                 meta["title"] = page.title() or ""
                             except Exception:
                                 pass
+                            try:
+                                session.set_page_meta(url=meta.get("url"), title=meta.get("title"))
+                            except Exception:
+                                pass
                             return meta
-
                         try:
                             metadata = await sandbox_browser_sessions.run_async(thread_id, _down)
                             ok = await _send_ack(ok=True, action_name="mouse", metadata=metadata)
@@ -5927,7 +5978,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         def _up(button=button):
                             session = sandbox_browser_sessions.get(thread_id)
                             page = session.get_page()
-
                             page.mouse.up(button=button)
 
                             meta: Dict[str, Any] = {}
@@ -5939,8 +5989,11 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                                 meta["title"] = page.title() or ""
                             except Exception:
                                 pass
+                            try:
+                                session.set_page_meta(url=meta.get("url"), title=meta.get("title"))
+                            except Exception:
+                                pass
                             return meta
-
                         try:
                             metadata = await sandbox_browser_sessions.run_async(thread_id, _up)
                             ok = await _send_ack(ok=True, action_name="mouse", metadata=metadata)
@@ -5968,7 +6021,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                     def _wheel(dx=dx, dy=dy):
                         session = sandbox_browser_sessions.get(thread_id)
                         page = session.get_page()
-
                         page.mouse.wheel(dx, dy)
 
                         meta: Dict[str, Any] = {}
@@ -5980,8 +6032,11 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                             meta["title"] = page.title() or ""
                         except Exception:
                             pass
+                        try:
+                            session.set_page_meta(url=meta.get("url"), title=meta.get("title"))
+                        except Exception:
+                            pass
                         return meta
-
                     try:
                         metadata = await sandbox_browser_sessions.run_async(thread_id, _wheel)
                         ok = await _send_ack(ok=True, action_name="scroll", metadata=metadata)
@@ -6019,7 +6074,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         def _press(key=key):
                             session = sandbox_browser_sessions.get(thread_id)
                             page = session.get_page()
-
                             page.keyboard.press(key)
 
                             meta: Dict[str, Any] = {}
@@ -6031,8 +6085,11 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                                 meta["title"] = page.title() or ""
                             except Exception:
                                 pass
+                            try:
+                                session.set_page_meta(url=meta.get("url"), title=meta.get("title"))
+                            except Exception:
+                                pass
                             return meta
-
                         try:
                             metadata = await sandbox_browser_sessions.run_async(thread_id, _press)
                             ok = await _send_ack(ok=True, action_name="keyboard", metadata=metadata)
@@ -6058,7 +6115,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         def _type(text=text):
                             session = sandbox_browser_sessions.get(thread_id)
                             page = session.get_page()
-
                             page.keyboard.type(text)
 
                             meta: Dict[str, Any] = {}
@@ -6070,8 +6126,11 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                                 meta["title"] = page.title() or ""
                             except Exception:
                                 pass
+                            try:
+                                session.set_page_meta(url=meta.get("url"), title=meta.get("title"))
+                            except Exception:
+                                pass
                             return meta
-
                         try:
                             metadata = await sandbox_browser_sessions.run_async(thread_id, _type)
                             ok = await _send_ack(ok=True, action_name="keyboard", metadata=metadata)
@@ -6124,7 +6183,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                     def _goto(url=url):
                         session = sandbox_browser_sessions.get(thread_id)
                         page = session.get_page()
-
                         page.goto(url)
 
                         meta: Dict[str, Any] = {}
@@ -6136,8 +6194,11 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                             meta["title"] = page.title() or ""
                         except Exception:
                             pass
+                        try:
+                            session.set_page_meta(url=meta.get("url"), title=meta.get("title"))
+                        except Exception:
+                            pass
                         return meta
-
                     try:
                         metadata = await sandbox_browser_sessions.run_async(thread_id, _goto)
                         ok = await _send_ack(ok=True, action_name="navigate", metadata=metadata)
