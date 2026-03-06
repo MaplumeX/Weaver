@@ -10,7 +10,6 @@ from langchain.agents.middleware import (
     ClearToolUsesEdit,
     ContextEditingMiddleware,
     HumanInTheLoopMiddleware,
-    LLMToolSelectorMiddleware,
     TodoListMiddleware,
     ToolCallLimitMiddleware,
     ToolRetryMiddleware,
@@ -19,6 +18,7 @@ from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 
 from common.config import settings
+from agent.workflows.provider_safe_middleware import ProviderSafeToolSelectorMiddleware
 from tools.code.code_executor import execute_python_code
 from tools.core.registry import get_registered_tools
 
@@ -48,35 +48,49 @@ def _build_llm(model: str, temperature: float = 0.7) -> ChatOpenAI:
 
 
 def _selector_llm() -> ChatOpenAI:
-    return _build_llm(settings.tool_selector_model or "gpt-4o-mini", temperature=0)
+    return _build_llm(settings.tool_selector_model or settings.primary_model, temperature=0)
 
 
-def _tool_selector_supported() -> bool:
-    """
-    LangChain's LLMToolSelectorMiddleware relies on structured output
-    (`with_structured_output`), which uses OpenAI `response_format`.
-
-    Many OpenAI-compatible gateways (e.g. DeepSeek) don't support that parameter,
-    causing 400 errors at runtime. We gate selector usage to known-supported
-    backends (OpenAI direct + Azure).
-    """
+def _tool_selector_methods() -> tuple[str, ...]:
+    """Choose structured-output methods in provider-preferred order."""
     if settings.use_azure:
-        return True
+        return ("json_schema", "function_calling", "json_mode")
     base_url = (settings.openai_base_url or "").strip().lower()
     if not base_url:
-        return True  # OpenAI default
-    return "api.openai.com" in base_url
+        return ("json_schema", "function_calling", "json_mode")
+    if "api.openai.com" in base_url:
+        return ("json_schema", "function_calling", "json_mode")
+    return ("function_calling", "json_mode", "json_schema")
+
+
+def _tool_selector_always_include() -> list[str]:
+    names = list(settings.tool_selector_always_include_list)
+    if settings.enable_todo_middleware and "write_todos" not in names:
+        names.append("write_todos")
+    return names
+
+
+def _build_todo_middleware() -> TodoListMiddleware:
+    kwargs = {}
+    custom_prompt = (settings.todo_system_prompt or "").strip()
+    custom_description = (settings.todo_tool_description or "").strip()
+    if custom_prompt:
+        kwargs["system_prompt"] = custom_prompt
+    if custom_description:
+        kwargs["tool_description"] = custom_description
+    return TodoListMiddleware(**kwargs)
 
 
 def _build_middlewares() -> List:
     mws: List = []
 
     # Tool selector
-    if settings.tool_selector and _tool_selector_supported():
+    if settings.tool_selector:
         selector_kwargs = {
             "model": _selector_llm(),
             "max_tools": settings.tool_selector_max_tools or 3,
-            "always_include": settings.tool_selector_always_include_list,
+            "always_include": _tool_selector_always_include(),
+            "selection_methods": _tool_selector_methods(),
         }
         # Don't pass `None` here — it overrides LangChain's DEFAULT_SYSTEM_PROMPT
         # and will crash when the middleware appends max_tools guidance.
@@ -84,12 +98,7 @@ def _build_middlewares() -> List:
         if custom_prompt:
             selector_kwargs["system_prompt"] = custom_prompt
 
-        mws.append(LLMToolSelectorMiddleware(**selector_kwargs))
-    elif settings.tool_selector and not _tool_selector_supported():
-        logger.warning(
-            "Tool selector is enabled but current LLM backend likely doesn't support "
-            "structured output (response_format). Skipping LLMToolSelectorMiddleware."
-        )
+        mws.append(ProviderSafeToolSelectorMiddleware(**selector_kwargs))
 
     # Tool retry
     if settings.tool_retry:
@@ -133,12 +142,7 @@ def _build_middlewares() -> List:
 
     # Todo list middleware (optional)
     if settings.enable_todo_middleware:
-        mws.append(
-            TodoListMiddleware(
-                system_prompt=settings.todo_system_prompt or None,
-                tool_description=settings.todo_tool_description or None,
-            )
-        )
+        mws.append(_build_todo_middleware())
 
     # Human-in-the-loop for risky tools
     if settings.tool_approval:

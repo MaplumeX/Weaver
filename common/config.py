@@ -438,12 +438,12 @@ class Settings(BaseSettings):
     strip_tool_messages: bool = False  # drop ToolMessage from history to save tokens
     context_edit_trigger_tokens: int = 1000
     context_edit_keep_tools: int = 3
-    tool_selector: bool = False  # keep gated off by default for DeepSeek-compatible backends
-    tool_selector_model: str = "gpt-4o-mini"
+    tool_selector: bool = True  # provider-safe selector retries across structured-output methods
+    tool_selector_model: str = ""  # defaults to primary_model when unset
     tool_selector_max_tools: int = 3
     tool_selector_always_include: str = ""  # comma-separated tool names
     tool_selector_prompt: str = ""
-    enable_todo_middleware: bool = False  # enable todo list middleware (provider-sensitive)
+    enable_todo_middleware: bool = True  # provider-safe: preserves LangChain defaults when unset
     todo_system_prompt: str = ""  # custom system prompt for todo middleware
     todo_tool_description: str = ""  # custom tool description for todo middleware
     enable_browser_use: bool = False  # enable browser_use tool (Playwright-based)

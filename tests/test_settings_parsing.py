@@ -131,14 +131,20 @@ def test_deepsearch_event_results_limit_setting_parse():
     assert s.deepsearch_event_results_limit == 7
 
 
-def test_agent_defaults_enable_retry_and_limit(monkeypatch):
+def test_agent_defaults_enable_provider_safe_middlewares(monkeypatch):
     from common.config import Settings
 
-    for key in ("TOOL_RETRY", "TOOL_CALL_LIMIT", "ENABLE_TODO_MIDDLEWARE"):
+    for key in (
+        "TOOL_RETRY",
+        "TOOL_CALL_LIMIT",
+        "TOOL_SELECTOR",
+        "ENABLE_TODO_MIDDLEWARE",
+    ):
         monkeypatch.delenv(key, raising=False)
 
     s = Settings(_env_file=None)
 
     assert s.tool_retry is True
     assert s.tool_call_limit == 12
-    assert s.enable_todo_middleware is False
+    assert s.tool_selector is True
+    assert s.enable_todo_middleware is True
