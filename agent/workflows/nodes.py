@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+import re
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -31,6 +32,13 @@ from .source_url_utils import compact_unique_sources
 ENHANCED_TOOLS_AVAILABLE = True
 
 logger = logging.getLogger(__name__)
+
+_EXACT_REPLY_QUOTED_RE = re.compile(
+    r"""(?is)\b(?:reply|respond|answer|return)\s+with\s+exactly\s+["“'`](.+?)["”'`]"""
+)
+_EXACT_REPLY_PLAIN_RE = re.compile(
+    r"""(?is)\b(?:reply|respond|answer|return)\s+with\s+exactly\s+(.+?)(?:\s+and\s+nothing\s+else\b|$)"""
+)
 
 
 def check_cancellation(state: Union[AgentState, QueryState, Dict[str, Any]]) -> None:
@@ -87,6 +95,48 @@ def _build_compact_unique_source_preview(
                     candidates.append(item)
 
     return compact_unique_sources(candidates, limit=limit)
+
+
+def _extract_exact_reply_target(user_input: str) -> Optional[str]:
+    text = (user_input or "").strip()
+    if not text:
+        return None
+
+    quoted = _EXACT_REPLY_QUOTED_RE.search(text)
+    if quoted:
+        target = quoted.group(1).strip()
+        return target or None
+
+    match = _EXACT_REPLY_PLAIN_RE.search(text)
+    if not match:
+        return None
+
+    target = match.group(1).strip()
+    target = re.split(r"[\r\n]", target, maxsplit=1)[0].strip()
+    target = target.rstrip(" \t\r\n.,!?;:。！？；：")
+    return target or None
+
+
+def _apply_output_contract(user_input: str, report: str) -> str:
+    target = _extract_exact_reply_target(user_input)
+    if not target:
+        return report
+
+    text = (report or "").strip()
+    if not text:
+        return report
+
+    normalized_text = text.strip("`*_# \t\r\n")
+    normalized_text = normalized_text.rstrip(" \t\r\n.,!?;:。！？；：")
+    normalized_target = target.rstrip(" \t\r\n.,!?;:。！？；：")
+
+    if normalized_text == normalized_target:
+        return target
+
+    if re.search(rf"(?i)(?<!\w){re.escape(normalized_target)}(?!\w)", normalized_text):
+        return target
+
+    return report
 
 
 def _chat_model(
@@ -2092,6 +2142,7 @@ def human_review_node(state: AgentState, config: RunnableConfig) -> Dict[str, An
     report = state.get("final_report") or state.get("draft_report", "")
 
     if not (allow_interrupts and require_review):
+        report = _apply_output_contract(state.get("input", ""), report)
         return {
             "final_report": report,
             "is_complete": True,
@@ -2111,5 +2162,7 @@ def human_review_node(state: AgentState, config: RunnableConfig) -> Dict[str, An
             report = updated["content"]
     elif isinstance(updated, str) and updated.strip():
         report = updated
+
+    report = _apply_output_contract(state.get("input", ""), report)
 
     return {"final_report": report, "is_complete": True, "messages": [AIMessage(content=report)]}

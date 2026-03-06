@@ -11,6 +11,8 @@ from common.config import settings
 
 logger = logging.getLogger(__name__)
 
+_SUMMARY_TOP_RESULTS = 1
+
 
 def _trim_text(text: str, max_len: int = 4000) -> str:
     """Truncate long text to avoid token blow-ups."""
@@ -127,7 +129,7 @@ def tavily_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
             seen_urls.add(url)
 
             raw_content = result.get("raw_content", "") or result.get("content", "")
-            summary = _summarize_content(raw_content)
+            summary = _summarize_content(raw_content) if len(results) < _SUMMARY_TOP_RESULTS else None
 
             results.append(
                 {
