@@ -41,7 +41,7 @@ from agent.workflows.query_strategy import (
     is_time_sensitive_topic,
     summarize_freshness,
 )
-from agent.workflows.research_tree import TreeExplorer
+from agent.workflows.research_tree import TreeExplorationBudgetExceeded, TreeExplorer
 from agent.workflows.source_url_utils import canonicalize_source_url, compact_unique_sources
 from common.cancellation import check_cancellation as _check_cancel_token
 from common.config import settings
@@ -1654,8 +1654,30 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
     queries_per_branch = int(getattr(settings, "tree_queries_per_branch", 3))
     per_query_results = int(getattr(settings, "deepsearch_results_per_query", 5))
     parallel_branches = int(getattr(settings, "tree_parallel_branches", 3))
-    max_seconds = max(0.0, float(getattr(settings, "deepsearch_max_seconds", 0.0)))
-    max_tokens = max(0, int(getattr(settings, "deepsearch_max_tokens", 0)))
+    max_seconds = max(
+        0.0,
+        _configurable_float(
+            config,
+            "deepsearch_max_seconds",
+            float(getattr(settings, "deepsearch_max_seconds", 0.0)),
+        ),
+    )
+    max_tokens = max(
+        0,
+        _configurable_int(
+            config,
+            "deepsearch_max_tokens",
+            int(getattr(settings, "deepsearch_max_tokens", 0)),
+        ),
+    )
+    max_searches = max(
+        0,
+        _configurable_int(
+            config,
+            "deepsearch_tree_max_searches",
+            int(getattr(settings, "deepsearch_tree_max_searches", 30) or 30),
+        ),
+    )
 
     logger.info(
         f"[deepsearch-tree] Starting tree exploration: topic='{topic}' "
@@ -1679,6 +1701,7 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
     start_ts = time.time()
     budget_stop_reason = ""
     tokens_used = _estimate_tokens_from_text(topic)
+    searches_used = 0
 
     budget_stop_reason = _budget_stop_reason(
         start_ts=start_ts,
@@ -1734,8 +1757,28 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
         }
 
     try:
+        def _tree_budget_reason() -> Optional[str]:
+            nonlocal budget_stop_reason
+            if budget_stop_reason:
+                return budget_stop_reason
+            reason = _budget_stop_reason(
+                start_ts=start_ts,
+                tokens_used=tokens_used,
+                max_seconds=max_seconds,
+                max_tokens=max_tokens,
+            )
+            if reason:
+                return reason
+            if max_searches > 0 and searches_used >= max_searches:
+                return "search_budget_exceeded"
+            return None
+
         def _tree_search(payload, config_payload=None, **kwargs):
-            nonlocal live_search_events_emitted
+            nonlocal live_search_events_emitted, budget_stop_reason, tokens_used, searches_used
+            stop_reason = _tree_budget_reason()
+            if stop_reason:
+                budget_stop_reason = stop_reason
+                raise TreeExplorationBudgetExceeded(stop_reason)
             query = (payload or {}).get("query", "")
             max_results = int((payload or {}).get("max_results", per_query_results))
             effective_config = (
@@ -1745,12 +1788,16 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
                 if isinstance(config_payload, dict)
                 else config
             )
+            tokens_used += _estimate_tokens_from_text(query)
             results = _search_query(
                 query,
                 max_results,
                 effective_config,
                 provider_profile=provider_profile,
             )
+            searches_used += 1
+            if isinstance(results, list):
+                tokens_used += _estimate_tokens_from_results(results)
             search_runs.append(
                 {
                     "query": query,
@@ -1781,6 +1828,14 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
                 },
             )
             live_search_events_emitted += 1
+            post_budget_reason = _budget_stop_reason(
+                start_ts=start_ts,
+                tokens_used=tokens_used,
+                max_seconds=max_seconds,
+                max_tokens=max_tokens,
+            )
+            if post_budget_reason:
+                budget_stop_reason = post_budget_reason
             return results
 
         # Create tree explorer
@@ -1796,6 +1851,7 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
         )
 
         # Run tree exploration (use async if parallel_branches > 0)
+        tree = None
         if parallel_branches > 0:
             # Use async parallel exploration
             try:
@@ -1803,6 +1859,7 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
                 if loop.is_running():
                     # If already in async context, use run_in_executor
                     import concurrent.futures
+
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         future = executor.submit(
                             lambda: asyncio.run(explorer.run_async(topic, state, decompose_root=True))
@@ -1810,15 +1867,50 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
                         tree = future.result()
                 else:
                     tree = loop.run_until_complete(explorer.run_async(topic, state, decompose_root=True))
+                logger.info("[deepsearch-tree] Used async parallel exploration")
+            except TreeExplorationBudgetExceeded as e:
+                budget_stop_reason = budget_stop_reason or getattr(e, "reason", "") or str(e)
+                tree = getattr(explorer, "tree", None)
             except RuntimeError:
                 # No event loop, create one
-                tree = asyncio.run(explorer.run_async(topic, state, decompose_root=True))
-            logger.info("[deepsearch-tree] Used async parallel exploration")
+                try:
+                    tree = asyncio.run(explorer.run_async(topic, state, decompose_root=True))
+                    logger.info("[deepsearch-tree] Used async parallel exploration")
+                except TreeExplorationBudgetExceeded as e:
+                    budget_stop_reason = budget_stop_reason or getattr(e, "reason", "") or str(e)
+                    tree = getattr(explorer, "tree", None)
         else:
-            tree = explorer.run(topic, state, decompose_root=True)
+            try:
+                tree = explorer.run(topic, state, decompose_root=True)
+            except TreeExplorationBudgetExceeded as e:
+                budget_stop_reason = budget_stop_reason or getattr(e, "reason", "") or str(e)
+                tree = getattr(explorer, "tree", None)
+
+        if tree is None:
+            tree = getattr(explorer, "tree", None)
 
         # Get merged summary from all branches
         merged_summary = explorer.get_final_summary()
+        if not merged_summary and search_runs:
+            # Budget stops can interrupt branch completion; fall back to a cheap synthesis so
+            # we still generate a useful final report from partial search results.
+            try:
+                flat_results: List[Dict[str, Any]] = []
+                for run in search_runs[-min(10, len(search_runs)) :]:
+                    if not isinstance(run, dict):
+                        continue
+                    results = run.get("results")
+                    if isinstance(results, list):
+                        for r in results:
+                            if isinstance(r, dict):
+                                flat_results.append(r)
+                            if len(flat_results) >= 10:
+                                break
+                    if len(flat_results) >= 10:
+                        break
+                merged_summary = _format_results(flat_results) if flat_results else ""
+            except Exception:
+                merged_summary = ""
         raw_sources = explorer.get_all_sources()
         all_sources: List[str] = []
         all_sources_set = set()

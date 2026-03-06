@@ -299,6 +299,7 @@ class Settings(BaseSettings):
     tree_max_branches: int = 4  # Maximum children per node
     tree_queries_per_branch: int = 3  # Number of queries per branch
     tree_parallel_branches: int = 3  # Max concurrent branch exploration (0 = sequential)
+    deepsearch_tree_max_searches: int = 30  # 0 = disabled (hard cap on search calls in tree mode)
 
     # Report Visualization Config
     enable_report_charts: bool = True  # Generate charts from data in reports

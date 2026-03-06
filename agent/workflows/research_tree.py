@@ -32,6 +32,14 @@ from common.config import settings
 logger = logging.getLogger(__name__)
 
 
+class TreeExplorationBudgetExceeded(Exception):
+    """Abort tree exploration early when a global budget has been reached."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = str(reason or "").strip() or "budget_exceeded"
+
+
 class NodeStatus(str, Enum):
     """Status of a research tree node."""
     PENDING = "pending"
@@ -535,6 +543,8 @@ class TreeExplorer:
 
         except asyncio.CancelledError:
             raise
+        except TreeExplorationBudgetExceeded:
+            raise
         except Exception as e:
             logger.error(f"[TreeExplorer] Failed to explore branch {node.id}: {e}")
             node.mark_failed(str(e))
@@ -841,6 +851,8 @@ class TreeExplorer:
             logger.info(f"[TreeExplorer] Async completed branch {node.id}: {len(node.findings)} findings")
 
         except asyncio.CancelledError:
+            raise
+        except TreeExplorationBudgetExceeded:
             raise
         except Exception as e:
             logger.error(f"[TreeExplorer] Failed to explore branch {node.id}: {e}")
