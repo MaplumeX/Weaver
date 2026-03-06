@@ -25,7 +25,7 @@ from tools.core.registry import get_global_registry, get_registered_tools
 
 from .agent_factory import build_tool_agent, build_writer_agent
 from .agent_tools import build_agent_tools
-from .deepsearch_optimized import run_deepsearch_auto
+from .deepsearch_optimized import _auto_mode_prefers_linear, run_deepsearch_auto
 from .source_url_utils import compact_unique_sources
 
 ENHANCED_TOOLS_AVAILABLE = True
@@ -604,6 +604,11 @@ def deepsearch_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]
             logger.debug(f"[deepsearch_node] failed to emit start event: {e}")
 
     try:
+        input_text = str(state.get("input", "") or "").strip()
+        if input_text and _auto_mode_prefers_linear(input_text):
+            logger.info("[deepsearch_node] Delegating simple factual deep query to direct answer node")
+            return direct_answer_node(state, config)
+
         token_id = state.get("cancel_token_id")
         if token_id:
             _check_cancellation(token_id)

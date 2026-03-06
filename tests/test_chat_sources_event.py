@@ -39,6 +39,8 @@ async def test_stream_emits_sources_before_completion(monkeypatch):
     monkeypatch.setattr(main, "remove_emitter", _noop_async)
     monkeypatch.setattr(main.browser_sessions, "reset", lambda *args, **kwargs: None)
     monkeypatch.setattr(main.sandbox_browser_sessions, "reset", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "_browser_stream_conn_active", lambda *args, **kwargs: True)
+    monkeypatch.setattr(main.settings, "enable_file_logging", False, raising=False)
 
     chunks: list[str] = []
     async for chunk in main.stream_agent_events("hi", thread_id="thread_test"):
@@ -58,4 +60,3 @@ async def test_stream_emits_sources_before_completion(monkeypatch):
     sources_payload = payloads[types.index("sources")]
     items = sources_payload.get("data", {}).get("items", [])
     assert items and items[0]["url"] == "https://example.com/"
-

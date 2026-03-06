@@ -345,6 +345,175 @@ def test_deepsearch_tree_emits_search_quality_and_tree_events(monkeypatch):
     assert "research_tree_update" in event_types
 
 
+def test_deepsearch_tree_emits_search_during_tree_execution(monkeypatch):
+    _patch_basics(monkeypatch, [])
+    monkeypatch.setattr(deepsearch_optimized.settings, "tree_parallel_branches", 0, raising=False)
+
+    emitted = []
+    search_seen_during_run = {"value": False}
+
+    class DummyEmitter:
+        def emit_sync(self, event_type, data):
+            event_name = event_type.value if hasattr(event_type, "value") else str(event_type)
+            emitted.append((event_name, data))
+
+    class FakeNode:
+        def __init__(self):
+            self.id = "n1"
+            self.topic = "subtopic"
+            self.queries = ["tree query"]
+            self.findings = [
+                {
+                    "query": "tree query",
+                    "result": {
+                        "title": "Tree source",
+                        "url": "https://example.com/tree",
+                        "provider": "serper",
+                        "published_date": datetime.now(timezone.utc).isoformat(),
+                    },
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            ]
+
+    class FakeTree:
+        def __init__(self):
+            self.nodes = {"n1": FakeNode()}
+
+        def to_dict(self):
+            return {"id": "root", "children": ["n1"]}
+
+    class FakeTreeExplorer:
+        def __init__(self, *args, **kwargs):
+            self._tree = FakeTree()
+            self.search_func = kwargs["search_func"]
+
+        def run(self, topic, state, decompose_root=True):
+            self.search_func({"query": "tree query", "max_results": 1}, config={})
+            search_seen_during_run["value"] = any(name == "search" for name, _ in emitted)
+            return self._tree
+
+        def get_final_summary(self):
+            return "tree summary"
+
+        def get_all_sources(self):
+            return ["https://example.com/tree"]
+
+        def get_all_findings(self):
+            return self._tree.nodes["n1"].findings
+
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "_search_query",
+        lambda *args, **kwargs: [
+            {
+                "title": "Tree source",
+                "url": "https://example.com/tree",
+                "provider": "serper",
+                "published_date": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+    )
+    monkeypatch.setattr(deepsearch_optimized, "TreeExplorer", FakeTreeExplorer)
+    monkeypatch.setattr(
+        deepsearch_optimized, "_resolve_event_emitter", lambda state, config: DummyEmitter()
+    )
+
+    deepsearch_optimized.run_deepsearch_tree(
+        {"input": "latest ai policy updates"},
+        config={"configurable": {"thread_id": "thread_test"}},
+    )
+
+    assert search_seen_during_run["value"] is True
+
+
+def test_deepsearch_linear_respects_single_query_budget(monkeypatch):
+    _patch_basics(monkeypatch, [])
+    searched_queries = []
+
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "_generate_queries",
+        lambda *args, **kwargs: ["capital of France official name and history"],
+    )
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "_search_query",
+        lambda query, *args, **kwargs: searched_queries.append(query) or [
+            {
+                "title": "Paris",
+                "url": "https://example.com/paris",
+                "summary": "Paris",
+                "score": 0.9,
+                "provider": "serper",
+                "published_date": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+    )
+
+    deepsearch_optimized.run_deepsearch_optimized(
+        {"input": "What is the capital of France?"},
+        config={"configurable": {"deepsearch_query_num": 1, "deepsearch_max_epochs": 1}},
+    )
+
+    assert searched_queries == ["capital of France official name and history"]
+
+
+def test_deepsearch_linear_can_disable_browser_visualization(monkeypatch):
+    _patch_basics(monkeypatch, [])
+    browser_calls = []
+
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "_generate_queries",
+        lambda *args, **kwargs: ["capital of France official name and history"],
+    )
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "_search_query",
+        lambda *args, **kwargs: [
+            {
+                "title": "Paris",
+                "url": "https://example.com/paris",
+                "summary": "Paris",
+                "score": 0.9,
+                "provider": "serper",
+                "published_date": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+    )
+
+    from agent.workflows import browser_visualizer
+
+    monkeypatch.setattr(
+        browser_visualizer,
+        "show_browser_status_page",
+        lambda *args, **kwargs: browser_calls.append("status"),
+    )
+    monkeypatch.setattr(
+        browser_visualizer,
+        "visualize_urls_from_results",
+        lambda *args, **kwargs: browser_calls.append("results"),
+    )
+    monkeypatch.setattr(
+        browser_visualizer,
+        "visualize_urls",
+        lambda *args, **kwargs: browser_calls.append("selected"),
+    )
+
+    deepsearch_optimized.run_deepsearch_optimized(
+        {"input": "What is the capital of France?"},
+        config={
+            "configurable": {
+                "deepsearch_query_num": 1,
+                "deepsearch_max_epochs": 1,
+                "deepsearch_visualize_browser": False,
+            }
+        },
+    )
+
+    assert browser_calls == []
+
+
 def test_deepsearch_search_event_respects_result_limit_setting(monkeypatch):
     now = datetime.now(timezone.utc)
     search_results = [

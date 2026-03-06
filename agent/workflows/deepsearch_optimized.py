@@ -65,6 +65,71 @@ _parse_list_output = parse_list_output
 _format_results = format_search_results
 
 _DEEPSEARCH_MODES = {"auto", "tree", "linear"}
+_SIMPLE_FACT_PATTERNS = (
+    r"\bwhat\s+is\b",
+    r"\bwho\s+is\b",
+    r"\bwhen\s+(?:is|was|did)\b",
+    r"\bwhere\s+(?:is|was)\b",
+    r"\bwhich\s+is\b",
+    r"\bhow\s+many\b",
+    r"\bcapital\s+of\b",
+    r"\bpopulation\s+of\b",
+    r"\breply\s+with\b",
+    r"\bone\s+word\b",
+    r"是什么",
+    r"谁是",
+    r"何时",
+    r"哪里",
+    r"在哪",
+    r"多少",
+    r"首都",
+    r"人口",
+    r"只回答",
+    r"一个词",
+)
+_BROAD_RESEARCH_CUES = (
+    "analysis",
+    "analyze",
+    "assess",
+    "case study",
+    "cases",
+    "compare",
+    "comparison",
+    "deep research",
+    "evaluate",
+    "framework",
+    "histor",
+    "impact",
+    "investigate",
+    "latest",
+    "market",
+    "overview",
+    "policy",
+    "regulation",
+    "report",
+    "research",
+    "survey",
+    "timeline",
+    "trend",
+    "updates",
+    "versus",
+    "vs",
+    "分析",
+    "影响",
+    "报告",
+    "对比",
+    "挑战",
+    "政策",
+    "框架",
+    "比较",
+    "法规",
+    "深度",
+    "研究",
+    "综述",
+    "调研",
+    "趋势",
+    "历史",
+)
 
 
 def _check_cancel(state: Dict[str, Any]) -> None:
@@ -97,6 +162,55 @@ def _resolve_deepsearch_mode(config: Dict[str, Any]) -> str:
         return _normalize_deepsearch_mode(runtime_mode)
 
     return _normalize_deepsearch_mode(getattr(settings, "deepsearch_mode", "auto"))
+
+
+def _configurable_value(config: Dict[str, Any], key: str) -> Any:
+    cfg = config.get("configurable") or {}
+    if isinstance(cfg, dict):
+        return cfg.get(key)
+    return None
+
+
+def _configurable_int(config: Dict[str, Any], key: str, default: int) -> int:
+    value = _configurable_value(config, key)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _configurable_float(config: Dict[str, Any], key: str, default: float) -> float:
+    value = _configurable_value(config, key)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _browser_visualization_enabled(config: Dict[str, Any]) -> bool:
+    value = _configurable_value(config, "deepsearch_visualize_browser")
+    if value is None:
+        return bool(getattr(settings, "deepsearch_visualize_browser", True))
+    return bool(value)
+
+
+def _auto_mode_prefers_linear(topic: str) -> bool:
+    """Use the cheaper linear runner for obvious factual prompts in auto mode."""
+    text = re.sub(r"\s+", " ", str(topic or "")).strip()
+    if not text:
+        return False
+
+    lowered = text.lower()
+    if any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in _SIMPLE_FACT_PATTERNS):
+        return True
+
+    if any(cue in lowered for cue in _BROAD_RESEARCH_CUES):
+        return False
+    return False
 
 
 def _resolve_search_strategy() -> SearchStrategy:
@@ -908,12 +1022,38 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
     topic = state.get("input", "")
     _check_cancel(state)
 
-    max_epochs = int(getattr(settings, "deepsearch_max_epochs", 3))
-    query_num = int(getattr(settings, "deepsearch_query_num", 5))
-    per_query_results = int(getattr(settings, "deepsearch_results_per_query", 5))
+    max_epochs = _configurable_int(
+        config,
+        "deepsearch_max_epochs",
+        int(getattr(settings, "deepsearch_max_epochs", 3)),
+    )
+    query_num = _configurable_int(
+        config,
+        "deepsearch_query_num",
+        int(getattr(settings, "deepsearch_query_num", 5)),
+    )
+    per_query_results = _configurable_int(
+        config,
+        "deepsearch_results_per_query",
+        int(getattr(settings, "deepsearch_results_per_query", 5)),
+    )
     top_urls = max(3, min(5, per_query_results))
-    max_seconds = max(0.0, float(getattr(settings, "deepsearch_max_seconds", 0.0)))
-    max_tokens = max(0, int(getattr(settings, "deepsearch_max_tokens", 0)))
+    max_seconds = max(
+        0.0,
+        _configurable_float(
+            config,
+            "deepsearch_max_seconds",
+            float(getattr(settings, "deepsearch_max_seconds", 0.0)),
+        ),
+    )
+    max_tokens = max(
+        0,
+        _configurable_int(
+            config,
+            "deepsearch_max_tokens",
+            int(getattr(settings, "deepsearch_max_tokens", 0)),
+        ),
+    )
 
     # Use multi-model routing for different task types
     planning_model = _model_for_task("planning", config)
@@ -944,6 +1084,7 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
     tokens_used = _estimate_tokens_from_text(topic)
     budget_stop_reason = ""
     emitter = _resolve_event_emitter(state, config)
+    visualize_browser = _browser_visualization_enabled(config)
 
     try:
         for epoch in range(max_epochs):
@@ -980,10 +1121,11 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
                     planner_llm, topic, have_query, summary_notes, query_num, config,
                     missing_topics=missing_topics,
                 )
-                if epoch == 0 and topic not in queries:
+                if epoch == 0 and query_num > 1 and topic not in queries:
                     queries.append(topic)
                 if not queries:
                     queries = [topic]
+                queries = queries[: max(1, query_num)]
                 tokens_used += sum(_estimate_tokens_from_text(q) for q in queries)
                 have_query.extend(q for q in queries if q not in have_query)
                 logger.info(
@@ -1009,17 +1151,18 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
 
                     # While API search is running (blocking), render a small animated status page
                     # so the Live browser viewer isn't stuck on a blank about:blank.
-                    try:
-                        from agent.workflows.browser_visualizer import show_browser_status_page
+                    if visualize_browser:
+                        try:
+                            from agent.workflows.browser_visualizer import show_browser_status_page
 
-                        show_browser_status_page(
-                            state=state,
-                            config=config,
-                            title="Searching the web…",
-                            detail=q,
-                        )
-                    except Exception:
-                        pass
+                            show_browser_status_page(
+                                state=state,
+                                config=config,
+                                title="Searching the web…",
+                                detail=q,
+                            )
+                        except Exception:
+                            pass
 
                     results = _search_query(
                         q,
@@ -1057,18 +1200,19 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
 
                     # Keep the sandbox browser Live view "alive" by previewing a top result.
                     # This is best-effort UX only; failures must not break research.
-                    try:
-                        from agent.workflows.browser_visualizer import visualize_urls_from_results
+                    if visualize_browser:
+                        try:
+                            from agent.workflows.browser_visualizer import visualize_urls_from_results
 
-                        visualize_urls_from_results(
-                            state=state,
-                            config=config,
-                            results=results if isinstance(results, list) else [],
-                            max_urls=1,
-                            reason=f"deepsearch:search:epoch{epoch + 1}",
-                        )
-                    except Exception:
-                        pass
+                            visualize_urls_from_results(
+                                state=state,
+                                config=config,
+                                results=results if isinstance(results, list) else [],
+                                max_urls=1,
+                                reason=f"deepsearch:search:epoch{epoch + 1}",
+                            )
+                        except Exception:
+                            pass
 
                     # Record all searched URLs (dedupe with O(1) set lookup)
                     for r in results:
@@ -1168,18 +1312,19 @@ def run_deepsearch_optimized(state: Dict[str, Any], config: Dict[str, Any]) -> D
                 selected_urls_set.update(chosen_urls)
 
                 # Preview chosen URLs in the sandbox browser (helps Live view match "selected sources").
-                try:
-                    from agent.workflows.browser_visualizer import visualize_urls
+                if visualize_browser:
+                    try:
+                        from agent.workflows.browser_visualizer import visualize_urls
 
-                    visualize_urls(
-                        state=state,
-                        config=config,
-                        urls=chosen_urls,
-                        max_urls=min(3, len(chosen_urls)),
-                        reason=f"deepsearch:selected:epoch{epoch + 1}",
-                    )
-                except Exception:
-                    pass
+                        visualize_urls(
+                            state=state,
+                            config=config,
+                            urls=chosen_urls,
+                            max_urls=min(3, len(chosen_urls)),
+                            reason=f"deepsearch:selected:epoch{epoch + 1}",
+                        )
+                    except Exception:
+                        pass
 
                 new_pages, new_passages = _build_fetcher_evidence(chosen_urls)
                 fetched_pages.extend(new_pages)
@@ -1518,6 +1663,8 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
     )
     provider_profile = _resolve_provider_profile(state)
     emitter = _resolve_event_emitter(state, config)
+    search_runs: List[Dict[str, Any]] = []
+    live_search_events_emitted = 0
     _emit_event(
         emitter,
         "research_node_start",
@@ -1587,23 +1734,61 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
         }
 
     try:
+        def _tree_search(payload, config_payload=None, **kwargs):
+            nonlocal live_search_events_emitted
+            query = (payload or {}).get("query", "")
+            max_results = int((payload or {}).get("max_results", per_query_results))
+            effective_config = (
+                kwargs.get("config")
+                if isinstance(kwargs.get("config"), dict)
+                else config_payload
+                if isinstance(config_payload, dict)
+                else config
+            )
+            results = _search_query(
+                query,
+                max_results,
+                effective_config,
+                provider_profile=provider_profile,
+            )
+            search_runs.append(
+                {
+                    "query": query,
+                    "results": results if isinstance(results, list) else [],
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
+            provider_breakdown = _provider_breakdown(results if isinstance(results, list) else [])
+            provider_name = "unknown"
+            if len(provider_breakdown) > 1:
+                provider_name = "multi"
+            elif len(provider_breakdown) == 1:
+                provider_name = next(iter(provider_breakdown))
+            _emit_event(
+                emitter,
+                "search",
+                {
+                    "query": query,
+                    "provider": provider_name,
+                    "provider_breakdown": provider_breakdown,
+                    "results": _compact_search_results(
+                        results if isinstance(results, list) else [],
+                        limit=_event_results_limit(),
+                    ),
+                    "count": len(results) if isinstance(results, list) else 0,
+                    "mode": "tree",
+                    "epoch": 1,
+                },
+            )
+            live_search_events_emitted += 1
+            return results
+
         # Create tree explorer
         explorer = TreeExplorer(
             planner_llm=planner_llm,
             researcher_llm=critic_llm,
             writer_llm=writer_llm,
-            search_func=lambda payload, config_payload=None, **kwargs: _search_query(
-                (payload or {}).get("query", ""),
-                int((payload or {}).get("max_results", per_query_results)),
-                (
-                    kwargs.get("config")
-                    if isinstance(kwargs.get("config"), dict)
-                    else config_payload
-                    if isinstance(config_payload, dict)
-                    else config
-                ),
-                provider_profile=provider_profile,
-            ),
+            search_func=_tree_search,
             config=config,
             max_depth=max_depth,
             max_branches=max_branches,
@@ -1647,17 +1832,18 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
         summary_notes = [merged_summary] if merged_summary else []
         # Collect queries + search runs from all nodes
         have_query: List[str] = []
-        search_runs: List[Dict[str, Any]] = []
         for node in tree.nodes.values():
             have_query.extend(node.queries)
-            for finding in node.findings:
-                search_runs.append({
-                    "query": finding.get("query", ""),
-                    "results": [finding.get("result", {})],
-                    "timestamp": finding.get("timestamp", ""),
-                    "branch_id": node.id,
-                    "branch_topic": node.topic,
-                })
+        if not search_runs:
+            for node in tree.nodes.values():
+                for finding in node.findings:
+                    search_runs.append({
+                        "query": finding.get("query", ""),
+                        "results": [finding.get("result", {})],
+                        "timestamp": finding.get("timestamp", ""),
+                        "branch_id": node.id,
+                        "branch_topic": node.topic,
+                    })
 
         report_sources_limit = int(
             getattr(settings, "deepsearch_report_sources_limit", 20) or 20
@@ -1713,30 +1899,31 @@ def run_deepsearch_tree(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
             topic, have_query, summary_notes, search_runs, final_report, epoch=1,
         )
         diagnostics = _build_quality_diagnostics(topic, have_query, search_runs)
-        for run in search_runs:
-            results = run.get("results") if isinstance(run, dict) else []
-            provider_breakdown = _provider_breakdown(results if isinstance(results, list) else [])
-            provider_name = "unknown"
-            if len(provider_breakdown) > 1:
-                provider_name = "multi"
-            elif len(provider_breakdown) == 1:
-                provider_name = next(iter(provider_breakdown))
-            _emit_event(
-                emitter,
-                "search",
-                {
-                    "query": run.get("query", "") if isinstance(run, dict) else "",
-                    "provider": provider_name,
-                    "provider_breakdown": provider_breakdown,
-                    "results": _compact_search_results(
-                        results if isinstance(results, list) else [],
-                        limit=_event_results_limit(),
-                    ),
-                    "count": len(results) if isinstance(results, list) else 0,
-                    "mode": "tree",
-                    "epoch": 1,
-                },
-            )
+        if live_search_events_emitted == 0:
+            for run in search_runs:
+                results = run.get("results") if isinstance(run, dict) else []
+                provider_breakdown = _provider_breakdown(results if isinstance(results, list) else [])
+                provider_name = "unknown"
+                if len(provider_breakdown) > 1:
+                    provider_name = "multi"
+                elif len(provider_breakdown) == 1:
+                    provider_name = next(iter(provider_breakdown))
+                _emit_event(
+                    emitter,
+                    "search",
+                    {
+                        "query": run.get("query", "") if isinstance(run, dict) else "",
+                        "provider": provider_name,
+                        "provider_breakdown": provider_breakdown,
+                        "results": _compact_search_results(
+                            results if isinstance(results, list) else [],
+                            limit=_event_results_limit(),
+                        ),
+                        "count": len(results) if isinstance(results, list) else 0,
+                        "mode": "tree",
+                        "epoch": 1,
+                    },
+                )
 
         quality_summary = {
             "epochs_completed": 1,
@@ -1886,6 +2073,18 @@ def run_deepsearch_auto(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
         return _with_event_marker(run_deepsearch_optimized(state, config))
 
     use_tree = getattr(settings, "tree_exploration_enabled", True)
+    topic = str(state.get("input") or state.get("topic") or "").strip()
+    if use_tree and _auto_mode_prefers_linear(topic):
+        logger.info("[deepsearch] Auto mode selected linear exploration for simple factual query")
+        simple_config = dict(config) if isinstance(config, dict) else {"configurable": {}}
+        existing_cfg = simple_config.get("configurable")
+        simple_cfg = dict(existing_cfg) if isinstance(existing_cfg, dict) else {}
+        simple_config["configurable"] = simple_cfg
+        simple_cfg.setdefault("deepsearch_max_epochs", 1)
+        simple_cfg.setdefault("deepsearch_query_num", 1)
+        simple_cfg.setdefault("deepsearch_results_per_query", 5)
+        simple_cfg.setdefault("deepsearch_visualize_browser", False)
+        return _with_event_marker(run_deepsearch_optimized(state, simple_config))
     if use_tree:
         logger.info("[deepsearch] Using tree-based exploration mode")
         return _with_event_marker(run_deepsearch_tree(state, config))

@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -1854,6 +1854,38 @@ async def stream_agent_events(
             "recursion_limit": 50,
         }
 
+        async def _drain_pending_tool_events() -> None:
+            while not event_queue.empty():
+                try:
+                    tool_event = event_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+
+                if tool_event.type == ToolEvent.TOOL_START:
+                    yield_event = await format_stream_event("tool_start", tool_event.data)
+                elif tool_event.type == ToolEvent.TOOL_SCREENSHOT:
+                    yield_event = await format_stream_event("screenshot", tool_event.data)
+                elif tool_event.type == ToolEvent.TOOL_RESULT:
+                    yield_event = await format_stream_event("tool_result", tool_event.data)
+                elif tool_event.type == ToolEvent.TOOL_ERROR:
+                    yield_event = await format_stream_event("tool_error", tool_event.data)
+                elif tool_event.type == ToolEvent.TASK_UPDATE:
+                    yield_event = await format_stream_event("task_update", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_NODE_START:
+                    yield_event = await format_stream_event("research_node_start", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_NODE_COMPLETE:
+                    yield_event = await format_stream_event("research_node_complete", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_TREE_UPDATE:
+                    yield_event = await format_stream_event("research_tree_update", tool_event.data)
+                elif tool_event.type == ToolEvent.QUALITY_UPDATE:
+                    yield_event = await format_stream_event("quality_update", tool_event.data)
+                elif tool_event.type == ToolEvent.SEARCH:
+                    yield_event = await format_stream_event("search", tool_event.data)
+                else:
+                    continue
+
+                yield yield_event
+
         # Send initial status
         yield await format_stream_event(
             "status",
@@ -1861,34 +1893,12 @@ async def stream_agent_events(
         )
 
         # Stream graph execution
-        async for event in research_graph.astream_events(initial_state, config=config):
-            # First, drain any pending tool events from the queue
-            while not event_queue.empty():
-                try:
-                    tool_event = event_queue.get_nowait()
-                    # Forward tool events to SSE stream
-                    if tool_event.type == ToolEvent.TOOL_START:
-                        yield await format_stream_event("tool_start", tool_event.data)
-                    elif tool_event.type == ToolEvent.TOOL_SCREENSHOT:
-                        yield await format_stream_event("screenshot", tool_event.data)
-                    elif tool_event.type == ToolEvent.TOOL_RESULT:
-                        yield await format_stream_event("tool_result", tool_event.data)
-                    elif tool_event.type == ToolEvent.TOOL_ERROR:
-                        yield await format_stream_event("tool_error", tool_event.data)
-                    elif tool_event.type == ToolEvent.TASK_UPDATE:
-                        yield await format_stream_event("task_update", tool_event.data)
-                    elif tool_event.type == ToolEvent.RESEARCH_NODE_START:
-                        yield await format_stream_event("research_node_start", tool_event.data)
-                    elif tool_event.type == ToolEvent.RESEARCH_NODE_COMPLETE:
-                        yield await format_stream_event("research_node_complete", tool_event.data)
-                    elif tool_event.type == ToolEvent.RESEARCH_TREE_UPDATE:
-                        yield await format_stream_event("research_tree_update", tool_event.data)
-                    elif tool_event.type == ToolEvent.QUALITY_UPDATE:
-                        yield await format_stream_event("quality_update", tool_event.data)
-                    elif tool_event.type == ToolEvent.SEARCH:
-                        yield await format_stream_event("search", tool_event.data)
-                except asyncio.QueueEmpty:
-                    break
+        graph_events = research_graph.astream_events(initial_state, config=config)
+        graph_iter = graph_events.__aiter__()
+
+        while True:
+            async for queued_chunk in _drain_pending_tool_events():
+                yield queued_chunk
 
             # Check cancellation status
             if cancel_token.is_cancelled:
@@ -1897,6 +1907,31 @@ async def stream_agent_events(
                     "cancelled", {"message": "Task was cancelled by user", "thread_id": thread_id}
                 )
                 return
+
+            next_event_task = asyncio.create_task(graph_iter.__anext__())
+            try:
+                while True:
+                    done, _pending = await asyncio.wait({next_event_task}, timeout=0.05)
+                    async for queued_chunk in _drain_pending_tool_events():
+                        yield queued_chunk
+
+                    if cancel_token.is_cancelled:
+                        next_event_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await next_event_task
+                        logger.info(f"Stream cancelled for thread {thread_id}")
+                        yield await format_stream_event(
+                            "cancelled",
+                            {"message": "Task was cancelled by user", "thread_id": thread_id},
+                        )
+                        return
+
+                    if done:
+                        break
+
+                event = next_event_task.result()
+            except StopAsyncIteration:
+                break
 
             event_type = event.get("event")
             name = event.get("name", "") or event.get("run_name", "")
@@ -2131,6 +2166,9 @@ async def stream_agent_events(
                         content = chunk.get("content")
                     if content and emit_main_text:
                         yield await format_stream_event("text", {"content": content})
+
+        async for queued_chunk in _drain_pending_tool_events():
+            yield queued_chunk
 
         # Send final completion
         duration = time.time() - start_time

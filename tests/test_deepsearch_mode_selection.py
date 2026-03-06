@@ -20,6 +20,32 @@ def test_deepsearch_node_uses_auto_runner(monkeypatch):
     assert result["runner"] == "auto"
 
 
+def test_deepsearch_node_delegates_simple_factual_query_to_direct_answer_node(monkeypatch):
+    called = {"direct": False}
+
+    def fake_direct(state, config):
+        called["direct"] = True
+        return {"final_report": "Paris", "messages": []}
+
+    def fake_auto(state, config):
+        raise AssertionError("deepsearch runner should be skipped for simple factual query")
+
+    def fake_agent(state, config):
+        raise AssertionError("agent node should be skipped for simple factual query")
+
+    monkeypatch.setattr(nodes, "direct_answer_node", fake_direct, raising=False)
+    monkeypatch.setattr(nodes, "agent_node", fake_agent, raising=False)
+    monkeypatch.setattr(nodes, "run_deepsearch_auto", fake_auto, raising=False)
+
+    result = nodes.deepsearch_node(
+        {"input": "Use deep research to answer: what is the capital of France?"},
+        {"configurable": {}},
+    )
+
+    assert called["direct"] is True
+    assert result["final_report"] == "Paris"
+
+
 def test_run_deepsearch_auto_respects_runtime_override(monkeypatch):
     called = {"tree": False, "linear": False}
 
@@ -44,6 +70,82 @@ def test_run_deepsearch_auto_respects_runtime_override(monkeypatch):
     assert called["linear"] is True
     assert called["tree"] is False
     assert result["mode"] == "linear"
+
+
+def test_run_deepsearch_auto_prefers_linear_for_simple_query(monkeypatch):
+    called = {"tree": False, "linear": False}
+
+    def fake_tree(state, config):
+        called["tree"] = True
+        return {"mode": "tree"}
+
+    def fake_linear(state, config):
+        called["linear"] = True
+        return {"mode": "linear"}
+
+    monkeypatch.setattr(deepsearch_optimized, "run_deepsearch_tree", fake_tree)
+    monkeypatch.setattr(deepsearch_optimized, "run_deepsearch_optimized", fake_linear)
+    monkeypatch.setattr(deepsearch_optimized.settings, "tree_exploration_enabled", True)
+    monkeypatch.setattr(deepsearch_optimized.settings, "deepsearch_mode", "auto", raising=False)
+
+    result = deepsearch_optimized.run_deepsearch_auto(
+        {"input": "What is the capital of France?"},
+        {"configurable": {}},
+    )
+
+    assert called["linear"] is True
+    assert called["tree"] is False
+    assert result["mode"] == "linear"
+
+
+def test_run_deepsearch_auto_reduces_budget_for_simple_query(monkeypatch):
+    captured = {}
+
+    def fake_linear(state, config):
+        captured["config"] = config
+        return {"mode": "linear"}
+
+    monkeypatch.setattr(deepsearch_optimized, "run_deepsearch_optimized", fake_linear)
+    monkeypatch.setattr(deepsearch_optimized, "run_deepsearch_tree", lambda *args, **kwargs: {"mode": "tree"})
+    monkeypatch.setattr(deepsearch_optimized.settings, "tree_exploration_enabled", True)
+    monkeypatch.setattr(deepsearch_optimized.settings, "deepsearch_mode", "auto", raising=False)
+
+    deepsearch_optimized.run_deepsearch_auto(
+        {"input": "What is the capital of France?"},
+        {"configurable": {"thread_id": "thread_test"}},
+    )
+
+    cfg = captured["config"]["configurable"]
+    assert cfg["deepsearch_query_num"] == 1
+    assert cfg["deepsearch_max_epochs"] == 1
+
+
+def test_run_deepsearch_auto_simple_query_preserves_noncopyable_runtime_config(monkeypatch):
+    captured = {}
+
+    class NonCopyable:
+        def __deepcopy__(self, memo):
+            raise TypeError("cannot deepcopy")
+
+    def fake_linear(state, config):
+        captured["config"] = config
+        return {"mode": "linear"}
+
+    monkeypatch.setattr(deepsearch_optimized, "run_deepsearch_optimized", fake_linear)
+    monkeypatch.setattr(deepsearch_optimized, "run_deepsearch_tree", lambda *args, **kwargs: {"mode": "tree"})
+    monkeypatch.setattr(deepsearch_optimized.settings, "tree_exploration_enabled", True)
+    monkeypatch.setattr(deepsearch_optimized.settings, "deepsearch_mode", "auto", raising=False)
+
+    deepsearch_optimized.run_deepsearch_auto(
+        {"input": "What is the capital of France?"},
+        {
+            "configurable": {"thread_id": "thread_test"},
+            "runtime": NonCopyable(),
+        },
+    )
+
+    assert captured["config"]["runtime"].__class__ is NonCopyable
+    assert captured["config"]["configurable"]["deepsearch_query_num"] == 1
 
 
 def test_deepsearch_node_emits_visualization_events(monkeypatch):
