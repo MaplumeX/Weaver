@@ -100,6 +100,23 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
         isStreaming: true,
       }
 
+      // Stream-level progress helpers (kept local to this request).
+      let searchCount = 0
+      let lastAutoStatus = ''
+      let lastAutoStatusAt = 0
+
+      const setAutoStatus = (text: string) => {
+        const next = String(text || '').trim()
+        if (!next) return
+        const now = Date.now()
+        if (next === lastAutoStatus) return
+        // Avoid flickery status spam during fast multi-search fanout.
+        if (now - lastAutoStatusAt < 250) return
+        lastAutoStatus = next
+        lastAutoStatusAt = now
+        setCurrentStatus(next)
+      }
+
       console.log('[useChatStream] Creating assistant message:', {
         id: assistantMessage.id,
         role: assistantMessage.role,
@@ -207,19 +224,76 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
 
             pushProcessEvent('tool', data.data)
             syncAssistantMessage()
+          } else if (data.type === 'search') {
+            searchCount += 1
+            const query = String(data.data?.query || '').trim()
+            const mode = String(data.data?.mode || '').trim().toLowerCase()
+            const epoch = data.data?.epoch
+
+            if (query) {
+              if (mode === 'tree') {
+                setAutoStatus(`深度调研（树）：第 ${searchCount} 次检索 · ${query}`)
+              } else if (typeof epoch === 'number') {
+                setAutoStatus(`深度调研：第 ${epoch} 轮检索（${searchCount}）· ${query}`)
+              } else {
+                setAutoStatus(`检索中（${searchCount}）· ${query}`)
+              }
+            }
+
+            pushProcessEvent('search', data.data)
+            syncAssistantMessage()
+          } else if (data.type === 'research_node_start') {
+            const nodeId = String(data.data?.node_id || data.data?.nodeId || '').trim()
+            const epoch = data.data?.epoch
+            if (nodeId.includes('deepsearch')) {
+              if (typeof epoch === 'number') {
+                setAutoStatus(`深度调研：开始第 ${epoch} 轮…`)
+              } else {
+                setAutoStatus('深度调研：开始调研…')
+              }
+            } else if (nodeId) {
+              setAutoStatus(`研究节点开始：${nodeId}`)
+            }
+            pushProcessEvent('research_node_start', data.data)
+            syncAssistantMessage()
+          } else if (data.type === 'research_node_complete') {
+            const nodeId = String(data.data?.node_id || data.data?.nodeId || '').trim()
+            const epoch = data.data?.epoch
+            if (nodeId.includes('deepsearch')) {
+              if (typeof epoch === 'number') {
+                setAutoStatus(`深度调研：完成第 ${epoch} 轮，继续…`)
+              } else if (nodeId.includes('tree')) {
+                setAutoStatus('深度调研：树调研完成，准备生成报告…')
+              } else {
+                setAutoStatus('深度调研：本轮完成，继续…')
+              }
+            }
+            pushProcessEvent('research_node_complete', data.data)
+            syncAssistantMessage()
+          } else if (data.type === 'quality_update') {
+            const score =
+              typeof data.data?.query_coverage_score === 'number'
+                ? data.data.query_coverage_score
+                : typeof data.data?.citation_coverage_score === 'number'
+                  ? data.data.citation_coverage_score
+                  : undefined
+            if (typeof score === 'number' && score >= 0) {
+              const pct = Math.max(0, Math.min(1, score)) * 100
+              setAutoStatus(`质量评估：覆盖度 ${pct.toFixed(0)}%`)
+            }
+            pushProcessEvent('quality_update', data.data)
+            syncAssistantMessage()
+          } else if (data.type === 'research_tree_update') {
+            pushProcessEvent('research_tree_update', data.data)
+            syncAssistantMessage()
           } else if (
             [
               'thinking',
               'tool_start',
               'tool_result',
               'tool_error',
-              'search',
               'screenshot',
               'task_update',
-              'research_node_start',
-              'research_node_complete',
-              'research_tree_update',
-              'quality_update',
             ].includes(data.type)
           ) {
             pushProcessEvent(data.type, data.data)

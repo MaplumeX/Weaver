@@ -1,7 +1,18 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, Loader2, CheckCircle2, Search, Wrench, Image as ImageIcon, Sparkles } from 'lucide-react'
+import {
+  ChevronDown,
+  Loader2,
+  CheckCircle2,
+  Search,
+  Wrench,
+  Image as ImageIcon,
+  Sparkles,
+  ListTodo,
+  TreePine,
+  ShieldCheck,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProcessEvent, RunMetrics, ToolInvocation } from '@/types/chat'
 
@@ -24,15 +35,25 @@ export function ThinkingProcess({
 }: ThinkingProcessProps) {
   const [open, setOpen] = useState(false)
   const [userToggled, setUserToggled] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
 
   const hasDetails = tools.length > 0 || events.length > 0
+
+  useEffect(() => {
+    if (!isThinking) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [isThinking])
 
   const durationMs = useMemo(() => {
     const metricDuration = typeof metrics?.duration_ms === 'number' ? metrics.duration_ms : undefined
     if (metricDuration && metricDuration > 0) return metricDuration
-    if (startedAt && completedAt && completedAt >= startedAt) return completedAt - startedAt
+    if (!startedAt) return undefined
+
+    const end = isThinking ? now : completedAt
+    if (typeof end === 'number' && end >= startedAt) return end - startedAt
     return undefined
-  }, [metrics?.duration_ms, startedAt, completedAt])
+  }, [metrics?.duration_ms, startedAt, completedAt, isThinking, now])
 
   const durationLabel = useMemo(() => {
     if (!durationMs || durationMs <= 0) return ''
@@ -73,7 +94,7 @@ export function ThinkingProcess({
   if (!hasDetails && !isThinking) return null
 
   const headerText = isThinking
-    ? `Thinking…${stepCount ? ` · ${stepCount} steps` : ''}`
+    ? `Thinking…${durationLabel ? ` · ${durationLabel}` : ''}${stepCount ? ` · ${stepCount} steps` : ''}`
     : `Thought${durationLabel ? ` for ${durationLabel}` : ''}${stepCount ? ` · ${stepCount} steps` : ''}`
 
   const toggle = () => {
@@ -163,6 +184,126 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
         <div className="min-w-0">
           <div className="whitespace-pre-wrap break-words text-[13px] leading-6 text-foreground/80">
             {text}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'task_update') {
+    const title = String(ev.data?.title || '').trim()
+    const status = String(ev.data?.status || '').trim()
+    const progress = ev.data?.progress
+    const label = title || String(ev.data?.id || 'task')
+
+    return (
+      <div className="flex items-start gap-2">
+        <ListTodo className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
+        <div className="min-w-0">
+          <div className="truncate">
+            <span className="font-medium text-foreground/80">Task</span>
+            <span className="ml-2">{label}</span>
+            {status ? (
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {status}
+              </span>
+            ) : null}
+          </div>
+          {typeof progress === 'number' ? (
+            <div className="text-xs text-muted-foreground">{Math.round(progress)}%</div>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'research_node_start') {
+    const nodeId = String(ev.data?.node_id || ev.data?.nodeId || '').trim()
+    const topic = String(ev.data?.topic || '').trim()
+    const epoch = ev.data?.epoch
+    const depth = ev.data?.depth
+
+    const subtitle = [
+      typeof epoch === 'number' ? `epoch ${epoch}` : null,
+      typeof depth === 'number' ? `depth ${depth}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
+    return (
+      <div className="flex items-start gap-2">
+        <TreePine className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
+        <div className="min-w-0">
+          <div className="truncate">
+            <span className="font-medium text-foreground/80">Research start</span>
+            {nodeId ? <span className="ml-2 font-mono text-[12px]">{nodeId}</span> : null}
+          </div>
+          {subtitle ? <div className="text-xs text-muted-foreground">{subtitle}</div> : null}
+          {topic ? <div className="truncate text-xs text-muted-foreground">{topic}</div> : null}
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'research_node_complete') {
+    const nodeId = String(ev.data?.node_id || ev.data?.nodeId || '').trim()
+    const epoch = ev.data?.epoch
+    const summary = String(ev.data?.summary || '').trim()
+
+    const subtitle = typeof epoch === 'number' ? `epoch ${epoch}` : ''
+
+    return (
+      <div className="flex items-start gap-2">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
+        <div className="min-w-0">
+          <div className="truncate">
+            <span className="font-medium text-foreground/80">Research done</span>
+            {nodeId ? <span className="ml-2 font-mono text-[12px]">{nodeId}</span> : null}
+            {subtitle ? <span className="ml-2 text-xs text-muted-foreground">{subtitle}</span> : null}
+          </div>
+          {summary ? (
+            <div className="line-clamp-2 text-xs text-muted-foreground">{summary}</div>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'quality_update') {
+    const stage = String(ev.data?.stage || '').trim()
+    const epoch = ev.data?.epoch
+    const score =
+      typeof ev.data?.query_coverage_score === 'number'
+        ? ev.data.query_coverage_score
+        : typeof ev.data?.citation_coverage_score === 'number'
+          ? ev.data.citation_coverage_score
+          : typeof ev.data?.citation_coverage === 'number'
+            ? ev.data.citation_coverage
+            : undefined
+    const scorePct = typeof score === 'number' ? `${Math.round(Math.max(0, Math.min(1, score)) * 100)}%` : ''
+
+    return (
+      <div className="flex items-start gap-2">
+        <ShieldCheck className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
+        <div className="min-w-0">
+          <div className="truncate">
+            <span className="font-medium text-foreground/80">Quality</span>
+            {typeof epoch === 'number' ? <span className="ml-2 text-xs">epoch {epoch}</span> : null}
+            {stage ? <span className="ml-2 text-xs text-muted-foreground">{stage}</span> : null}
+            {scorePct ? <span className="ml-2 font-mono text-[12px]">{scorePct}</span> : null}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'research_tree_update') {
+    return (
+      <div className="flex items-start gap-2">
+        <TreePine className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
+        <div className="min-w-0">
+          <div className="truncate">
+            <span className="font-medium text-foreground/80">Research tree updated</span>
           </div>
         </div>
       </div>

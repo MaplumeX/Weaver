@@ -1975,6 +1975,17 @@ async def stream_agent_events(
                     yield await format_stream_event(
                         "status", {"text": "Creating research plan...", "step": "planning"}
                     )
+                elif "deepsearch" in node_name:
+                    logger.debug(f"  Deep research node started | Thread: {thread_id}")
+                    text = (
+                        "正在进行 Deep Research（多轮检索→阅读→汇总），可能需要几分钟…"
+                        if use_zh
+                        else "Running Deep Research (iterative search → read → synthesize)…"
+                    )
+                    yield await format_stream_event(
+                        "status",
+                        {"text": text, "step": "deep_research"},
+                    )
                 elif "perform_parallel_search" in node_name or "search" in node_name:
                     logger.debug(f"  Search node started | Thread: {thread_id}")
                     yield await format_stream_event(
@@ -5396,8 +5407,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
         nonlocal streaming, init_task
         interval = 1.0 / max(1, int(max_fps or 5))
         next_frame_due = time.perf_counter()
-        last_frame_id: Optional[int] = None
-        last_frame_sent_at: float = 0.0
         last_frame_payload: Optional[Dict[str, Any]] = None
         last_screenshot_capture_at: float = 0.0
         screenshot_refresh_s = 1.0
@@ -5413,10 +5422,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                 # Prefer CDP screencast frames (smooth, low overhead). Fall back to screenshots.
                 cdp_frame = _peek_cdp_frame()
                 if cdp_frame and cdp_frame.get("data"):
-                    frame_id = cdp_frame.get("frame_id")
                     now = time.time()
-                    if isinstance(frame_id, int):
-                        last_frame_id = frame_id
                     try:
                         browser_ws_frames_total.labels("cdp").inc()
                     except Exception:
@@ -5432,7 +5438,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         streaming = False
                         break
                     last_frame_payload = payload
-                    last_frame_sent_at = now
                 else:
                     now = time.time()
                     should_capture = (
@@ -5464,7 +5469,6 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         streaming = False
                         break
                     last_frame_payload = payload
-                    last_frame_sent_at = now
                 consecutive_failures = 0
             except Exception as e:
                 consecutive_failures += 1
@@ -5603,6 +5607,8 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
 
                     quality = data.get("quality", 70)
                     max_fps = data.get("max_fps", 5)
+                    quality_int = int(quality or 70)
+                    max_fps_int = int(max_fps or 5)
 
                     # If sandbox browser isn't configured, fail fast with an actionable message
                     # (avoid starting a stream task that will just spam "Capture failed").
@@ -5665,8 +5671,8 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         {
                             "type": "status",
                             "message": "Screencast started",
-                            "quality": quality,
-                            "max_fps": max_fps,
+                            "quality": quality_int,
+                            "max_fps": max_fps_int,
                         }
                     )
                     if not ok:
@@ -5676,13 +5682,13 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                     # Start the streaming loop after the start status so clients/tests observe
                     # a stable ordering (status first, then frames/errors).
                     stream_task = asyncio.create_task(
-                        stream_frames(quality=int(quality or 70), max_fps=int(max_fps or 5)),
+                        stream_frames(quality=quality_int, max_fps=max_fps_int),
                         name=f"weaver-browser-ws-stream-{thread_id}",
                     )
 
                     # Do not block start on sandbox initialization; run best-effort init in
                     # the background. If CDP fails, the stream will fall back to screenshots.
-                    async def _init_screencast() -> None:
+                    async def _init_screencast(q: int = quality_int) -> None:
                         try:
                             try:
                                 await asyncio.wait_for(
@@ -5696,7 +5702,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
 
                             try:
                                 await asyncio.wait_for(
-                                    _start_cdp_screencast(quality=int(quality or 70)), timeout=120.0
+                                    _start_cdp_screencast(quality=q), timeout=120.0
                                 )
                             except asyncio.TimeoutError:
                                 pass

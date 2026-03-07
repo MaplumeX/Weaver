@@ -45,7 +45,10 @@ export function useBrowserStream({
   const [error, setError] = useState<string | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
+  const closedByClientRef = useRef<Set<WebSocket>>(new Set())
   const frameCountRef = useRef(0)
+  const lastFrameDataRef = useRef<string | null>(null)
+  const lastFrameMetaRef = useRef<string>('') // compact signature of url/title
   const fpsIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -76,7 +79,12 @@ export function useBrowserStream({
 
     // Clean up existing connection
     if (wsRef.current) {
-      wsRef.current.close()
+      try {
+        closedByClientRef.current.add(wsRef.current)
+        wsRef.current.close(1000, 'Reconnecting')
+      } catch (err) {
+        console.warn('[useBrowserStream] Failed to close existing socket:', err)
+      }
     }
 
     const wsUrl = getApiWsBaseUrl() + `/api/browser/${threadId}/stream`
@@ -87,6 +95,7 @@ export function useBrowserStream({
     wsRef.current = ws
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return
       console.log('[useBrowserStream] Connected')
       setIsConnected(true)
       setError(null)
@@ -103,18 +112,33 @@ export function useBrowserStream({
     }
 
     ws.onmessage = async (event) => {
+      if (wsRef.current !== ws) return
       try {
         const raw = await readWsMessage(event.data)
         if (!raw) return
         const data = JSON.parse(raw)
 
         if (data.type === 'frame') {
-          frameCountRef.current++
-          setCurrentFrame({
-            data: data.data,
-            timestamp: data.timestamp,
-            metadata: data.metadata
-          })
+          const nextData = typeof data.data === 'string' ? data.data : ''
+          const meta = data.metadata || {}
+          const metaUrl = typeof meta?.url === 'string' ? meta.url : (typeof meta?.page_url === 'string' ? meta.page_url : '')
+          const metaTitle = typeof meta?.title === 'string' ? meta.title : ''
+          const metaSig = `${metaUrl}::${metaTitle}`
+
+          // Avoid forcing React to reconcile massive base64 payloads when the
+          // backend is repeating the exact same frame for FPS smoothing.
+          const isDuplicate = nextData && nextData === lastFrameDataRef.current && metaSig === lastFrameMetaRef.current
+
+          if (!isDuplicate) {
+            frameCountRef.current++
+            lastFrameDataRef.current = nextData
+            lastFrameMetaRef.current = metaSig
+            setCurrentFrame({
+              data: nextData,
+              timestamp: data.timestamp,
+              metadata: meta
+            })
+          }
           setIsStarting(false)
         } else if (data.type === 'status') {
           console.log('[useBrowserStream] Status:', data.message)
@@ -141,20 +165,39 @@ export function useBrowserStream({
     }
 
     ws.onerror = (event) => {
+      if (wsRef.current !== ws) return
       console.error('[useBrowserStream] WebSocket error:', event)
       setError('WebSocket connection error')
       setIsStarting(false)
     }
 
     ws.onclose = (event) => {
+      const wasClientClose = closedByClientRef.current.has(ws)
+      if (wsRef.current !== ws) {
+        if (wasClientClose) closedByClientRef.current.delete(ws)
+        // A stale socket from a previous connect attempt closed; ignore.
+        return
+      }
       console.log('[useBrowserStream] Disconnected:', event.code, event.reason)
       setIsConnected(false)
       setIsStreaming(false)
       setIsStarting(false)
       wsRef.current = null
 
-      // Attempt to reconnect after 3 seconds if not intentionally closed
-      if (event.code !== 1000) {
+      if (wasClientClose) {
+        closedByClientRef.current.delete(ws)
+        return
+      }
+
+      // Auth failures should not spin in a reconnect loop.
+      if (event.code === 4401 || event.code === 4403) {
+        setError('Live view permission denied (check WEAVER_INTERNAL_API_KEY / auth headers).')
+        return
+      }
+
+      // Attempt to reconnect after 3 seconds (even on normal closes, unless it
+      // was triggered by this component).
+      {
         reconnectTimeoutRef.current = setTimeout(() => {
           if (threadId) {
             console.log('[useBrowserStream] Attempting to reconnect...')
@@ -176,7 +219,12 @@ export function useBrowserStream({
         clearTimeout(reconnectTimeoutRef.current)
       }
       if (wsRef.current) {
-        wsRef.current.close(1000, 'Component unmounted')
+        try {
+          closedByClientRef.current.add(wsRef.current)
+          wsRef.current.close(1000, 'Component unmounted')
+        } catch (err) {
+          console.warn('[useBrowserStream] Failed to close socket:', err)
+        }
         wsRef.current = null
       }
     }

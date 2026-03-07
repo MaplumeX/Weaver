@@ -78,8 +78,10 @@ export function BrowserViewer({
   } = useBrowserStream({
     threadId: isLiveMode ? threadId : null,
     autoStart: true,
-    quality: 70,
-    maxFps: 10
+    // Conservative defaults: 10 FPS + large base64 frames can overwhelm
+    // browsers and stall rendering in dev mode.
+    quality: 60,
+    maxFps: 5
   })
 
   const isActive = isLiveMode ? (isStreaming || isStarting) : isEventsActive
