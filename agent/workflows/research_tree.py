@@ -990,12 +990,25 @@ class TreeExplorer:
                 semaphore = asyncio.Semaphore(max_parallel)
 
                 async def explore_child(child: ResearchTreeNode) -> None:
+                    """
+                    Explore a first-level child branch and (optionally) its children.
+
+                    Important: do NOT hold the shared semaphore while recursing.
+                    `_explore_children_async()` acquires the same semaphore for its
+                    own per-branch work. Holding it here would create a classic
+                    re-entrant semaphore deadlock when:
+                      - number of first-level children >= max_parallel, and
+                      - depth allows exploring grandchildren.
+                    """
+                    self._check_cancel(state)
+
+                    # Limit concurrency for the expensive branch exploration work.
                     async with semaphore:
-                        self._check_cancel(state)
                         await self.explore_branch_async(child, state)
-                        # Recursively explore if depth allows
-                        if child.depth < self.max_depth:
-                            await self._explore_children_async(child, state, semaphore)
+
+                    # Recursively explore if depth allows (semaphore handled inside).
+                    if child.depth < self.max_depth:
+                        await self._explore_children_async(child, state, semaphore)
 
                 # Explore all first-level children in parallel
                 logger.info(f"[TreeExplorer] Parallel exploring {len(children)} subtopics")
