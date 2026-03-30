@@ -146,6 +146,10 @@ Inspector 的 Progress 面板使用 EventSource 连接：
 - `quality_update`
 - `research_tree_update`
 - `research_node_start` / `research_node_complete`
+- `research_agent_start` / `research_agent_complete`
+- `research_task_update`
+- `research_artifact_update`
+- `research_decision`
 - `search`
 - `error` / `done`
 

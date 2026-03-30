@@ -179,6 +179,18 @@ class AgentState(TypedDict):
     # Tracking of sub-agent contexts for parallel branches
     sub_agent_contexts: Dict[str, Dict[str, Any]]
 
+    # ============ Deep Research Runtime ============
+    # Selected deep research engine (legacy | multi_agent)
+    deepsearch_engine: str
+    # Task queue snapshot for the active deep research runtime
+    deepsearch_task_queue: Dict[str, Any]
+    # Structured artifact store snapshot for the active deep research runtime
+    deepsearch_artifact_store: Dict[str, Any]
+    # Runtime bookkeeping (epochs, budgets, fallback reason, etc.)
+    deepsearch_runtime_state: Dict[str, Any]
+    # Agent run lifecycle records for the current deep research execution
+    deepsearch_agent_runs: List[Dict[str, Any]]
+
     # ============ Metrics ============
     # Token usage tracking
     total_input_tokens: int

@@ -710,6 +710,7 @@ class SearchMode(BaseModel):
     useWebSearch: bool = False
     useAgent: bool = False
     useDeepSearch: bool = False
+    deepsearchEngine: Optional[str] = None
 
 
 def _coerce_search_mode_input(value: Any) -> SearchMode | None:
@@ -759,7 +760,12 @@ def _coerce_search_mode_input(value: Any) -> SearchMode | None:
         if use_deep and not use_agent:
             use_deep = False
 
-        return SearchMode(useWebSearch=use_web, useAgent=use_agent, useDeepSearch=use_deep)
+        return SearchMode(
+            useWebSearch=use_web,
+            useAgent=use_agent,
+            useDeepSearch=use_deep,
+            deepsearchEngine=value.get("deepsearchEngine", value.get("deepsearch_engine")),
+        )
 
     return None
 
@@ -1637,6 +1643,7 @@ def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | str | None
         use_agent = search_mode.useAgent
         use_deep = search_mode.useDeepSearch
         use_deep_prompt = use_deep
+        deepsearch_engine = search_mode.deepsearchEngine
     elif isinstance(search_mode, dict):
         # Support both camelCase (frontend payload) and snake_case (already-normalized)
         use_web = bool(search_mode.get("useWebSearch", search_mode.get("use_web", False)))
@@ -1645,6 +1652,7 @@ def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | str | None
         use_deep_prompt = bool(
             search_mode.get("useDeepPrompt", search_mode.get("use_deep_prompt", use_deep))
         )
+        deepsearch_engine = search_mode.get("deepsearchEngine", search_mode.get("deepsearch_engine"))
 
         # If booleans were not provided but a mode string exists, derive flags from it
         if not (use_web or use_agent or use_deep) and isinstance(search_mode.get("mode"), str):
@@ -1669,11 +1677,13 @@ def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | str | None
             use_agent = lowered in {"agent", "mcp", "deep", "deep_agent", "deep-agent", "ultra"}
             use_deep = lowered in {"deep", "deep_agent", "deep-agent", "ultra"}
             use_deep_prompt = use_deep
+        deepsearch_engine = None
     else:
         use_web = False
         use_agent = False
         use_deep = False
         use_deep_prompt = False
+        deepsearch_engine = None
 
     if use_deep and not use_agent:
         use_deep = False
@@ -1692,6 +1702,7 @@ def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | str | None
         "use_deep": use_deep,
         "mode": mode,
         "use_deep_prompt": use_deep_prompt,
+        "deepsearch_engine": deepsearch_engine,
     }
 
 
@@ -1892,6 +1903,14 @@ async def stream_agent_events(
             "tool_call_count": 0,
             "is_complete": False,
             "errors": [],
+            "sub_agent_contexts": {},
+            "deepsearch_engine": str(
+                mode_info.get("deepsearch_engine") or getattr(settings, "deepsearch_engine", "legacy")
+            ),
+            "deepsearch_task_queue": {},
+            "deepsearch_artifact_store": {},
+            "deepsearch_runtime_state": {},
+            "deepsearch_agent_runs": [],
             # 鍙栨秷鎺у埗瀛楁
             "cancel_token_id": thread_id,
             "is_cancelled": False,
@@ -1922,6 +1941,7 @@ async def stream_agent_events(
                 "thread_id": thread_id,
                 "model": model,
                 "search_mode": mode_info,
+                "deepsearch_engine": mode_info.get("deepsearch_engine"),
                 "agent_profile": agent_profile.model_dump(mode="json") if agent_profile else None,
                 "user_id": user_id,
                 "allow_interrupts": bool(checkpointer),
@@ -1973,6 +1993,16 @@ async def stream_agent_events(
                     yield_event = await format_stream_event("quality_update", tool_event.data)
                 elif tool_event.type == ToolEvent.SEARCH:
                     yield_event = await format_stream_event("search", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_AGENT_START:
+                    yield_event = await format_stream_event("research_agent_start", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_AGENT_COMPLETE:
+                    yield_event = await format_stream_event("research_agent_complete", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_TASK_UPDATE:
+                    yield_event = await format_stream_event("research_task_update", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_ARTIFACT_UPDATE:
+                    yield_event = await format_stream_event("research_artifact_update", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_DECISION:
+                    yield_event = await format_stream_event("research_decision", tool_event.data)
                 else:
                     continue
 
@@ -2509,6 +2539,14 @@ async def chat(request: Request, payload: ChatRequest):
                 "max_revisions": settings.max_revisions,
                 "is_complete": False,
                 "errors": [],
+                "sub_agent_contexts": {},
+                "deepsearch_engine": str(
+                    mode_info.get("deepsearch_engine") or getattr(settings, "deepsearch_engine", "legacy")
+                ),
+                "deepsearch_task_queue": {},
+                "deepsearch_artifact_store": {},
+                "deepsearch_runtime_state": {},
+                "deepsearch_agent_runs": [],
             }
 
             messages: list[Any] = []
@@ -2535,6 +2573,7 @@ async def chat(request: Request, payload: ChatRequest):
                     "thread_id": "default",
                     "model": model,
                     "search_mode": mode_info,
+                    "deepsearch_engine": mode_info.get("deepsearch_engine"),
                     "agent_profile": agent_profile.model_dump(mode="json")
                     if agent_profile
                     else None,
@@ -2597,6 +2636,7 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
             "thread_id": payload.thread_id,
             "model": model,
             "search_mode": mode_info,
+            "deepsearch_engine": mode_info.get("deepsearch_engine"),
             "agent_profile": agent_profile.model_dump(mode="json") if agent_profile else None,
             "allow_interrupts": True,
             "tool_approval": settings.tool_approval or False,

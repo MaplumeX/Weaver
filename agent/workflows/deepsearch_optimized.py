@@ -32,6 +32,7 @@ from langchain_openai import ChatOpenAI
 from agent.core.llm_factory import create_chat_model
 from agent.core.search_cache import get_search_cache
 from agent.workflows.domain_router import ResearchDomain, build_provider_profile
+from agent.workflows.deepsearch_multi_agent import run_multi_agent_deepsearch
 from agent.workflows.evidence_passages import split_into_passages
 from agent.workflows.knowledge_gap import KnowledgeGapAnalyzer
 from agent.workflows.parsing_utils import format_search_results, parse_list_output
@@ -65,6 +66,7 @@ _parse_list_output = parse_list_output
 _format_results = format_search_results
 
 _DEEPSEARCH_MODES = {"auto", "tree", "linear"}
+_DEEPSEARCH_ENGINES = {"legacy", "multi_agent"}
 _SIMPLE_FACT_PATTERNS = (
     r"\bwhat\s+is\b",
     r"\bwho\s+is\b",
@@ -162,6 +164,21 @@ def _resolve_deepsearch_mode(config: Dict[str, Any]) -> str:
         return _normalize_deepsearch_mode(runtime_mode)
 
     return _normalize_deepsearch_mode(getattr(settings, "deepsearch_mode", "auto"))
+
+
+def _normalize_deepsearch_engine(value: Any) -> str:
+    engine = str(value or "").strip().lower()
+    if engine in _DEEPSEARCH_ENGINES:
+        return engine
+    return "legacy"
+
+
+def _resolve_deepsearch_engine(config: Dict[str, Any]) -> str:
+    cfg = config.get("configurable") or {}
+    runtime_engine = cfg.get("deepsearch_engine") if isinstance(cfg, dict) else None
+    if runtime_engine is not None:
+        return _normalize_deepsearch_engine(runtime_engine)
+    return _normalize_deepsearch_engine(getattr(settings, "deepsearch_engine", "legacy"))
 
 
 def _configurable_value(config: Dict[str, Any], key: str) -> Any:
@@ -2149,37 +2166,49 @@ def run_deepsearch_auto(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
     Uses tree-based exploration if enabled in settings, otherwise falls back
     to the optimized linear approach.
     """
-    mode = _resolve_deepsearch_mode(config)
-
     def _with_event_marker(result: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(result, dict) and not bool(result.get("is_cancelled")):
             result.setdefault("_deepsearch_events_emitted", True)
         return result
 
-    if mode == "tree":
-        logger.info("[deepsearch] Using tree-based exploration mode (override)")
-        return _with_event_marker(run_deepsearch_tree(state, config))
+    def _run_legacy_deepsearch() -> Dict[str, Any]:
+        mode = _resolve_deepsearch_mode(config)
 
-    if mode == "linear":
-        logger.info("[deepsearch] Using linear exploration mode (override)")
+        if mode == "tree":
+            logger.info("[deepsearch] Using tree-based exploration mode (override)")
+            return _with_event_marker(run_deepsearch_tree(state, config))
+
+        if mode == "linear":
+            logger.info("[deepsearch] Using linear exploration mode (override)")
+            return _with_event_marker(run_deepsearch_optimized(state, config))
+
+        use_tree = getattr(settings, "tree_exploration_enabled", True)
+        topic = str(state.get("input") or state.get("topic") or "").strip()
+        if use_tree and _auto_mode_prefers_linear(topic):
+            logger.info("[deepsearch] Auto mode selected linear exploration for simple factual query")
+            simple_config = dict(config) if isinstance(config, dict) else {"configurable": {}}
+            existing_cfg = simple_config.get("configurable")
+            simple_cfg = dict(existing_cfg) if isinstance(existing_cfg, dict) else {}
+            simple_config["configurable"] = simple_cfg
+            simple_cfg.setdefault("deepsearch_max_epochs", 1)
+            simple_cfg.setdefault("deepsearch_query_num", 1)
+            simple_cfg.setdefault("deepsearch_results_per_query", 5)
+            simple_cfg.setdefault("deepsearch_visualize_browser", False)
+            return _with_event_marker(run_deepsearch_optimized(state, simple_config))
+        if use_tree:
+            logger.info("[deepsearch] Using tree-based exploration mode")
+            return _with_event_marker(run_deepsearch_tree(state, config))
+
+        logger.info("[deepsearch] Using linear exploration mode")
         return _with_event_marker(run_deepsearch_optimized(state, config))
 
-    use_tree = getattr(settings, "tree_exploration_enabled", True)
-    topic = str(state.get("input") or state.get("topic") or "").strip()
-    if use_tree and _auto_mode_prefers_linear(topic):
-        logger.info("[deepsearch] Auto mode selected linear exploration for simple factual query")
-        simple_config = dict(config) if isinstance(config, dict) else {"configurable": {}}
-        existing_cfg = simple_config.get("configurable")
-        simple_cfg = dict(existing_cfg) if isinstance(existing_cfg, dict) else {}
-        simple_config["configurable"] = simple_cfg
-        simple_cfg.setdefault("deepsearch_max_epochs", 1)
-        simple_cfg.setdefault("deepsearch_query_num", 1)
-        simple_cfg.setdefault("deepsearch_results_per_query", 5)
-        simple_cfg.setdefault("deepsearch_visualize_browser", False)
-        return _with_event_marker(run_deepsearch_optimized(state, simple_config))
-    if use_tree:
-        logger.info("[deepsearch] Using tree-based exploration mode")
-        return _with_event_marker(run_deepsearch_tree(state, config))
+    engine = _resolve_deepsearch_engine(config)
+    if engine == "multi_agent":
+        try:
+            logger.info("[deepsearch] Using multi-agent runtime")
+            return _with_event_marker(run_multi_agent_deepsearch(state, config))
+        except Exception as exc:
+            logger.error("[deepsearch] multi-agent runtime failed: %s", exc, exc_info=True)
+            raise
 
-    logger.info("[deepsearch] Using linear exploration mode")
-    return _with_event_marker(run_deepsearch_optimized(state, config))
+    return _run_legacy_deepsearch()

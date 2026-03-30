@@ -36,6 +36,7 @@ from agent.workflows import (
     get_deep_agent_prompt,
     initialize_enhanced_tools,
     run_deepsearch,
+    run_multi_agent_deepsearch,
     run_deepsearch_optimized,
 )
 
@@ -65,6 +66,7 @@ __all__ = [
     # Workflows & tools
     "get_deep_agent_prompt",
     "run_deepsearch",
+    "run_multi_agent_deepsearch",
     "run_deepsearch_optimized",
     "build_writer_agent",
     "build_tool_agent",

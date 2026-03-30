@@ -180,5 +180,7 @@ webhook = WebhookTrigger(
 
 Deep Research 的细节与“上线/回滚”建议见：
 
+- `DEEPSEARCH_ENGINE=legacy|multi_agent`
+- `DEEPSEARCH_MODE=auto|tree|linear`
 - `docs/deep-research-rollout.md`
 - `docs/benchmarks/README.md`

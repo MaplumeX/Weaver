@@ -15,7 +15,7 @@ import copy
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,55 @@ class SubAgentContext:
             "messages_count": len(self.messages),
             "scraped_content_count": len(self.scraped_content),
             "summary_notes_count": len(self.summary_notes),
+            "is_complete": self.is_complete,
+            "is_cancelled": self.is_cancelled,
+        }
+
+
+@dataclass
+class ResearchWorkerContext:
+    """
+    Structured Deep Research worker context with explicit task/artifact inputs.
+    """
+
+    scope_id: str
+    task_id: str
+    agent_id: str
+    role: str = "researcher"
+    query: str = ""
+    topic: str = ""
+    parent_scope_id: Optional[str] = None
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    brief: Dict[str, Any] = field(default_factory=dict)
+    related_artifacts: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+
+    messages: List[Any] = field(default_factory=list)
+    summary_notes: List[str] = field(default_factory=list)
+    scraped_content: List[Dict[str, Any]] = field(default_factory=list)
+    sources: List[Dict[str, Any]] = field(default_factory=list)
+    artifacts_created: List[Dict[str, Any]] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+
+    is_complete: bool = False
+    is_cancelled: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "scope_id": self.scope_id,
+            "task_id": self.task_id,
+            "agent_id": self.agent_id,
+            "role": self.role,
+            "query": self.query,
+            "topic": self.topic,
+            "parent_scope_id": self.parent_scope_id,
+            "created_at": self.created_at,
+            "brief": self.brief,
+            "related_artifacts": self.related_artifacts,
+            "messages_count": len(self.messages),
+            "scraped_content_count": len(self.scraped_content),
+            "summary_notes_count": len(self.summary_notes),
+            "artifacts_created_count": len(self.artifacts_created),
             "is_complete": self.is_complete,
             "is_cancelled": self.is_cancelled,
         }
@@ -292,6 +341,106 @@ def merge_state(
 
     logger.debug(f"[merge_state] Merged fork: {scope_id}")
 
+    return updates
+
+
+def build_research_worker_context(
+    parent_state: Dict[str, Any],
+    *,
+    task_id: str,
+    agent_id: str,
+    query: str,
+    topic: str,
+    brief: Optional[Dict[str, Any]] = None,
+    related_artifacts: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    scope_id: Optional[str] = None,
+    parent_scope_id: Optional[str] = None,
+    inherit_messages: bool = False,
+) -> ResearchWorkerContext:
+    """
+    Create an isolated task-scoped context for a research worker.
+
+    The worker only receives a compact brief plus task-related structured artifacts.
+    """
+
+    resolved_scope_id = scope_id or f"research-{task_id}"
+    context = ResearchWorkerContext(
+        scope_id=resolved_scope_id,
+        task_id=task_id,
+        agent_id=agent_id,
+        query=query,
+        topic=topic,
+        parent_scope_id=parent_scope_id,
+        brief=dict(brief or {}),
+        related_artifacts=copy.deepcopy(related_artifacts or {}),
+    )
+
+    if inherit_messages:
+        parent_messages = parent_state.get("messages", [])
+        context.messages = copy.deepcopy(parent_messages[-5:])
+
+    sub_contexts = dict(parent_state.get("sub_agent_contexts", {}))
+    sub_contexts[resolved_scope_id] = context.to_dict()
+    parent_state["sub_agent_contexts"] = sub_contexts
+
+    logger.debug(
+        "[ContextManager] Built research worker context %s for task %s",
+        resolved_scope_id,
+        task_id,
+    )
+    return context
+
+
+def merge_research_worker_context(
+    parent_state: Dict[str, Any],
+    worker_context: ResearchWorkerContext,
+    *,
+    merge_messages: bool = False,
+) -> Dict[str, Any]:
+    """
+    Merge a structured research worker context back into the shared agent state.
+    """
+
+    updates: Dict[str, Any] = {}
+
+    if worker_context.scraped_content:
+        existing = parent_state.get("scraped_content", [])
+        updates["scraped_content"] = existing + worker_context.scraped_content
+
+    if worker_context.sources:
+        existing = parent_state.get("sources", [])
+        existing_urls = {item.get("url") for item in existing if isinstance(item, dict)}
+        merged_sources = list(existing)
+        for source in worker_context.sources:
+            url = source.get("url") if isinstance(source, dict) else None
+            if url and url not in existing_urls:
+                existing_urls.add(url)
+                merged_sources.append(source)
+        updates["sources"] = merged_sources
+
+    if worker_context.summary_notes:
+        existing = parent_state.get("summary_notes", [])
+        updates["summary_notes"] = existing + worker_context.summary_notes
+
+    if worker_context.errors:
+        existing = parent_state.get("errors", [])
+        updates["errors"] = existing + worker_context.errors
+
+    if merge_messages and worker_context.messages:
+        ai_messages = [m for m in worker_context.messages if getattr(m, "type", "") == "ai"]
+        if ai_messages:
+            existing = parent_state.get("messages", [])
+            updates["messages"] = existing + ai_messages[-2:]
+
+    sub_contexts = dict(parent_state.get("sub_agent_contexts", {}))
+    sub_contexts[worker_context.scope_id] = worker_context.to_dict()
+    updates["sub_agent_contexts"] = sub_contexts
+
+    logger.debug(
+        "[ContextManager] Merged research worker context %s for task %s",
+        worker_context.scope_id,
+        worker_context.task_id,
+    )
     return updates
 
 

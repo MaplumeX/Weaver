@@ -1,4 +1,11 @@
+import pytest
+
 from agent.workflows import deepsearch_optimized, nodes
+
+
+@pytest.fixture(autouse=True)
+def _default_deepsearch_engine(monkeypatch):
+    monkeypatch.setattr(deepsearch_optimized.settings, "deepsearch_engine", "legacy", raising=False)
 
 
 def test_deepsearch_node_uses_auto_runner(monkeypatch):
@@ -70,6 +77,66 @@ def test_run_deepsearch_auto_respects_runtime_override(monkeypatch):
     assert called["linear"] is True
     assert called["tree"] is False
     assert result["mode"] == "linear"
+
+
+def test_run_deepsearch_auto_uses_multi_agent_engine_when_selected(monkeypatch):
+    called = {"multi_agent": False, "linear": False, "tree": False}
+
+    def fake_multi_agent(state, config):
+        called["multi_agent"] = True
+        return {"mode": "multi_agent"}
+
+    monkeypatch.setattr(deepsearch_optimized, "run_multi_agent_deepsearch", fake_multi_agent)
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "run_deepsearch_optimized",
+        lambda *args, **kwargs: called.__setitem__("linear", True) or {"mode": "linear"},
+    )
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "run_deepsearch_tree",
+        lambda *args, **kwargs: called.__setitem__("tree", True) or {"mode": "tree"},
+    )
+
+    result = deepsearch_optimized.run_deepsearch_auto(
+        {"input": "test"},
+        {"configurable": {"deepsearch_engine": "multi_agent"}},
+    )
+
+    assert called["multi_agent"] is True
+    assert called["linear"] is False
+    assert called["tree"] is False
+    assert result["mode"] == "multi_agent"
+
+
+def test_run_deepsearch_auto_raises_when_multi_agent_fails(monkeypatch):
+    called = {"linear": False, "tree": False}
+
+    def fake_multi_agent(state, config):
+        raise RuntimeError("multi-agent boom")
+
+    monkeypatch.setattr(deepsearch_optimized, "run_multi_agent_deepsearch", fake_multi_agent)
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "run_deepsearch_optimized",
+        lambda *args, **kwargs: called.__setitem__("linear", True) or {"mode": "linear"},
+    )
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "run_deepsearch_tree",
+        lambda *args, **kwargs: called.__setitem__("tree", True) or {"mode": "tree"},
+    )
+    monkeypatch.setattr(deepsearch_optimized.settings, "tree_exploration_enabled", False)
+    monkeypatch.setattr(deepsearch_optimized.settings, "deepsearch_mode", "auto", raising=False)
+
+    with pytest.raises(RuntimeError, match="multi-agent boom"):
+        deepsearch_optimized.run_deepsearch_auto(
+            {"input": "test"},
+            {"configurable": {"deepsearch_engine": "multi_agent"}},
+        )
+
+    assert called["linear"] is False
+    assert called["tree"] is False
 
 
 def test_run_deepsearch_auto_prefers_linear_for_simple_query(monkeypatch):

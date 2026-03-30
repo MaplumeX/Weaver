@@ -35,7 +35,7 @@ import logging
 import threading
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -72,6 +72,11 @@ class ToolEventType(str, Enum):
     RESEARCH_TREE_UPDATE = "research_tree_update"  # Research tree structure updated
     SEARCH = "search"  # Search query executed with results
     QUALITY_UPDATE = "quality_update"  # Research quality/coverage metrics updated
+    RESEARCH_AGENT_START = "research_agent_start"  # Structured research agent lifecycle start
+    RESEARCH_AGENT_COMPLETE = "research_agent_complete"  # Structured research agent lifecycle end
+    RESEARCH_TASK_UPDATE = "research_task_update"  # Structured research task status update
+    RESEARCH_ARTIFACT_UPDATE = "research_artifact_update"  # Structured artifact lifecycle update
+    RESEARCH_DECISION = "research_decision"  # Coordinator decision update
 
     # System events
     ERROR = "error"  # General error
@@ -417,6 +422,136 @@ class EventEmitter:
     async def emit_quality_update(self, quality: Dict[str, Any]) -> Event:
         """Convenience method to emit quality metric updates."""
         return await self.emit(ToolEvent.QUALITY_UPDATE, quality or {})
+
+    async def emit_research_agent_start(
+        self,
+        *,
+        agent_id: str,
+        role: str,
+        phase: str,
+        task_id: Optional[str] = None,
+        iteration: Optional[int] = None,
+    ) -> Event:
+        """Emit a structured multi-agent Deep Research start event."""
+        data: Dict[str, Any] = {
+            "agent_id": agent_id,
+            "role": role,
+            "phase": phase,
+        }
+        if task_id:
+            data["task_id"] = task_id
+        if iteration is not None:
+            data["iteration"] = iteration
+        return await self.emit(ToolEvent.RESEARCH_AGENT_START, data)
+
+    async def emit_research_agent_complete(
+        self,
+        *,
+        agent_id: str,
+        role: str,
+        phase: str,
+        status: str,
+        task_id: Optional[str] = None,
+        iteration: Optional[int] = None,
+        summary: Optional[str] = None,
+    ) -> Event:
+        """Emit a structured multi-agent Deep Research completion event."""
+        data: Dict[str, Any] = {
+            "agent_id": agent_id,
+            "role": role,
+            "phase": phase,
+            "status": status,
+        }
+        if task_id:
+            data["task_id"] = task_id
+        if iteration is not None:
+            data["iteration"] = iteration
+        if summary:
+            data["summary"] = summary
+        return await self.emit(ToolEvent.RESEARCH_AGENT_COMPLETE, data)
+
+    async def emit_research_task_update(
+        self,
+        *,
+        task_id: str,
+        status: str,
+        title: Optional[str] = None,
+        query: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
+        parent_context_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        reason: Optional[str] = None,
+        priority: Optional[int] = None,
+    ) -> Event:
+        """Emit a structured task queue event for Deep Research."""
+        data: Dict[str, Any] = {
+            "task_id": task_id,
+            "status": status,
+        }
+        if title:
+            data["title"] = title
+        if query:
+            data["query"] = query
+        if parent_task_id:
+            data["parent_task_id"] = parent_task_id
+        if parent_context_id:
+            data["parent_context_id"] = parent_context_id
+        if agent_id:
+            data["agent_id"] = agent_id
+        if reason:
+            data["reason"] = reason
+        if priority is not None:
+            data["priority"] = priority
+        return await self.emit(ToolEvent.RESEARCH_TASK_UPDATE, data)
+
+    async def emit_research_artifact_update(
+        self,
+        *,
+        artifact_id: str,
+        artifact_type: str,
+        status: str,
+        task_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        summary: Optional[str] = None,
+        source_url: Optional[str] = None,
+    ) -> Event:
+        """Emit a structured artifact lifecycle event for Deep Research."""
+        data: Dict[str, Any] = {
+            "artifact_id": artifact_id,
+            "artifact_type": artifact_type,
+            "status": status,
+        }
+        if task_id:
+            data["task_id"] = task_id
+        if agent_id:
+            data["agent_id"] = agent_id
+        if summary:
+            data["summary"] = summary
+        if source_url:
+            data["source_url"] = source_url
+        return await self.emit(ToolEvent.RESEARCH_ARTIFACT_UPDATE, data)
+
+    async def emit_research_decision(
+        self,
+        *,
+        decision_type: str,
+        reason: str,
+        iteration: Optional[int] = None,
+        coverage: Optional[float] = None,
+        gap_count: Optional[int] = None,
+    ) -> Event:
+        """Emit a coordinator decision event for Deep Research."""
+        data: Dict[str, Any] = {
+            "decision_type": decision_type,
+            "reason": reason,
+        }
+        if iteration is not None:
+            data["iteration"] = iteration
+        if coverage is not None:
+            data["coverage"] = coverage
+        if gap_count is not None:
+            data["gap_count"] = gap_count
+        return await self.emit(ToolEvent.RESEARCH_DECISION, data)
 
     def get_buffered_events(self) -> List[Event]:
         """Get all buffered events for replay."""

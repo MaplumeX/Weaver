@@ -352,6 +352,7 @@ class Settings(BaseSettings):
     deepsearch_save_dir: str = "eval/deepsearch_data"
     deepsearch_use_gap_analysis: bool = True  # use knowledge gap analysis for targeted queries
     deepsearch_mode: str = "auto"  # auto | tree | linear
+    deepsearch_engine: str = "legacy"  # legacy | multi_agent
     deepsearch_max_seconds: float = 0.0  # 0 = disabled
     deepsearch_max_tokens: int = 0  # 0 = disabled
     deepsearch_freshness_warning_min_known: int = 3  # minimum dated results before warning checks

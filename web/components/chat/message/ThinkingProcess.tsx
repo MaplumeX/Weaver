@@ -2,11 +2,13 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import {
+  Bot,
   ChevronDown,
   Loader2,
   CheckCircle2,
   Search,
   Wrench,
+  FileText,
   Image as ImageIcon,
   Sparkles,
   ListTodo,
@@ -72,6 +74,11 @@ export function ThinkingProcess({
       'screenshot',
       'research_node_start',
       'research_node_complete',
+      'research_agent_start',
+      'research_agent_complete',
+      'research_task_update',
+      'research_artifact_update',
+      'research_decision',
     ])
     return events.filter((e) => stepTypes.has(e.type)).length
   }, [tools.length, events])
@@ -212,6 +219,113 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
           {typeof progress === 'number' ? (
             <div className="text-xs text-muted-foreground">{Math.round(progress)}%</div>
           ) : null}
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'research_agent_start' || kind === 'research_agent_complete') {
+    const role = String(ev.data?.role || '').trim() || 'agent'
+    const agentId = String(ev.data?.agent_id || ev.data?.agentId || '').trim()
+    const phase = String(ev.data?.phase || '').trim()
+    const taskId = String(ev.data?.task_id || '').trim()
+    const status = kind === 'research_agent_complete' ? String(ev.data?.status || '').trim() : 'running'
+    const summary = String(ev.data?.summary || '').trim()
+
+    return (
+      <div className="flex items-start gap-2">
+        <Bot className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
+        <div className="min-w-0">
+          <div className="truncate">
+            <span className="font-medium text-foreground/80">{role}</span>
+            {agentId ? <span className="ml-2 font-mono text-[12px]">{agentId}</span> : null}
+            <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {status}
+            </span>
+          </div>
+          {(phase || taskId) ? (
+            <div className="truncate text-xs text-muted-foreground">
+              {[phase || null, taskId ? `task ${taskId}` : null].filter(Boolean).join(' · ')}
+            </div>
+          ) : null}
+          {summary ? <div className="line-clamp-2 text-xs text-muted-foreground">{summary}</div> : null}
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'research_task_update') {
+    const taskId = String(ev.data?.task_id || '').trim()
+    const title = String(ev.data?.title || ev.data?.query || taskId || 'task').trim()
+    const status = String(ev.data?.status || '').trim()
+    const query = String(ev.data?.query || '').trim()
+    const priority = ev.data?.priority
+
+    return (
+      <div className="flex items-start gap-2">
+        <ListTodo className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
+        <div className="min-w-0">
+          <div className="truncate">
+            <span className="font-medium text-foreground/80">Research task</span>
+            <span className="ml-2">{title}</span>
+            {status ? (
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {status}
+              </span>
+            ) : null}
+          </div>
+          <div className="truncate text-xs text-muted-foreground">
+            {[query || null, typeof priority === 'number' ? `p${priority}` : null].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'research_artifact_update') {
+    const artifactType = String(ev.data?.artifact_type || '').trim() || 'artifact'
+    const status = String(ev.data?.status || '').trim()
+    const summary = String(ev.data?.summary || '').trim()
+    const sourceUrl = String(ev.data?.source_url || '').trim()
+
+    return (
+      <div className="flex items-start gap-2">
+        <FileText className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
+        <div className="min-w-0">
+          <div className="truncate">
+            <span className="font-medium text-foreground/80">Artifact</span>
+            <span className="ml-2">{artifactType}</span>
+            {status ? (
+              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {status}
+              </span>
+            ) : null}
+          </div>
+          {summary ? <div className="line-clamp-2 text-xs text-muted-foreground">{summary}</div> : null}
+          {sourceUrl ? <div className="truncate font-mono text-xs text-muted-foreground">{sourceUrl}</div> : null}
+        </div>
+      </div>
+    )
+  }
+
+  if (kind === 'research_decision') {
+    const decision = String(ev.data?.decision_type || '').trim()
+    const reason = String(ev.data?.reason || '').trim()
+    const coverage = typeof ev.data?.coverage === 'number' ? `${Math.round(ev.data.coverage * 100)}%` : ''
+    const gapCount = typeof ev.data?.gap_count === 'number' ? `${ev.data.gap_count} gaps` : ''
+
+    return (
+      <div className="flex items-start gap-2">
+        <Sparkles className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
+        <div className="min-w-0">
+          <div className="truncate">
+            <span className="font-medium text-foreground/80">Coordinator</span>
+            {decision ? <span className="ml-2 font-mono text-[12px]">{decision}</span> : null}
+            {[coverage || null, gapCount || null].filter(Boolean).map((item) => (
+              <span key={item} className="ml-2 text-xs text-muted-foreground">{item}</span>
+            ))}
+          </div>
+          {reason ? <div className="line-clamp-2 text-xs text-muted-foreground">{reason}</div> : null}
         </div>
       </div>
     )

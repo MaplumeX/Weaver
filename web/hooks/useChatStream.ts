@@ -10,6 +10,51 @@ interface UseChatStreamProps {
 
 type ToolLifecycleEventType = 'tool' | 'tool_start' | 'tool_result' | 'tool_error'
 
+export function getDeepResearchAutoStatus(eventType: string, payload: any): string | null {
+  const role = String(payload?.role || '').trim()
+  const agentId = String(payload?.agent_id || payload?.agentId || '').trim()
+  const taskTitle = String(payload?.title || payload?.query || payload?.task_id || '').trim()
+  const decisionType = String(payload?.decision_type || '').trim()
+  const artifactType = String(payload?.artifact_type || '').trim()
+  const status = String(payload?.status || '').trim()
+
+  if (eventType === 'research_agent_start') {
+    if (role === 'planner') return '多 Agent 调研：正在规划研究任务…'
+    if (role === 'researcher') return `多 Agent 调研：${agentId || 'researcher'} 开始执行任务…`
+    if (role === 'verifier') return '多 Agent 调研：正在检查证据覆盖度…'
+    if (role === 'reporter') return '多 Agent 调研：正在生成最终报告…'
+    if (role === 'coordinator') return '多 Agent 调研：协调下一步动作…'
+  }
+
+  if (eventType === 'research_agent_complete') {
+    if (role === 'reporter' && status === 'completed') return '多 Agent 调研：最终报告已生成'
+    if (role === 'verifier' && status === 'completed') return '多 Agent 调研：覆盖度检查完成'
+    if (role === 'researcher' && status === 'completed') return `多 Agent 调研：${agentId || 'researcher'} 已完成任务`
+  }
+
+  if (eventType === 'research_task_update') {
+    if (status === 'ready') return `多 Agent 调研：任务已入队 · ${taskTitle || '未命名任务'}`
+    if (status === 'in_progress') return `多 Agent 调研：执行任务 · ${taskTitle || '未命名任务'}`
+    if (status === 'completed') return `多 Agent 调研：任务完成 · ${taskTitle || '未命名任务'}`
+    if (status === 'failed' || status === 'blocked') return `多 Agent 调研：任务${status === 'failed' ? '失败' : '阻塞'} · ${taskTitle || '未命名任务'}`
+  }
+
+  if (eventType === 'research_artifact_update') {
+    if (artifactType === 'evidence_card') return '多 Agent 调研：已记录新的证据卡片'
+    if (artifactType === 'knowledge_gap') return '多 Agent 调研：识别到新的知识缺口'
+    if (artifactType === 'final_report') return '多 Agent 调研：已落盘最终报告产物'
+  }
+
+  if (eventType === 'research_decision') {
+    if (decisionType === 'plan' || decisionType === 'replan') return '多 Agent 调研：协调器决定补充规划'
+    if (decisionType === 'research') return '多 Agent 调研：协调器决定继续研究'
+    if (decisionType === 'synthesize' || decisionType === 'complete') return '多 Agent 调研：协调器决定进入汇总阶段'
+    if (decisionType === 'budget_stop') return '多 Agent 调研：触发预算停止条件'
+  }
+
+  return null
+}
+
 function normalizeToolEvent(
   eventType: ToolLifecycleEventType,
   payload: any,
@@ -350,6 +395,19 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             syncAssistantMessage()
           } else if (data.type === 'research_tree_update') {
             pushProcessEvent('research_tree_update', data.data)
+            syncAssistantMessage()
+          } else if (
+            [
+              'research_agent_start',
+              'research_agent_complete',
+              'research_task_update',
+              'research_artifact_update',
+              'research_decision',
+            ].includes(data.type)
+          ) {
+            const autoStatus = getDeepResearchAutoStatus(data.type, data.data)
+            if (autoStatus) setAutoStatus(autoStatus)
+            pushProcessEvent(data.type, data.data)
             syncAssistantMessage()
           } else if (
             [
