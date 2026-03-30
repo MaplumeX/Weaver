@@ -49,6 +49,16 @@ def capped_add_messages(
 ExecutionStatus = Literal["pending", "running", "paused", "completed", "failed", "cancelled"]
 
 
+class DeepRuntimeSnapshot(TypedDict, total=False):
+    """Nested deep runtime snapshot used to reduce top-level state sprawl."""
+
+    engine: str
+    task_queue: Dict[str, Any]
+    artifact_store: Dict[str, Any]
+    runtime_state: Dict[str, Any]
+    agent_runs: List[Dict[str, Any]]
+
+
 class AgentState(TypedDict):
     """
     The state schema for the research agent.
@@ -180,6 +190,8 @@ class AgentState(TypedDict):
     sub_agent_contexts: Dict[str, Dict[str, Any]]
 
     # ============ Deep Research Runtime ============
+    # Nested runtime snapshot (preferred public shape)
+    deep_runtime: DeepRuntimeSnapshot
     # Selected deep research engine (legacy | multi_agent)
     deepsearch_engine: str
     # Task queue snapshot for the active deep research runtime
@@ -225,3 +237,22 @@ class QueryState(TypedDict):
     """State for a single parallel research query."""
 
     query: str
+
+
+def build_deep_runtime_snapshot(
+    *,
+    engine: str,
+    task_queue: Optional[Dict[str, Any]] = None,
+    artifact_store: Optional[Dict[str, Any]] = None,
+    runtime_state: Optional[Dict[str, Any]] = None,
+    agent_runs: Optional[List[Dict[str, Any]]] = None,
+) -> DeepRuntimeSnapshot:
+    """Build the preferred nested runtime snapshot while keeping old fields usable."""
+
+    return {
+        "engine": engine,
+        "task_queue": dict(task_queue or {}),
+        "artifact_store": dict(artifact_store or {}),
+        "runtime_state": dict(runtime_state or {}),
+        "agent_runs": list(agent_runs or []),
+    }

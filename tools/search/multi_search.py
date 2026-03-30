@@ -26,7 +26,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
-from agent.core.search_cache import get_search_cache
+from agent.contracts.search_cache import get_search_cache
 from common.config import settings
 from tools.search.reliability import ProviderReliabilityManager, ReliabilityPolicy
 

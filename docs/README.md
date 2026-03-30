@@ -13,6 +13,7 @@
 
 - [快速开始（本地运行）](getting-started.md)
 - [系统架构（Mermaid 图）](architecture.md)
+- [LangGraph 图谱（主研究图 / 客服图 / 健康检查图）](langgraph-graph.md)
 - [配置说明（环境变量 / Agent / 触发器 / MCP）](configuration.md)
 - [使用指南（模式选择 / Deep Research / 代码执行 / 浏览器自动化）](usage.md)
 - [部署与加固（Docker / Compose / 反代鉴权 / 限流）](deployment.md)

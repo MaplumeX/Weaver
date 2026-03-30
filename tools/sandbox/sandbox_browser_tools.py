@@ -59,7 +59,7 @@ def _trim(text: str, max_chars: int) -> str:
 
 def _get_event_emitter(thread_id: str):
     """Get event emitter for a thread (lazy import to avoid circular deps)."""
-    from agent.core.events import get_emitter_sync
+    from agent.contracts.events import get_emitter_sync
 
     return get_emitter_sync(thread_id)
 

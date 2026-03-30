@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 
-from agent.workflows.source_registry import SourceRegistry
+from agent.contracts.source_registry import SourceRegistry
 
 _CLAIM_MARKERS = (
     "research",

@@ -131,7 +131,7 @@ PYAUTOGUI_AVAILABLE = importlib.util.find_spec("pyautogui") is not None
 
 def _get_event_emitter(thread_id: str):
     """Get event emitter for a thread."""
-    from agent.core.events import get_emitter_sync
+    from agent.contracts.events import get_emitter_sync
 
     return get_emitter_sync(thread_id)
 

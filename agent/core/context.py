@@ -115,7 +115,7 @@ class ResearchWorkerContext:
         }
 
 
-class ContextManager:
+class WorkerContextStore:
     """
     Manages sub-agent contexts for parallel execution.
 
@@ -445,12 +445,21 @@ def merge_research_worker_context(
 
 
 # Global context manager instance
-_global_context_manager: Optional[ContextManager] = None
+_global_context_manager: Optional[WorkerContextStore] = None
 
 
-def get_context_manager() -> ContextManager:
-    """Get or create the global context manager."""
+def get_worker_context_store() -> WorkerContextStore:
+    """Get or create the global worker context store."""
     global _global_context_manager
     if _global_context_manager is None:
-        _global_context_manager = ContextManager()
+        _global_context_manager = WorkerContextStore()
     return _global_context_manager
+
+
+def get_context_manager() -> WorkerContextStore:
+    """Backward-compatible alias for legacy imports."""
+    return get_worker_context_store()
+
+
+# Backward compatibility for existing internal references.
+ContextManager = WorkerContextStore

@@ -10,9 +10,9 @@ This module provides context window management for AI agents, including:
 Similar to Manus's context_manager.py but adapted for Weaver's LangChain architecture.
 
 Usage:
-    from agent.core.context_manager import ContextManager, get_context_manager
+    from agent.core.context_manager import ContextWindowManager, get_context_window_manager
 
-    manager = get_context_manager(model="gpt-4")
+    manager = get_context_window_manager(model="gpt-4")
     truncated = manager.truncate_messages(messages, max_tokens=8000)
 """
 
@@ -113,7 +113,7 @@ class TruncationConfig:
     min_message_tokens: int = 50
 
 
-class ContextManager:
+class ContextWindowManager:
     """
     Manages context window for LLM conversations.
 
@@ -554,30 +554,40 @@ class ContextManager:
             return message
 
 
-# Global context manager instances
-_context_managers: Dict[str, ContextManager] = {}
+# Global context window manager instances
+_context_managers: Dict[str, ContextWindowManager] = {}
 
 
-def get_context_manager(
+def get_context_window_manager(
     model: str = "gpt-4",
     config: Optional[TruncationConfig] = None,
-) -> ContextManager:
+) -> ContextWindowManager:
     """
-    Get or create a ContextManager for a model.
+    Get or create a ContextWindowManager for a model.
 
     Args:
         model: Model name
         config: Optional truncation config
 
     Returns:
-        ContextManager instance
+        ContextWindowManager instance
     """
     key = f"{model}_{id(config) if config else 'default'}"
 
     if key not in _context_managers:
-        _context_managers[key] = ContextManager(model=model, config=config)
+        _context_managers[key] = ContextWindowManager(model=model, config=config)
 
     return _context_managers[key]
+
+
+def get_context_manager(
+    model: str = "gpt-4",
+    config: Optional[TruncationConfig] = None,
+) -> ContextWindowManager:
+    """
+    Backward-compatible alias for callers that still import the old name.
+    """
+    return get_context_window_manager(model=model, config=config)
 
 
 def truncate_for_model(
@@ -596,7 +606,7 @@ def truncate_for_model(
     Returns:
         Truncated messages
     """
-    manager = get_context_manager(model)
+    manager = get_context_window_manager(model)
 
     if max_tokens is None:
         # Use 80% of model's context window
@@ -608,3 +618,7 @@ def truncate_for_model(
         logger.info(f"[context_manager] Truncated {stats.truncated_count} messages for {model}")
 
     return truncated
+
+
+# Backward compatibility for existing imports.
+ContextManager = ContextWindowManager

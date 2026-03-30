@@ -422,7 +422,7 @@ class SessionManager:
             if not isinstance(scraped_content, list) or not scraped_content:
                 return []
             try:
-                from agent.workflows.evidence_extractor import extract_message_sources
+                from agent.contracts.research import extract_message_sources
 
                 return extract_message_sources(scraped_content)
             except Exception:
@@ -434,7 +434,7 @@ class SessionManager:
             scraped_list = scraped_content if isinstance(scraped_content, list) else []
             passages_list: Optional[List[Dict[str, Any]]] = None
             try:
-                from agent.workflows.claim_verifier import ClaimVerifier
+                from agent.contracts.research import ClaimVerifier
 
                 verifier = ClaimVerifier()
                 if isinstance(artifacts, dict):

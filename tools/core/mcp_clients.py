@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain.tools import BaseTool
 
-from agent.core.events import ToolEventType, get_emitter_sync
+from agent.contracts.events import ToolEventType, get_emitter_sync
 
 logger = logging.getLogger(__name__)
 

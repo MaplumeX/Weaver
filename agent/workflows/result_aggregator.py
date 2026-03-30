@@ -15,7 +15,7 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from agent.workflows.source_registry import SourceRegistry
+from agent.contracts.source_registry import SourceRegistry
 
 logger = logging.getLogger(__name__)
 

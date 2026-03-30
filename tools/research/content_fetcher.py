@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-from agent.workflows.source_registry import SourceRegistry
+from agent.contracts.source_registry import SourceRegistry
 from common.config import settings
 from tools.research.models import FetchedPage, truncate_bytes
 from tools.research.page_cache import get_fetched_page_cache

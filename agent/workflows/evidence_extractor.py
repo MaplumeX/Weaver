@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from agent.workflows.source_registry import SourceRegistry
+from agent.contracts.source_registry import SourceRegistry
 
 
 def _pick_first_string(*values: Any) -> str:
@@ -114,4 +114,3 @@ def extract_message_sources(scraped_content: List[Dict[str, Any]]) -> List[Dict[
             item.pop("provider", None)
 
     return sources
-

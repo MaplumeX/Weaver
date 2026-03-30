@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from agent.core.events import ToolEventType, get_emitter_sync
+from agent.contracts.events import ToolEventType, get_emitter_sync
 from tools.browser.browser_use_events import emit_progress
 
 from .browser_session import browser_sessions

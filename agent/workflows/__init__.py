@@ -55,9 +55,9 @@ _SYMBOL_TO_MODULE: Dict[str, str] = {
     "ContinuationState": "agent.workflows.continuation",
     "ToolResultInjector": "agent.workflows.continuation",
     # Search cache (workflow-local)
-    "QueryDeduplicator": "agent.workflows.search_cache",
-    "SearchCache": "agent.workflows.search_cache",
-    "get_search_cache": "agent.workflows.search_cache",
+    "QueryDeduplicator": "agent.contracts.search_cache",
+    "SearchCache": "agent.contracts.search_cache",
+    "get_search_cache": "agent.contracts.search_cache",
 }
 
 

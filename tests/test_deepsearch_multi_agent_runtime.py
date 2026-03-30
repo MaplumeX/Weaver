@@ -118,6 +118,8 @@ def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatc
     agent_roles = {run["role"] for run in result["deepsearch_agent_runs"]}
 
     assert result["deepsearch_engine"] == "multi_agent"
+    assert result["deep_runtime"]["engine"] == "multi_agent"
+    assert result["deep_runtime"]["task_queue"]["stats"]["completed"] == queue_stats["completed"]
     assert queue_stats["completed"] == 2
     assert len(artifact_store["evidence_cards"]) == 2
     assert len(artifact_store["report_section_drafts"]) == 2

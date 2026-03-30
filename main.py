@@ -51,7 +51,8 @@ from agent import (
     initialize_enhanced_tools,
     remove_emitter,
 )
-from agent.workflows.evidence_extractor import extract_message_sources
+from agent.contracts.research import ClaimVerifier, extract_message_sources
+from agent.contracts.search_cache import clear_search_cache, get_search_cache
 from common.agents_store import (
     AgentProfile,
     ensure_default_agent,
@@ -1907,6 +1908,16 @@ async def stream_agent_events(
             "deepsearch_engine": str(
                 mode_info.get("deepsearch_engine") or getattr(settings, "deepsearch_engine", "legacy")
             ),
+            "deep_runtime": {
+                "engine": str(
+                    mode_info.get("deepsearch_engine")
+                    or getattr(settings, "deepsearch_engine", "legacy")
+                ),
+                "task_queue": {},
+                "artifact_store": {},
+                "runtime_state": {},
+                "agent_runs": [],
+            },
             "deepsearch_task_queue": {},
             "deepsearch_artifact_store": {},
             "deepsearch_runtime_state": {},
@@ -2543,6 +2554,16 @@ async def chat(request: Request, payload: ChatRequest):
                 "deepsearch_engine": str(
                     mode_info.get("deepsearch_engine") or getattr(settings, "deepsearch_engine", "legacy")
                 ),
+                "deep_runtime": {
+                    "engine": str(
+                        mode_info.get("deepsearch_engine")
+                        or getattr(settings, "deepsearch_engine", "legacy")
+                    ),
+                    "task_queue": {},
+                    "artifact_store": {},
+                    "runtime_state": {},
+                    "agent_runs": [],
+                },
                 "deepsearch_task_queue": {},
                 "deepsearch_artifact_store": {},
                 "deepsearch_runtime_state": {},
@@ -2724,7 +2745,7 @@ async def refresh_tool_registry(reset: bool = False):
     - This is intended for dev/debug (e.g., after editing tool modules).
     - `reset=true` clears the global registry before discovery.
     """
-    from agent.workflows.nodes import initialize_enhanced_tools
+    from agent.runtime.nodes import initialize_enhanced_tools
     from tools.core.registry import get_global_registry, reset_global_registry
 
     if reset:
@@ -2792,8 +2813,6 @@ async def reset_search_providers():
 @app.get("/api/search/cache/stats", response_model=SearchCacheStatsResponse)
 async def get_search_cache_stats():
     """Return in-memory search cache statistics (LRU + TTL)."""
-    from agent.core.search_cache import get_search_cache
-
     cache = get_search_cache()
     return {"stats": cache.stats()}
 
@@ -2801,8 +2820,6 @@ async def get_search_cache_stats():
 @app.post("/api/search/cache/clear", response_model=SearchCacheClearResponse)
 async def clear_search_cache_endpoint():
     """Clear the in-memory search cache (best-effort)."""
-    from agent.core.search_cache import clear_search_cache
-
     clear_search_cache()
     return {"cleared": True}
 
@@ -3490,8 +3507,6 @@ async def export_report_endpoint(
             if not isinstance(claims_payload, list):
                 claims_payload = []
                 try:
-                    from agent.workflows.claim_verifier import ClaimVerifier
-
                     scraped_list = scraped if isinstance(scraped, list) else []
                     passages_payload = deepsearch_artifacts.get("passages")
                     passages_list = passages_payload if isinstance(passages_payload, list) else None

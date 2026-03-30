@@ -98,7 +98,7 @@ class TaskListManager:
             return
 
         try:
-            from agent.core.events import get_emitter_sync
+            from agent.contracts.events import get_emitter_sync
 
             emitter = get_emitter_sync(self.thread_id)
             if emitter:

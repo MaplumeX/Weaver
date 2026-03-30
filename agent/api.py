@@ -5,9 +5,18 @@ Keep this list small and stable; everything else should be imported from the
 specific submodules (agent.core.*, agent.workflows.*, agent.prompts.*, etc.).
 """
 
+from agent.contracts.research import (
+    ClaimStatus,
+    ClaimVerifier,
+    ResultAggregator,
+    extract_message_sources,
+)
+from agent.contracts.search_cache import clear_search_cache, get_search_cache
 from agent.core import (
     AgentState,
+    ContextWindowManager,
     QueryState,
+    QueryDeduplicator,
     ResearchPlan,
     ToolEvent,
     ToolEventType,
@@ -16,6 +25,7 @@ from agent.core import (
     event_stream_generator,
     get_emitter,
     get_emitter_sync,
+    get_context_window_manager,
     remove_emitter,
     smart_route,
 )
@@ -29,12 +39,16 @@ from agent.prompts import (
     get_writer_prompt,
     set_prompt_manager,
 )
+from agent.runtime.deep import (
+    run_deepsearch_auto,
+    run_deepsearch_tree,
+)
+from agent.runtime.nodes import initialize_enhanced_tools
 from agent.workflows import (
     build_agent_tools,
     build_tool_agent,
     build_writer_agent,
     get_deep_agent_prompt,
-    initialize_enhanced_tools,
     run_deepsearch,
     run_multi_agent_deepsearch,
     run_deepsearch_optimized,
@@ -48,6 +62,9 @@ __all__ = [
     "QueryState",
     "ResearchPlan",
     "smart_route",
+    "ContextWindowManager",
+    "get_context_window_manager",
+    "QueryDeduplicator",
     # Events / streaming
     "event_stream_generator",
     "get_emitter",
@@ -73,4 +90,13 @@ __all__ = [
     "build_agent_tools",
     "initialize_enhanced_tools",
     "summarize_messages",
+    "run_deepsearch_auto",
+    "run_deepsearch_tree",
+    # Shared contracts
+    "get_search_cache",
+    "clear_search_cache",
+    "extract_message_sources",
+    "ClaimStatus",
+    "ClaimVerifier",
+    "ResultAggregator",
 ]

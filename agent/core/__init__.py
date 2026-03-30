@@ -26,13 +26,16 @@ __all__ = [
     "get_emitter_sync",
     "remove_emitter",
     "ContextManager",
+    "ContextWindowManager",
     "get_context_manager",
+    "get_context_window_manager",
     "smart_route",
     "enforce_tool_call_limit",
     "retry_call",
     "maybe_strip_tool_messages",
     "AgentProcessorConfig",
     "SearchCache",
+    "QueryDeduplicator",
 ]
 
 _SYMBOL_TO_MODULE: Dict[str, str] = {
@@ -53,7 +56,9 @@ _SYMBOL_TO_MODULE: Dict[str, str] = {
     "remove_emitter": "agent.core.events",
     # Context
     "ContextManager": "agent.core.context_manager",
+    "ContextWindowManager": "agent.core.context_manager",
     "get_context_manager": "agent.core.context_manager",
+    "get_context_window_manager": "agent.core.context_manager",
     # Routing
     "smart_route": "agent.core.smart_router",
     # Middleware
@@ -64,6 +69,7 @@ _SYMBOL_TO_MODULE: Dict[str, str] = {
     "AgentProcessorConfig": "agent.core.processor_config",
     # Cache
     "SearchCache": "agent.core.search_cache",
+    "QueryDeduplicator": "agent.core.search_cache",
 }
 
 

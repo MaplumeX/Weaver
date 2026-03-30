@@ -5,7 +5,7 @@ import psycopg
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, StateGraph
 
-from agent.workflows.nodes import (
+from agent.runtime.nodes import (
     agent_node,
     clarify_node,
     compressor_node,

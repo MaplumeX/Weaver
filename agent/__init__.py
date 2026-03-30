@@ -14,7 +14,9 @@ _PUBLIC_SYMBOLS = {
     "create_research_graph",
     "create_checkpointer",
     "AgentState",
+    "ContextWindowManager",
     "QueryState",
+    "QueryDeduplicator",
     "ResearchPlan",
     "smart_route",
     # Events / streaming
@@ -35,12 +37,20 @@ _PUBLIC_SYMBOLS = {
     # Workflows & tools
     "get_deep_agent_prompt",
     "run_deepsearch",
+    "run_deepsearch_auto",
     "run_deepsearch_optimized",
+    "run_deepsearch_tree",
     "build_writer_agent",
     "build_tool_agent",
     "build_agent_tools",
     "initialize_enhanced_tools",
     "summarize_messages",
+    "get_search_cache",
+    "clear_search_cache",
+    "extract_message_sources",
+    "ClaimStatus",
+    "ClaimVerifier",
+    "ResultAggregator",
 }
 
 __all__ = [
@@ -48,7 +58,9 @@ __all__ = [
     "create_research_graph",
     "create_checkpointer",
     "AgentState",
+    "ContextWindowManager",
     "QueryState",
+    "QueryDeduplicator",
     "ResearchPlan",
     "smart_route",
     "event_stream_generator",
@@ -66,12 +78,20 @@ __all__ = [
     "set_prompt_manager",
     "get_deep_agent_prompt",
     "run_deepsearch",
+    "run_deepsearch_auto",
     "run_deepsearch_optimized",
+    "run_deepsearch_tree",
     "build_writer_agent",
     "build_tool_agent",
     "build_agent_tools",
     "initialize_enhanced_tools",
     "summarize_messages",
+    "get_search_cache",
+    "clear_search_cache",
+    "extract_message_sources",
+    "ClaimStatus",
+    "ClaimVerifier",
+    "ResultAggregator",
 ]
 
 
