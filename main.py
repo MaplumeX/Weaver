@@ -1741,6 +1741,7 @@ async def stream_agent_events(
     start_time = time.time()
     was_interrupted = False
     emit_main_text = False
+    final_output: Optional[Dict[str, Any]] = None
     use_zh = _contains_cjk(input_text)
     last_thinking_text = ""
     images = images or []
@@ -2034,46 +2035,16 @@ async def stream_agent_events(
                         except Exception:
                             pass
 
-                    # Check for completion and final report artifact
+                    # Record the latest complete output and emit it once after the graph finishes.
                     if output.get("is_complete"):
                         final_report = output.get("final_report", "")
                         if final_report:
-                            try:
-                                candidates: List[Dict[str, Any]] = []
-                                scraped_content = output.get("scraped_content")
-                                if isinstance(scraped_content, list):
-                                    candidates.extend(scraped_content)
-                                raw_sources = output.get("sources")
-                                if isinstance(raw_sources, list):
-                                    candidates.extend(raw_sources)
-
-                                sources = extract_message_sources(candidates)
-                                if sources:
-                                    yield await format_stream_event(
-                                        "sources", {"items": sources}
-                                    )
-                            except Exception:
-                                pass
-
-                            yield await format_stream_event("completion", {"content": final_report})
-
-                            # Also emit as artifact
-                            yield await format_stream_event(
-                                "artifact",
-                                {
-                                    "id": f"report_{datetime.now().timestamp()}",
-                                    "type": "report",
-                                    "title": "Research Report",
-                                    "content": final_report,
-                                },
-                            )
-                            # Store memory for future sessions
-                            # Store memory (long-term)
-                            add_memory_entry(final_report)
-                            # Store interaction (question + answer)
-                            store_interaction(input_text, final_report)
-                            # Store to graph store
-                            _store_add(input_text, final_report, user_id=user_id)
+                            merged_output = dict(final_output or {})
+                            for key, value in output.items():
+                                if key in merged_output and value in (None, "", [], {}):
+                                    continue
+                                merged_output[key] = value
+                            final_output = merged_output
 
             elif event_type == "on_tool_start":
                 tool_name = str(data_dict.get("name", "unknown") or "unknown")
@@ -2189,6 +2160,38 @@ async def stream_agent_events(
 
         async for queued_chunk in _drain_pending_tool_events():
             yield queued_chunk
+
+        if isinstance(final_output, dict):
+            final_report = final_output.get("final_report", "")
+            if final_report:
+                try:
+                    candidates: List[Dict[str, Any]] = []
+                    scraped_content = final_output.get("scraped_content")
+                    if isinstance(scraped_content, list):
+                        candidates.extend(scraped_content)
+                    raw_sources = final_output.get("sources")
+                    if isinstance(raw_sources, list):
+                        candidates.extend(raw_sources)
+
+                    sources = extract_message_sources(candidates)
+                    if sources:
+                        yield await format_stream_event("sources", {"items": sources})
+                except Exception:
+                    pass
+
+                yield await format_stream_event("completion", {"content": final_report})
+                yield await format_stream_event(
+                    "artifact",
+                    {
+                        "id": f"report_{datetime.now().timestamp()}",
+                        "type": "report",
+                        "title": "Research Report",
+                        "content": final_report,
+                    },
+                )
+                add_memory_entry(final_report)
+                store_interaction(input_text, final_report)
+                _store_add(input_text, final_report, user_id=user_id)
 
         # Send final completion
         duration = time.time() - start_time

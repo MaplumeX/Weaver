@@ -332,6 +332,17 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             const newArtifact = data.data as Artifact
             setArtifacts((prev) => {
               if (prev.some(a => a.id === newArtifact.id)) return prev
+              if (
+                newArtifact.type === 'report' &&
+                prev.some(
+                  (a) =>
+                    a.type === 'report' &&
+                    a.title === newArtifact.title &&
+                    a.content === newArtifact.content,
+                )
+              ) {
+                return prev
+              }
               return [...prev, newArtifact]
             })
           }
