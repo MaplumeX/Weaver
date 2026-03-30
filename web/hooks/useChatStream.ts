@@ -8,6 +8,50 @@ interface UseChatStreamProps {
   searchMode: string
 }
 
+type ToolLifecycleEventType = 'tool' | 'tool_start' | 'tool_result' | 'tool_error'
+
+function normalizeToolEvent(
+  eventType: ToolLifecycleEventType,
+  payload: any,
+) {
+  const toolName = String(payload?.name || payload?.tool || '').trim() || 'unknown'
+  const args =
+    payload?.args && typeof payload.args === 'object'
+      ? payload.args
+      : payload?.input && typeof payload.input === 'object'
+        ? payload.input
+        : payload?.query
+          ? { query: payload.query }
+          : {}
+
+  const status =
+    eventType === 'tool'
+      ? String(payload?.status || '').trim() || (payload?.success === false ? 'failed' : 'running')
+      : eventType === 'tool_result'
+        ? payload?.success === false
+          ? 'failed'
+          : 'completed'
+        : eventType === 'tool_error'
+          ? 'failed'
+          : 'running'
+
+  const toolCallId = String(payload?.toolCallId || payload?.tool_call_id || '').trim()
+
+  return {
+    toolName,
+    args,
+    status,
+    toolCallId: toolCallId || undefined,
+    payload: {
+      ...payload,
+      name: toolName,
+      tool: toolName,
+      status,
+      ...(Object.keys(args).length > 0 ? { args } : {}),
+    },
+  }
+}
+
 export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -141,6 +185,22 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
         if (last?.type === type) {
           if (type === 'status' && last.data?.text && last.data?.text === payload?.text) return
           if (type === 'search' && last.data?.query && last.data?.query === payload?.query) return
+          if (type === 'tool') {
+            const lastName = String(last.data?.name || last.data?.tool || '').trim()
+            const nextName = String(payload?.name || payload?.tool || '').trim()
+            const lastStatus = String(last.data?.status || '').trim()
+            const nextStatus = String(payload?.status || '').trim()
+            const lastQuery = String(last.data?.query || last.data?.args?.query || '').trim()
+            const nextQuery = String(payload?.query || payload?.args?.query || '').trim()
+            if (
+              lastName &&
+              lastName === nextName &&
+              lastStatus === nextStatus &&
+              lastQuery === nextQuery
+            ) {
+              return
+            }
+          }
         }
 
         const capped = [...prevEvents, next].slice(-200)
@@ -195,25 +255,30 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             ])
             break
           } else if (data.type === 'tool') {
+            const normalized = normalizeToolEvent('tool', data.data)
             const toolCallId =
-              data.data.toolCallId || `tool-${Date.now()}-${Math.random()}`
+              normalized.toolCallId || `tool-${Date.now()}-${Math.random()}`
 
             const state: ToolInvocation['state'] =
-              data.data.status === 'completed'
+              normalized.status === 'completed'
                 ? 'completed'
-                : data.data.status === 'failed'
+                : normalized.status === 'failed'
                   ? 'failed'
                   : 'running'
 
             const toolInvocation: ToolInvocation = {
               toolCallId,
-              toolName: data.data.name,
+              toolName: normalized.toolName,
               state,
-              args: data.data.args || (data.data.query ? { query: data.data.query } : {}),
+              args: normalized.args,
             }
 
             const prevTools = assistantMessage.toolInvocations || []
-            const existingIndex = prevTools.findIndex((t) => t.toolCallId === toolCallId)
+            const existingIndex = prevTools.findIndex((t) =>
+              normalized.toolCallId
+                ? t.toolCallId === toolCallId
+                : t.toolName === normalized.toolName && t.state === 'running'
+            )
             if (existingIndex >= 0) {
               const nextTools = [...prevTools]
               nextTools[existingIndex] = { ...nextTools[existingIndex], ...toolInvocation }
@@ -222,7 +287,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
               assistantMessage.toolInvocations = [...prevTools, toolInvocation]
             }
 
-            pushProcessEvent('tool', data.data)
+            pushProcessEvent('tool', normalized.payload)
             syncAssistantMessage()
           } else if (data.type === 'search') {
             searchCount += 1
@@ -289,14 +354,23 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
           } else if (
             [
               'thinking',
-              'tool_start',
-              'tool_result',
-              'tool_error',
               'screenshot',
               'task_update',
             ].includes(data.type)
           ) {
             pushProcessEvent(data.type, data.data)
+            syncAssistantMessage()
+          } else if (['tool_start', 'tool_result', 'tool_error'].includes(data.type)) {
+            const normalized = normalizeToolEvent(data.type as ToolLifecycleEventType, data.data)
+            pushProcessEvent('tool', normalized.payload)
+            syncAssistantMessage()
+          } else if (data.type === 'tool_progress') {
+            const normalized = normalizeToolEvent('tool_start', data.data)
+            pushProcessEvent('tool_progress', {
+              ...data.data,
+              name: normalized.toolName,
+              tool: normalized.toolName,
+            })
             syncAssistantMessage()
           } else if (data.type === 'sources') {
             const items = (data.data?.items || []) as MessageSource[]

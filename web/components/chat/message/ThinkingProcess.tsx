@@ -349,6 +349,31 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     )
   }
 
+  if (kind === 'tool_progress') {
+    const toolName = String(ev.data?.name || ev.data?.tool || '').trim() || 'tool'
+    const action = String(ev.data?.action || '').trim()
+    const info = String(ev.data?.info || ev.data?.message || '').trim()
+
+    return (
+      <div className="flex items-start gap-2">
+        <Wrench className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-foreground/80 truncate">{toolName}</span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              running
+            </span>
+          </div>
+          {action || info ? (
+            <div className="truncate text-xs text-muted-foreground">
+              {[action || null, info || null].filter(Boolean).join(' · ')}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
   if (kind === 'tool' || kind === 'tool_start' || kind === 'tool_result' || kind === 'tool_error') {
     const toolName = String(ev.data?.name || ev.data?.tool || '').trim() || 'tool'
     const status = String(ev.data?.status || '').trim()

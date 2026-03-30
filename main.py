@@ -1563,6 +1563,74 @@ def _compact_tool_args(tool_input: Any) -> Dict[str, Any]:
     return out
 
 
+def _resolve_tool_event_name(
+    event_name: Any = None,
+    data: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Resolve a human-readable tool name across mixed event formats."""
+    candidates = [
+        event_name,
+        data.get("name") if isinstance(data, dict) else None,
+        data.get("tool") if isinstance(data, dict) else None,
+    ]
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        text = str(candidate).strip()
+        if text:
+            return text
+    return "unknown"
+
+
+def _normalize_tool_event_data(event_type: str, data: Any) -> Dict[str, Any]:
+    """Normalize custom tool events so clients can rely on stable fields."""
+    payload = dict(data) if isinstance(data, dict) else {}
+    tool_name = _resolve_tool_event_name(data=payload)
+    payload.setdefault("name", tool_name)
+    payload.setdefault("tool", tool_name)
+
+    if event_type == "tool_start":
+        payload.setdefault("status", "running")
+    elif event_type == "tool_result":
+        payload.setdefault("status", "completed" if payload.get("success", True) else "failed")
+    elif event_type == "tool_error":
+        payload.setdefault("status", "failed")
+
+    return payload
+
+
+def _build_langchain_tool_stream_payload(
+    *,
+    status: str,
+    event_name: Any = None,
+    data: Any = None,
+    run_id: Any = None,
+) -> Dict[str, Any]:
+    """Normalize LangChain tool stream events into the frontend contract."""
+    data_dict = data if isinstance(data, dict) else {}
+    tool_name = _resolve_tool_event_name(event_name=event_name, data=data_dict)
+    tool_input = data_dict.get("input", data_dict.get("args", {}))
+    args_preview = _compact_tool_args(tool_input)
+
+    payload: Dict[str, Any] = {
+        "name": tool_name,
+        "tool": tool_name,
+        "status": status,
+    }
+
+    tool_call_id = str(run_id or data_dict.get("tool_call_id") or "").strip()
+    if tool_call_id:
+        payload["toolCallId"] = tool_call_id
+
+    if args_preview:
+        payload["args"] = args_preview
+        query = args_preview.get("query")
+        if isinstance(query, str) and query:
+            payload["query"] = query
+
+    return payload
+
+
 def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | str | None) -> Dict[str, Any]:
     if isinstance(search_mode, SearchMode):
         use_web = search_mode.useWebSearch
@@ -1872,13 +1940,27 @@ async def stream_agent_events(
                     break
 
                 if tool_event.type == ToolEvent.TOOL_START:
-                    yield_event = await format_stream_event("tool_start", tool_event.data)
+                    yield_event = await format_stream_event(
+                        "tool_start",
+                        _normalize_tool_event_data("tool_start", tool_event.data),
+                    )
+                elif tool_event.type == ToolEvent.TOOL_PROGRESS:
+                    yield_event = await format_stream_event(
+                        "tool_progress",
+                        _normalize_tool_event_data("tool_progress", tool_event.data),
+                    )
                 elif tool_event.type == ToolEvent.TOOL_SCREENSHOT:
                     yield_event = await format_stream_event("screenshot", tool_event.data)
                 elif tool_event.type == ToolEvent.TOOL_RESULT:
-                    yield_event = await format_stream_event("tool_result", tool_event.data)
+                    yield_event = await format_stream_event(
+                        "tool_result",
+                        _normalize_tool_event_data("tool_result", tool_event.data),
+                    )
                 elif tool_event.type == ToolEvent.TOOL_ERROR:
-                    yield_event = await format_stream_event("tool_error", tool_event.data)
+                    yield_event = await format_stream_event(
+                        "tool_error",
+                        _normalize_tool_event_data("tool_error", tool_event.data),
+                    )
                 elif tool_event.type == ToolEvent.TASK_UPDATE:
                     yield_event = await format_stream_event("task_update", tool_event.data)
                 elif tool_event.type == ToolEvent.RESEARCH_NODE_START:
@@ -2047,57 +2129,32 @@ async def stream_agent_events(
                             final_output = merged_output
 
             elif event_type == "on_tool_start":
-                tool_name = str(data_dict.get("name", "unknown") or "unknown")
-                tool_input = data_dict.get("input", {})
-                tool_call_id = str(event.get("run_id") or "") or None
-
-                args_preview = _compact_tool_args(tool_input)
-                payload: Dict[str, Any] = {
-                    "name": tool_name,
-                    "status": "running",
-                }
-                if tool_call_id:
-                    payload["toolCallId"] = tool_call_id
-                if args_preview:
-                    payload["args"] = args_preview
-                    query = args_preview.get("query")
-                    if isinstance(query, str) and query:
-                        payload["query"] = query
-
+                payload = _build_langchain_tool_stream_payload(
+                    status="running",
+                    event_name=name,
+                    data=data_dict,
+                    run_id=event.get("run_id"),
+                )
                 yield await format_stream_event("tool", payload)
 
             elif event_type == "on_tool_error":
-                tool_name = str(data_dict.get("name", "unknown") or "unknown")
-                tool_input = data_dict.get("input", {})
-                tool_call_id = str(event.get("run_id") or "") or None
-
-                args_preview = _compact_tool_args(tool_input)
-                payload: Dict[str, Any] = {
-                    "name": tool_name,
-                    "status": "failed",
-                }
-                if tool_call_id:
-                    payload["toolCallId"] = tool_call_id
-                if args_preview:
-                    payload["args"] = args_preview
-                    query = args_preview.get("query")
-                    if isinstance(query, str) and query:
-                        payload["query"] = query
-
+                payload = _build_langchain_tool_stream_payload(
+                    status="failed",
+                    event_name=name,
+                    data=data_dict,
+                    run_id=event.get("run_id"),
+                )
                 yield await format_stream_event("tool", payload)
 
             elif event_type == "on_tool_end":
-                tool_name = str(data_dict.get("name", "unknown") or "unknown")
+                tool_name = _resolve_tool_event_name(event_name=name, data=data_dict)
                 output = data_dict.get("output", {})
-                tool_call_id = str(event.get("run_id") or "") or None
-
-                payload: Dict[str, Any] = {
-                    "name": tool_name,
-                    "status": "completed",
-                }
-                if tool_call_id:
-                    payload["toolCallId"] = tool_call_id
-
+                payload = _build_langchain_tool_stream_payload(
+                    status="completed",
+                    event_name=name,
+                    data=data_dict,
+                    run_id=event.get("run_id"),
+                )
                 yield await format_stream_event("tool", payload)
 
                 # Check for artifacts from code execution
