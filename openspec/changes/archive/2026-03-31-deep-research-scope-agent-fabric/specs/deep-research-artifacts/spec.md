@@ -1,7 +1,4 @@
-## Purpose
-定义 multi-agent Deep Research 在任务协作、证据沉淀和最终汇总中的结构化 artifacts 契约。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Structured research artifacts
 系统 MUST 使用结构化且可序列化的 research artifacts 作为 multi-agent Deep Research runtime 的主要协作媒介。
@@ -49,6 +46,8 @@
 - **WHEN** 任意 task 或 artifact 被创建、更新、完成或废弃
 - **THEN** 系统 MUST 记录其当前状态和关联实体
 - **THEN** 后续 agent MUST 能够基于这些状态读取最新的有效 artifacts
+
+## ADDED Requirements
 
 ### Requirement: Artifact snapshots are checkpoint-safe
 系统 MUST 将 Deep Research 的权威 artifacts 表达为可 checkpoint、可恢复的序列化快照，而不是只依赖进程内对象身份。

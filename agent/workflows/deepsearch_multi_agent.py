@@ -6,6 +6,9 @@ from agent.runtime.deep.multi_agent.runtime import (
     MultiAgentDeepSearchRuntime as _MultiAgentDeepSearchRuntime,
 )
 from agent.runtime.deep.multi_agent.runtime import (
+    create_multi_agent_deepsearch_graph as _create_multi_agent_deepsearch_graph,
+)
+from agent.runtime.deep.multi_agent.runtime import (
     run_multi_agent_deepsearch as _run_multi_agent_deepsearch,
 )
 from agent.runtime.deep.multi_agent.schema import (
@@ -54,6 +57,15 @@ def run_multi_agent_deepsearch(state, config):
     return _run_multi_agent_deepsearch(state, config)
 
 
+def create_multi_agent_deepsearch_graph(state, config, *, checkpointer=None, interrupt_before=None):
+    return _create_multi_agent_deepsearch_graph(
+        state,
+        config,
+        checkpointer=checkpointer,
+        interrupt_before=interrupt_before,
+    )
+
+
 __all__ = [
     "AgentRunRecord",
     "ArtifactStore",
@@ -73,6 +85,7 @@ __all__ = [
     "ResearchTaskQueue",
     "WorkerExecutionResult",
     "create_chat_model",
+    "create_multi_agent_deepsearch_graph",
     "get_emitter_sync",
     "run_multi_agent_deepsearch",
 ]

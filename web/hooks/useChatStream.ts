@@ -17,10 +17,14 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
   const decisionType = String(payload?.decision_type || '').trim()
   const artifactType = String(payload?.artifact_type || '').trim()
   const status = String(payload?.status || '').trim()
+  const attempt = typeof payload?.attempt === 'number' ? payload.attempt : undefined
 
   if (eventType === 'research_agent_start') {
     if (role === 'planner') return '多 Agent 调研：正在规划研究任务…'
-    if (role === 'researcher') return `多 Agent 调研：${agentId || 'researcher'} 开始执行任务…`
+    if (role === 'researcher') {
+      if (attempt && attempt > 1) return `多 Agent 调研：${agentId || 'researcher'} 开始重试任务…`
+      return `多 Agent 调研：${agentId || 'researcher'} 开始执行任务…`
+    }
     if (role === 'verifier') return '多 Agent 调研：正在检查证据覆盖度…'
     if (role === 'reporter') return '多 Agent 调研：正在生成最终报告…'
     if (role === 'coordinator') return '多 Agent 调研：协调下一步动作…'
@@ -34,7 +38,10 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
 
   if (eventType === 'research_task_update') {
     if (status === 'ready') return `多 Agent 调研：任务已入队 · ${taskTitle || '未命名任务'}`
-    if (status === 'in_progress') return `多 Agent 调研：执行任务 · ${taskTitle || '未命名任务'}`
+    if (status === 'in_progress') {
+      if (attempt && attempt > 1) return `多 Agent 调研：重试任务 · ${taskTitle || '未命名任务'}`
+      return `多 Agent 调研：执行任务 · ${taskTitle || '未命名任务'}`
+    }
     if (status === 'completed') return `多 Agent 调研：任务完成 · ${taskTitle || '未命名任务'}`
     if (status === 'failed' || status === 'blocked') return `多 Agent 调研：任务${status === 'failed' ? '失败' : '阻塞'} · ${taskTitle || '未命名任务'}`
   }

@@ -1,12 +1,12 @@
 """
-Artifact and task schema contracts for the multi-agent deep runtime.
+Artifact, scope and state contracts for the multi-agent deep runtime.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal, TypedDict
 
 from agent.core.context import ResearchWorkerContext
 
@@ -19,15 +19,51 @@ def _now_iso() -> str:
     return datetime.now().isoformat()
 
 
+class GraphScopeSnapshot(TypedDict, total=False):
+    graph_run_id: str
+    graph_attempt: int
+    topic: str
+    phase: str
+    current_iteration: int
+    budget: dict[str, Any]
+    task_queue_stats: dict[str, Any]
+    artifact_counts: dict[str, Any]
+    final_status: str
+
+
+class BranchScopeSnapshot(TypedDict, total=False):
+    branch_id: str
+    topic: str
+    summary: str
+    status: str
+    parent_branch_id: str | None
+    task_ids: list[str]
+
+
+class WorkerScopeSnapshot(TypedDict, total=False):
+    scope_id: str
+    task_id: str
+    branch_id: str | None
+    agent_id: str
+    query: str
+    attempt: int
+    status: str
+    artifact_ids: list[str]
+
+
 @dataclass
 class BranchBrief:
     id: str
     topic: str
     summary: str
-    context_id: Optional[str] = None
+    context_id: str | None = None
+    parent_branch_id: str | None = None
     status: ArtifactStatus = "created"
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -39,16 +75,17 @@ class ResearchTask:
     status: TaskStatus = "ready"
     title: str = ""
     aspect: str = ""
-    parent_task_id: Optional[str] = None
-    parent_context_id: Optional[str] = None
-    assigned_agent_id: Optional[str] = None
+    branch_id: str | None = None
+    parent_task_id: str | None = None
+    parent_context_id: str | None = None
+    assigned_agent_id: str | None = None
     attempts: int = 0
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
-    completed_at: Optional[str] = None
+    completed_at: str | None = None
     last_error: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -60,13 +97,17 @@ class EvidenceCard:
     source_url: str
     summary: str
     excerpt: str
+    branch_id: str | None = None
     source_provider: str = ""
-    published_date: Optional[str] = None
+    published_date: str | None = None
     status: ArtifactStatus = "created"
     created_by: str = ""
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -75,11 +116,15 @@ class KnowledgeGap:
     aspect: str
     importance: str
     reason: str
-    suggested_queries: List[str] = field(default_factory=list)
-    related_task_ids: List[str] = field(default_factory=list)
+    branch_id: str | None = None
+    suggested_queries: list[str] = field(default_factory=list)
+    related_task_ids: list[str] = field(default_factory=list)
     status: ArtifactStatus = "created"
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -88,11 +133,15 @@ class ReportSectionDraft:
     task_id: str
     title: str
     summary: str
-    evidence_ids: List[str] = field(default_factory=list)
+    branch_id: str | None = None
+    evidence_ids: list[str] = field(default_factory=list)
     status: ArtifactStatus = "created"
     created_by: str = ""
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -100,11 +149,14 @@ class FinalReportArtifact:
     id: str
     report_markdown: str
     executive_summary: str
-    citation_urls: List[str] = field(default_factory=list)
+    citation_urls: list[str] = field(default_factory=list)
     status: ArtifactStatus = "completed"
     created_by: str = "reporter"
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -114,20 +166,45 @@ class AgentRunRecord:
     phase: str
     status: str
     agent_id: str
-    task_id: Optional[str] = None
+    graph_run_id: str = ""
+    node_id: str = ""
+    task_id: str | None = None
+    branch_id: str | None = None
+    attempt: int = 1
+    parent_task_id: str | None = None
+    parent_branch_id: str | None = None
     started_at: str = field(default_factory=_now_iso)
     ended_at: str = ""
     summary: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
 class WorkerExecutionResult:
     task: ResearchTask
     context: ResearchWorkerContext
-    evidence_cards: List[EvidenceCard]
-    section_draft: Optional[ReportSectionDraft]
-    raw_results: List[Dict[str, Any]]
+    evidence_cards: list[EvidenceCard]
+    section_draft: ReportSectionDraft | None
+    raw_results: list[dict[str, Any]]
     tokens_used: int
+    branch_id: str | None = None
+    agent_run: AgentRunRecord | None = None
+    error: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task": self.task.to_dict(),
+            "context": asdict(self.context),
+            "evidence_cards": [card.to_dict() for card in self.evidence_cards],
+            "section_draft": self.section_draft.to_dict() if self.section_draft else None,
+            "raw_results": list(self.raw_results),
+            "tokens_used": self.tokens_used,
+            "branch_id": self.branch_id,
+            "agent_run": self.agent_run.to_dict() if self.agent_run else None,
+            "error": self.error,
+        }
 
 
 __all__ = [
@@ -135,12 +212,15 @@ __all__ = [
     "AgentRunRecord",
     "ArtifactStatus",
     "BranchBrief",
+    "BranchScopeSnapshot",
     "EvidenceCard",
     "FinalReportArtifact",
+    "GraphScopeSnapshot",
     "KnowledgeGap",
     "ReportSectionDraft",
     "ResearchTask",
     "TaskStatus",
     "WorkerExecutionResult",
+    "WorkerScopeSnapshot",
     "_now_iso",
 ]

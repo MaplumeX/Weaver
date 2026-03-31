@@ -1,7 +1,4 @@
-## Purpose
-定义 multi-agent Deep Research 的事件模型与流式兼容约束。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Agent lifecycle events
 系统 MUST 为 multi-agent Deep Research runtime 发出可消费的 agent 生命周期事件，并为每次 graph-level 执行提供稳定的关联标识。
@@ -41,6 +38,8 @@
 - **WHEN** 前端支持新增 multi-agent 事件
 - **THEN** 前端 MUST 能将 agent、task、branch 和 decision 事件呈现为可理解的研究过程
 - **THEN** 前端 MUST 不要求解析原始内部状态对象
+
+## ADDED Requirements
 
 ### Requirement: Graph execution events are resume-safe
 系统 MUST 让多 agent Deep Research 事件能够区分新执行、重试执行和 checkpoint 恢复后的继续执行。

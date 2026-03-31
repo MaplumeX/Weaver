@@ -5,7 +5,7 @@ Event helpers used by the multi-agent deep runtime.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from agent.contracts.events import ToolEventType, get_emitter_sync
 from agent.runtime.deep.multi_agent.schema import AgentRole, ResearchTask
@@ -13,7 +13,7 @@ from agent.runtime.deep.multi_agent.schema import AgentRole, ResearchTask
 logger = logging.getLogger(__name__)
 
 
-def emit(emitter: Any, event_type: ToolEventType | str, payload: Dict[str, Any]) -> None:
+def emit(emitter: Any, event_type: ToolEventType | str, payload: dict[str, Any]) -> None:
     if not emitter:
         return
     try:
@@ -22,16 +22,67 @@ def emit(emitter: Any, event_type: ToolEventType | str, payload: Dict[str, Any])
         logger.debug("[deepsearch-multi-agent] failed to emit %s: %s", event_type, exc)
 
 
-def emit_task_update(runtime: Any, *, task: ResearchTask, status: str) -> None:
+def _graph_context(
+    runtime: Any,
+    *,
+    node_id: str | None = None,
+    branch_id: str | None = None,
+    task_id: str | None = None,
+    attempt: int | None = None,
+    parent_task_id: str | None = None,
+    parent_branch_id: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"engine": "multi_agent"}
+    graph_run_id = getattr(runtime, "graph_run_id", None)
+    if graph_run_id:
+        payload["graph_run_id"] = graph_run_id
+    graph_attempt = getattr(runtime, "graph_attempt", None)
+    if isinstance(graph_attempt, int):
+        payload["graph_attempt"] = graph_attempt
+    resolved_node_id = node_id or getattr(runtime, "current_node_id", None)
+    if resolved_node_id:
+        payload["node_id"] = resolved_node_id
+    resolved_branch_id = branch_id or getattr(runtime, "root_branch_id", None)
+    if resolved_branch_id:
+        payload["branch_id"] = resolved_branch_id
+    if task_id:
+        payload["task_id"] = task_id
+    if attempt is not None:
+        payload["attempt"] = attempt
+    if parent_task_id:
+        payload["parent_task_id"] = parent_task_id
+    if parent_branch_id:
+        payload["parent_branch_id"] = parent_branch_id
+    return payload
+
+
+def emit_task_update(
+    runtime: Any,
+    *,
+    task: ResearchTask,
+    status: str,
+    attempt: int | None = None,
+    reason: str | None = None,
+) -> None:
     payload = {
+        **_graph_context(
+            runtime,
+            task_id=task.id,
+            branch_id=task.branch_id,
+            attempt=attempt if attempt is not None else task.attempts,
+            parent_task_id=task.parent_task_id,
+        ),
         "task_id": task.id,
         "status": status,
         "title": task.title or task.goal,
         "query": task.query,
+        "branch_id": task.branch_id,
         "parent_context_id": task.parent_context_id,
         "agent_id": task.assigned_agent_id,
         "priority": task.priority,
     }
+    if reason:
+        payload["reason"] = reason
     emit(runtime.emitter, ToolEventType.RESEARCH_TASK_UPDATE, payload)
     emit(
         runtime.emitter,
@@ -50,12 +101,13 @@ def emit_artifact_update(
     artifact_id: str,
     artifact_type: str,
     status: str,
-    task_id: Optional[str] = None,
-    agent_id: Optional[str] = None,
-    summary: Optional[str] = None,
-    source_url: Optional[str] = None,
+    task_id: str | None = None,
+    agent_id: str | None = None,
+    summary: str | None = None,
+    source_url: str | None = None,
 ) -> None:
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
+        **_graph_context(runtime, task_id=task_id, branch_id=getattr(runtime, "root_branch_id", None)),
         "artifact_id": artifact_id,
         "artifact_type": artifact_type,
         "status": status,
@@ -77,10 +129,18 @@ def emit_agent_start(
     agent_id: str,
     role: AgentRole,
     phase: str,
-    task_id: Optional[str] = None,
-    iteration: Optional[int] = None,
+    task_id: str | None = None,
+    iteration: int | None = None,
+    branch_id: str | None = None,
+    attempt: int | None = None,
 ) -> None:
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
+        **_graph_context(
+            runtime,
+            task_id=task_id,
+            branch_id=branch_id,
+            attempt=attempt,
+        ),
         "agent_id": agent_id,
         "role": role,
         "phase": phase,
@@ -99,11 +159,19 @@ def emit_agent_complete(
     role: AgentRole,
     phase: str,
     status: str,
-    task_id: Optional[str] = None,
-    iteration: Optional[int] = None,
-    summary: Optional[str] = None,
+    task_id: str | None = None,
+    iteration: int | None = None,
+    summary: str | None = None,
+    branch_id: str | None = None,
+    attempt: int | None = None,
 ) -> None:
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
+        **_graph_context(
+            runtime,
+            task_id=task_id,
+            branch_id=branch_id,
+            attempt=attempt,
+        ),
         "agent_id": agent_id,
         "role": role,
         "phase": phase,
@@ -123,11 +191,13 @@ def emit_decision(
     *,
     decision_type: str,
     reason: str,
-    iteration: Optional[int] = None,
-    coverage: Optional[float] = None,
-    gap_count: Optional[int] = None,
+    iteration: int | None = None,
+    coverage: float | None = None,
+    gap_count: int | None = None,
+    attempt: int | None = None,
 ) -> None:
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
+        **_graph_context(runtime, attempt=attempt),
         "decision_type": decision_type,
         "reason": reason,
     }

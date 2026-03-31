@@ -1,7 +1,4 @@
-## Purpose
-定义 Deep Research 在 `legacy` 与 `multi_agent` 运行时之间的选择规则，以及 multi-agent 编排循环的核心行为。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Deep Research engine selection
 系统 MUST 为 Deep Research 提供可配置的运行时引擎选择，并支持在 `legacy` 与 `multi_agent` 引擎之间切换。
@@ -59,6 +56,8 @@
 - **WHEN** coordinator、artifact store、graph dispatch 或任务调度核心发生不可恢复错误
 - **THEN** 系统 MUST 停止继续发放新的 multi-agent 任务
 - **THEN** 系统 MUST 进入有界失败路径，而不能无限重试或静默切换 engine
+
+## ADDED Requirements
 
 ### Requirement: Multi-agent graph execution is checkpoint-aware
 系统 MUST 让 multi-agent Deep Research 的权威执行状态落在 LangGraph 可 checkpoint 和恢复的边界上，而不是只存在于进程内循环。

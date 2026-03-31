@@ -19,3 +19,13 @@ test('maps coordinator decisions to readable auto status', () => {
 
   assert.equal(text, '多 Agent 调研：协调器决定进入汇总阶段')
 })
+
+test('maps retry task updates to readable auto status', () => {
+  const text = getDeepResearchAutoStatus('research_task_update', {
+    status: 'in_progress',
+    query: 'latest AI chip roadmap',
+    attempt: 2,
+  })
+
+  assert.equal(text, '多 Agent 调研：重试任务 · latest AI chip roadmap')
+})

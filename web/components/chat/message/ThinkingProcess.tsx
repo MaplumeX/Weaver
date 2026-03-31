@@ -229,6 +229,9 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const agentId = String(ev.data?.agent_id || ev.data?.agentId || '').trim()
     const phase = String(ev.data?.phase || '').trim()
     const taskId = String(ev.data?.task_id || '').trim()
+    const nodeId = String(ev.data?.node_id || '').trim()
+    const branchId = String(ev.data?.branch_id || '').trim()
+    const attempt = typeof ev.data?.attempt === 'number' ? ev.data.attempt : undefined
     const status = kind === 'research_agent_complete' ? String(ev.data?.status || '').trim() : 'running'
     const summary = String(ev.data?.summary || '').trim()
 
@@ -245,7 +248,15 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
           </div>
           {(phase || taskId) ? (
             <div className="truncate text-xs text-muted-foreground">
-              {[phase || null, taskId ? `task ${taskId}` : null].filter(Boolean).join(' · ')}
+              [
+                phase || null,
+                taskId ? `task ${taskId}` : null,
+                branchId ? `branch ${branchId}` : null,
+                nodeId ? `node ${nodeId}` : null,
+                attempt && attempt > 1 ? `attempt ${attempt}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </div>
           ) : null}
           {summary ? <div className="line-clamp-2 text-xs text-muted-foreground">{summary}</div> : null}
@@ -260,6 +271,8 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const status = String(ev.data?.status || '').trim()
     const query = String(ev.data?.query || '').trim()
     const priority = ev.data?.priority
+    const branchId = String(ev.data?.branch_id || '').trim()
+    const attempt = typeof ev.data?.attempt === 'number' ? ev.data.attempt : undefined
 
     return (
       <div className="flex items-start gap-2">
@@ -275,7 +288,14 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
             ) : null}
           </div>
           <div className="truncate text-xs text-muted-foreground">
-            {[query || null, typeof priority === 'number' ? `p${priority}` : null].filter(Boolean).join(' · ')}
+            [
+              query || null,
+              typeof priority === 'number' ? `p${priority}` : null,
+              branchId ? `branch ${branchId}` : null,
+              attempt && attempt > 1 ? `attempt ${attempt}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </div>
         </div>
       </div>
@@ -287,6 +307,8 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const status = String(ev.data?.status || '').trim()
     const summary = String(ev.data?.summary || '').trim()
     const sourceUrl = String(ev.data?.source_url || '').trim()
+    const branchId = String(ev.data?.branch_id || '').trim()
+    const taskId = String(ev.data?.task_id || '').trim()
 
     return (
       <div className="flex items-start gap-2">
@@ -301,6 +323,13 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
               </span>
             ) : null}
           </div>
+          {(taskId || branchId) ? (
+            <div className="truncate text-xs text-muted-foreground">
+              {[taskId ? `task ${taskId}` : null, branchId ? `branch ${branchId}` : null]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
+          ) : null}
           {summary ? <div className="line-clamp-2 text-xs text-muted-foreground">{summary}</div> : null}
           {sourceUrl ? <div className="truncate font-mono text-xs text-muted-foreground">{sourceUrl}</div> : null}
         </div>
@@ -313,6 +342,8 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const reason = String(ev.data?.reason || '').trim()
     const coverage = typeof ev.data?.coverage === 'number' ? `${Math.round(ev.data.coverage * 100)}%` : ''
     const gapCount = typeof ev.data?.gap_count === 'number' ? `${ev.data.gap_count} gaps` : ''
+    const nodeId = String(ev.data?.node_id || '').trim()
+    const attempt = typeof ev.data?.attempt === 'number' ? ev.data.attempt : undefined
 
     return (
       <div className="flex items-start gap-2">
@@ -325,6 +356,13 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
               <span key={item} className="ml-2 text-xs text-muted-foreground">{item}</span>
             ))}
           </div>
+          {(nodeId || (attempt && attempt > 1)) ? (
+            <div className="truncate text-xs text-muted-foreground">
+              {[nodeId ? `node ${nodeId}` : null, attempt && attempt > 1 ? `attempt ${attempt}` : null]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
+          ) : null}
           {reason ? <div className="line-clamp-2 text-xs text-muted-foreground">{reason}</div> : null}
         </div>
       </div>
