@@ -26,14 +26,15 @@ Decide whether the current request has enough information to draft a research sc
 # Original topic
 {topic}
 
-# Clarification answers so far
-{clarify_answers}
+# Clarification transcript so far
+{clarify_history}
 
 # Requirements
 1. If key details are missing, ask one focused follow-up question.
 2. If the request is already specific enough, do not ask another question.
 3. Always produce a normalized intake summary for the scope agent.
 4. Keep missing_information concise and actionable.
+5. Ground the intake summary in the full clarification transcript, not just the latest answer.
 
 # Output
 Return a JSON object:
@@ -64,6 +65,40 @@ def _coerce_string_list(value: Any) -> list[str]:
         if text:
             result.append(text)
     return result
+
+
+def _coerce_history_answers(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    answers: list[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        answer = str(item.get("answer") or "").strip()
+        if answer:
+            answers.append(answer)
+    return answers
+
+
+def _format_clarify_history(value: Any, fallback_answers: list[str] | None = None) -> str:
+    if isinstance(value, list):
+        lines: list[str] = []
+        for index, item in enumerate(value, 1):
+            if not isinstance(item, dict):
+                continue
+            question = str(item.get("question") or "").strip()
+            answer = str(item.get("answer") or "").strip()
+            if not question and not answer:
+                continue
+            lines.append(f"{index}. Q: {question or '(missing question)'}")
+            lines.append(f"   A: {answer or '(missing answer)'}")
+        if lines:
+            return "\n".join(lines)
+
+    answers = [item for item in (fallback_answers or []) if str(item or "").strip()]
+    if answers:
+        return "\n".join(f"- {item}" for item in answers)
+    return "None"
 
 
 def _extract_json_object(content: str) -> dict[str, Any]:
@@ -101,15 +136,21 @@ class DeepResearchClarifyAgent:
         topic: str,
         *,
         clarify_answers: list[str] | None = None,
+        clarify_history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
+        normalized_answers = [
+            item
+            for item in (clarify_answers or _coerce_history_answers(clarify_history))
+            if str(item or "").strip()
+        ]
         prompt = ChatPromptTemplate.from_messages([("user", CLARIFY_PROMPT)])
         msg = prompt.format_messages(
             topic=topic,
-            clarify_answers="\n".join(f"- {item}" for item in (clarify_answers or [])) or "None",
+            clarify_history=_format_clarify_history(clarify_history, normalized_answers),
         )
         response = self.llm.invoke(msg, config=self.config)
         content = getattr(response, "content", "") or ""
-        return self._parse_response(content, topic=topic, clarify_answers=clarify_answers or [])
+        return self._parse_response(content, topic=topic, clarify_answers=normalized_answers)
 
     def _parse_response(
         self,

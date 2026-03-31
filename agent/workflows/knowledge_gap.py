@@ -51,28 +51,21 @@ GAP_ANALYSIS_PROMPT = """
 {collected_knowledge}
 
 # 输出要求
-分析信息完整性，输出 JSON 格式结果：
-```json
-{{
-    "overall_coverage": 0.65,
-    "confidence": 0.7,
-    "gaps": [
-        {{"aspect": "缺失的方面", "importance": "high/medium/low", "reason": "为什么这个方面重要"}},
-    ],
-    "suggested_queries": [
-        "针对缺口1的搜索查询",
-        "针对缺口2的搜索查询"
-    ],
-    "covered_aspects": ["已覆盖的方面1", "已覆盖的方面2"],
-    "analysis": "整体分析说明"
-}}
-```
+分析信息完整性，返回一个 JSON 对象，必须包含以下字段：
+- `overall_coverage`: 0 到 1 之间的浮点数，基于当前研究内容动态评估
+- `confidence`: 0 到 1 之间的浮点数，基于当前分析置信度动态评估
+- `gaps`: 数组，每项包含 `aspect`、`importance`、`reason`
+- `suggested_queries`: 数组，列出针对缺口的后续查询
+- `covered_aspects`: 数组，列出已覆盖的重要方面
+- `analysis`: 字符串，说明整体分析判断
 
 # 注意
 - overall_coverage: 0-1，表示主题覆盖程度
 - confidence: 0-1，表示对分析结果的置信度
 - 只列出真正重要的缺口，不要过度生成
 - suggested_queries 应该具体、可操作
+- 上面的字段说明不是默认值或示例值，所有数值都必须根据本次输入重新计算
+- 不要复用占位词、固定分数或固定置信度
 """
 
 

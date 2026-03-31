@@ -26,6 +26,9 @@ You are the Deep Research scope agent.
 # Normalized intake summary
 {intake_summary}
 
+# Clarification transcript
+{clarify_transcript}
+
 # Previous scope draft
 {previous_scope}
 
@@ -70,6 +73,37 @@ def _coerce_string_list(value: Any) -> list[str]:
         if text:
             result.append(text)
     return result
+
+
+def _coerce_clarify_transcript(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    transcript: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        question = str(item.get("question") or "").strip()
+        answer = str(item.get("answer") or "").strip()
+        if not question and not answer:
+            continue
+        transcript.append({"question": question, "answer": answer})
+    return transcript
+
+
+def _format_clarify_transcript(value: Any) -> str:
+    transcript = _coerce_clarify_transcript(value)
+    if not transcript:
+        return "None"
+
+    lines: list[str] = []
+    for index, item in enumerate(transcript, 1):
+        lines.append(f"{index}. Q: {item['question'] or '(missing question)'}")
+        lines.append(f"   A: {item['answer'] or '(missing answer)'}")
+    return "\n".join(lines)
+
+
+def _extract_transcript_answers(value: Any) -> list[str]:
+    return [item["answer"] for item in _coerce_clarify_transcript(value) if item.get("answer")]
 
 
 def _default_research_steps(
@@ -164,11 +198,13 @@ class DeepResearchScopeAgent:
         intake_summary: dict[str, Any] | None = None,
         previous_scope: dict[str, Any] | None = None,
         scope_feedback: str = "",
+        clarify_transcript: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         prompt = ChatPromptTemplate.from_messages([("user", SCOPE_PROMPT)])
         msg = prompt.format_messages(
             topic=topic,
             intake_summary=json.dumps(intake_summary or {}, ensure_ascii=False, indent=2),
+            clarify_transcript=_format_clarify_transcript(clarify_transcript),
             previous_scope=json.dumps(previous_scope or {}, ensure_ascii=False, indent=2),
             scope_feedback=scope_feedback or "None",
         )
@@ -180,6 +216,7 @@ class DeepResearchScopeAgent:
             intake_summary=intake_summary or {},
             previous_scope=previous_scope or {},
             scope_feedback=scope_feedback,
+            clarify_transcript=clarify_transcript or [],
         )
 
     def _parse_response(
@@ -190,11 +227,13 @@ class DeepResearchScopeAgent:
         intake_summary: dict[str, Any],
         previous_scope: dict[str, Any],
         scope_feedback: str,
+        clarify_transcript: list[dict[str, str]],
     ) -> dict[str, Any]:
         payload = _extract_json_object(content)
         if not payload:
             payload = {}
 
+        transcript_answers = _extract_transcript_answers(clarify_transcript)
         research_goal = str(
             payload.get("research_goal")
             or intake_summary.get("research_goal")
@@ -225,6 +264,25 @@ class DeepResearchScopeAgent:
                 in_scope.append(background)
         deliverable_preferences = _coerce_string_list(payload.get("deliverable_preferences"))
         assumptions = _coerce_string_list(payload.get("assumptions"))
+
+        if not constraints and transcript_answers:
+            constraints = [item for item in transcript_answers if item]
+
+        if not source_preferences and transcript_answers:
+            for answer in transcript_answers:
+                lowered = answer.lower()
+                if "source" in lowered or "sources" in lowered or "来源" in answer:
+                    source_preferences.append(answer)
+
+        if not out_of_scope and transcript_answers:
+            exclusion_markers = ("exclude", "excluding", "out of scope", "不包括", "排除", "不要", "无需", "忽略")
+            for answer in transcript_answers:
+                lowered = answer.lower()
+                if any(marker in lowered for marker in exclusion_markers[:3]) or any(
+                    marker in answer for marker in exclusion_markers[3:]
+                ):
+                    out_of_scope.append(answer)
+
         if not research_steps:
             research_steps = _default_research_steps(
                 topic=topic,

@@ -314,6 +314,22 @@ def _extract_interrupt_text(
     return ""
 
 
+def _build_clarify_transcript(
+    question_history: list[str] | None,
+    answer_history: list[str] | None,
+) -> list[dict[str, str]]:
+    questions = [str(item or "").strip() for item in (question_history or [])]
+    answers = [str(item or "").strip() for item in (answer_history or [])]
+    transcript: list[dict[str, str]] = []
+    for index in range(max(len(questions), len(answers))):
+        question = questions[index] if index < len(questions) else ""
+        answer = answers[index] if index < len(answers) else ""
+        if not question and not answer:
+            continue
+        transcript.append({"question": question, "answer": answer})
+    return transcript
+
+
 def _build_scope_draft(
     *,
     topic: str,
@@ -1261,9 +1277,14 @@ class MultiAgentDeepSearchRuntime:
         )
         try:
             clarify_answers = list(view.runtime_state.get("clarify_answer_history") or [])
+            clarify_transcript = _build_clarify_transcript(
+                list(view.runtime_state.get("clarify_question_history") or []),
+                clarify_answers,
+            )
             result = self.clarifier.assess_intake(
                 self.topic,
                 clarify_answers=clarify_answers,
+                clarify_history=clarify_transcript,
             )
             intake_summary = copy.deepcopy(result.get("intake_summary") or {})
             if intake_summary:
@@ -1372,6 +1393,10 @@ class MultiAgentDeepSearchRuntime:
             intake_summary = copy.deepcopy(view.runtime_state.get("intake_summary") or {})
             current_scope_payload = copy.deepcopy(view.runtime_state.get("current_scope_draft") or {})
             pending_feedback = str(view.runtime_state.get("pending_scope_feedback") or "").strip()
+            clarify_transcript = _build_clarify_transcript(
+                list(view.runtime_state.get("clarify_question_history") or []),
+                list(view.runtime_state.get("clarify_answer_history") or []),
+            )
             current_scope = _scope_draft_from_payload(current_scope_payload)
             next_version = 1
             if current_scope:
@@ -1382,6 +1407,7 @@ class MultiAgentDeepSearchRuntime:
                 intake_summary=intake_summary,
                 previous_scope=current_scope_payload if pending_feedback else {},
                 scope_feedback=pending_feedback,
+                clarify_transcript=clarify_transcript,
             )
             scope_draft = _build_scope_draft(
                 topic=self.topic,

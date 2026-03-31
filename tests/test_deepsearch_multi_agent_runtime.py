@@ -58,7 +58,7 @@ class _FakeClarifyAgent:
     def __init__(self, _llm, _config=None):
         pass
 
-    def assess_intake(self, topic, clarify_answers=None):
+    def assess_intake(self, topic, clarify_answers=None, clarify_history=None):
         return {
             "needs_clarification": False,
             "question": "",
@@ -78,7 +78,14 @@ class _FakeScopeAgent:
     def __init__(self, _llm, _config=None):
         pass
 
-    def create_scope(self, topic, intake_summary=None, previous_scope=None, scope_feedback=""):
+    def create_scope(
+        self,
+        topic,
+        intake_summary=None,
+        previous_scope=None,
+        scope_feedback="",
+        clarify_transcript=None,
+    ):
         previous_scope = previous_scope or {}
         if scope_feedback and previous_scope:
             base_questions = list(previous_scope.get("core_questions") or [])
@@ -507,3 +514,122 @@ def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
     decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
     assert "scope_revision_requested" in decision_types
     assert "scope_approved" in decision_types
+
+
+def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
+    emitter = _DummyEmitter()
+    clarify_calls = []
+    scope_calls = []
+
+    class _ClarifyWithFollowUp:
+        def __init__(self, _llm, _config=None):
+            pass
+
+        def assess_intake(self, topic, clarify_answers=None, clarify_history=None):
+            clarify_calls.append(
+                {
+                    "topic": topic,
+                    "clarify_answers": list(clarify_answers or []),
+                    "clarify_history": list(clarify_history or []),
+                }
+            )
+            if not clarify_answers:
+                return {
+                    "needs_clarification": True,
+                    "question": "What time range should the research cover?",
+                    "missing_information": ["time_range"],
+                    "intake_summary": {
+                        "research_goal": f"Research {topic}",
+                        "background": f"Known context for {topic}",
+                        "constraints": [],
+                        "time_range": "",
+                        "source_preferences": [],
+                        "exclusions": [],
+                    },
+                }
+            return {
+                "needs_clarification": False,
+                "question": "",
+                "missing_information": [],
+                "intake_summary": {
+                    "research_goal": f"Research {topic}",
+                    "background": f"Known context for {topic}",
+                    "constraints": [],
+                    "time_range": clarify_answers[-1],
+                    "source_preferences": [],
+                    "exclusions": [],
+                },
+            }
+
+    class _ScopeCapture(_FakeScopeAgent):
+        def create_scope(
+            self,
+            topic,
+            intake_summary=None,
+            previous_scope=None,
+            scope_feedback="",
+            clarify_transcript=None,
+        ):
+            scope_calls.append(list(clarify_transcript or []))
+            return super().create_scope(
+                topic,
+                intake_summary=intake_summary,
+                previous_scope=previous_scope,
+                scope_feedback=scope_feedback,
+                clarify_transcript=clarify_transcript,
+            )
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _ClarifyWithFollowUp)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _ScopeCapture)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _SingleTaskPlanner)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchCoordinator", _FakeCoordinator)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    config = {
+        "configurable": {
+            "thread_id": "thread_clarify_scope_context",
+            "deepsearch_engine": "multi_agent",
+            "allow_interrupts": True,
+            "deepsearch_query_num": 1,
+        }
+    }
+    runtime = multi_agent_runtime.MultiAgentDeepSearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        config,
+    )
+    graph = runtime.build_graph(checkpointer=MemorySaver())
+
+    first = graph.invoke(runtime.build_initial_graph_state(), config)
+    assert "__interrupt__" in first
+    first_prompt = first["__interrupt__"][0].value
+    assert first_prompt["checkpoint"] == "deepsearch_clarify"
+
+    second = graph.invoke(
+        Command(resume={"clarify_answer": "Only 2024 annual filings"}),
+        config,
+    )
+    assert "__interrupt__" in second
+    second_prompt = second["__interrupt__"][0].value
+    assert second_prompt["checkpoint"] == "deepsearch_scope_review"
+
+    assert len(clarify_calls) >= 3
+    assert clarify_calls[0]["clarify_history"] == []
+    assert clarify_calls[1]["clarify_history"] == []
+    assert clarify_calls[-1]["clarify_history"] == [
+        {
+            "question": "What time range should the research cover?",
+            "answer": "Only 2024 annual filings",
+        }
+    ]
+    assert scope_calls == [
+        [
+            {
+                "question": "What time range should the research cover?",
+                "answer": "Only 2024 annual filings",
+            }
+        ]
+    ]
