@@ -297,11 +297,59 @@ def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
     interrupt_payload = interrupted["__interrupt__"][0].value
     assert interrupt_payload["checkpoint"] == "deepsearch_merge"
 
-    resumed = graph.invoke(Command(resume={"continue": True}), config)
+    resume_config = {
+        "configurable": {
+            **config["configurable"],
+            "resumed_from_checkpoint": True,
+        }
+    }
+    resumed = graph.invoke(Command(resume={"continue": True}), resume_config)
     final_result = resumed["final_result"]
 
     assert final_result["deepsearch_runtime_state"]["graph_run_id"] == interrupt_payload["graph_run_id"]
     assert final_result["deepsearch_task_queue"]["stats"]["completed"] == 2
+
+
+def test_multi_agent_events_include_resume_flag_when_configured(monkeypatch):
+    emitter = _DummyEmitter()
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _SingleTaskPlanner)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchCoordinator", _FakeCoordinator)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    run_multi_agent_deepsearch(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_resume_flag",
+                "deepsearch_engine": "multi_agent",
+                "deepsearch_query_num": 1,
+                "resumed_from_checkpoint": True,
+            }
+        },
+    )
+
+    research_events = [
+        data
+        for name, data in emitter.emitted
+        if name
+        in {
+            "research_agent_start",
+            "research_agent_complete",
+            "research_task_update",
+            "research_artifact_update",
+            "research_decision",
+        }
+    ]
+
+    assert research_events
+    assert all(event.get("resumed_from_checkpoint") is True for event in research_events)
 
 
 def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch):

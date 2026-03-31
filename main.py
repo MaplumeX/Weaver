@@ -986,6 +986,7 @@ class ChatResponse(BaseModel):
 class GraphInterruptResumeRequest(BaseModel):
     thread_id: str
     payload: Any
+    stream: bool = False
     model: Optional[str] = None
     search_mode: Optional[SearchMode] = None
     agent_id: Optional[str] = None
@@ -1825,6 +1826,696 @@ def _normalize_images_payload(images: Optional[List[ImagePayload]]) -> List[Dict
     return normalized
 
 
+def _restore_thread_stream_context(thread_id: str) -> Dict[str, Any]:
+    restored: Dict[str, Any] = {
+        "input_text": "",
+        "user_id": settings.memory_user_id,
+        "state": {},
+    }
+    if not checkpointer:
+        return restored
+
+    try:
+        from common.session_manager import get_session_manager
+
+        manager = get_session_manager(checkpointer)
+        session_state = manager.get_session_state(thread_id)
+    except Exception:
+        return restored
+
+    if not session_state or not isinstance(session_state.state, dict):
+        return restored
+
+    state = session_state.state
+    restored["state"] = state
+    restored["input_text"] = str(state.get("input") or state.get("topic") or "").strip()
+    restored["user_id"] = (
+        str(state.get("user_id") or settings.memory_user_id).strip() or settings.memory_user_id
+    )
+    return restored
+
+
+def _mode_info_from_session_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    route = str(state.get("route") or "").strip().lower()
+    deep_runtime = state.get("deep_runtime") or {}
+    deepsearch_engine = state.get("deepsearch_engine")
+    if not deepsearch_engine and isinstance(deep_runtime, dict):
+        deepsearch_engine = deep_runtime.get("engine")
+
+    has_deep_runtime = any(
+        isinstance(state.get(key), dict) and bool(state.get(key))
+        for key in ("deepsearch_runtime_state", "deepsearch_task_queue", "deepsearch_artifact_store")
+    )
+    if not has_deep_runtime and isinstance(deep_runtime, dict):
+        has_deep_runtime = any(
+            isinstance(deep_runtime.get(key), dict) and bool(deep_runtime.get(key))
+            for key in ("runtime_state", "task_queue", "artifact_store")
+        )
+    if not has_deep_runtime:
+        has_deep_runtime = any(
+            isinstance(state.get(key), list) and bool(state.get(key))
+            for key in ("deepsearch_agent_runs",)
+        )
+
+    use_deep = route == "deep" or has_deep_runtime
+    use_agent = route in {"agent", "deep"} or use_deep
+    use_web = route == "web"
+
+    return {
+        "use_web": use_web,
+        "use_agent": use_agent,
+        "use_deep": use_deep,
+        "mode": "deep" if use_deep else ("agent" if use_agent else ("web" if use_web else "direct")),
+        "use_deep_prompt": use_deep,
+        "deepsearch_engine": deepsearch_engine if use_deep else None,
+    }
+
+
+def _build_agent_graph_config(
+    *,
+    thread_id: str,
+    model: str,
+    mode_info: Dict[str, Any],
+    agent_profile: Optional[AgentProfile],
+    user_id: Optional[str],
+    resumed_from_checkpoint: bool = False,
+) -> Dict[str, Any]:
+    configurable: Dict[str, Any] = {
+        "thread_id": thread_id,
+        "model": model,
+        "search_mode": mode_info,
+        "deepsearch_engine": mode_info.get("deepsearch_engine"),
+        "agent_profile": agent_profile.model_dump(mode="json") if agent_profile else None,
+        "user_id": user_id or settings.memory_user_id,
+        "allow_interrupts": bool(checkpointer),
+        "tool_approval": settings.tool_approval or False,
+        "human_review": settings.human_review or False,
+        "max_revisions": settings.max_revisions,
+    }
+    if resumed_from_checkpoint:
+        configurable["resumed_from_checkpoint"] = True
+    return {"configurable": configurable, "recursion_limit": 50}
+
+
+def _build_initial_agent_state(
+    *,
+    input_text: str,
+    thread_id: str,
+    mode_info: Dict[str, Any],
+    images: Optional[List[Dict[str, Any]]] = None,
+    user_id: Optional[str] = None,
+    agent_profile: Optional[AgentProfile] = None,
+) -> AgentState:
+    images = images or []
+    user_id = user_id or settings.memory_user_id
+    deepsearch_engine = str(
+        mode_info.get("deepsearch_engine") or getattr(settings, "deepsearch_engine", "legacy")
+    )
+    initial_state: AgentState = {
+        "input": input_text,
+        "images": images,
+        "needs_clarification": False,
+        "tool_approved": False,
+        "pending_tool_calls": [],
+        "user_id": user_id,
+        "messages": [],
+        "research_plan": [],
+        "current_step": 0,
+        "scraped_content": [],
+        "code_results": [],
+        "final_report": "",
+        "draft_report": "",
+        "evaluation": "",
+        "verdict": "",
+        "route": mode_info.get("mode", "direct"),
+        "revision_count": 0,
+        "max_revisions": settings.max_revisions,
+        "tool_call_count": 0,
+        "is_complete": False,
+        "errors": [],
+        "sub_agent_contexts": {},
+        "deepsearch_engine": deepsearch_engine,
+        "deep_runtime": {
+            "engine": deepsearch_engine,
+            "task_queue": {},
+            "artifact_store": {},
+            "runtime_state": {},
+            "agent_runs": [],
+        },
+        "deepsearch_task_queue": {},
+        "deepsearch_artifact_store": {},
+        "deepsearch_runtime_state": {},
+        "deepsearch_agent_runs": [],
+        "cancel_token_id": thread_id,
+        "is_cancelled": False,
+    }
+
+    messages: list[Any] = []
+    if mode_info.get("mode") == "agent" and agent_profile and agent_profile.system_prompt:
+        messages.append(SystemMessage(content=agent_profile.system_prompt))
+    if mode_info.get("use_deep_prompt"):
+        messages.append(SystemMessage(content=get_deep_agent_prompt()))
+
+    store_memories = _store_search(input_text, user_id=user_id)
+    if store_memories:
+        store_text = "\n".join(f"- {m}" for m in store_memories)
+        messages.append(SystemMessage(content=f"Stored memories:\n{store_text}"))
+
+    mem_entries = fetch_memories(query=input_text, user_id=user_id)
+    if mem_entries:
+        memory_text = "\n".join(f"- {m}" for m in mem_entries)
+        messages.append(SystemMessage(content=f"Relevant past knowledge:\n{memory_text}"))
+
+    if messages:
+        initial_state["messages"] = messages
+
+    return initial_state
+
+
+_MULTI_AGENT_GENERIC_PROGRESS_NODE_NAMES = {
+    "bootstrap",
+    "clarify",
+    "scope",
+    "scope_review",
+    "plan",
+    "dispatch",
+    "researcher",
+    "merge",
+    "verify",
+    "coordinate",
+    "report",
+    "finalize",
+}
+
+
+def _is_multi_agent_deep_mode(mode_info: Dict[str, Any]) -> bool:
+    engine = str(
+        mode_info.get("deepsearch_engine") or getattr(settings, "deepsearch_engine", "legacy")
+    ).strip().lower()
+    return bool(mode_info.get("use_deep")) and engine == "multi_agent"
+
+
+def _should_emit_generic_progress_for_node(node_name: str, mode_info: Dict[str, Any]) -> bool:
+    name = (node_name or "").strip().lower()
+    if not name:
+        return True
+    if not _is_multi_agent_deep_mode(mode_info):
+        return True
+    return name not in _MULTI_AGENT_GENERIC_PROGRESS_NODE_NAMES
+
+
+async def _stream_graph_execution(
+    *,
+    input_text: str,
+    thread_id: str,
+    model: str,
+    mode_info: Dict[str, Any],
+    config: Dict[str, Any],
+    user_id: str,
+    execution_input: Any,
+    resumed_from_checkpoint: bool = False,
+):
+    """
+    Stream graph execution for both fresh runs and checkpoint resumes.
+    """
+    event_count = 0
+    start_time = time.time()
+    was_interrupted = False
+    emit_main_text = False
+    final_output: Optional[Dict[str, Any]] = None
+    use_zh = _contains_cjk(input_text)
+    last_thinking_text = ""
+
+    # Optional per-thread log handler for easier debugging
+    thread_handler = None
+    root_logger = logging.getLogger()
+    if settings.enable_file_logging:
+        try:
+            log_path = Path(settings.log_file)
+            thread_log_dir = log_path.parent / "threads"
+            thread_log_dir.mkdir(parents=True, exist_ok=True)
+            thread_log_file = thread_log_dir / f"{thread_id}.log"
+
+            formatter = None
+            if root_logger.handlers:
+                formatter = root_logger.handlers[0].formatter
+            thread_handler = logging.FileHandler(thread_log_file, encoding="utf-8")
+            if formatter:
+                thread_handler.setFormatter(formatter)
+            thread_handler.setLevel(root_logger.level)
+            root_logger.addHandler(thread_handler)
+            logger.info(f"Thread log file attached: {thread_log_file}")
+        except Exception as e:
+            logger.warning(f"Failed to attach thread log handler: {e}")
+
+    cancel_token = await cancellation_manager.create_token(
+        thread_id,
+        metadata={
+            "model": model,
+            "input_preview": input_text[:100],
+            "user_id": user_id,
+            "resumed_from_checkpoint": resumed_from_checkpoint,
+        },
+    )
+
+    emitter = await get_emitter(thread_id)
+    event_queue: asyncio.Queue = asyncio.Queue()
+
+    async def tool_event_listener(event):
+        await event_queue.put(event)
+
+    emitter.on_event(tool_event_listener)
+
+    try:
+        logger.info(
+            "Agent stream started | Thread: %s | Model: %s | resumed=%s",
+            thread_id,
+            model,
+            resumed_from_checkpoint,
+        )
+        logger.debug(f"  Input: {input_text[:100]}...")
+
+        metrics = metrics_registry.start(thread_id, model=model, route=mode_info.get("mode", ""))
+
+        async def _build_pending_interrupt_event() -> Optional[str]:
+            nonlocal was_interrupted
+            prompts = _pending_interrupt_prompts_for_thread(thread_id)
+            if not prompts:
+                return None
+            was_interrupted = True
+            return await format_stream_event(
+                "interrupt",
+                {"thread_id": thread_id, "prompts": prompts},
+            )
+
+        async def _drain_pending_tool_events() -> None:
+            while not event_queue.empty():
+                try:
+                    tool_event = event_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+
+                if tool_event.type == ToolEvent.TOOL_START:
+                    yield_event = await format_stream_event(
+                        "tool_start",
+                        _normalize_tool_event_data("tool_start", tool_event.data),
+                    )
+                elif tool_event.type == ToolEvent.TOOL_PROGRESS:
+                    yield_event = await format_stream_event(
+                        "tool_progress",
+                        _normalize_tool_event_data("tool_progress", tool_event.data),
+                    )
+                elif tool_event.type == ToolEvent.TOOL_SCREENSHOT:
+                    yield_event = await format_stream_event("screenshot", tool_event.data)
+                elif tool_event.type == ToolEvent.TOOL_RESULT:
+                    yield_event = await format_stream_event(
+                        "tool_result",
+                        _normalize_tool_event_data("tool_result", tool_event.data),
+                    )
+                elif tool_event.type == ToolEvent.TOOL_ERROR:
+                    yield_event = await format_stream_event(
+                        "tool_error",
+                        _normalize_tool_event_data("tool_error", tool_event.data),
+                    )
+                elif tool_event.type == ToolEvent.TASK_UPDATE:
+                    yield_event = await format_stream_event("task_update", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_NODE_START:
+                    yield_event = await format_stream_event("research_node_start", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_NODE_COMPLETE:
+                    yield_event = await format_stream_event("research_node_complete", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_TREE_UPDATE:
+                    yield_event = await format_stream_event("research_tree_update", tool_event.data)
+                elif tool_event.type == ToolEvent.QUALITY_UPDATE:
+                    yield_event = await format_stream_event("quality_update", tool_event.data)
+                elif tool_event.type == ToolEvent.SEARCH:
+                    yield_event = await format_stream_event("search", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_AGENT_START:
+                    yield_event = await format_stream_event("research_agent_start", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_AGENT_COMPLETE:
+                    yield_event = await format_stream_event("research_agent_complete", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_TASK_UPDATE:
+                    yield_event = await format_stream_event("research_task_update", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_ARTIFACT_UPDATE:
+                    yield_event = await format_stream_event("research_artifact_update", tool_event.data)
+                elif tool_event.type == ToolEvent.RESEARCH_DECISION:
+                    yield_event = await format_stream_event("research_decision", tool_event.data)
+                else:
+                    continue
+
+                yield yield_event
+
+        initial_status = "Resuming research agent..." if resumed_from_checkpoint else "Initializing research agent..."
+        initial_step = "resume" if resumed_from_checkpoint else "init"
+        yield await format_stream_event(
+            "status",
+            {"text": initial_status, "step": initial_step, "thread_id": thread_id},
+        )
+
+        graph_events = research_graph.astream_events(execution_input, config=config)
+        graph_iter = graph_events.__aiter__()
+
+        while True:
+            async for queued_chunk in _drain_pending_tool_events():
+                yield queued_chunk
+
+            if cancel_token.is_cancelled:
+                logger.info(f"Stream cancelled for thread {thread_id}")
+                yield await format_stream_event(
+                    "cancelled", {"message": "Task was cancelled by user", "thread_id": thread_id}
+                )
+                return
+
+            next_event_task = asyncio.create_task(graph_iter.__anext__())
+            try:
+                while True:
+                    done, _pending = await asyncio.wait({next_event_task}, timeout=0.05)
+                    async for queued_chunk in _drain_pending_tool_events():
+                        yield queued_chunk
+
+                    if cancel_token.is_cancelled:
+                        next_event_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await next_event_task
+                        logger.info(f"Stream cancelled for thread {thread_id}")
+                        yield await format_stream_event(
+                            "cancelled",
+                            {"message": "Task was cancelled by user", "thread_id": thread_id},
+                        )
+                        return
+
+                    if done:
+                        break
+
+                event = next_event_task.result()
+            except StopAsyncIteration:
+                break
+            except GraphBubbleUp:
+                interrupt_chunk = await _build_pending_interrupt_event()
+                if interrupt_chunk:
+                    yield interrupt_chunk
+                    return
+                raise
+
+            event_type = event.get("event")
+            name = event.get("name", "") or event.get("run_name", "")
+            data_dict = event.get("data", {})
+            node_name = name.lower() if isinstance(name, str) else ""
+            emit_generic_progress = _should_emit_generic_progress_for_node(node_name, mode_info)
+
+            if event_type in {"on_chain_start", "on_node_start", "on_graph_start"}:
+                event_count += 1
+                metrics.mark_event(event_type, node_name)
+                emit_main_text = _should_emit_main_text_for_node(node_name)
+                if emit_generic_progress:
+                    try:
+                        intro = _thinking_intro_for_node(node_name, use_zh=use_zh)
+                        intro = _sanitize_thinking_text(intro, max_len=240)
+                        if intro and intro != last_thinking_text:
+                            last_thinking_text = intro
+                            yield await format_stream_event(
+                                "thinking",
+                                {"text": intro, "node": node_name},
+                            )
+                    except Exception:
+                        pass
+                    if "clarify" in node_name:
+                        logger.debug(f"  Clarify node started | Thread: {thread_id}")
+                        yield await format_stream_event(
+                            "status",
+                            {"text": "Checking if clarification is needed...", "step": "clarifying"},
+                        )
+                    elif "planner" in node_name:
+                        logger.debug(f"  Planning node started | Thread: {thread_id}")
+                        yield await format_stream_event(
+                            "status", {"text": "Creating research plan...", "step": "planning"}
+                        )
+                    elif "deepsearch" in node_name:
+                        logger.debug(f"  Deep research node started | Thread: {thread_id}")
+                        text = (
+                            "正在进行 Deep Research（多轮检索→阅读→汇总），可能需要几分钟…"
+                            if use_zh
+                            else "Running Deep Research (iterative search → read → synthesize)…"
+                        )
+                        yield await format_stream_event(
+                            "status",
+                            {"text": text, "step": "deep_research"},
+                        )
+                    elif "perform_parallel_search" in node_name or "search" in node_name:
+                        logger.debug(f"  Search node started | Thread: {thread_id}")
+                        yield await format_stream_event(
+                            "status", {"text": "Conducting research...", "step": "researching"}
+                        )
+                    elif "writer" in node_name:
+                        logger.debug(f"  Writer node started | Thread: {thread_id}")
+                        yield await format_stream_event(
+                            "status", {"text": "Synthesizing findings...", "step": "writing"}
+                        )
+                    elif node_name == "agent":
+                        logger.debug(f"  Agent node started | Thread: {thread_id}")
+                        yield await format_stream_event(
+                            "status", {"text": "Running agent (tool-calling)...", "step": "agent"}
+                        )
+
+            elif event_type in {"on_chain_end", "on_node_end", "on_graph_end"}:
+                output = data_dict.get("output", {}) if isinstance(data_dict, dict) else {}
+                metrics.mark_event(event_type, node_name)
+
+                if isinstance(output, dict):
+                    interrupts = output.get("__interrupt__")
+                    if interrupts:
+                        was_interrupted = True
+                        yield await format_stream_event(
+                            "interrupt",
+                            {"thread_id": thread_id, "prompts": _serialize_interrupts(interrupts)},
+                        )
+                        return
+
+                    if (
+                        emit_generic_progress
+                        and _should_emit_thinking_summary_for_node(node_name)
+                        and not output.get("is_complete")
+                    ):
+                        try:
+                            messages = output.get("messages", [])
+                            for msg in messages or []:
+                                content = msg.content if hasattr(msg, "content") else str(msg)
+                                safe = _sanitize_thinking_text(content)
+                                if not safe or _looks_like_structured_blob(safe):
+                                    continue
+                                yield await format_stream_event(
+                                    "thinking",
+                                    {"text": safe, "node": node_name},
+                                )
+                        except Exception:
+                            pass
+
+                    final_report = output.get("final_report", "")
+                    if final_report and (output.get("is_complete") or event_type == "on_graph_end"):
+                        merged_output = dict(final_output or {})
+                        for key, value in output.items():
+                            if key in merged_output and value in (None, "", [], {}):
+                                continue
+                            merged_output[key] = value
+                        final_output = merged_output
+
+            elif event_type == "on_tool_start":
+                payload = _build_langchain_tool_stream_payload(
+                    status="running",
+                    event_name=name,
+                    data=data_dict,
+                    run_id=event.get("run_id"),
+                )
+                yield await format_stream_event("tool", payload)
+
+            elif event_type == "on_tool_error":
+                payload = _build_langchain_tool_stream_payload(
+                    status="failed",
+                    event_name=name,
+                    data=data_dict,
+                    run_id=event.get("run_id"),
+                )
+                yield await format_stream_event("tool", payload)
+
+            elif event_type == "on_tool_end":
+                tool_name = _resolve_tool_event_name(event_name=name, data=data_dict)
+                output = data_dict.get("output", {})
+                payload = _build_langchain_tool_stream_payload(
+                    status="completed",
+                    event_name=name,
+                    data=data_dict,
+                    run_id=event.get("run_id"),
+                )
+                yield await format_stream_event("tool", payload)
+
+                if tool_name == "execute_python_code" and isinstance(output, dict):
+                    image_data = output.get("image")
+
+                    if image_data:
+                        yield await format_stream_event(
+                            "artifact",
+                            {
+                                "id": f"art_{datetime.now().timestamp()}",
+                                "type": "chart",
+                                "title": "Generated Visualization",
+                                "content": "Chart generated from Python code",
+                                "image": image_data,
+                            },
+                        )
+                if tool_name == "browser_screenshot" and isinstance(output, dict):
+                    image_data = output.get("image")
+                    url = output.get("url", "")
+                    if image_data:
+                        yield await format_stream_event(
+                            "artifact",
+                            {
+                                "id": f"art_{datetime.now().timestamp()}",
+                                "type": "chart",
+                                "title": "Browser Screenshot",
+                                "content": url or "Screenshot",
+                                "image": image_data,
+                            },
+                        )
+                if tool_name.startswith("sb_browser_") and isinstance(output, dict):
+                    image_data = output.get("image")
+                    url = output.get("url", "")
+                    if isinstance(image_data, str) and image_data.strip():
+                        yield await format_stream_event(
+                            "artifact",
+                            {
+                                "id": f"art_{datetime.now().timestamp()}",
+                                "type": "chart",
+                                "title": f"Sandbox Browser ({tool_name})",
+                                "content": url or tool_name,
+                                "image": image_data,
+                            },
+                        )
+
+            elif event_type in {"on_chat_model_stream", "on_llm_stream"}:
+                chunk = data_dict.get("chunk") or data_dict.get("output")
+                if chunk is not None:
+                    content = None
+                    if hasattr(chunk, "content"):
+                        content = chunk.content
+                    elif isinstance(chunk, dict):
+                        content = chunk.get("content")
+                    if content and emit_main_text:
+                        yield await format_stream_event("text", {"content": content})
+
+        async for queued_chunk in _drain_pending_tool_events():
+            yield queued_chunk
+
+        if not final_output:
+            interrupt_chunk = await _build_pending_interrupt_event()
+            if interrupt_chunk:
+                yield interrupt_chunk
+                return
+            restored = _restore_thread_stream_context(thread_id)
+            restored_state = restored.get("state") if isinstance(restored.get("state"), dict) else {}
+            if isinstance(restored_state, dict) and restored_state.get("final_report"):
+                final_output = restored_state
+
+        if isinstance(final_output, dict):
+            final_report = final_output.get("final_report", "")
+            if final_report:
+                try:
+                    candidates: List[Dict[str, Any]] = []
+                    scraped_content = final_output.get("scraped_content")
+                    if isinstance(scraped_content, list):
+                        candidates.extend(scraped_content)
+                    raw_sources = final_output.get("sources")
+                    if isinstance(raw_sources, list):
+                        candidates.extend(raw_sources)
+
+                    sources = extract_message_sources(candidates)
+                    if sources:
+                        yield await format_stream_event("sources", {"items": sources})
+                except Exception:
+                    pass
+
+                yield await format_stream_event("completion", {"content": final_report})
+                yield await format_stream_event(
+                    "artifact",
+                    {
+                        "id": f"report_{datetime.now().timestamp()}",
+                        "type": "report",
+                        "title": "Research Report",
+                        "content": final_report,
+                    },
+                )
+                add_memory_entry(final_report)
+                store_interaction(input_text, final_report)
+                _store_add(input_text, final_report, user_id=user_id)
+
+        duration = time.time() - start_time
+        cancel_token.mark_completed()
+        metrics_registry.finish(thread_id, cancelled=False)
+        logger.info(
+            f"вњ?Agent stream completed | Thread: {thread_id} | "
+            f"Events: {event_count} | Duration: {duration:.2f}s"
+        )
+        yield await format_stream_event(
+            "done",
+            {
+                "timestamp": datetime.now().isoformat(),
+                "metrics": metrics_registry.get(thread_id).to_dict()
+                if metrics_registry.get(thread_id)
+                else {},
+            },
+        )
+
+    except asyncio.CancelledError:
+        duration = time.time() - start_time
+        metrics_registry.finish(thread_id, cancelled=True)
+        logger.info(f"? Agent stream cancelled | Thread: {thread_id} | Duration: {duration:.2f}s")
+        yield await format_stream_event(
+            "cancelled",
+            {"message": "Task was cancelled", "thread_id": thread_id, "duration": duration},
+        )
+
+    except Exception as e:
+        duration = time.time() - start_time
+        cancel_token.mark_failed(str(e))
+        metrics_registry.finish(thread_id, cancelled=False)
+        logger.error(
+            f"? Agent stream error | Thread: {thread_id} | "
+            f"Duration: {duration:.2f}s | Error: {str(e)}",
+            exc_info=True,
+        )
+        yield await format_stream_event("error", {"message": str(e)})
+
+    finally:
+        try:
+            emitter.off_event(tool_event_listener)
+            await remove_emitter(thread_id)
+        except Exception:
+            pass
+        if thread_id in active_streams:
+            del active_streams[thread_id]
+        if thread_handler:
+            try:
+                root_logger.removeHandler(thread_handler)
+                thread_handler.close()
+            except Exception:
+                pass
+        if not was_interrupted:
+            try:
+                browser_sessions.reset(thread_id)
+            except Exception:
+                pass
+            if _browser_stream_conn_active(thread_id):
+                logger.info(
+                    f"Skipping sandbox browser reset for thread={thread_id} (browser stream active)"
+                )
+            else:
+                try:
+                    asyncio.create_task(asyncio.to_thread(sandbox_browser_sessions.reset, thread_id))
+                except Exception:
+                    try:
+                        sandbox_browser_sessions.reset(thread_id)
+                    except Exception:
+                        pass
+
+
 def _store_search(query: str, user_id: str, limit: int = 3) -> List[str]:
     if not store:
         return []
@@ -1917,580 +2608,76 @@ async def stream_agent_events(
     Converts LangGraph events to Vercel AI SDK format.
     Supports cancellation via cancellation_manager.
     """
-    event_count = 0
-    start_time = time.time()
-    was_interrupted = False
-    emit_main_text = False
-    final_output: Optional[Dict[str, Any]] = None
-    use_zh = _contains_cjk(input_text)
-    last_thinking_text = ""
     images = images or []
     user_id = user_id or settings.memory_user_id
     model = (model or settings.primary_model).strip()
     agent_id = (agent_id or "default").strip() or "default"
     agent_profile = get_agent_profile(agent_id) or get_agent_profile("default")
-
-    # Optional per-thread log handler for easier debugging
-    thread_handler = None
-    root_logger = logging.getLogger()
-    if settings.enable_file_logging:
-        try:
-            log_path = Path(settings.log_file)
-            thread_log_dir = log_path.parent / "threads"
-            thread_log_dir.mkdir(parents=True, exist_ok=True)
-            thread_log_file = thread_log_dir / f"{thread_id}.log"
-
-            # Reuse formatter from existing handlers if available
-            formatter = None
-            if root_logger.handlers:
-                formatter = root_logger.handlers[0].formatter
-            thread_handler = logging.FileHandler(thread_log_file, encoding="utf-8")
-            if formatter:
-                thread_handler.setFormatter(formatter)
-            thread_handler.setLevel(root_logger.level)
-            root_logger.addHandler(thread_handler)
-            logger.info(f"Thread log file attached: {thread_log_file}")
-        except Exception as e:
-            logger.warning(f"Failed to attach thread log handler: {e}")
-
-    # 鍒涘缓鍙栨秷浠ょ墝
-    cancel_token = await cancellation_manager.create_token(
-        thread_id,
-        metadata={
-            "model": model,
-            "input_preview": input_text[:100],
-            # Used for internal-auth per-user isolation in admin/debug endpoints.
-            "user_id": user_id,
-        },
+    mode_info = _normalize_search_mode(search_mode)
+    config = _build_agent_graph_config(
+        thread_id=thread_id,
+        model=model,
+        mode_info=mode_info,
+        agent_profile=agent_profile,
+        user_id=user_id,
     )
+    initial_state = _build_initial_agent_state(
+        input_text=input_text,
+        thread_id=thread_id,
+        mode_info=mode_info,
+        images=images,
+        user_id=user_id,
+        agent_profile=agent_profile,
+    )
+    async for chunk in _stream_graph_execution(
+        input_text=input_text,
+        thread_id=thread_id,
+        model=model,
+        mode_info=config["configurable"]["search_mode"],
+        config=config,
+        user_id=user_id,
+        execution_input=initial_state,
+        resumed_from_checkpoint=False,
+    ):
+        yield chunk
 
-    # Set up event emitter for tool visualization
-    emitter = await get_emitter(thread_id)
-    event_queue: asyncio.Queue = asyncio.Queue()
 
-    async def tool_event_listener(event):
-        """Forward tool events to the queue for SSE streaming."""
-        await event_queue.put(event)
-
-    emitter.on_event(tool_event_listener)
-
-    try:
-        logger.info(f"Agent stream started | Thread: {thread_id} | Model: {model}")
-        logger.debug(f"  Input: {input_text[:100]}...")
-
-        mode_info = _normalize_search_mode(search_mode)
-        metrics = metrics_registry.start(thread_id, model=model, route=mode_info.get("mode", ""))
-
-        # Initialize state with cancellation support
-        initial_state: AgentState = {
-            "input": input_text,
-            "images": images,
-            "needs_clarification": False,
-            "tool_approved": False,
-            "pending_tool_calls": [],
-            "user_id": user_id,
-            "messages": [],
-            "research_plan": [],
-            "current_step": 0,
-            "scraped_content": [],
-            "code_results": [],
-            "final_report": "",
-            "draft_report": "",
-            "evaluation": "",
-            "verdict": "",
-            "route": "",
-            "revision_count": 0,
-            "max_revisions": settings.max_revisions,
-            "tool_call_count": 0,
-            "is_complete": False,
-            "errors": [],
-            "sub_agent_contexts": {},
-            "deepsearch_engine": str(
-                mode_info.get("deepsearch_engine") or getattr(settings, "deepsearch_engine", "legacy")
-            ),
-            "deep_runtime": {
-                "engine": str(
-                    mode_info.get("deepsearch_engine")
-                    or getattr(settings, "deepsearch_engine", "legacy")
-                ),
-                "task_queue": {},
-                "artifact_store": {},
-                "runtime_state": {},
-                "agent_runs": [],
-            },
-            "deepsearch_task_queue": {},
-            "deepsearch_artifact_store": {},
-            "deepsearch_runtime_state": {},
-            "deepsearch_agent_runs": [],
-            # 鍙栨秷鎺у埗瀛楁
-            "cancel_token_id": thread_id,
-            "is_cancelled": False,
-        }
-
-        # Load long-term memories (store) and Mem0 (optional) and inject deep prompt if needed
-        messages: list[Any] = []
-        if mode_info.get("mode") == "agent" and agent_profile and agent_profile.system_prompt:
-            messages.append(SystemMessage(content=agent_profile.system_prompt))
-        if mode_info.get("use_deep_prompt"):
-            messages.append(SystemMessage(content=get_deep_agent_prompt()))
-
-        store_memories = _store_search(input_text, user_id=user_id)
-        if store_memories:
-            store_text = "\n".join(f"- {m}" for m in store_memories)
-            messages.append(SystemMessage(content=f"Stored memories:\n{store_text}"))
-
-        mem_entries = fetch_memories(query=input_text, user_id=user_id)
-        if mem_entries:
-            memory_text = "\n".join(f"- {m}" for m in mem_entries)
-            messages.append(SystemMessage(content=f"Relevant past knowledge:\n{memory_text}"))
-
-        if messages:
-            initial_state["messages"] = messages
-
-        config = {
-            "configurable": {
-                "thread_id": thread_id,
-                "model": model,
-                "search_mode": mode_info,
-                "deepsearch_engine": mode_info.get("deepsearch_engine"),
-                "agent_profile": agent_profile.model_dump(mode="json") if agent_profile else None,
-                "user_id": user_id,
-                "allow_interrupts": bool(checkpointer),
-                "tool_approval": settings.tool_approval or False,
-                "human_review": settings.human_review or False,
-                "max_revisions": settings.max_revisions,
-            },
-            "recursion_limit": 50,
-        }
-
-        async def _build_pending_interrupt_event() -> Optional[str]:
-            nonlocal was_interrupted
-            prompts = _pending_interrupt_prompts_for_thread(thread_id)
-            if not prompts:
-                return None
-            was_interrupted = True
-            return await format_stream_event(
-                "interrupt",
-                {"thread_id": thread_id, "prompts": prompts},
-            )
-
-        async def _drain_pending_tool_events() -> None:
-            while not event_queue.empty():
-                try:
-                    tool_event = event_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-
-                if tool_event.type == ToolEvent.TOOL_START:
-                    yield_event = await format_stream_event(
-                        "tool_start",
-                        _normalize_tool_event_data("tool_start", tool_event.data),
-                    )
-                elif tool_event.type == ToolEvent.TOOL_PROGRESS:
-                    yield_event = await format_stream_event(
-                        "tool_progress",
-                        _normalize_tool_event_data("tool_progress", tool_event.data),
-                    )
-                elif tool_event.type == ToolEvent.TOOL_SCREENSHOT:
-                    yield_event = await format_stream_event("screenshot", tool_event.data)
-                elif tool_event.type == ToolEvent.TOOL_RESULT:
-                    yield_event = await format_stream_event(
-                        "tool_result",
-                        _normalize_tool_event_data("tool_result", tool_event.data),
-                    )
-                elif tool_event.type == ToolEvent.TOOL_ERROR:
-                    yield_event = await format_stream_event(
-                        "tool_error",
-                        _normalize_tool_event_data("tool_error", tool_event.data),
-                    )
-                elif tool_event.type == ToolEvent.TASK_UPDATE:
-                    yield_event = await format_stream_event("task_update", tool_event.data)
-                elif tool_event.type == ToolEvent.RESEARCH_NODE_START:
-                    yield_event = await format_stream_event("research_node_start", tool_event.data)
-                elif tool_event.type == ToolEvent.RESEARCH_NODE_COMPLETE:
-                    yield_event = await format_stream_event("research_node_complete", tool_event.data)
-                elif tool_event.type == ToolEvent.RESEARCH_TREE_UPDATE:
-                    yield_event = await format_stream_event("research_tree_update", tool_event.data)
-                elif tool_event.type == ToolEvent.QUALITY_UPDATE:
-                    yield_event = await format_stream_event("quality_update", tool_event.data)
-                elif tool_event.type == ToolEvent.SEARCH:
-                    yield_event = await format_stream_event("search", tool_event.data)
-                elif tool_event.type == ToolEvent.RESEARCH_AGENT_START:
-                    yield_event = await format_stream_event("research_agent_start", tool_event.data)
-                elif tool_event.type == ToolEvent.RESEARCH_AGENT_COMPLETE:
-                    yield_event = await format_stream_event("research_agent_complete", tool_event.data)
-                elif tool_event.type == ToolEvent.RESEARCH_TASK_UPDATE:
-                    yield_event = await format_stream_event("research_task_update", tool_event.data)
-                elif tool_event.type == ToolEvent.RESEARCH_ARTIFACT_UPDATE:
-                    yield_event = await format_stream_event("research_artifact_update", tool_event.data)
-                elif tool_event.type == ToolEvent.RESEARCH_DECISION:
-                    yield_event = await format_stream_event("research_decision", tool_event.data)
-                else:
-                    continue
-
-                yield yield_event
-
-        # Send initial status
-        yield await format_stream_event(
-            "status",
-            {"text": "Initializing research agent...", "step": "init", "thread_id": thread_id},
-        )
-
-        # Stream graph execution
-        graph_events = research_graph.astream_events(initial_state, config=config)
-        graph_iter = graph_events.__aiter__()
-
-        while True:
-            async for queued_chunk in _drain_pending_tool_events():
-                yield queued_chunk
-
-            # Check cancellation status
-            if cancel_token.is_cancelled:
-                logger.info(f"Stream cancelled for thread {thread_id}")
-                yield await format_stream_event(
-                    "cancelled", {"message": "Task was cancelled by user", "thread_id": thread_id}
-                )
-                return
-
-            next_event_task = asyncio.create_task(graph_iter.__anext__())
-            try:
-                while True:
-                    done, _pending = await asyncio.wait({next_event_task}, timeout=0.05)
-                    async for queued_chunk in _drain_pending_tool_events():
-                        yield queued_chunk
-
-                    if cancel_token.is_cancelled:
-                        next_event_task.cancel()
-                        with suppress(asyncio.CancelledError):
-                            await next_event_task
-                        logger.info(f"Stream cancelled for thread {thread_id}")
-                        yield await format_stream_event(
-                            "cancelled",
-                            {"message": "Task was cancelled by user", "thread_id": thread_id},
-                        )
-                        return
-
-                    if done:
-                        break
-
-                event = next_event_task.result()
-            except StopAsyncIteration:
-                break
-            except GraphBubbleUp:
-                interrupt_chunk = await _build_pending_interrupt_event()
-                if interrupt_chunk:
-                    yield interrupt_chunk
-                    return
-                raise
-
-            event_type = event.get("event")
-            name = event.get("name", "") or event.get("run_name", "")
-            data_dict = event.get("data", {})
-            node_name = name.lower() if isinstance(name, str) else ""
-
-            # Handle different event types
-            if event_type in {"on_chain_start", "on_node_start", "on_graph_start"}:
-                event_count += 1
-                metrics.mark_event(event_type, node_name)
-                emit_main_text = _should_emit_main_text_for_node(node_name)
-                # Emit a short, safe narrative line to make the accordion feel more "DeepSeek-like".
-                try:
-                    intro = _thinking_intro_for_node(node_name, use_zh=use_zh)
-                    intro = _sanitize_thinking_text(intro, max_len=240)
-                    if intro and intro != last_thinking_text:
-                        last_thinking_text = intro
-                        yield await format_stream_event(
-                            "thinking",
-                            {"text": intro, "node": node_name},
-                        )
-                except Exception:
-                    pass
-                if "clarify" in node_name:
-                    logger.debug(f"  Clarify node started | Thread: {thread_id}")
-                    yield await format_stream_event(
-                        "status",
-                        {"text": "Checking if clarification is needed...", "step": "clarifying"},
-                    )
-                elif "planner" in node_name:
-                    logger.debug(f"  Planning node started | Thread: {thread_id}")
-                    yield await format_stream_event(
-                        "status", {"text": "Creating research plan...", "step": "planning"}
-                    )
-                elif "deepsearch" in node_name:
-                    logger.debug(f"  Deep research node started | Thread: {thread_id}")
-                    text = (
-                        "正在进行 Deep Research（多轮检索→阅读→汇总），可能需要几分钟…"
-                        if use_zh
-                        else "Running Deep Research (iterative search → read → synthesize)…"
-                    )
-                    yield await format_stream_event(
-                        "status",
-                        {"text": text, "step": "deep_research"},
-                    )
-                elif "perform_parallel_search" in node_name or "search" in node_name:
-                    logger.debug(f"  Search node started | Thread: {thread_id}")
-                    yield await format_stream_event(
-                        "status", {"text": "Conducting research...", "step": "researching"}
-                    )
-                elif "writer" in node_name:
-                    logger.debug(f"  Writer node started | Thread: {thread_id}")
-                    yield await format_stream_event(
-                        "status", {"text": "Synthesizing findings...", "step": "writing"}
-                    )
-                elif node_name == "agent":
-                    logger.debug(f"  Agent node started | Thread: {thread_id}")
-                    yield await format_stream_event(
-                        "status", {"text": "Running agent (tool-calling)...", "step": "agent"}
-                    )
-
-            elif event_type in {"on_chain_end", "on_node_end", "on_graph_end"}:
-                output = data_dict.get("output", {}) if isinstance(data_dict, dict) else {}
-                metrics.mark_event(event_type, node_name)
-
-                # Extract messages from output
-                if isinstance(output, dict):
-                    # Interrupt handling
-                    interrupts = output.get("__interrupt__")
-                    if interrupts:
-                        was_interrupted = True
-                        yield await format_stream_event(
-                            "interrupt",
-                            {"thread_id": thread_id, "prompts": _serialize_interrupts(interrupts)},
-                        )
-                        return
-
-                    # Optional "thinking summary" (safe progress narrative) — keep separate from main answer.
-                    if _should_emit_thinking_summary_for_node(node_name) and not output.get("is_complete"):
-                        try:
-                            messages = output.get("messages", [])
-                            for msg in messages or []:
-                                content = msg.content if hasattr(msg, "content") else str(msg)
-                                safe = _sanitize_thinking_text(content)
-                                if not safe or _looks_like_structured_blob(safe):
-                                    continue
-                                yield await format_stream_event(
-                                    "thinking",
-                                    {"text": safe, "node": node_name},
-                                )
-                        except Exception:
-                            pass
-
-                    # Record the latest complete output and emit it once after the graph finishes.
-                    if output.get("is_complete"):
-                        final_report = output.get("final_report", "")
-                        if final_report:
-                            merged_output = dict(final_output or {})
-                            for key, value in output.items():
-                                if key in merged_output and value in (None, "", [], {}):
-                                    continue
-                                merged_output[key] = value
-                            final_output = merged_output
-
-            elif event_type == "on_tool_start":
-                payload = _build_langchain_tool_stream_payload(
-                    status="running",
-                    event_name=name,
-                    data=data_dict,
-                    run_id=event.get("run_id"),
-                )
-                yield await format_stream_event("tool", payload)
-
-            elif event_type == "on_tool_error":
-                payload = _build_langchain_tool_stream_payload(
-                    status="failed",
-                    event_name=name,
-                    data=data_dict,
-                    run_id=event.get("run_id"),
-                )
-                yield await format_stream_event("tool", payload)
-
-            elif event_type == "on_tool_end":
-                tool_name = _resolve_tool_event_name(event_name=name, data=data_dict)
-                output = data_dict.get("output", {})
-                payload = _build_langchain_tool_stream_payload(
-                    status="completed",
-                    event_name=name,
-                    data=data_dict,
-                    run_id=event.get("run_id"),
-                )
-                yield await format_stream_event("tool", payload)
-
-                # Check for artifacts from code execution
-                if tool_name == "execute_python_code" and isinstance(output, dict):
-                    image_data = output.get("image")
-
-                    if image_data:
-                        yield await format_stream_event(
-                            "artifact",
-                            {
-                                "id": f"art_{datetime.now().timestamp()}",
-                                "type": "chart",
-                                "title": "Generated Visualization",
-                                "content": "Chart generated from Python code",
-                                "image": image_data,
-                            },
-                        )
-                # Browser screenshots (optional Playwright)
-                if tool_name == "browser_screenshot" and isinstance(output, dict):
-                    image_data = output.get("image")
-                    url = output.get("url", "")
-                    if image_data:
-                        yield await format_stream_event(
-                            "artifact",
-                            {
-                                "id": f"art_{datetime.now().timestamp()}",
-                                "type": "chart",
-                                "title": "Browser Screenshot",
-                                "content": url or "Screenshot",
-                                "image": image_data,
-                            },
-                        )
-                # Sandbox browser tools (E2B + Playwright CDP)
-                if tool_name.startswith("sb_browser_") and isinstance(output, dict):
-                    image_data = output.get("image")
-                    url = output.get("url", "")
-                    if isinstance(image_data, str) and image_data.strip():
-                        yield await format_stream_event(
-                            "artifact",
-                            {
-                                "id": f"art_{datetime.now().timestamp()}",
-                                "type": "chart",
-                                "title": f"Sandbox Browser ({tool_name})",
-                                "content": url or tool_name,
-                                "image": image_data,
-                            },
-                        )
-
-            elif event_type in {"on_chat_model_stream", "on_llm_stream"}:
-                # Stream LLM tokens
-                chunk = data_dict.get("chunk") or data_dict.get("output")
-                if chunk is not None:
-                    content = None
-                    if hasattr(chunk, "content"):
-                        content = chunk.content
-                    elif isinstance(chunk, dict):
-                        content = chunk.get("content")
-                    if content and emit_main_text:
-                        yield await format_stream_event("text", {"content": content})
-
-        async for queued_chunk in _drain_pending_tool_events():
-            yield queued_chunk
-
-        if not final_output:
-            interrupt_chunk = await _build_pending_interrupt_event()
-            if interrupt_chunk:
-                yield interrupt_chunk
-                return
-
-        if isinstance(final_output, dict):
-            final_report = final_output.get("final_report", "")
-            if final_report:
-                try:
-                    candidates: List[Dict[str, Any]] = []
-                    scraped_content = final_output.get("scraped_content")
-                    if isinstance(scraped_content, list):
-                        candidates.extend(scraped_content)
-                    raw_sources = final_output.get("sources")
-                    if isinstance(raw_sources, list):
-                        candidates.extend(raw_sources)
-
-                    sources = extract_message_sources(candidates)
-                    if sources:
-                        yield await format_stream_event("sources", {"items": sources})
-                except Exception:
-                    pass
-
-                yield await format_stream_event("completion", {"content": final_report})
-                yield await format_stream_event(
-                    "artifact",
-                    {
-                        "id": f"report_{datetime.now().timestamp()}",
-                        "type": "report",
-                        "title": "Research Report",
-                        "content": final_report,
-                    },
-                )
-                add_memory_entry(final_report)
-                store_interaction(input_text, final_report)
-                _store_add(input_text, final_report, user_id=user_id)
-
-        # Send final completion
-        duration = time.time() - start_time
-        cancel_token.mark_completed()
-        metrics_registry.finish(thread_id, cancelled=False)
-        logger.info(
-            f"вњ?Agent stream completed | Thread: {thread_id} | "
-            f"Events: {event_count} | Duration: {duration:.2f}s"
-        )
-        yield await format_stream_event(
-            "done",
-            {
-                "timestamp": datetime.now().isoformat(),
-                "metrics": metrics_registry.get(thread_id).to_dict()
-                if metrics_registry.get(thread_id)
-                else {},
-            },
-        )
-
-    except asyncio.CancelledError:
-        duration = time.time() - start_time
-        metrics_registry.finish(thread_id, cancelled=True)
-        logger.info(f"? Agent stream cancelled | Thread: {thread_id} | Duration: {duration:.2f}s")
-        yield await format_stream_event(
-            "cancelled",
-            {"message": "Task was cancelled", "thread_id": thread_id, "duration": duration},
-        )
-
-    except Exception as e:
-        duration = time.time() - start_time
-        cancel_token.mark_failed(str(e))
-        metrics_registry.finish(thread_id, cancelled=False)
-        logger.error(
-            f"? Agent stream error | Thread: {thread_id} | "
-            f"Duration: {duration:.2f}s | Error: {str(e)}",
-            exc_info=True,
-        )
-        yield await format_stream_event("error", {"message": str(e)})
-
-    finally:
-        # Cleanup event emitter listener
-        try:
-            emitter.off_event(tool_event_listener)
-            await remove_emitter(thread_id)
-        except Exception:
-            pass
-        # ???????
-        if thread_id in active_streams:
-            del active_streams[thread_id]
-        if thread_handler:
-            try:
-                root_logger.removeHandler(thread_handler)
-                thread_handler.close()
-            except Exception:
-                pass
-        # Clean up browser sessions when the run is truly finished.
-        # If the graph interrupted (HITL), keep sessions so /api/interrupt/resume can continue.
-        if not was_interrupted:
-            try:
-                browser_sessions.reset(thread_id)
-            except Exception:
-                pass
-            # If the UI is actively streaming browser frames for this thread,
-            # keep the sandbox session alive; tearing it down here can stall the
-            # SSE response (slow E2B shutdown) and breaks the live viewer.
-            if _browser_stream_conn_active(thread_id):
-                logger.info(
-                    f"Skipping sandbox browser reset for thread={thread_id} (browser stream active)"
-                )
-            else:
-                # Avoid blocking the request/event loop on slow sandbox shutdown.
-                try:
-                    asyncio.create_task(asyncio.to_thread(sandbox_browser_sessions.reset, thread_id))
-                except Exception:
-                    try:
-                        sandbox_browser_sessions.reset(thread_id)
-                    except Exception:
-                        pass
+async def stream_resumed_agent_events(
+    *,
+    thread_id: str,
+    resume_payload: Any,
+    model: str | None = None,
+    search_mode: SearchMode | Dict[str, Any] | str | None = None,
+    agent_id: str | None = None,
+):
+    restored = _restore_thread_stream_context(thread_id)
+    restored_state = restored.get("state") if isinstance(restored.get("state"), dict) else {}
+    mode_info = (
+        _normalize_search_mode(search_mode)
+        if search_mode is not None
+        else _mode_info_from_session_state(restored_state)
+    )
+    model = (model or settings.primary_model).strip()
+    user_id = str(restored.get("user_id") or settings.memory_user_id).strip() or settings.memory_user_id
+    async for chunk in _stream_graph_execution(
+        input_text=str(restored.get("input_text") or ""),
+        thread_id=thread_id,
+        model=model,
+        mode_info=mode_info,
+        config=_build_agent_graph_config(
+            thread_id=thread_id,
+            model=model,
+            mode_info=mode_info,
+            agent_profile=get_agent_profile((agent_id or "default").strip() or "default")
+            or get_agent_profile("default"),
+            user_id=user_id,
+            resumed_from_checkpoint=True,
+        ),
+        user_id=user_id,
+        execution_input=Command(resume=resume_payload),
+        resumed_from_checkpoint=True,
+    ):
+        yield chunk
 
 
 @app.post("/api/chat/sse")
@@ -2764,7 +2951,6 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
     if not checkpointer:
         raise HTTPException(status_code=400, detail="Interrupts require a checkpointer")
 
-    mode_info = _normalize_search_mode(payload.search_mode)
     model = (payload.model or settings.primary_model).strip()
     agent_id = (payload.agent_id or "default").strip() or "default"
     agent_profile = get_agent_profile(agent_id) or get_agent_profile("default")
@@ -2777,25 +2963,45 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
         raise HTTPException(status_code=404, detail="No checkpoint found for this thread_id")
     prompts = _pending_interrupt_prompts(existing)
     first_prompt = prompts[0] if prompts else None
-    config = {
-        "configurable": {
-            "thread_id": payload.thread_id,
-            "model": model,
-            "search_mode": mode_info,
-            "deepsearch_engine": mode_info.get("deepsearch_engine"),
-            "agent_profile": agent_profile.model_dump(mode="json") if agent_profile else None,
-            "allow_interrupts": True,
-            "tool_approval": settings.tool_approval or False,
-            "human_review": settings.human_review or False,
-            "max_revisions": settings.max_revisions,
-        },
-        "recursion_limit": 50,
-    }
+    restored = _restore_thread_stream_context(payload.thread_id)
+    restored_state = restored.get("state") if isinstance(restored.get("state"), dict) else {}
+    mode_info = (
+        _normalize_search_mode(payload.search_mode)
+        if payload.search_mode is not None
+        else _mode_info_from_session_state(restored_state)
+    )
+    user_id = str(restored.get("user_id") or settings.memory_user_id).strip() or settings.memory_user_id
+    config = _build_agent_graph_config(
+        thread_id=payload.thread_id,
+        model=model,
+        mode_info=mode_info,
+        agent_profile=agent_profile,
+        user_id=user_id,
+        resumed_from_checkpoint=True,
+    )
 
     try:
         resume_payload = _normalize_interrupt_resume_payload(payload.payload, prompt=first_prompt)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    if payload.stream:
+        return StreamingResponse(
+            stream_resumed_agent_events(
+                thread_id=payload.thread_id,
+                resume_payload=resume_payload,
+                model=model,
+                search_mode=mode_info,
+                agent_id=agent_id,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "X-Thread-ID": payload.thread_id,
+            },
+        )
 
     result = await research_graph.ainvoke(Command(resume=resume_payload), config=config)
     interrupts = _serialize_interrupts(result.get("__interrupt__"))

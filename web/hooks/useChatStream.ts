@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback } from 'react'
-import { Message, Artifact, ToolInvocation, ImageAttachment, ProcessEvent, RunMetrics, MessageSource } from '@/types/chat'
+import { Message, Artifact, ToolInvocation, ImageAttachment, RunMetrics, MessageSource } from '@/types/chat'
 import { getApiBaseUrl } from '@/lib/api'
 import { createLegacyChatStreamState, consumeLegacyChatStreamChunk } from '@/lib/chatStreamProtocol'
+import { appendProcessEvent, createStreamingAssistantMessage } from '@/lib/chat-stream-state'
 import {
   buildInterruptResumePayload,
   getInterruptConversationMessage,
@@ -23,17 +24,23 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
   const artifactType = String(payload?.artifact_type || '').trim()
   const status = String(payload?.status || '').trim()
   const attempt = typeof payload?.attempt === 'number' ? payload.attempt : undefined
+  const resumed = Boolean(payload?.resumed_from_checkpoint)
 
   if (eventType === 'research_agent_start') {
     if (role === 'clarify') return '多 Agent 调研：正在澄清研究目标与约束…'
-    if (role === 'scope') return '多 Agent 调研：正在生成研究范围草案…'
-    if (role === 'planner') return '多 Agent 调研：正在规划研究任务…'
+    if (role === 'scope') {
+      return resumed ? '多 Agent 调研：正在根据反馈重写研究范围草案…' : '多 Agent 调研：正在生成研究范围草案…'
+    }
+    if (role === 'planner') {
+      return resumed ? '多 Agent 调研：已确认范围，正在继续规划研究任务…' : '多 Agent 调研：正在规划研究任务…'
+    }
     if (role === 'researcher') {
       if (attempt && attempt > 1) return `多 Agent 调研：${agentId || 'researcher'} 开始重试任务…`
+      if (resumed) return `多 Agent 调研：${agentId || 'researcher'} 继续执行任务…`
       return `多 Agent 调研：${agentId || 'researcher'} 开始执行任务…`
     }
-    if (role === 'verifier') return '多 Agent 调研：正在检查证据覆盖度…'
-    if (role === 'reporter') return '多 Agent 调研：正在生成最终报告…'
+    if (role === 'verifier') return resumed ? '多 Agent 调研：已恢复执行，正在检查证据覆盖度…' : '多 Agent 调研：正在检查证据覆盖度…'
+    if (role === 'reporter') return resumed ? '多 Agent 调研：已恢复执行，正在生成最终报告…' : '多 Agent 调研：正在生成最终报告…'
     if (role === 'coordinator') return '多 Agent 调研：协调下一步动作…'
   }
 
@@ -161,127 +168,29 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
     setTimeout(() => setCurrentStatus(''), 3000)
   }, [threadId])
 
-  const processChat = useCallback(async (messageHistory: Message[], images?: ImageAttachment[]) => {
-    setIsLoading(true)
-    abortControllerRef.current = new AbortController()
-
-    try {
-      const response = await fetch(
-        `${getApiBaseUrl()}/api/chat`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messages: messageHistory.map(m => ({ role: m.role, content: m.content })),
-            stream: true,
-            model: selectedModel,
-            search_mode: searchMode,
-            images: (images || []).map(img => ({
-              name: img.name,
-              mime: img.mime,
-              data: img.data
-            }))
-          }),
-          signal: abortControllerRef.current.signal
-        }
-      )
-
-      if (!response.ok) {
-        throw new Error('Failed to get response')
-      }
-
+  const consumeStreamingResponse = useCallback(
+    async (
+      response: Response,
+      initialMessage: Message,
+      readerOverride?: ReadableStreamDefaultReader<Uint8Array>,
+    ) => {
       const threadHeader = response.headers.get('X-Thread-ID') || response.headers.get('x-thread-id')
-      console.log('[useChatStream] Response headers:', {
-        'X-Thread-ID': response.headers.get('X-Thread-ID'),
-        'x-thread-id': response.headers.get('x-thread-id'),
-        threadHeader
-      })
       if (threadHeader) {
-        console.log('[useChatStream] Setting threadId:', threadHeader)
         setThreadId(threadHeader)
       }
 
-      const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
-
+      const reader = readerOverride || response.body?.getReader()
       if (!reader) {
         throw new Error('No reader available')
       }
 
-      let assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: '',
-        toolInvocations: [],
-        processEvents: [],
-        createdAt: Date.now(),
-        isStreaming: true,
-      }
-
-      // Stream-level progress helpers (kept local to this request).
+      let assistantMessage = initialMessage
+      const decoder = new TextDecoder()
+      const streamState = createLegacyChatStreamState()
+      let interrupted = false
       let searchCount = 0
       let lastAutoStatus = ''
       let lastAutoStatusAt = 0
-
-      const setAutoStatus = (text: string) => {
-        const next = String(text || '').trim()
-        if (!next) return
-        const now = Date.now()
-        if (next === lastAutoStatus) return
-        // Avoid flickery status spam during fast multi-search fanout.
-        if (now - lastAutoStatusAt < 250) return
-        lastAutoStatus = next
-        lastAutoStatusAt = now
-        setCurrentStatus(next)
-      }
-
-      console.log('[useChatStream] Creating assistant message:', {
-        id: assistantMessage.id,
-        role: assistantMessage.role,
-        currentMessagesCount: messages.length
-      })
-
-      setMessages((prev) => [...prev, assistantMessage])
-
-      const pushProcessEvent = (type: string, payload: any) => {
-        const now = Date.now()
-        const next: ProcessEvent = {
-          id: `evt-${now}-${Math.random().toString(16).slice(2)}`,
-          type,
-          timestamp: now,
-          data: payload,
-        }
-
-        const prevEvents = assistantMessage.processEvents || []
-        const last = prevEvents[prevEvents.length - 1]
-
-        // Simple dedupe to avoid spammy UI.
-        if (last?.type === type) {
-          if (type === 'status' && last.data?.text && last.data?.text === payload?.text) return
-          if (type === 'search' && last.data?.query && last.data?.query === payload?.query) return
-          if (type === 'tool') {
-            const lastName = String(last.data?.name || last.data?.tool || '').trim()
-            const nextName = String(payload?.name || payload?.tool || '').trim()
-            const lastStatus = String(last.data?.status || '').trim()
-            const nextStatus = String(payload?.status || '').trim()
-            const lastQuery = String(last.data?.query || last.data?.args?.query || '').trim()
-            const nextQuery = String(payload?.query || payload?.args?.query || '').trim()
-            if (
-              lastName &&
-              lastName === nextName &&
-              lastStatus === nextStatus &&
-              lastQuery === nextQuery
-            ) {
-              return
-            }
-          }
-        }
-
-        const capped = [...prevEvents, next].slice(-200)
-        assistantMessage.processEvents = capped
-      }
 
       const syncAssistantMessage = () => {
         setMessages((prev) =>
@@ -289,8 +198,21 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
         )
       }
 
-      const streamState = createLegacyChatStreamState()
-      let interrupted = false
+      const pushProcessEvent = (type: string, payload: any) => {
+        assistantMessage = appendProcessEvent(assistantMessage, type, payload)
+      }
+
+      const setAutoStatus = (text: string) => {
+        const next = String(text || '').trim()
+        if (!next) return
+        const now = Date.now()
+        if (next === lastAutoStatus) return
+        if (now - lastAutoStatusAt < 250) return
+        lastAutoStatus = next
+        lastAutoStatusAt = now
+        setCurrentStatus(next)
+      }
+
       while (true) {
         const { done, value } = await reader.read()
         const chunk = done ? decoder.decode() : decoder.decode(value, { stream: true })
@@ -303,11 +225,6 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             syncAssistantMessage()
           } else if (data.type === 'text') {
             assistantMessage.content += data.data.content
-            console.log('[useChatStream] Updating message (text):', {
-              id: assistantMessage.id,
-              role: assistantMessage.role,
-              contentLength: assistantMessage.content.length
-            })
             syncAssistantMessage()
           } else if (data.type === 'message') {
             assistantMessage.content = data.data.content
@@ -328,8 +245,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             break
           } else if (data.type === 'tool') {
             const normalized = normalizeToolEvent('tool', data.data)
-            const toolCallId =
-              normalized.toolCallId || `tool-${Date.now()}-${Math.random()}`
+            const toolCallId = normalized.toolCallId || `tool-${Date.now()}-${Math.random()}`
 
             const state: ToolInvocation['state'] =
               normalized.status === 'completed'
@@ -351,12 +267,14 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
                 ? t.toolCallId === toolCallId
                 : t.toolName === normalized.toolName && t.state === 'running'
             )
-            if (existingIndex >= 0) {
-              const nextTools = [...prevTools]
-              nextTools[existingIndex] = { ...nextTools[existingIndex], ...toolInvocation }
-              assistantMessage.toolInvocations = nextTools
-            } else {
-              assistantMessage.toolInvocations = [...prevTools, toolInvocation]
+            assistantMessage = {
+              ...assistantMessage,
+              toolInvocations:
+                existingIndex >= 0
+                  ? prevTools.map((tool, index) =>
+                      index === existingIndex ? { ...tool, ...toolInvocation } : tool,
+                    )
+                  : [...prevTools, toolInvocation],
             }
 
             pushProcessEvent('tool', normalized.payload)
@@ -436,13 +354,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             if (autoStatus) setAutoStatus(autoStatus)
             pushProcessEvent(data.type, data.data)
             syncAssistantMessage()
-          } else if (
-            [
-              'thinking',
-              'screenshot',
-              'task_update',
-            ].includes(data.type)
-          ) {
+          } else if (['thinking', 'screenshot', 'task_update'].includes(data.type)) {
             pushProcessEvent(data.type, data.data)
             syncAssistantMessage()
           } else if (['tool_start', 'tool_result', 'tool_error'].includes(data.type)) {
@@ -459,38 +371,50 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             syncAssistantMessage()
           } else if (data.type === 'sources') {
             const items = (data.data?.items || []) as MessageSource[]
-            assistantMessage.sources = items
+            assistantMessage = { ...assistantMessage, sources: items }
             syncAssistantMessage()
           } else if (data.type === 'completion') {
-            assistantMessage.content = data.data.content
-            assistantMessage.isStreaming = false
-            assistantMessage.completedAt = Date.now()
+            assistantMessage = {
+              ...assistantMessage,
+              content: data.data.content,
+              isStreaming: false,
+              completedAt: Date.now(),
+            }
             syncAssistantMessage()
           } else if (data.type === 'done') {
             const metrics = (data.data?.metrics || {}) as RunMetrics
-            assistantMessage.metrics = metrics
-            assistantMessage.isStreaming = false
-            if (!assistantMessage.completedAt) assistantMessage.completedAt = Date.now()
+            assistantMessage = {
+              ...assistantMessage,
+              metrics,
+              isStreaming: false,
+              completedAt: assistantMessage.completedAt || Date.now(),
+            }
             pushProcessEvent('done', data.data)
             syncAssistantMessage()
           } else if (data.type === 'cancelled') {
             const msg = data.data?.message || 'Task was cancelled'
-            assistantMessage.content = assistantMessage.content || msg
-            assistantMessage.isStreaming = false
-            assistantMessage.completedAt = Date.now()
+            assistantMessage = {
+              ...assistantMessage,
+              content: assistantMessage.content || msg,
+              isStreaming: false,
+              completedAt: Date.now(),
+            }
             pushProcessEvent('cancelled', data.data)
             syncAssistantMessage()
           } else if (data.type === 'error') {
             const msg = data.data?.message || 'An error occurred'
-            assistantMessage.content = assistantMessage.content || msg
-            assistantMessage.isStreaming = false
-            assistantMessage.completedAt = Date.now()
+            assistantMessage = {
+              ...assistantMessage,
+              content: assistantMessage.content || msg,
+              isStreaming: false,
+              completedAt: Date.now(),
+            }
             pushProcessEvent('error', data.data)
             syncAssistantMessage()
           } else if (data.type === 'artifact') {
             const newArtifact = data.data as Artifact
             setArtifacts((prev) => {
-              if (prev.some(a => a.id === newArtifact.id)) return prev
+              if (prev.some((a) => a.id === newArtifact.id)) return prev
               if (
                 newArtifact.type === 'report' &&
                 prev.some(
@@ -511,11 +435,55 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
       }
 
       if (assistantMessage.isStreaming) {
-        assistantMessage.isStreaming = false
-        if (!assistantMessage.completedAt) assistantMessage.completedAt = Date.now()
+        assistantMessage = {
+          ...assistantMessage,
+          isStreaming: false,
+          completedAt: assistantMessage.completedAt || Date.now(),
+        }
         syncAssistantMessage()
       }
-      setCurrentStatus('')
+
+      if (!interrupted) {
+        setCurrentStatus('')
+      }
+    },
+    [],
+  )
+
+  const processChat = useCallback(async (messageHistory: Message[], images?: ImageAttachment[]) => {
+    setIsLoading(true)
+    abortControllerRef.current = new AbortController()
+
+    try {
+      const response = await fetch(
+        `${getApiBaseUrl()}/api/chat`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messages: messageHistory.map(m => ({ role: m.role, content: m.content })),
+            stream: true,
+            model: selectedModel,
+            search_mode: searchMode,
+            images: (images || []).map(img => ({
+              name: img.name,
+              mime: img.mime,
+              data: img.data
+            }))
+          }),
+          signal: abortControllerRef.current.signal
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error('Failed to get response')
+      }
+
+      const assistantMessage = createStreamingAssistantMessage()
+      setMessages((prev) => [...prev, assistantMessage])
+      await consumeStreamingResponse(response, assistantMessage)
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log('Request aborted')
@@ -534,12 +502,13 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
       setIsLoading(false)
       abortControllerRef.current = null
     }
-  }, [selectedModel, searchMode])
+  }, [selectedModel, searchMode, consumeStreamingResponse])
 
   const resumeInterrupt = useCallback(async (action: string, input: string = '') => {
     if (!pendingInterrupt || !threadId) return
     setIsLoading(true)
-    setCurrentStatus('Resuming review...')
+    setCurrentStatus('继续执行调研流程…')
+    abortControllerRef.current = new AbortController()
     try {
       const resumePayload = buildInterruptResumePayload(pendingInterrupt, action, input)
       const res = await fetch(
@@ -550,9 +519,11 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
           body: JSON.stringify({
             thread_id: threadId,
             payload: resumePayload,
+            stream: true,
             model: selectedModel,
-            search_mode: searchMode
-          })
+            search_mode: searchMode,
+          }),
+          signal: abortControllerRef.current.signal,
         }
       )
       if (!res.ok) {
@@ -563,54 +534,35 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
         } catch {}
         throw new Error(detail)
       }
-      const data = await res.json()
-      if (data?.status === 'interrupted') {
-        const nextReviewBase = normalizeInterruptReview({ interrupts: data.interrupts })
-        const nextMessageId = `assistant-${Date.now()}`
-        const nextReview = nextReviewBase ? { ...nextReviewBase, messageId: nextMessageId } : null
-        setPendingInterrupt(nextReview)
-        setCurrentStatus(
-          getInterruptStatusText(
-            nextReview,
-            getInterruptConversationMessage(nextReviewBase, { interrupts: data.interrupts }),
-          ),
-        )
+
+      const reader = res.body?.getReader()
+      if (!reader) {
+        throw new Error('No reader available')
+      }
+
+      const assistantMessage = createStreamingAssistantMessage()
+      setPendingInterrupt(null)
+      setMessages((prev) => [...prev, assistantMessage])
+      await consumeStreamingResponse(res, assistantMessage, reader)
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        console.log('Resume request aborted')
+      } else {
+        console.error('Failed to resume interrupt', err)
         setMessages(prev => [
           ...prev,
           {
-            id: nextMessageId,
+            id: `error-${Date.now()}`,
             role: 'assistant',
-            content: getInterruptConversationMessage(nextReviewBase, { interrupts: data.interrupts }) || 'Review required before continuing.',
-            createdAt: Date.now(),
-            completedAt: Date.now(),
+            content: err instanceof Error ? err.message : 'Resume failed. Please retry.',
           }
         ])
-        return
       }
-      setPendingInterrupt(null)
-      setMessages(prev => [
-        ...prev,
-        {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content: data.content || data.message || 'Resumed and completed.',
-        }
-      ])
-    } catch (err) {
-      console.error('Failed to resume interrupt', err)
-      setMessages(prev => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          role: 'assistant',
-          content: err instanceof Error ? err.message : 'Resume failed. Please retry.',
-        }
-      ])
     } finally {
       setIsLoading(false)
-      setCurrentStatus('')
+      abortControllerRef.current = null
     }
-  }, [pendingInterrupt, threadId, selectedModel, searchMode])
+  }, [pendingInterrupt, threadId, selectedModel, searchMode, consumeStreamingResponse])
 
   const handleApproveInterrupt = useCallback(async () => {
     await resumeInterrupt('approve')

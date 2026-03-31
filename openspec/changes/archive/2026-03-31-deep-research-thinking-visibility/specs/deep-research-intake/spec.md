@@ -1,20 +1,4 @@
-## Purpose
-定义 multi-agent Deep Research 在正式研究前的 intake/scoping 门控、scope 审阅与批准契约。
-
-## Requirements
-
-### Requirement: Deep Research intake gates planning
-系统 MUST 在 `multi_agent` Deep Research 中先完成 intake/scoping，再允许 planner 生成研究任务。
-
-#### Scenario: Clarify runs before scope draft creation
-- **WHEN** 一个新的 `multi_agent` Deep Research 请求进入 deep runtime
-- **THEN** 系统 MUST 先触发 `clarify agent` 判断是否已具备足够的研究背景、目标和约束
-- **THEN** 系统 MUST 只在 intake 已准备完成后再触发 `scope agent`
-
-#### Scenario: Planning waits for approved scope
-- **WHEN** 当前研究请求还没有已批准的 scope draft
-- **THEN** 系统 MUST NOT 让 `planner` 直接基于原始 topic 生成研究任务
-- **THEN** 系统 MUST 继续停留在 intake/scoping 阶段直到 scope 被批准
+## MODIFIED Requirements
 
 ### Requirement: Scope draft is structured and reviewable
 系统 MUST 让 `scope agent` 产出结构化且可审阅的 scope draft，供用户在进入研究前确认范围，并在审阅暂停前后保留可理解的 review 上下文。

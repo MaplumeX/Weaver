@@ -1,3 +1,4 @@
+import json
 import uuid
 
 import pytest
@@ -65,6 +66,15 @@ def _make_scope_review_graph(*, thread_id: str):
     return graph
 
 
+def _decode_legacy_stream_events(raw: str) -> list[dict]:
+    events = []
+    for line in raw.splitlines():
+        if not line.startswith("0:"):
+            continue
+        events.append(json.loads(line[2:]))
+    return events
+
+
 @pytest.mark.asyncio
 async def test_interrupt_resume_api_accepts_approve_scope(monkeypatch):
     thread_id = f"scope-approve-{uuid.uuid4().hex}"
@@ -130,3 +140,60 @@ async def test_interrupt_resume_api_rejects_direct_scope_draft_edits(monkeypatch
 
     assert resp.status_code == 400
     assert "direct scope draft edits" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_interrupt_resume_api_streams_approve_scope_completion(monkeypatch):
+    thread_id = f"scope-stream-approve-{uuid.uuid4().hex}"
+    graph = _make_scope_review_graph(thread_id=thread_id)
+    monkeypatch.setattr(main, "research_graph", graph)
+
+    transport = ASGITransport(app=main.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post(
+            "/api/interrupt/resume",
+            json={
+                "thread_id": thread_id,
+                "payload": {"action": "approve_scope"},
+                "stream": True,
+            },
+        )
+
+    assert resp.status_code == 200
+    events = _decode_legacy_stream_events((await resp.aread()).decode())
+    event_types = [event["type"] for event in events]
+    assert "status" in event_types
+    assert "completion" in event_types
+    assert event_types[-1] == "done"
+    completion = next(event for event in events if event["type"] == "completion")
+    assert completion["data"]["content"] == "approved v1"
+
+
+@pytest.mark.asyncio
+async def test_interrupt_resume_api_streams_revise_scope_interrupt(monkeypatch):
+    thread_id = f"scope-stream-revise-{uuid.uuid4().hex}"
+    graph = _make_scope_review_graph(thread_id=thread_id)
+    monkeypatch.setattr(main, "research_graph", graph)
+
+    transport = ASGITransport(app=main.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post(
+            "/api/interrupt/resume",
+            json={
+                "thread_id": thread_id,
+                "payload": {
+                    "action": "revise_scope",
+                    "scope_feedback": "Focus more on supply chain resilience",
+                },
+                "stream": True,
+            },
+        )
+
+    assert resp.status_code == 200
+    events = _decode_legacy_stream_events((await resp.aread()).decode())
+    event_types = [event["type"] for event in events]
+    assert "status" in event_types
+    assert event_types[-1] == "interrupt"
+    interrupt_event = next(event for event in events if event["type"] == "interrupt")
+    assert interrupt_event["data"]["prompts"][0]["checkpoint"] == "deepsearch_scope_review"
+    assert interrupt_event["data"]["prompts"][0]["scope_version"] == 2

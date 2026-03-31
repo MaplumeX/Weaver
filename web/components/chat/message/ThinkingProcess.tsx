@@ -15,6 +15,7 @@ import {
   TreePine,
   ShieldCheck,
 } from 'lucide-react'
+import { getRetainedProcessEvents } from '@/lib/chat-stream-state'
 import { cn } from '@/lib/utils'
 import { ProcessEvent, RunMetrics, ToolInvocation } from '@/types/chat'
 
@@ -84,12 +85,7 @@ export function ThinkingProcess({
   }, [tools.length, events])
 
   const displayEvents = useMemo(() => {
-    const thoughts = events.filter((e) => e.type === 'thinking').slice(-3)
-    const tail = events
-      .filter((e) => e.type !== 'done' && e.type !== 'thinking')
-      .slice(-60)
-
-    return [...thoughts, ...tail].sort((a, b) => a.timestamp - b.timestamp)
+    return getRetainedProcessEvents(events)
   }, [events])
 
   useEffect(() => {

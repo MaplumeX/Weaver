@@ -39,6 +39,10 @@ def _graph_context(
     graph_attempt = getattr(runtime, "graph_attempt", None)
     if isinstance(graph_attempt, int):
         payload["graph_attempt"] = graph_attempt
+    payload["resumed_from_checkpoint"] = bool(
+        getattr(runtime, "resumed_from_checkpoint", False)
+        or getattr(runtime, "cfg", {}).get("resumed_from_checkpoint")
+    )
     resolved_node_id = node_id or getattr(runtime, "current_node_id", None)
     if resolved_node_id:
         payload["node_id"] = resolved_node_id

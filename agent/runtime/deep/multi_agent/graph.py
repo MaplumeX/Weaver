@@ -774,6 +774,9 @@ class MultiAgentDeepSearchRuntime:
         ).strip()
         self.emitter = self._deps.get_emitter_sync(self.thread_id) if self.thread_id else None
         self.allow_interrupts = bool(self.cfg.get("allow_interrupts"))
+        self.resumed_from_checkpoint = bool(
+            self.state.get("resumed_from_checkpoint") or self.cfg.get("resumed_from_checkpoint")
+        )
 
         resume_runtime_state = self._resume_runtime_state_snapshot()
         self.start_ts = float(resume_runtime_state.get("started_at_ts") or time.time())

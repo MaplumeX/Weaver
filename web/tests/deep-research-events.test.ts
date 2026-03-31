@@ -2,6 +2,11 @@ import { test } from 'node:test'
 import * as assert from 'node:assert/strict'
 
 import { getDeepResearchAutoStatus } from '../hooks/useChatStream'
+import {
+  appendProcessEvent,
+  createStreamingAssistantMessage,
+  getRetainedProcessEvents,
+} from '../lib/chat-stream-state'
 
 test('maps research task updates to readable auto status', () => {
   const text = getDeepResearchAutoStatus('research_task_update', {
@@ -53,4 +58,69 @@ test('maps scope draft artifact revisions to readable auto status', () => {
   })
 
   assert.equal(text, '多 Agent 调研：已收到范围修改意见，正在重写草案')
+})
+
+test('maps resumed planner lifecycle to readable auto status', () => {
+  const text = getDeepResearchAutoStatus('research_agent_start', {
+    role: 'planner',
+    resumed_from_checkpoint: true,
+  })
+
+  assert.equal(text, '多 Agent 调研：已确认范围，正在继续规划研究任务…')
+})
+
+test('continuation message keeps resumed process events in order', () => {
+  let message = createStreamingAssistantMessage({ id: 'assistant-cont' })
+  message = appendProcessEvent(
+    message,
+    'research_decision',
+    { decision_type: 'scope_approved', resumed_from_checkpoint: true },
+    100,
+  )
+  message = appendProcessEvent(
+    message,
+    'research_agent_start',
+    { role: 'planner', resumed_from_checkpoint: true },
+    110,
+  )
+  message = appendProcessEvent(
+    message,
+    'research_task_update',
+    { status: 'ready', query: 'latest AI chip roadmap', resumed_from_checkpoint: true },
+    120,
+  )
+
+  assert.deepEqual(
+    (message.processEvents || []).map((event) => event.type),
+    ['research_decision', 'research_agent_start', 'research_task_update'],
+  )
+})
+
+test('retained process events keep early deep research phase anchors', () => {
+  const baseEvents = [
+    {
+      id: 'scope-ready',
+      type: 'research_decision',
+      timestamp: 10,
+      data: { decision_type: 'scope_ready' },
+    },
+    {
+      id: 'planner-start',
+      type: 'research_agent_start',
+      timestamp: 20,
+      data: { role: 'planner' },
+    },
+  ]
+
+  const tailEvents = Array.from({ length: 80 }, (_, index) => ({
+    id: `search-${index}`,
+    type: 'search',
+    timestamp: 100 + index,
+    data: { query: `query-${index}` },
+  }))
+
+  const retained = getRetainedProcessEvents([...baseEvents, ...tailEvents])
+
+  assert.ok(retained.some((event) => event.id === 'scope-ready'))
+  assert.ok(retained.some((event) => event.id === 'planner-start'))
 })

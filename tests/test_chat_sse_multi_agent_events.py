@@ -57,3 +57,63 @@ async def test_stream_flushes_multi_agent_events_before_graph_completion(monkeyp
 
     assert payload["type"] == "research_agent_start"
     assert payload["data"]["role"] == "planner"
+
+
+@pytest.mark.asyncio
+async def test_multi_agent_stream_suppresses_generic_clarify_progress(monkeypatch):
+    emitter = EventEmitter(thread_id="thread_multi_agent")
+
+    class _DummyGraph:
+        async def astream_events(self, *args, **kwargs):
+            await emitter.emit(
+                ToolEvent.RESEARCH_AGENT_START,
+                {"agent_id": "clarify-1", "role": "clarify", "phase": "intake"},
+            )
+            yield {"event": "on_node_start", "name": "clarify", "data": {}}
+            yield {
+                "event": "on_graph_end",
+                "name": "agent",
+                "data": {"output": {"is_complete": True, "final_report": "done"}},
+            }
+
+    async def _noop_async(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(main, "research_graph", _DummyGraph())
+    monkeypatch.setattr(main, "remove_emitter", _noop_async)
+    monkeypatch.setattr(main, "add_memory_entry", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "store_interaction", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "fetch_memories", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main.browser_sessions, "reset", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main.sandbox_browser_sessions, "reset", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "_browser_stream_conn_active", lambda *args, **kwargs: True)
+    monkeypatch.setattr(main.settings, "enable_file_logging", False, raising=False)
+
+    async def _fake_get_emitter(thread_id):
+        return emitter
+
+    monkeypatch.setattr(main, "get_emitter", _fake_get_emitter)
+
+    events = []
+    async for chunk in main.stream_agent_events(
+        "hi",
+        thread_id="thread_multi_agent",
+        search_mode={
+            "mode": "deep",
+            "use_agent": True,
+            "use_deep": True,
+            "use_deep_prompt": True,
+            "deepsearch_engine": "multi_agent",
+        },
+    ):
+        events.append(json.loads(chunk[2:]))
+
+    assert any(event["type"] == "research_agent_start" for event in events)
+    assert not any(
+        event["type"] == "status" and event["data"].get("step") == "clarifying"
+        for event in events
+    )
+    assert not any(
+        event["type"] == "thinking" and event["data"].get("node") == "clarify"
+        for event in events
+    )
