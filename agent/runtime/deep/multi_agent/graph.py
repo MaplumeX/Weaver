@@ -26,19 +26,25 @@ from agent.runtime.deep.multi_agent import dispatcher, events, support
 from agent.runtime.deep.multi_agent.schema import (
     AgentRunRecord,
     BranchBrief,
+    BranchSynthesis,
     EvidenceCard,
+    EvidencePassage,
+    FetchedDocument,
     FinalReportArtifact,
     GraphScopeSnapshot,
     KnowledgeGap,
     ReportSectionDraft,
     ResearchTask,
+    SourceCandidate,
     ScopeDraft,
+    VerificationResult,
     WorkerExecutionResult,
     WorkerScopeSnapshot,
     _now_iso,
 )
 from agent.runtime.deep.multi_agent.store import ArtifactStore, ResearchTaskQueue
 from agent.workflows.agents.coordinator import CoordinatorAction
+from agent.workflows.claim_verifier import ClaimStatus, ClaimVerifier
 from agent.workflows.knowledge_gap import GapAnalysisResult
 from common.cancellation import check_cancellation as _check_cancel_token
 from common.config import settings
@@ -89,6 +95,7 @@ class MultiAgentGraphState(TypedDict, total=False):
     next_step: str
     latest_gap_result: dict[str, Any]
     latest_decision: dict[str, Any]
+    latest_verification_summary: dict[str, Any]
     pending_worker_tasks: list[dict[str, Any]]
     worker_task: dict[str, Any]
     worker_results: Annotated[list[dict[str, Any]], _reduce_worker_payloads]
@@ -111,6 +118,11 @@ def _restore_worker_context(payload: dict[str, Any]) -> ResearchWorkerContext:
 def _restore_worker_result(payload: dict[str, Any]) -> WorkerExecutionResult:
     task = ResearchTask(**payload["task"])
     context = _restore_worker_context(payload["context"])
+    source_candidates = [SourceCandidate(**item) for item in payload.get("source_candidates", [])]
+    fetched_documents = [FetchedDocument(**item) for item in payload.get("fetched_documents", [])]
+    evidence_passages = [EvidencePassage(**item) for item in payload.get("evidence_passages", [])]
+    synthesis_payload = payload.get("branch_synthesis")
+    branch_synthesis = BranchSynthesis(**synthesis_payload) if isinstance(synthesis_payload, dict) else None
     evidence_cards = [EvidenceCard(**item) for item in payload.get("evidence_cards", [])]
     section_payload = payload.get("section_draft")
     section_draft = ReportSectionDraft(**section_payload) if isinstance(section_payload, dict) else None
@@ -119,11 +131,18 @@ def _restore_worker_result(payload: dict[str, Any]) -> WorkerExecutionResult:
     return WorkerExecutionResult(
         task=task,
         context=context,
+        source_candidates=source_candidates,
+        fetched_documents=fetched_documents,
+        evidence_passages=evidence_passages,
+        branch_synthesis=branch_synthesis,
         evidence_cards=evidence_cards,
         section_draft=section_draft,
         raw_results=list(payload.get("raw_results", [])),
         tokens_used=int(payload.get("tokens_used", 0) or 0),
+        searches_used=int(payload.get("searches_used", 0) or 0),
         branch_id=payload.get("branch_id"),
+        task_stage=str(payload.get("task_stage") or task.stage or ""),
+        result_status=str(payload.get("result_status") or "completed"),
         agent_run=agent_run,
         error=str(payload.get("error") or ""),
     )
@@ -160,6 +179,54 @@ def _coerce_string_list(value: Any) -> list[str]:
         if text:
             result.append(text)
     return result
+
+
+def _split_findings(summary: str) -> list[str]:
+    text = str(summary or "").strip()
+    if not text:
+        return []
+    parts = [item.strip(" -•\t") for item in text.replace("\r", "\n").split("\n") if item.strip()]
+    findings = [part for part in parts if len(part) >= 12]
+    if findings:
+        return findings[:6]
+    return [text[:300]]
+
+
+def _derive_branch_queries(task: ResearchTask, limit: int = 3) -> list[str]:
+    candidates = list(task.query_hints or [])
+    if not candidates and task.query:
+        candidates.append(task.query)
+    if not candidates and task.objective:
+        candidates.append(task.objective)
+    if not candidates and task.title:
+        candidates.append(task.title)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(text)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _criterion_is_covered(summary: str, criterion: str) -> bool:
+    criterion_text = str(criterion or "").strip().lower()
+    summary_text = str(summary or "").strip().lower()
+    if not criterion_text or not summary_text:
+        return False
+    tokens = [token for token in criterion_text.replace("，", " ").replace(",", " ").split() if len(token) > 1]
+    if not tokens:
+        return criterion_text in summary_text
+    matches = sum(1 for token in tokens if token in summary_text)
+    return matches >= max(1, min(2, len(tokens)))
 
 
 def _scope_draft_from_payload(payload: dict[str, Any] | None) -> ScopeDraft | None:
@@ -317,6 +384,7 @@ class _RuntimeView:
         self.runtime_state.setdefault("planning_mode", "")
         self.runtime_state.setdefault("last_gap_result", {})
         self.runtime_state.setdefault("last_decision", {})
+        self.runtime_state.setdefault("last_verification_summary", {})
         self.runtime_state.setdefault("intake_status", "pending")
         self.runtime_state.setdefault("clarify_question", "")
         self.runtime_state.setdefault("clarify_question_history", [])
@@ -377,6 +445,9 @@ class _RuntimeView:
             _check_cancel_token(token_id)
 
     def _knowledge_summary(self) -> str:
+        syntheses = [synthesis.summary for synthesis in self.artifact_store.branch_syntheses() if synthesis.summary]
+        if syntheses:
+            return "\n\n".join(syntheses[:8])
         sections = [section.summary for section in self.artifact_store.section_drafts() if section.summary]
         if sections:
             return "\n\n".join(sections[:8])
@@ -386,10 +457,21 @@ class _RuntimeView:
         return ""
 
     def _quality_summary(self, gap_result: GapAnalysisResult | None) -> dict[str, Any]:
+        passages = self.artifact_store.evidence_passages()
         evidence_cards = self.artifact_store.evidence_cards()
-        unique_urls = {card.source_url for card in evidence_cards if card.source_url}
+        unique_urls = {passage.url for passage in passages if passage.url}
+        if not unique_urls:
+            unique_urls = {card.source_url for card in evidence_cards if card.source_url}
+        syntheses = self.artifact_store.branch_syntheses()
+        verification_results = self.artifact_store.verification_results(validation_stage="coverage_check")
+        verified_branch_ids = {
+            result.branch_id
+            for result in verification_results
+            if result.branch_id and result.outcome == "passed"
+        }
         coverage = float(gap_result.overall_coverage) if gap_result else 0.0
-        citation_coverage = min(1.0, len(unique_urls) / max(1, len(evidence_cards))) if evidence_cards else 0.0
+        citation_denominator = max(1, len(passages) or len(evidence_cards) or len(syntheses))
+        citation_coverage = min(1.0, len(unique_urls) / citation_denominator) if unique_urls else 0.0
         return {
             "engine": "multi_agent",
             "stage": "final" if self.task_queue.ready_count() == 0 else "iteration",
@@ -399,6 +481,8 @@ class _RuntimeView:
             "suggested_queries": gap_result.suggested_queries if gap_result else [],
             "analysis": gap_result.analysis if gap_result else "",
             "freshness_warning": "",
+            "verified_branch_count": len(verified_branch_ids),
+            "branch_synthesis_count": len(syntheses),
             "graph_run_id": self.graph_run_id,
             "graph_attempt": self.graph_attempt,
             "node_id": self.current_node_id,
@@ -416,7 +500,10 @@ class _RuntimeView:
             "children": [
                 {
                     "id": task.id,
-                    "title": task.title or task.goal,
+                    "title": task.title or task.objective or task.goal,
+                    "objective": task.objective,
+                    "task_kind": task.task_kind,
+                    "stage": task.stage,
                     "query": task.query,
                     "status": task.status,
                     "priority": task.priority,
@@ -454,7 +541,12 @@ class _RuntimeView:
             "task_queue_stats": task_snapshot.get("stats", {}),
             "artifact_counts": {
                 "branch_briefs": len(briefs),
+                "source_candidates": len(self.artifact_store.source_candidates()),
+                "fetched_documents": len(self.artifact_store.fetched_documents()),
+                "evidence_passages": len(self.artifact_store.evidence_passages()),
                 "evidence_cards": len(self.artifact_store.evidence_cards()),
+                "branch_syntheses": len(self.artifact_store.branch_syntheses()),
+                "verification_results": len(self.artifact_store.verification_results()),
                 "knowledge_gaps": len(self.artifact_store.gap_artifacts()),
                 "report_section_drafts": len(self.artifact_store.section_drafts()),
                 "has_final_report": self.artifact_store.final_report() is not None,
@@ -468,6 +560,11 @@ class _RuntimeView:
                 "summary": brief.summary,
                 "status": brief.status,
                 "parent_branch_id": brief.parent_branch_id,
+                "objective": brief.objective,
+                "task_kind": brief.task_kind,
+                "current_stage": brief.current_stage,
+                "verification_status": brief.verification_status,
+                "latest_task_id": brief.latest_task_id,
                 "task_ids": [task.id for task in self.task_queue.all_tasks() if task.branch_id == brief.id],
             }
             for brief in briefs
@@ -485,6 +582,9 @@ class _RuntimeView:
                         "branch_id": item.get("parent_scope_id"),
                         "agent_id": str(item.get("agent_id") or ""),
                         "query": str(item.get("query") or ""),
+                        "objective": str((item.get("brief") or {}).get("objective") or ""),
+                        "task_kind": str((item.get("brief") or {}).get("task_kind") or ""),
+                        "stage": str((item.get("brief") or {}).get("stage") or ""),
                         "attempt": int(item.get("attempt") or 0),
                         "status": "completed" if item.get("is_complete") else "running",
                         "artifact_ids": [
@@ -537,6 +637,9 @@ class _RuntimeView:
             "role_counters": copy.deepcopy(self.runtime_state.get("role_counters", {})),
             "last_gap_result": copy.deepcopy(self.runtime_state.get("last_gap_result", {})),
             "last_decision": copy.deepcopy(self.runtime_state.get("last_decision", {})),
+            "last_verification_summary": copy.deepcopy(
+                self.runtime_state.get("last_verification_summary", {})
+            ),
             "intake_status": str(self.runtime_state.get("intake_status") or "pending"),
             "clarify_question": str(self.runtime_state.get("clarify_question") or ""),
             "clarify_question_history": copy.deepcopy(
@@ -569,6 +672,9 @@ class _RuntimeView:
         latest_decision = extra.get("latest_decision")
         if latest_decision is not None:
             self.runtime_state["last_decision"] = copy.deepcopy(latest_decision)
+        latest_verification = extra.get("latest_verification_summary")
+        if latest_verification is not None:
+            self.runtime_state["last_verification_summary"] = copy.deepcopy(latest_verification)
         patch: dict[str, Any] = {
             "shared_state": copy.deepcopy(self.shared_state),
             "graph_run_id": self.graph_run_id,
@@ -583,7 +689,14 @@ class _RuntimeView:
             "next_step": self.runtime_state.get("next_step", ""),
         }
         for key, value in extra.items():
-            if key in {"latest_gap_result", "latest_decision", "pending_worker_tasks", "worker_results", "final_result"}:
+            if key in {
+                "latest_gap_result",
+                "latest_decision",
+                "latest_verification_summary",
+                "pending_worker_tasks",
+                "worker_results",
+                "final_result",
+            }:
                 patch[key] = value
         return patch
 
@@ -607,9 +720,13 @@ class _RuntimeView:
         artifact_type: str,
         status: str,
         task_id: str | None = None,
+        branch_id: str | None = None,
         agent_id: str | None = None,
         summary: str | None = None,
         source_url: str | None = None,
+        task_kind: str | None = None,
+        stage: str | None = None,
+        validation_stage: str | None = None,
         extra: dict[str, Any] | None = None,
     ) -> None:
         events.emit_artifact_update(
@@ -618,9 +735,13 @@ class _RuntimeView:
             artifact_type=artifact_type,
             status=status,
             task_id=task_id,
+            branch_id=branch_id,
             agent_id=agent_id,
             summary=summary,
             source_url=source_url,
+            task_kind=task_kind,
+            stage=stage,
+            validation_stage=validation_stage,
             extra=extra,
         )
 
@@ -634,6 +755,10 @@ class _RuntimeView:
         iteration: int | None = None,
         branch_id: str | None = None,
         attempt: int | None = None,
+        task_kind: str | None = None,
+        stage: str | None = None,
+        validation_stage: str | None = None,
+        objective_summary: str | None = None,
     ) -> None:
         events.emit_agent_start(
             self,
@@ -644,6 +769,10 @@ class _RuntimeView:
             iteration=iteration,
             branch_id=branch_id,
             attempt=attempt,
+            task_kind=task_kind,
+            stage=stage,
+            validation_stage=validation_stage,
+            objective_summary=objective_summary,
         )
 
     def _emit_agent_complete(
@@ -658,6 +787,10 @@ class _RuntimeView:
         summary: str | None = None,
         branch_id: str | None = None,
         attempt: int | None = None,
+        task_kind: str | None = None,
+        stage: str | None = None,
+        validation_stage: str | None = None,
+        objective_summary: str | None = None,
     ) -> None:
         events.emit_agent_complete(
             self,
@@ -670,6 +803,10 @@ class _RuntimeView:
             summary=summary,
             branch_id=branch_id,
             attempt=attempt,
+            task_kind=task_kind,
+            stage=stage,
+            validation_stage=validation_stage,
+            objective_summary=objective_summary,
         )
 
     def _emit_decision(
@@ -681,6 +818,11 @@ class _RuntimeView:
         coverage: float | None = None,
         gap_count: int | None = None,
         attempt: int | None = None,
+        branch_id: str | None = None,
+        task_id: str | None = None,
+        task_kind: str | None = None,
+        stage: str | None = None,
+        validation_stage: str | None = None,
         extra: dict[str, Any] | None = None,
     ) -> None:
         events.emit_decision(
@@ -691,6 +833,11 @@ class _RuntimeView:
             coverage=coverage,
             gap_count=gap_count,
             attempt=attempt,
+            branch_id=branch_id,
+            task_id=task_id,
+            task_kind=task_kind,
+            stage=stage,
+            validation_stage=validation_stage,
             extra=extra,
         )
 
@@ -706,6 +853,10 @@ class _RuntimeView:
         branch_id: str | None = None,
         iteration: int | None = None,
         attempt: int | None = None,
+        task_kind: str = "",
+        stage: str = "",
+        validation_stage: str = "",
+        objective_summary: str = "",
         persist: bool = True,
     ) -> AgentRunRecord:
         record = AgentRunRecord(
@@ -718,6 +869,10 @@ class _RuntimeView:
             node_id=self.current_node_id,
             task_id=task_id,
             branch_id=branch_id,
+            task_kind=task_kind,
+            stage=stage,
+            validation_stage=validation_stage,
+            objective_summary=objective_summary,
             attempt=int(attempt or self.graph_attempt or 1),
         )
         if persist:
@@ -730,6 +885,10 @@ class _RuntimeView:
             iteration=iteration,
             branch_id=branch_id,
             attempt=record.attempt,
+            task_kind=task_kind or record.task_kind,
+            stage=stage or record.stage,
+            validation_stage=validation_stage or record.validation_stage,
+            objective_summary=objective_summary or record.objective_summary,
         )
         return record
 
@@ -741,10 +900,16 @@ class _RuntimeView:
         summary: str = "",
         iteration: int | None = None,
         branch_id: str | None = None,
+        stage: str | None = None,
+        validation_stage: str | None = None,
     ) -> AgentRunRecord:
         record.status = status
         record.summary = summary
         record.ended_at = _now_iso()
+        if stage:
+            record.stage = stage
+        if validation_stage:
+            record.validation_stage = validation_stage
         self._emit_agent_complete(
             agent_id=record.agent_id,
             role=record.role,
@@ -755,6 +920,10 @@ class _RuntimeView:
             summary=summary,
             branch_id=branch_id or record.branch_id,
             attempt=record.attempt,
+            task_kind=record.task_kind,
+            stage=record.stage,
+            validation_stage=record.validation_stage,
+            objective_summary=record.objective_summary,
         )
         return record
 
@@ -883,6 +1052,7 @@ class MultiAgentDeepSearchRuntime:
             self._deps.create_chat_model(verifier_model, temperature=0),
             self.config,
         )
+        self.claim_verifier = ClaimVerifier()
         self.coordinator = self._deps.ResearchCoordinator(
             self._deps.create_chat_model(coordinator_model, temperature=0),
             self.config,
@@ -994,6 +1164,9 @@ class MultiAgentDeepSearchRuntime:
             ),
             "latest_gap_result": copy.deepcopy(runtime_state_snapshot.get("last_gap_result", {})),
             "latest_decision": copy.deepcopy(runtime_state_snapshot.get("last_decision", {})),
+            "latest_verification_summary": copy.deepcopy(
+                runtime_state_snapshot.get("last_verification_summary", {})
+            ),
             "pending_worker_tasks": [],
             "worker_results": [],
         }
@@ -1424,7 +1597,11 @@ class MultiAgentDeepSearchRuntime:
             attempt=view.graph_attempt,
         )
         try:
-            existing_queries = [task.query for task in view.task_queue.all_tasks() if task.query]
+            existing_objectives = [
+                task.objective or task.title or task.goal
+                for task in view.task_queue.all_tasks()
+                if (task.objective or task.title or task.goal)
+            ]
             if planning_mode == "replan":
                 gap_result = _gap_result_from_payload(
                     graph_state.get("latest_gap_result") or view.runtime_state.get("last_gap_result")
@@ -1433,7 +1610,7 @@ class MultiAgentDeepSearchRuntime:
                 plan_items = self.planner.refine_plan(
                     self.topic,
                     gaps=gap_labels,
-                    existing_queries=existing_queries,
+                    existing_queries=existing_objectives,
                     num_queries=min(
                         self.query_num,
                         max(1, len(gap_result.suggested_queries) if gap_result else 1),
@@ -1446,7 +1623,7 @@ class MultiAgentDeepSearchRuntime:
                     self.topic,
                     num_queries=self.query_num,
                     existing_knowledge=view._knowledge_summary(),
-                    existing_queries=existing_queries,
+                    existing_queries=existing_objectives,
                     approved_scope=approved_scope,
                 )
                 context_id = str(approved_scope.get("id") or view.root_branch_id or support._new_id("brief"))
@@ -1459,13 +1636,39 @@ class MultiAgentDeepSearchRuntime:
             )
             if tasks:
                 view.task_queue.enqueue(tasks)
+                for brief in dispatcher.build_briefs_from_tasks(
+                    self.topic,
+                    tasks,
+                    parent_branch_id=view.root_branch_id,
+                    context_id=context_id,
+                ):
+                    existing_brief = view.artifact_store.get_brief(brief.id)
+                    if existing_brief:
+                        brief.latest_synthesis_id = existing_brief.latest_synthesis_id
+                        brief.latest_verification_id = existing_brief.latest_verification_id
+                        brief.verification_status = existing_brief.verification_status
+                    view.artifact_store.put_brief(brief)
+                    view._emit_artifact_update(
+                        artifact_id=brief.id,
+                        artifact_type="branch_brief",
+                        status=brief.status,
+                        branch_id=brief.id,
+                        task_id=brief.latest_task_id,
+                        summary=brief.summary,
+                        task_kind=brief.task_kind,
+                        stage=brief.current_stage,
+                        extra={
+                            "objective_summary": brief.objective,
+                            "input_artifact_ids": brief.input_artifact_ids,
+                        },
+                    )
                 for task in tasks:
                     view._emit_task_update(task=task, status=task.status, attempt=task.attempts)
                 view._emit_research_tree_update()
             view.finish_agent_run(
                 record,
                 status="completed",
-                summary=f"生成 {len(tasks)} 个研究任务",
+                summary=f"生成 {len(tasks)} 个 branch 研究任务",
                 iteration=view.current_iteration or None,
                 branch_id=view.root_branch_id,
             )
@@ -1524,17 +1727,22 @@ class MultiAgentDeepSearchRuntime:
         branch_id = task.branch_id or payload.get("branch_id") or view.root_branch_id
         iteration = int(payload.get("iteration") or view.current_iteration or 0)
         attempt = int(payload.get("attempt") or task.attempts or 1)
+        objective_summary = task.objective or task.title or task.goal
         record = view.start_agent_run(
             role="researcher",
-            phase="research",
+            phase="branch_research",
             task_id=task.id,
             branch_id=branch_id,
             iteration=iteration,
             attempt=attempt,
+            task_kind=task.task_kind,
+            stage="search",
+            objective_summary=objective_summary,
             persist=False,
         )
 
         worker_parent_state = copy.deepcopy(view.shared_state)
+        branch_brief = view.artifact_store.get_brief(branch_id or "") if branch_id else None
         worker_context = build_research_worker_context(
             worker_parent_state,
             task_id=task.id,
@@ -1544,90 +1752,243 @@ class MultiAgentDeepSearchRuntime:
             brief={
                 "topic": self.topic,
                 "goal": task.goal,
+                "objective": objective_summary,
                 "aspect": task.aspect,
+                "task_kind": task.task_kind,
+                "acceptance_criteria": list(task.acceptance_criteria),
+                "allowed_tools": list(task.allowed_tools),
                 "iteration": iteration,
+                "stage": "planned",
+                "branch_summary": branch_brief.summary if branch_brief else "",
             },
-            related_artifacts=view.artifact_store.get_related_artifacts(task.id),
+            related_artifacts=view.artifact_store.get_related_artifacts(task.id, branch_id=branch_id),
             scope_id=f"worker-{task.id}-attempt-{attempt}",
             parent_scope_id=branch_id,
         )
+
+        current_stage = "search"
+
+        def _emit_stage(stage: str, *, reason: str = "") -> None:
+            nonlocal current_stage
+            current_stage = stage
+            task.stage = stage
+            worker_context.brief["stage"] = stage
+            view._emit_task_update(
+                task=task,
+                status="in_progress",
+                attempt=attempt,
+                reason=reason or "",
+            )
+
         try:
             view._check_cancel()
-            results = self.researcher.execute_queries(
-                [task.query],
-                max_results_per_query=self.results_per_query,
-            )
-            summary = self.researcher.summarize_findings(
-                self.topic,
-                results,
-                existing_summary=view._knowledge_summary(),
-            )
+            _emit_stage("search")
+            queries = _derive_branch_queries(task)
+            if not queries:
+                raise RuntimeError("branch task has no executable query hints")
+
+            results: list[dict[str, Any]] = []
+            searches_used = 0
+            for query in queries:
+                view._check_cancel()
+                query_results = self.researcher.execute_queries(
+                    [query],
+                    max_results_per_query=self.results_per_query,
+                )
+                if query:
+                    searches_used += 1
+                for item in query_results:
+                    if not isinstance(item, dict):
+                        continue
+                    results.append({**item, "query": query})
+
+            if not results:
+                raise RuntimeError("branch agent returned no evidence")
+
+            _emit_stage("read")
+            source_candidates: list[SourceCandidate] = []
+            fetched_documents: list[FetchedDocument] = []
+            evidence_passages: list[EvidencePassage] = []
             evidence_cards: list[EvidenceCard] = []
-            for item in results[: min(3, len(results))]:
-                evidence_cards.append(
-                    EvidenceCard(
-                        id=support._new_id("evidence"),
+            for index, item in enumerate(results[: min(len(results), max(3, self.results_per_query))], 1):
+                source_candidate_id = support._new_id("source")
+                document_id = support._new_id("document")
+                passage_id = support._new_id("passage")
+                content = str(
+                    item.get("raw_excerpt")
+                    or item.get("content")
+                    or item.get("summary")
+                    or item.get("snippet")
+                    or ""
+                ).strip()
+                summary_text = str(item.get("summary") or item.get("snippet") or content[:280]).strip()
+                source_title = str(item.get("title") or item.get("url") or "Untitled")
+                source_url = str(item.get("url") or "")
+                source_candidates.append(
+                    SourceCandidate(
+                        id=source_candidate_id,
                         task_id=task.id,
                         branch_id=branch_id,
-                        source_title=str(item.get("title") or item.get("url") or "Untitled"),
-                        source_url=str(item.get("url") or ""),
-                        summary=str(item.get("summary") or item.get("snippet") or summary[:280]),
-                        excerpt=str(item.get("raw_excerpt") or item.get("summary") or "")[:700],
+                        title=source_title,
+                        url=source_url,
+                        summary=summary_text[:400],
+                        rank=index,
                         source_provider=str(item.get("provider") or ""),
                         published_date=item.get("published_date"),
                         created_by=record.agent_id,
                         metadata={
-                            "query": task.query,
+                            "query": str(item.get("query") or task.query or objective_summary),
                             "attempt": attempt,
                             "graph_run_id": view.graph_run_id,
                         },
                     )
                 )
+                fetched_documents.append(
+                    FetchedDocument(
+                        id=document_id,
+                        task_id=task.id,
+                        branch_id=branch_id,
+                        source_candidate_id=source_candidate_id,
+                        url=source_url,
+                        title=source_title,
+                        content=content[:2400],
+                        excerpt=content[:700],
+                        created_by=record.agent_id,
+                        metadata={
+                            "query": str(item.get("query") or task.query or objective_summary),
+                            "attempt": attempt,
+                        },
+                    )
+                )
+                evidence_passages.append(
+                    EvidencePassage(
+                        id=passage_id,
+                        task_id=task.id,
+                        branch_id=branch_id,
+                        document_id=document_id,
+                        url=source_url,
+                        text=content[:900],
+                        quote=content[:240],
+                        source_title=source_title,
+                        snippet_hash=f"{task.id}-{index}-{attempt}",
+                        created_by=record.agent_id,
+                        metadata={
+                            "query": str(item.get("query") or task.query or objective_summary),
+                            "attempt": attempt,
+                        },
+                    )
+                )
+                evidence_cards.append(
+                    EvidenceCard(
+                        id=support._new_id("evidence"),
+                        task_id=task.id,
+                        branch_id=branch_id,
+                        source_title=source_title,
+                        source_url=source_url,
+                        summary=summary_text[:280],
+                        excerpt=content[:700],
+                        source_provider=str(item.get("provider") or ""),
+                        published_date=item.get("published_date"),
+                        created_by=record.agent_id,
+                        metadata={
+                            "query": str(item.get("query") or task.query or objective_summary),
+                            "attempt": attempt,
+                            "graph_run_id": view.graph_run_id,
+                            "passage_id": passage_id,
+                        },
+                    )
+                )
+
+            _emit_stage("extract")
+            summary = self.researcher.summarize_findings(
+                self.topic,
+                results,
+                existing_summary=view._knowledge_summary(),
+            )
+            findings = _split_findings(summary)
+
+            _emit_stage("synthesize")
+            branch_synthesis = BranchSynthesis(
+                id=support._new_id("synthesis"),
+                task_id=task.id,
+                branch_id=branch_id,
+                objective=objective_summary,
+                summary=summary or f"未能为“{objective_summary}”形成充分结论。",
+                findings=findings,
+                acceptance_criteria=list(task.acceptance_criteria),
+                evidence_passage_ids=[passage.id for passage in evidence_passages],
+                source_document_ids=[document.id for document in fetched_documents],
+                citation_urls=[candidate.url for candidate in source_candidates if candidate.url],
+                created_by=record.agent_id,
+                metadata={
+                    "query_hints": list(queries),
+                    "attempt": attempt,
+                    "task_kind": task.task_kind,
+                    "graph_run_id": view.graph_run_id,
+                },
+            )
 
             section_draft = ReportSectionDraft(
                 id=support._new_id("section"),
                 task_id=task.id,
                 branch_id=branch_id,
-                title=task.title or task.goal,
-                summary=summary or f"未能从“{task.query}”提取到足够结论。",
+                title=task.title or objective_summary,
+                summary=branch_synthesis.summary,
                 evidence_ids=[card.id for card in evidence_cards],
                 created_by=record.agent_id,
             )
 
-            worker_context.summary_notes.append(section_draft.summary)
+            worker_context.summary_notes.append(branch_synthesis.summary)
             worker_context.scraped_content.append(
                 {
                     "query": task.query,
+                    "queries": queries,
+                    "objective": objective_summary,
+                    "task_kind": task.task_kind,
+                    "stage": current_stage,
                     "results": results,
                     "timestamp": _now_iso(),
                     "task_id": task.id,
                     "agent_id": record.agent_id,
                     "attempt": attempt,
+                    "branch_id": branch_id,
                 }
             )
             worker_context.sources.extend(support._compact_sources(results, limit=10))
             worker_context.artifacts_created.extend(
-                [card.to_dict() for card in evidence_cards] + [section_draft.to_dict()]
+                [candidate.to_dict() for candidate in source_candidates]
+                + [document.to_dict() for document in fetched_documents]
+                + [passage.to_dict() for passage in evidence_passages]
+                + [card.to_dict() for card in evidence_cards]
+                + [branch_synthesis.to_dict(), section_draft.to_dict()]
             )
             worker_context.is_complete = True
 
             view.finish_agent_run(
                 record,
                 status="completed",
-                summary=section_draft.summary[:240],
+                summary=branch_synthesis.summary[:240],
                 iteration=iteration,
                 branch_id=branch_id,
+                stage=current_stage,
             )
 
             result = WorkerExecutionResult(
                 task=task,
                 context=worker_context,
+                source_candidates=source_candidates,
+                fetched_documents=fetched_documents,
+                evidence_passages=evidence_passages,
+                branch_synthesis=branch_synthesis,
                 evidence_cards=evidence_cards,
                 section_draft=section_draft,
                 raw_results=results,
                 tokens_used=support._estimate_tokens_from_results(results)
                 + support._estimate_tokens_from_text(summary),
+                searches_used=searches_used,
                 branch_id=branch_id,
+                task_stage=current_stage,
+                result_status="completed",
                 agent_run=record,
             )
         except Exception as exc:
@@ -1639,15 +2000,23 @@ class MultiAgentDeepSearchRuntime:
                 summary=str(exc),
                 iteration=iteration,
                 branch_id=branch_id,
+                stage=current_stage,
             )
             result = WorkerExecutionResult(
                 task=task,
                 context=worker_context,
+                source_candidates=[],
+                fetched_documents=[],
+                evidence_passages=[],
+                branch_synthesis=None,
                 evidence_cards=[],
                 section_draft=None,
                 raw_results=[],
                 tokens_used=0,
+                searches_used=0,
                 branch_id=branch_id,
+                task_stage=current_stage,
+                result_status="failed",
                 agent_run=record,
                 error=str(exc),
             )
@@ -1670,11 +2039,59 @@ class MultiAgentDeepSearchRuntime:
             result = _restore_worker_result(payload)
             updates = merge_research_worker_context(view.shared_state, result.context)
             view.shared_state.update(updates)
-            view.searches_used += 1
+            view.searches_used += max(0, result.searches_used)
             view.tokens_used += max(0, result.tokens_used)
 
             if result.agent_run:
                 view.agent_runs.append(result.agent_run)
+
+            if result.source_candidates:
+                view.artifact_store.add_source_candidates(result.source_candidates)
+                for candidate in result.source_candidates:
+                    view._emit_artifact_update(
+                        artifact_id=candidate.id,
+                        artifact_type="source_candidate",
+                        status=candidate.status,
+                        task_id=candidate.task_id,
+                        branch_id=candidate.branch_id,
+                        agent_id=candidate.created_by,
+                        summary=candidate.summary[:180],
+                        source_url=candidate.url,
+                        task_kind=result.task.task_kind,
+                        stage="search",
+                    )
+
+            if result.fetched_documents:
+                view.artifact_store.add_fetched_documents(result.fetched_documents)
+                for document in result.fetched_documents:
+                    view._emit_artifact_update(
+                        artifact_id=document.id,
+                        artifact_type="fetched_document",
+                        status=document.status,
+                        task_id=document.task_id,
+                        branch_id=document.branch_id,
+                        agent_id=document.created_by,
+                        summary=document.title[:180] or document.excerpt[:180],
+                        source_url=document.url,
+                        task_kind=result.task.task_kind,
+                        stage="read",
+                    )
+
+            if result.evidence_passages:
+                view.artifact_store.add_evidence_passages(result.evidence_passages)
+                for passage in result.evidence_passages:
+                    view._emit_artifact_update(
+                        artifact_id=passage.id,
+                        artifact_type="evidence_passage",
+                        status=passage.status,
+                        task_id=passage.task_id,
+                        branch_id=passage.branch_id,
+                        agent_id=passage.created_by,
+                        summary=passage.quote[:180] or passage.text[:180],
+                        source_url=passage.url,
+                        task_kind=result.task.task_kind,
+                        stage="extract",
+                    )
 
             if result.evidence_cards:
                 view.artifact_store.add_evidence(result.evidence_cards)
@@ -1684,10 +2101,31 @@ class MultiAgentDeepSearchRuntime:
                         artifact_type="evidence_card",
                         status=card.status,
                         task_id=card.task_id,
+                        branch_id=card.branch_id,
                         agent_id=card.created_by,
                         summary=card.summary[:180],
                         source_url=card.source_url,
+                        task_kind=result.task.task_kind,
+                        stage="extract",
                     )
+
+            if result.branch_synthesis:
+                view.artifact_store.add_branch_synthesis(result.branch_synthesis)
+                view._emit_artifact_update(
+                    artifact_id=result.branch_synthesis.id,
+                    artifact_type="branch_synthesis",
+                    status=result.branch_synthesis.status,
+                    task_id=result.branch_synthesis.task_id,
+                    branch_id=result.branch_synthesis.branch_id,
+                    agent_id=result.branch_synthesis.created_by,
+                    summary=result.branch_synthesis.summary[:180],
+                    task_kind=result.task.task_kind,
+                    stage="synthesize",
+                    extra={
+                        "objective_summary": result.branch_synthesis.objective,
+                        "citation_urls": result.branch_synthesis.citation_urls,
+                    },
+                )
 
             if result.section_draft:
                 view.artifact_store.add_section_draft(result.section_draft)
@@ -1696,12 +2134,36 @@ class MultiAgentDeepSearchRuntime:
                     artifact_type="report_section_draft",
                     status=result.section_draft.status,
                     task_id=result.section_draft.task_id,
+                    branch_id=result.section_draft.branch_id,
                     agent_id=result.section_draft.created_by,
                     summary=result.section_draft.summary[:180],
+                    task_kind=result.task.task_kind,
+                    stage="synthesize",
                 )
 
-            if result.raw_results:
-                updated_task = view.task_queue.update_status(result.task.id, "completed")
+            if result.branch_id:
+                branch_brief = view.artifact_store.get_brief(result.branch_id)
+                if branch_brief:
+                    branch_brief.latest_task_id = result.task.id
+                    branch_brief.current_stage = result.task_stage or result.task.stage or branch_brief.current_stage
+                    branch_brief.summary = result.task.title or result.task.objective or branch_brief.summary
+                    branch_brief.objective = result.task.objective or branch_brief.objective
+                    branch_brief.task_kind = result.task.task_kind or branch_brief.task_kind
+                    branch_brief.allowed_tools = list(result.task.allowed_tools or branch_brief.allowed_tools)
+                    branch_brief.acceptance_criteria = list(
+                        result.task.acceptance_criteria or branch_brief.acceptance_criteria
+                    )
+                    if result.branch_synthesis:
+                        branch_brief.latest_synthesis_id = result.branch_synthesis.id
+                    branch_brief.verification_status = "pending"
+                    view.artifact_store.put_brief(branch_brief)
+
+            if result.raw_results and result.branch_synthesis:
+                updated_task = view.task_queue.update_stage(
+                    result.task.id,
+                    "reported",
+                    status="completed",
+                )
                 if updated_task:
                     view._emit_task_update(
                         task=updated_task,
@@ -1712,7 +2174,12 @@ class MultiAgentDeepSearchRuntime:
 
             reason = result.error or "researcher returned no results"
             if result.task.attempts < self.task_retry_limit and not view.budget_stop_reason:
-                failed_task = view.task_queue.update_status(result.task.id, "failed", reason=reason)
+                failed_task = view.task_queue.update_stage(
+                    result.task.id,
+                    result.task_stage or result.task.stage or "search",
+                    status="failed",
+                    reason=reason,
+                )
                 if failed_task:
                     view._emit_task_update(
                         task=failed_task,
@@ -1720,7 +2187,12 @@ class MultiAgentDeepSearchRuntime:
                         attempt=failed_task.attempts,
                         reason=reason,
                     )
-                retry_task = view.task_queue.update_status(result.task.id, "ready", reason=reason)
+                retry_task = view.task_queue.update_stage(
+                    result.task.id,
+                    "dispatch",
+                    status="ready",
+                    reason=reason,
+                )
                 if retry_task:
                     view._emit_task_update(
                         task=retry_task,
@@ -1729,7 +2201,12 @@ class MultiAgentDeepSearchRuntime:
                         reason=reason,
                     )
             else:
-                failed_task = view.task_queue.update_status(result.task.id, "failed", reason=reason)
+                failed_task = view.task_queue.update_stage(
+                    result.task.id,
+                    result.task_stage or result.task.stage or "search",
+                    status="failed",
+                    reason=reason,
+                )
                 if failed_task:
                     view._emit_task_update(
                         task=failed_task,
@@ -1747,21 +2224,176 @@ class MultiAgentDeepSearchRuntime:
 
     def _verify_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "verify")
-        record = view.start_agent_run(
+        task_map = {task.id: task for task in view.task_queue.all_tasks()}
+        syntheses = sorted(
+            view.artifact_store.branch_syntheses(),
+            key=lambda item: (item.task_id, item.created_at, item.id),
+        )
+        claim_record = view.start_agent_run(
+            role="verifier",
+            phase="claim_check",
+            branch_id=view.root_branch_id,
+            iteration=view.current_iteration,
+            attempt=view.graph_attempt,
+            stage="claim_check",
+            validation_stage="claim_check",
+        )
+        claim_results: list[VerificationResult] = []
+        claim_outcomes_by_task: dict[str, VerificationResult] = {}
+        try:
+            for synthesis in syntheses:
+                task = task_map.get(synthesis.task_id)
+                if task:
+                    task.stage = "claim_check"
+                    view._emit_task_update(
+                        task=task,
+                        status=task.status,
+                        attempt=task.attempts,
+                    )
+                related_passages = [
+                    passage
+                    for passage in view.artifact_store.evidence_passages(branch_id=synthesis.branch_id)
+                    if not synthesis.evidence_passage_ids or passage.id in synthesis.evidence_passage_ids
+                ]
+                claim_checks = self.claim_verifier.verify_report(
+                    synthesis.summary,
+                    [],
+                    passages=[
+                        {
+                            "url": passage.url,
+                            "text": passage.text,
+                            "quote": passage.quote,
+                            "snippet_hash": passage.snippet_hash,
+                            "heading_path": passage.heading_path,
+                        }
+                        for passage in related_passages
+                    ],
+                )
+                statuses = [check.status for check in claim_checks]
+                if any(status == ClaimStatus.CONTRADICTED for status in statuses):
+                    outcome = "failed"
+                    recommended_action = "retry_branch"
+                    summary = "claim/citation 检查发现矛盾证据"
+                elif any(status == ClaimStatus.UNSUPPORTED for status in statuses):
+                    outcome = "needs_follow_up"
+                    recommended_action = "retry_branch"
+                    summary = "claim/citation 检查发现证据不足"
+                else:
+                    outcome = "passed"
+                    recommended_action = "report"
+                    summary = "claim/citation 检查通过"
+                evidence_urls = list(
+                    dict.fromkeys(
+                        url
+                        for check in claim_checks
+                        for url in check.evidence_urls
+                        if url
+                    )
+                )
+                evidence_passage_ids = [
+                    passage.id
+                    for passage in related_passages
+                    if not evidence_urls or passage.url in evidence_urls
+                ]
+                verification_result = VerificationResult(
+                    id=support._new_id("verification"),
+                    task_id=synthesis.task_id,
+                    branch_id=synthesis.branch_id,
+                    synthesis_id=synthesis.id,
+                    validation_stage="claim_check",
+                    outcome=outcome,
+                    summary=summary,
+                    recommended_action=recommended_action,
+                    evidence_urls=evidence_urls,
+                    evidence_passage_ids=evidence_passage_ids,
+                    metadata={
+                        "claims": [
+                            {
+                                "claim": check.claim,
+                                "status": check.status.value,
+                                "evidence_urls": check.evidence_urls,
+                                "evidence_passages": check.evidence_passages,
+                                "notes": check.notes,
+                            }
+                            for check in claim_checks
+                        ],
+                        "branch_summary": synthesis.summary[:240],
+                    },
+                )
+                claim_results.append(verification_result)
+                claim_outcomes_by_task[synthesis.task_id] = verification_result
+
+            if claim_results:
+                view.artifact_store.add_verification_results(claim_results)
+                for result in claim_results:
+                    branch_task = task_map.get(result.task_id)
+                    view._emit_artifact_update(
+                        artifact_id=result.id,
+                        artifact_type="verification_result",
+                        status=result.status,
+                        task_id=result.task_id,
+                        branch_id=result.branch_id,
+                        agent_id=result.created_by,
+                        summary=result.summary,
+                        task_kind=branch_task.task_kind if branch_task else None,
+                        stage="claim_check",
+                        validation_stage=result.validation_stage,
+                        extra={"outcome": result.outcome, "recommended_action": result.recommended_action},
+                    )
+                    if result.branch_id:
+                        brief = view.artifact_store.get_brief(result.branch_id)
+                        if brief:
+                            brief.latest_verification_id = result.id
+                            brief.current_stage = "claim_check"
+                            brief.verification_status = result.outcome
+                            view.artifact_store.put_brief(brief)
+
+            view.finish_agent_run(
+                claim_record,
+                status="completed",
+                summary=f"claim_checks={len(claim_results)}",
+                iteration=view.current_iteration,
+                branch_id=view.root_branch_id,
+                stage="claim_check",
+                validation_stage="claim_check",
+            )
+        except Exception as exc:
+            view.finish_agent_run(
+                claim_record,
+                status="failed",
+                summary=str(exc),
+                iteration=view.current_iteration,
+                branch_id=view.root_branch_id,
+                stage="claim_check",
+                validation_stage="claim_check",
+            )
+            raise
+
+        coverage_record = view.start_agent_run(
             role="verifier",
             phase="coverage_check",
             branch_id=view.root_branch_id,
             iteration=view.current_iteration,
             attempt=view.graph_attempt,
+            stage="coverage_check",
+            validation_stage="coverage_check",
         )
         try:
-            executed_queries = [
-                task.query for task in view.task_queue.all_tasks() if task.status == "completed"
+            executed_objectives = [
+                task.objective or task.query or task.title or task.goal
+                for task in view.task_queue.all_tasks()
+                if task.status == "completed"
             ]
+            verified_knowledge = "\n\n".join(
+                synthesis.summary
+                for synthesis in syntheses
+                if claim_outcomes_by_task.get(synthesis.task_id)
+                and claim_outcomes_by_task[synthesis.task_id].outcome == "passed"
+            )
             gap_result = self.verifier.analyze(
                 self.topic,
-                executed_queries=executed_queries,
-                collected_knowledge=view._knowledge_summary(),
+                executed_queries=executed_objectives,
+                collected_knowledge=verified_knowledge or view._knowledge_summary(),
             )
             gap_artifacts = [
                 KnowledgeGap(
@@ -1780,29 +2412,164 @@ class MultiAgentDeepSearchRuntime:
                     artifact_id=gap.id,
                     artifact_type="knowledge_gap",
                     status=gap.status,
+                    branch_id=view.root_branch_id,
                     summary=f"{gap.aspect}: {gap.reason}",
+                    stage="coverage_check",
+                    validation_stage="coverage_check",
                 )
+
+            coverage_results: list[VerificationResult] = []
+            verified_task_ids: list[str] = []
+            retry_task_ids: list[str] = []
+            failed_branch_count = 0
+            follow_up_branch_count = 0
+            for synthesis in syntheses:
+                task = task_map.get(synthesis.task_id)
+                claim_result = claim_outcomes_by_task.get(synthesis.task_id)
+                missing_criteria = [
+                    criterion
+                    for criterion in (task.acceptance_criteria if task else [])
+                    if not _criterion_is_covered(synthesis.summary, criterion)
+                ]
+                if claim_result and claim_result.outcome == "failed":
+                    outcome = "failed"
+                    recommended_action = "retry_branch"
+                    summary = "coverage 检查终止，claim/citation 已失败"
+                    failed_branch_count += 1
+                elif claim_result and claim_result.outcome == "needs_follow_up":
+                    outcome = "needs_follow_up"
+                    recommended_action = "retry_branch"
+                    summary = "coverage 检查发现需先补充分支证据"
+                    follow_up_branch_count += 1
+                elif missing_criteria:
+                    outcome = "needs_follow_up"
+                    recommended_action = "retry_branch"
+                    summary = f"coverage 检查发现分支仍缺少 {len(missing_criteria)} 项验收标准"
+                    follow_up_branch_count += 1
+                else:
+                    outcome = "passed"
+                    recommended_action = "report"
+                    summary = "coverage 检查通过"
+                    verified_task_ids.append(synthesis.task_id)
+
+                if recommended_action == "retry_branch":
+                    retry_task_ids.append(synthesis.task_id)
+
+                result = VerificationResult(
+                    id=support._new_id("verification"),
+                    task_id=synthesis.task_id,
+                    branch_id=synthesis.branch_id,
+                    synthesis_id=synthesis.id,
+                    validation_stage="coverage_check",
+                    outcome=outcome,
+                    summary=summary,
+                    recommended_action=recommended_action,
+                    gap_ids=[gap.id for gap in gap_artifacts],
+                    evidence_urls=list(synthesis.citation_urls),
+                    evidence_passage_ids=list(synthesis.evidence_passage_ids),
+                    metadata={
+                        "missing_acceptance_criteria": missing_criteria,
+                        "gap_analysis": gap_result.analysis,
+                    },
+                )
+                coverage_results.append(result)
+
+            if coverage_results:
+                view.artifact_store.add_verification_results(coverage_results)
+                for result in coverage_results:
+                    branch_task = task_map.get(result.task_id)
+                    view._emit_artifact_update(
+                        artifact_id=result.id,
+                        artifact_type="verification_result",
+                        status=result.status,
+                        task_id=result.task_id,
+                        branch_id=result.branch_id,
+                        agent_id=result.created_by,
+                        summary=result.summary,
+                        task_kind=branch_task.task_kind if branch_task else None,
+                        stage="coverage_check",
+                        validation_stage=result.validation_stage,
+                        extra={
+                            "outcome": result.outcome,
+                            "recommended_action": result.recommended_action,
+                            "gap_ids": result.gap_ids,
+                        },
+                    )
+                    if result.branch_id:
+                        brief = view.artifact_store.get_brief(result.branch_id)
+                        if brief:
+                            brief.latest_verification_id = result.id
+                            brief.current_stage = "coverage_check"
+                            brief.verification_status = result.outcome
+                            view.artifact_store.put_brief(brief)
 
             quality_summary = view._quality_summary(gap_result)
             view._emit(events.ToolEventType.QUALITY_UPDATE, quality_summary)
+
+            verification_summary = {
+                "verified_branches": len({task_map[task_id].branch_id for task_id in verified_task_ids if task_id in task_map}),
+                "verified_task_ids": verified_task_ids,
+                "retry_branches": len({task_map[task_id].branch_id for task_id in retry_task_ids if task_id in task_map}),
+                "retry_task_ids": list(dict.fromkeys(retry_task_ids)),
+                "failed_branches": failed_branch_count,
+                "follow_up_branches": follow_up_branch_count,
+                "coverage_gap_count": len(gap_artifacts),
+                "replan_hints": list(gap_result.suggested_queries),
+            }
+            if verification_summary["retry_task_ids"]:
+                view._emit_decision(
+                    decision_type="verification_retry_requested",
+                    reason="branch 验证要求补证据或重试",
+                    iteration=view.current_iteration,
+                    gap_count=len(gap_artifacts),
+                    attempt=view.graph_attempt,
+                    validation_stage="coverage_check",
+                    extra={"retry_task_ids": verification_summary["retry_task_ids"]},
+                )
+            elif gap_artifacts:
+                view._emit_decision(
+                    decision_type="coverage_gap_detected",
+                    reason="整体 coverage 仍存在缺口，需要补充规划",
+                    iteration=view.current_iteration,
+                    gap_count=len(gap_artifacts),
+                    attempt=view.graph_attempt,
+                    validation_stage="coverage_check",
+                    extra={"suggested_queries": gap_result.suggested_queries},
+                )
+            else:
+                view._emit_decision(
+                    decision_type="verification_passed",
+                    reason="branch 验证通过，可进入汇总",
+                    iteration=view.current_iteration,
+                    coverage=gap_result.overall_coverage,
+                    gap_count=len(gap_artifacts),
+                    attempt=view.graph_attempt,
+                    validation_stage="coverage_check",
+                )
+
             view.finish_agent_run(
-                record,
+                coverage_record,
                 status="completed",
                 summary=f"coverage={gap_result.overall_coverage:.2f}, gaps={len(gap_result.gaps)}",
                 iteration=view.current_iteration,
                 branch_id=view.root_branch_id,
+                stage="coverage_check",
+                validation_stage="coverage_check",
             )
             return view.snapshot_patch(
                 next_step="coordinate",
                 latest_gap_result=gap_result.to_dict(),
+                latest_verification_summary=verification_summary,
             )
         except Exception as exc:
             view.finish_agent_run(
-                record,
+                coverage_record,
                 status="failed",
                 summary=str(exc),
                 iteration=view.current_iteration,
                 branch_id=view.root_branch_id,
+                stage="coverage_check",
+                validation_stage="coverage_check",
             )
             raise
 
@@ -1810,6 +2577,11 @@ class MultiAgentDeepSearchRuntime:
         view = self._view(graph_state, "coordinate")
         gap_result = _gap_result_from_payload(
             graph_state.get("latest_gap_result") or view.runtime_state.get("last_gap_result")
+        )
+        verification_summary = copy.deepcopy(
+            graph_state.get("latest_verification_summary")
+            or view.runtime_state.get("last_verification_summary")
+            or {}
         )
         record = view.start_agent_run(
             role="coordinator",
@@ -1846,13 +2618,73 @@ class MultiAgentDeepSearchRuntime:
                     planning_mode="",
                 )
 
-            evidence_count = len(view.artifact_store.evidence_cards())
-            section_count = len(view.artifact_store.section_drafts())
+            retry_task_ids = [
+                task_id
+                for task_id in verification_summary.get("retry_task_ids", [])
+                if isinstance(task_id, str) and task_id.strip()
+            ]
+            ready_for_retry = []
+            for task_id in retry_task_ids:
+                existing_task = view.task_queue.get(task_id)
+                if not existing_task:
+                    continue
+                if existing_task.attempts >= self.task_retry_limit:
+                    continue
+                retried_task = view.task_queue.update_stage(
+                    task_id,
+                    "dispatch",
+                    status="ready",
+                    reason="verification_follow_up",
+                )
+                if retried_task:
+                    ready_for_retry.append(retried_task)
+                    view._emit_task_update(
+                        task=retried_task,
+                        status=retried_task.status,
+                        attempt=retried_task.attempts,
+                        reason="verification_follow_up",
+                    )
+            if ready_for_retry:
+                latest_decision = {
+                    "action": "retry_branch",
+                    "reasoning": "branch 验证要求补证据，已重新放回调度队列",
+                    "iteration": view.current_iteration,
+                    "retry_task_ids": [task.id for task in ready_for_retry],
+                }
+                view._emit_decision(
+                    decision_type="retry_branch",
+                    reason=latest_decision["reasoning"],
+                    iteration=view.current_iteration,
+                    gap_count=len(gap_result.gaps) if gap_result else None,
+                    attempt=view.graph_attempt,
+                    extra={"retry_task_ids": latest_decision["retry_task_ids"]},
+                )
+                view.finish_agent_run(
+                    record,
+                    status="completed",
+                    summary=latest_decision["reasoning"],
+                    iteration=view.current_iteration,
+                    branch_id=view.root_branch_id,
+                )
+                return view.snapshot_patch(
+                    next_step="dispatch",
+                    latest_decision=latest_decision,
+                    planning_mode="",
+                )
+
+            evidence_count = len(view.artifact_store.evidence_passages()) or len(view.artifact_store.evidence_cards())
+            section_count = len(view.artifact_store.branch_syntheses())
             unique_urls = {
-                card.source_url
-                for card in view.artifact_store.evidence_cards()
-                if card.source_url
+                passage.url
+                for passage in view.artifact_store.evidence_passages()
+                if passage.url
             }
+            if not unique_urls:
+                unique_urls = {
+                    card.source_url
+                    for card in view.artifact_store.evidence_cards()
+                    if card.source_url
+                }
             citation_accuracy = min(1.0, len(unique_urls) / max(1, evidence_count)) if evidence_count else 0.0
             decision = self.coordinator.decide_next_action(
                 topic=self.topic,
@@ -1865,6 +2697,7 @@ class MultiAgentDeepSearchRuntime:
                 quality_score=gap_result.overall_coverage if gap_result else 0.0,
                 quality_gap_count=len(gap_result.gaps) if gap_result else 0,
                 citation_accuracy=citation_accuracy,
+                verification_summary=verification_summary,
             )
             latest_decision = {
                 "action": decision.action.value,
@@ -1931,10 +2764,31 @@ class MultiAgentDeepSearchRuntime:
             attempt=view.graph_attempt,
         )
         try:
-            section_drafts = view.artifact_store.section_drafts()
-            findings = [section.summary for section in section_drafts if section.summary]
-            evidence_cards = view.artifact_store.evidence_cards()
-            citation_urls = [card.source_url for card in evidence_cards if card.source_url]
+            coverage_results = {
+                result.task_id: result
+                for result in view.artifact_store.verification_results(validation_stage="coverage_check")
+            }
+            claim_results = {
+                result.task_id: result
+                for result in view.artifact_store.verification_results(validation_stage="claim_check")
+            }
+            verified_syntheses = [
+                synthesis
+                for synthesis in view.artifact_store.branch_syntheses()
+                if claim_results.get(synthesis.task_id)
+                and coverage_results.get(synthesis.task_id)
+                and claim_results[synthesis.task_id].outcome == "passed"
+                and coverage_results[synthesis.task_id].outcome == "passed"
+            ]
+            findings = [synthesis.summary for synthesis in verified_syntheses if synthesis.summary]
+            citation_urls = list(
+                dict.fromkeys(
+                    url
+                    for synthesis in verified_syntheses
+                    for url in synthesis.citation_urls
+                    if url
+                )
+            )
 
             final_report = self.reporter.generate_report(
                 self.topic,

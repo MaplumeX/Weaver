@@ -14,7 +14,7 @@ test('maps research task updates to readable auto status', () => {
     query: 'latest AI chip roadmap',
   })
 
-  assert.equal(text, '多 Agent 调研：执行任务 · latest AI chip roadmap')
+  assert.equal(text, '多 Agent 调研：执行 branch · latest AI chip roadmap · 执行分支任务')
 })
 
 test('maps coordinator decisions to readable auto status', () => {
@@ -32,7 +32,7 @@ test('maps retry task updates to readable auto status', () => {
     attempt: 2,
   })
 
-  assert.equal(text, '多 Agent 调研：重试任务 · latest AI chip roadmap')
+  assert.equal(text, '多 Agent 调研：重试 branch · latest AI chip roadmap · 执行分支任务')
 })
 
 test('maps clarify lifecycle to readable auto status', () => {
@@ -67,6 +67,24 @@ test('maps resumed planner lifecycle to readable auto status', () => {
   })
 
   assert.equal(text, '多 Agent 调研：已确认范围，正在继续规划研究任务…')
+})
+
+test('maps verifier claim-check lifecycle to readable auto status', () => {
+  const text = getDeepResearchAutoStatus('research_agent_start', {
+    role: 'verifier',
+    validation_stage: 'claim_check',
+  })
+
+  assert.equal(text, '多 Agent 调研：正在核对 claim 与 citation…')
+})
+
+test('maps branch synthesis artifact to readable auto status', () => {
+  const text = getDeepResearchAutoStatus('research_artifact_update', {
+    artifact_type: 'branch_synthesis',
+    status: 'created',
+  })
+
+  assert.equal(text, '多 Agent 调研：已生成分支结论')
 })
 
 test('continuation message keeps resumed process events in order', () => {

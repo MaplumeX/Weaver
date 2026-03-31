@@ -28,8 +28,26 @@ class _FakePlanner:
         approved_scope=None,
     ):
         return [
-            {"query": f"{topic} aspect 1", "aspect": "aspect 1", "priority": 1},
-            {"query": f"{topic} aspect 2", "aspect": "aspect 2", "priority": 2},
+            {
+                "title": f"{topic} branch 1",
+                "objective": f"Understand the current state of {topic} aspect 1",
+                "task_kind": "branch_research",
+                "aspect": "aspect 1",
+                "acceptance_criteria": [f"Explain the current state of {topic} aspect 1"],
+                "allowed_tools": ["search", "read", "extract", "synthesize"],
+                "query_hints": [f"{topic} aspect 1"],
+                "priority": 1,
+            },
+            {
+                "title": f"{topic} branch 2",
+                "objective": f"Understand the current state of {topic} aspect 2",
+                "task_kind": "branch_research",
+                "aspect": "aspect 2",
+                "acceptance_criteria": [f"Explain the current state of {topic} aspect 2"],
+                "allowed_tools": ["search", "read", "extract", "synthesize"],
+                "query_hints": [f"{topic} aspect 2"],
+                "priority": 2,
+            },
         ]
 
     def refine_plan(self, topic, gaps, existing_queries, num_queries=3, approved_scope=None):
@@ -168,7 +186,18 @@ class _SingleTaskPlanner(_FakePlanner):
         existing_queries=None,
         approved_scope=None,
     ):
-        return [{"query": f"{topic} aspect 1", "aspect": "aspect 1", "priority": 1}]
+        return [
+            {
+                "title": f"{topic} branch 1",
+                "objective": f"Understand the current state of {topic} aspect 1",
+                "task_kind": "branch_research",
+                "aspect": "aspect 1",
+                "acceptance_criteria": [f"Explain the current state of {topic} aspect 1"],
+                "allowed_tools": ["search", "read", "extract", "synthesize"],
+                "query_hints": [f"{topic} aspect 1"],
+                "priority": 1,
+            }
+        ]
 
 
 class _FlakyResearchAgent(_FakeResearchAgent):
@@ -223,15 +252,35 @@ def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatc
     assert result["deep_runtime"]["engine"] == "multi_agent"
     assert result["deep_runtime"]["task_queue"]["stats"]["completed"] == queue_stats["completed"]
     assert queue_stats["completed"] == 2
+    assert len(artifact_store["branch_briefs"]) >= 3
+    assert len(artifact_store["source_candidates"]) == 2
+    assert len(artifact_store["fetched_documents"]) == 2
+    assert len(artifact_store["evidence_passages"]) == 2
     assert len(artifact_store["evidence_cards"]) == 2
+    assert len(artifact_store["branch_syntheses"]) == 2
+    assert len(artifact_store["verification_results"]) == 4
     assert len(artifact_store["report_section_drafts"]) == 2
     assert result["deepsearch_runtime_state"]["engine"] == "multi_agent"
+    assert result["deepsearch_runtime_state"]["last_verification_summary"]["verified_branches"] == 2
     assert {"clarify", "scope", "planner", "researcher", "verifier", "coordinator", "reporter"} <= agent_roles
     assert "research_agent_start" in event_types
     assert "research_task_update" in event_types
     assert "research_artifact_update" in event_types
     assert "research_decision" in event_types
     assert "research_node_complete" in event_types
+
+    task_updates = [data for name, data in emitter.emitted if name == "research_task_update"]
+    assert any(update.get("task_kind") == "branch_research" for update in task_updates)
+    assert any(update.get("stage") == "search" for update in task_updates)
+    assert any(update.get("stage") == "synthesize" for update in task_updates)
+
+    artifact_updates = [data for name, data in emitter.emitted if name == "research_artifact_update"]
+    assert any(update.get("artifact_type") == "branch_synthesis" for update in artifact_updates)
+    assert any(
+        update.get("artifact_type") == "verification_result"
+        and update.get("validation_stage") == "coverage_check"
+        for update in artifact_updates
+    )
 
 
 def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
@@ -308,6 +357,7 @@ def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
 
     assert final_result["deepsearch_runtime_state"]["graph_run_id"] == interrupt_payload["graph_run_id"]
     assert final_result["deepsearch_task_queue"]["stats"]["completed"] == 2
+    assert final_result["deepsearch_runtime_state"]["last_verification_summary"]["verified_branches"] == 2
 
 
 def test_multi_agent_events_include_resume_flag_when_configured(monkeypatch):
@@ -391,7 +441,12 @@ def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch
     statuses = [item["status"] for item in task_updates]
     assert "failed" in statuses
     assert statuses.count("ready") >= 2
-    assert statuses.count("in_progress") == 2
+    dispatch_updates = [
+        item
+        for item in task_updates
+        if item["status"] == "in_progress" and item.get("stage") == "dispatch"
+    ]
+    assert len(dispatch_updates) == 2
 
 
 def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):

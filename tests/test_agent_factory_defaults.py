@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 # Ensure project root is on sys.path for direct test execution
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,3 +68,47 @@ def test_non_openai_selector_prefers_json_mode(monkeypatch):
         "function_calling",
         "json_schema",
     )
+
+
+def test_build_deep_research_tool_agent_filters_to_allowed_groups(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        agent_factory,
+        "get_registered_tools",
+        lambda: [
+            SimpleNamespace(name="browser_search"),
+            SimpleNamespace(name="crawl_url"),
+            SimpleNamespace(name="sb_browser_extract_text"),
+            SimpleNamespace(name="execute_python_code"),
+        ],
+    )
+    monkeypatch.setattr(
+        agent_factory,
+        "build_tool_agent",
+        lambda *, model, tools, temperature=0.7: captured.setdefault(
+            "agent",
+            {
+                "model": model,
+                "tool_names": [tool.name for tool in tools],
+                "temperature": temperature,
+            },
+        ),
+    )
+
+    agent, tools = agent_factory.build_deep_research_tool_agent(
+        model="gpt-test",
+        allowed_tools=["search", "extract"],
+    )
+
+    assert agent["model"] == "gpt-test"
+    assert [tool.name for tool in tools] == [
+        "browser_search",
+        "crawl_url",
+        "sb_browser_extract_text",
+    ]
+    assert agent["tool_names"] == [
+        "browser_search",
+        "crawl_url",
+        "sb_browser_extract_text",
+    ]

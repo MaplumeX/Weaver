@@ -1,7 +1,4 @@
-## Purpose
-定义 multi-agent Deep Research 的事件模型与流式兼容约束。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Agent lifecycle events
 系统 MUST 为 multi-agent Deep Research runtime 发出可消费的 agent 生命周期事件，并为每次 graph-level 执行提供稳定的关联标识，同时使 researcher / verifier 的 branch 级阶段推进可被识别。
@@ -39,24 +36,6 @@
 - **THEN** 系统 MUST 发出足够的结构化 phase 上下文字段，让前端可以直接基于 Deep Research 事件呈现当前阶段
 - **THEN** 客户端 MUST NOT 被迫依赖重复的通用节点状态文案才能理解启动阶段正在发生什么
 
-### Requirement: Event stream compatibility
-系统 MUST 在增加 multi-agent 事件的同时保持现有流式消费链路兼容，并让恢复后的研究流程继续使用同一类流式契约。
-
-#### Scenario: Existing clients ignore new event types
-- **WHEN** 客户端未识别新增的 multi-agent 事件类型或新增关联字段
-- **THEN** 系统 MUST 仍然输出现有最终回答与基础 Deep Research 事件
-- **THEN** 请求 MUST 不因新增事件而失去最终结果
-
-#### Scenario: Frontend renders multi-agent progress
-- **WHEN** 前端支持新增 multi-agent 事件
-- **THEN** 前端 MUST 能将 agent、task、branch 和 decision 事件呈现为可理解的研究过程
-- **THEN** 前端 MUST 不要求解析原始内部状态对象
-
-#### Scenario: Resume path uses the same streaming contract family
-- **WHEN** 客户端在 interrupt 或 review 之后请求继续执行 Deep Research
-- **THEN** 系统 MUST 通过与初始运行同一类的流式契约暴露恢复后的 agent、task、artifact 和 decision 事件
-- **THEN** 已经支持初始 Deep Research 流式事件的客户端 MUST 能在不切换到结果专用协议的情况下消费恢复后的过程
-
 ### Requirement: Graph execution events are resume-safe
 系统 MUST 让多 agent Deep Research 事件能够区分新执行、重试执行和 checkpoint 恢复后的继续执行，并能正确关联 branch 级执行阶段。
 
@@ -75,10 +54,7 @@
 - **THEN** 系统 MUST 发出可关联到同一任务标识的重试事件
 - **THEN** 事件 MUST 不把该重试误表示为全新且无关的任务
 
-#### Scenario: Clients can associate resumed progress with the interrupted flow
-- **WHEN** 恢复后的执行继续发出 planner、research、verify 或 report 阶段事件
-- **THEN** 这些事件 MUST 保留稳定的 graph-level 关联字段和恢复上下文
-- **THEN** 客户端 MUST 能把它们识别为同一研究流程在 checkpoint 之后的继续阶段，而不是一条新的无关流程
+## ADDED Requirements
 
 ### Requirement: Branch execution stage progress is observable
 系统 MUST 让前端和调试工具能够观察 branch researcher 与 verifier 的细分执行阶段，而不要求解析内部临时状态对象。

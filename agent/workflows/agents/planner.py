@@ -17,7 +17,7 @@ PLANNER_PROMPT = """
 你是一名研究规划专家, 擅长为复杂话题制定全面的研究计划。
 
 # 任务
-为以下主题制定研究计划, 生成结构化的搜索查询列表。
+为以下主题制定研究计划, 生成结构化的 branch objective 列表。
 
 # 主题
 {topic}
@@ -32,18 +32,27 @@ PLANNER_PROMPT = """
 {existing_queries}
 
 # 要求
-1. 生成 {num_queries} 个搜索查询
-2. 每个查询应覆盖主题的不同方面
-3. 查询不能与已有查询重复
-4. 查询应具体、有针对性
-5. 考虑以下维度: 定义, 背景, 核心内容, 应用场景, 优缺点, 发展趋势, 案例分析
+1. 生成 {num_queries} 个 branch objective
+2. 每个 objective 应覆盖主题的不同方面
+3. objective 不能与已有 branch objective 重复
+4. objective 需要表达目标、验收标准、允许工具类别和必要的 query hints
+5. 保持 researcher 的执行边界清晰，避免把完整执行过程写死
 
 # 输出格式
-按优先级排序, 每行一个查询. 格式为 JSON 列表:
+按优先级排序，输出 JSON 列表：
 ```json
 [
-    {{"query": "搜索查询1", "aspect": "覆盖的方面", "priority": 1}},
-    {{"query": "搜索查询2", "aspect": "覆盖的方面", "priority": 2}}
+    {{
+        "title": "分支标题1",
+        "objective": "该 branch 需要回答的问题",
+        "task_kind": "branch_research",
+        "aspect": "覆盖的方面",
+        "acceptance_criteria": ["完成该分支必须满足的标准"],
+        "allowed_tools": ["search", "read", "extract", "synthesize"],
+        "query_hints": ["可选的查询提示"],
+        "output_artifact_types": ["branch_synthesis", "evidence_passage"],
+        "priority": 1
+    }}
 ]
 ```
 """
@@ -75,7 +84,7 @@ class ResearchPlanner:
         Create a research plan.
 
         Returns:
-            List of query dicts with 'query', 'aspect', 'priority'
+            List of branch objective dicts.
         """
         prompt = ChatPromptTemplate.from_messages([
             ("user", PLANNER_PROMPT)
@@ -112,7 +121,7 @@ class ResearchPlanner:
             num_queries: Number of new queries to generate
 
         Returns:
-            List of new query dicts
+            List of new branch objective dicts
         """
         gap_text = "\n".join(f"- {g}" for g in gaps) if gaps else "无明确缺口"
 
@@ -133,11 +142,20 @@ class ResearchPlanner:
 {approved_scope}
 
 # 要求
-生成 {num_queries} 个针对知识缺口的搜索查询。
+生成 {num_queries} 个针对知识缺口的 branch objective。
 
 # 输出格式
 ```json
-[{{"query": "查询", "aspect": "方面", "priority": 1}}]
+[{{
+    "title": "补充分支标题",
+    "objective": "需要补齐的研究目标",
+    "task_kind": "gap_follow_up",
+    "aspect": "方面",
+    "acceptance_criteria": ["补齐什么信息才算完成"],
+    "allowed_tools": ["search", "read", "extract", "synthesize"],
+    "query_hints": ["查询提示"],
+    "priority": 1
+}}]
 ```
 """)
         ])
@@ -173,21 +191,73 @@ class ResearchPlanner:
         try:
             data = json.loads(content)
             if isinstance(data, list):
-                return [
-                    {
-                        "query": item.get("query", ""),
-                        "aspect": item.get("aspect", ""),
-                        "priority": item.get("priority", 99),
-                    }
-                    for item in data
-                    if isinstance(item, dict) and item.get("query")
+                normalized = [
+                    self._normalize_plan_item(item, fallback_priority=index)
+                    for index, item in enumerate(data, 1)
+                    if isinstance(item, dict)
                 ]
+                return [item for item in normalized if item]
         except json.JSONDecodeError:
             pass
 
-        # Fallback: extract lines as queries
+        # Fallback: extract lines as branch objectives
         lines = [line.strip() for line in content.split("\n") if line.strip()]
-        return [{"query": line, "aspect": "", "priority": i} for i, line in enumerate(lines, 1)]
+        normalized = [
+            self._normalize_plan_item(
+                {"title": line, "objective": line, "query_hints": [line], "priority": i},
+                fallback_priority=i,
+            )
+            for i, line in enumerate(lines, 1)
+        ]
+        return [item for item in normalized if item]
+
+    def _normalize_plan_item(
+        self,
+        item: dict[str, Any],
+        *,
+        fallback_priority: int,
+    ) -> dict[str, Any] | None:
+        title = str(item.get("title") or item.get("aspect") or item.get("objective") or item.get("query") or "").strip()
+        objective = str(item.get("objective") or title or item.get("query") or "").strip()
+        query_hints = self._coerce_string_list(item.get("query_hints"))
+        query = str(item.get("query") or "").strip()
+        if query and query not in query_hints:
+            query_hints.insert(0, query)
+        if not objective:
+            return None
+
+        task_kind = str(item.get("task_kind") or "branch_research").strip() or "branch_research"
+        acceptance_criteria = self._coerce_string_list(item.get("acceptance_criteria"))
+        if not acceptance_criteria:
+            acceptance_criteria = [objective]
+        allowed_tools = self._coerce_string_list(item.get("allowed_tools")) or [
+            "search",
+            "read",
+            "extract",
+            "synthesize",
+        ]
+        output_artifact_types = self._coerce_string_list(item.get("output_artifact_types")) or [
+            "branch_synthesis",
+            "evidence_passage",
+        ]
+
+        return {
+            "title": title or objective,
+            "objective": objective,
+            "task_kind": task_kind,
+            "aspect": str(item.get("aspect") or "").strip(),
+            "acceptance_criteria": acceptance_criteria,
+            "allowed_tools": allowed_tools,
+            "input_artifact_ids": self._coerce_string_list(item.get("input_artifact_ids")),
+            "output_artifact_types": output_artifact_types,
+            "query_hints": query_hints or [objective],
+            "priority": int(item.get("priority") or fallback_priority),
+        }
+
+    def _coerce_string_list(self, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
 
     def _format_scope_for_prompt(self, approved_scope: dict[str, Any] | None) -> str:
         if not isinstance(approved_scope, dict) or not approved_scope:

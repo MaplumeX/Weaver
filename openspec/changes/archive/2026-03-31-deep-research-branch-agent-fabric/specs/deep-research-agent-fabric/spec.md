@@ -1,7 +1,4 @@
-## Purpose
-定义 multi-agent Deep Research 的 graph 角色拓扑、职责边界与 researcher worker 分发契约。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Deep research role topology is explicit
 系统 MUST 将 Deep Research 的 `clarify`、`scope`、`planner`、`coordinator`、`researcher`、`verifier`、`reporter` 建模为显式的 graph-level 角色，并将 `researcher` 明确建模为 branch-scoped execution path，而不是仅作为单次 query worker。
@@ -46,6 +43,8 @@
 - **WHEN** researcher branch agent 完成一个任务
 - **THEN** 系统 MUST 将该 branch agent 的结果回流到统一的 merge 或 reduce 阶段
 - **THEN** 系统 MUST 只在该阶段更新共享 artifacts、任务状态和预算计数
+
+## ADDED Requirements
 
 ### Requirement: Verification remains a graph-controlled role
 系统 MUST 将 branch-level 验证保持在 graph-controlled verifier 角色中，而不是让 researcher 自行宣布分支结论已满足汇总条件。

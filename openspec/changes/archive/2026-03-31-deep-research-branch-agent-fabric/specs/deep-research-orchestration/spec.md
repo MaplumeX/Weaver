@@ -1,20 +1,4 @@
-## Purpose
-定义 Deep Research 在 `legacy` 与 `multi_agent` 运行时之间的选择规则，以及 multi-agent 编排循环的核心行为。
-
-## Requirements
-
-### Requirement: Deep Research engine selection
-系统 MUST 为 Deep Research 提供可配置的运行时引擎选择，并支持在 `legacy` 与 `multi_agent` 引擎之间切换。
-
-#### Scenario: Multi-agent engine is selected for deep research
-- **WHEN** 请求被路由到 `deep` 模式且运行配置选择 `multi_agent` 引擎
-- **THEN** 系统 MUST 从 `deepsearch` 入口启动一个 LangGraph 管理的 Deep Research 子图
-- **THEN** 系统 MUST 保持现有 Deep Research 入口、取消语义和最终报告输出契约不变
-
-#### Scenario: Legacy engine remains available
-- **WHEN** 请求被路由到 `deep` 模式且运行配置选择 `legacy` 引擎
-- **THEN** 系统 MUST 继续使用现有 legacy deepsearch runner
-- **THEN** 系统 MUST 不要求前端或 API 调用方更改请求格式
+## MODIFIED Requirements
 
 ### Requirement: Coordinator-controlled research loop
 系统 MUST 由 coordinator 统一控制 multi-agent Deep Research 的研究循环，并通过显式 graph 转移驱动 intake、范围确认、branch planning、branch research、验证、汇总和结束阶段。
@@ -47,19 +31,6 @@
 - **THEN** 系统 MUST 在 graph 分发前检查时间、搜索次数、token 或其他预算限制
 - **THEN** 若预算不足，系统 MUST 阻止新的 branch fan-out 并将控制权交回 coordinator
 
-### Requirement: Surface multi-agent runtime failures explicitly
-系统 MUST 在 multi-agent Deep Research runtime 发生不可恢复错误时显式报错，而不是自动回退到 legacy deepsearch runner。
-
-#### Scenario: Multi-agent runtime initialization fails
-- **WHEN** multi-agent Deep Research 子图在启动阶段发生不可恢复错误
-- **THEN** 系统 MUST 记录失败原因
-- **THEN** 系统 MUST 将错误透传到上层 Deep Research 错误处理链路
-
-#### Scenario: Core orchestration becomes invalid during execution
-- **WHEN** coordinator、artifact store、graph dispatch 或任务调度核心发生不可恢复错误
-- **THEN** 系统 MUST 停止继续发放新的 multi-agent 任务
-- **THEN** 系统 MUST 进入有界失败路径，而不能无限重试或静默切换 engine
-
 ### Requirement: Multi-agent graph execution is checkpoint-aware
 系统 MUST 让 multi-agent Deep Research 的权威执行状态落在 LangGraph 可 checkpoint 和恢复的边界上，而不是只存在于进程内循环，并在恢复后继续向调用方暴露 branch 级执行进度。
 
@@ -77,8 +48,3 @@
 - **WHEN** claim/citation 检查或 coverage/gap 检查在 checkpoint 之后恢复执行
 - **THEN** 系统 MUST 保留稳定的 `branch_id`、任务标识和验证阶段上下文
 - **THEN** coordinator MUST 能基于恢复后的验证结果继续做 replan、dispatch 或 report 决策
-
-#### Scenario: Resumed execution remains externally observable
-- **WHEN** 调用方在 scope review 或其他 checkpoint 之后继续执行 Deep Research
-- **THEN** 系统 MUST 支持通过可观察的继续执行路径暴露恢复后的 planner、research、verify 和 report 阶段进度
-- **THEN** 调用方 MUST 不需要等待隐藏的后台完成或重新发起全新研究请求，才能看到恢复后的执行过程

@@ -14,15 +14,21 @@ from agent.runtime.deep.multi_agent.runtime import (
 from agent.runtime.deep.multi_agent.schema import (
     AgentRunRecord,
     BranchBrief,
+    BranchSynthesis,
     EvidenceCard,
+    EvidencePassage,
+    FetchedDocument,
     FinalReportArtifact,
     KnowledgeGap,
     ReportSectionDraft,
     ResearchTask,
+    SourceCandidate,
     ScopeDraft,
+    VerificationResult,
     WorkerExecutionResult,
 )
 from agent.runtime.deep.multi_agent.store import ArtifactStore, ResearchTaskQueue
+from agent.workflows.agent_factory import build_deep_research_tool_agent
 from agent.workflows.agents.clarify import DeepResearchClarifyAgent
 from agent.workflows.agents.coordinator import ResearchCoordinator
 from agent.workflows.agents.planner import ResearchPlanner
@@ -39,7 +45,10 @@ _RUNTIME_COMPAT_EXPORTS = (
     AgentRunRecord,
     ArtifactStore,
     BranchBrief,
+    BranchSynthesis,
     EvidenceCard,
+    EvidencePassage,
+    FetchedDocument,
     FinalReportArtifact,
     GapAnalysisResult,
     KnowledgeGap,
@@ -52,8 +61,11 @@ _RUNTIME_COMPAT_EXPORTS = (
     ResearchReporter,
     ResearchTask,
     ResearchTaskQueue,
+    SourceCandidate,
     ScopeDraft,
+    VerificationResult,
     WorkerExecutionResult,
+    build_deep_research_tool_agent,
     create_chat_model,
     get_emitter_sync,
 )
@@ -78,7 +90,10 @@ __all__ = [
     "AgentRunRecord",
     "ArtifactStore",
     "BranchBrief",
+    "BranchSynthesis",
     "EvidenceCard",
+    "EvidencePassage",
+    "FetchedDocument",
     "FinalReportArtifact",
     "GapAnalysisResult",
     "KnowledgeGap",
@@ -91,8 +106,11 @@ __all__ = [
     "ResearchReporter",
     "ResearchTask",
     "ResearchTaskQueue",
+    "SourceCandidate",
     "ScopeDraft",
+    "VerificationResult",
     "WorkerExecutionResult",
+    "build_deep_research_tool_agent",
     "create_chat_model",
     "create_multi_agent_deepsearch_graph",
     "get_emitter_sync",

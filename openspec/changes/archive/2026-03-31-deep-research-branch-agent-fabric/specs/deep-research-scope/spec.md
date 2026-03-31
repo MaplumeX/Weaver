@@ -1,7 +1,4 @@
-## Purpose
-定义 Deep Research 运行时中的 graph、branch、worker scope 边界，以及跨 scope 状态暴露与交接约束。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Deep research state is partitioned by scope
 系统 MUST 将 Deep Research 的运行时状态划分为 `graph scope`、`branch scope` 和 `worker scope`，并为每一层定义明确的所有权，其中 `branch scope` MUST 成为正式的一等执行边界。
@@ -38,16 +35,3 @@
 - **WHEN** 某个 branch 需要消费其他阶段已经确认的研究结论
 - **THEN** 系统 MUST 通过当前有效 artifacts、branch brief 或已验证的 branch synthesis 提供该信息
 - **THEN** 系统 MUST NOT 依赖读取其他 worker 的完整临时上下文
-
-### Requirement: Deep research scope does not pollute non-deep execution
-系统 MUST 将 Deep Research 专有状态保持在专用作用域或嵌套状态块中，避免非 deep 模式依赖这些内部字段。
-
-#### Scenario: Non-deep mode executes
-- **WHEN** `direct`、`web` 或 `agent` 模式运行
-- **THEN** 这些模式 MUST 不要求存在 Deep Research 的 branch 或 worker scope 数据
-- **THEN** 系统 MUST 允许 non-deep execution 在缺少这些专有字段时正常工作
-
-#### Scenario: Deep runtime snapshot is exposed externally
-- **WHEN** 系统需要对外暴露 Deep Research 运行时快照
-- **THEN** 系统 MUST 暴露结构化且 scope-aware 的摘要视图
-- **THEN** 系统 MUST NOT 把内部临时对象或不可序列化引用直接泄露到公共状态

@@ -92,6 +92,7 @@ class ResearchCoordinator:
         quality_score: Optional[float] = None,
         quality_gap_count: int = 0,
         citation_accuracy: Optional[float] = None,
+        verification_summary: Optional[Dict[str, Any]] = None,
     ) -> CoordinatorDecision:
         """
         Decide the next action based on current research state.
@@ -119,11 +120,22 @@ class ResearchCoordinator:
             None if citation_accuracy is None else float(citation_accuracy)
         )
         quality_gap_count = max(0, int(quality_gap_count or 0))
+        verification_summary = verification_summary or {}
+        retry_branches = max(0, int(verification_summary.get("retry_branches", 0) or 0))
+        failed_branches = max(0, int(verification_summary.get("failed_branches", 0) or 0))
+        verified_branches = max(0, int(verification_summary.get("verified_branches", 0) or 0))
 
         # Quality-driven deterministic loop control
+        if retry_branches > 0 or failed_branches > 0:
+            return CoordinatorDecision(
+                action=CoordinatorAction.RESEARCH,
+                reasoning="分支验证指出仍需补证据或重试当前 branch",
+                priority_topics=[],
+            )
+
         if (
             quality_score is not None
-            and num_summaries > 0
+            and max(num_summaries, verified_branches) > 0
             and quality_score >= 0.82
             and quality_gap_count == 0
             and (citation_accuracy is None or citation_accuracy >= 0.7)
@@ -167,7 +179,11 @@ class ResearchCoordinator:
             citation_accuracy=(
                 f"{citation_accuracy:.2f}" if citation_accuracy is not None else "unknown"
             ),
-            knowledge_summary=knowledge_summary[:2000] or "暂无",
+            knowledge_summary=(
+                (knowledge_summary[:1600] + "\n\n验证摘要: " + str(verification_summary)[:400])
+                if verification_summary
+                else (knowledge_summary[:2000] or "暂无")
+            ),
         )
 
         response = self.llm.invoke(msg, config=self.config)

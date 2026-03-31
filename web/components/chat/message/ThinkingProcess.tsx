@@ -224,6 +224,9 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const role = String(ev.data?.role || '').trim() || 'agent'
     const agentId = String(ev.data?.agent_id || ev.data?.agentId || '').trim()
     const phase = String(ev.data?.phase || '').trim()
+    const stage = String(ev.data?.stage || '').trim()
+    const validationStage = String(ev.data?.validation_stage || '').trim()
+    const taskKind = String(ev.data?.task_kind || '').trim()
     const taskId = String(ev.data?.task_id || '').trim()
     const nodeId = String(ev.data?.node_id || '').trim()
     const branchId = String(ev.data?.branch_id || '').trim()
@@ -246,6 +249,9 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
             <div className="truncate text-xs text-muted-foreground">
               [
                 phase || null,
+                stage ? `stage ${stage}` : null,
+                validationStage ? `validation ${validationStage}` : null,
+                taskKind ? `kind ${taskKind}` : null,
                 taskId ? `task ${taskId}` : null,
                 branchId ? `branch ${branchId}` : null,
                 nodeId ? `node ${nodeId}` : null,
@@ -263,9 +269,11 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
 
   if (kind === 'research_task_update') {
     const taskId = String(ev.data?.task_id || '').trim()
-    const title = String(ev.data?.title || ev.data?.query || taskId || 'task').trim()
+    const title = String(ev.data?.title || ev.data?.objective_summary || ev.data?.query || taskId || 'task').trim()
     const status = String(ev.data?.status || '').trim()
     const query = String(ev.data?.query || '').trim()
+    const taskKind = String(ev.data?.task_kind || '').trim()
+    const stage = String(ev.data?.stage || '').trim()
     const priority = ev.data?.priority
     const branchId = String(ev.data?.branch_id || '').trim()
     const attempt = typeof ev.data?.attempt === 'number' ? ev.data.attempt : undefined
@@ -286,6 +294,8 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
           <div className="truncate text-xs text-muted-foreground">
             [
               query || null,
+              taskKind ? `kind ${taskKind}` : null,
+              stage ? `stage ${stage}` : null,
               typeof priority === 'number' ? `p${priority}` : null,
               branchId ? `branch ${branchId}` : null,
               attempt && attempt > 1 ? `attempt ${attempt}` : null,
@@ -305,6 +315,9 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const sourceUrl = String(ev.data?.source_url || '').trim()
     const branchId = String(ev.data?.branch_id || '').trim()
     const taskId = String(ev.data?.task_id || '').trim()
+    const taskKind = String(ev.data?.task_kind || '').trim()
+    const stage = String(ev.data?.stage || '').trim()
+    const validationStage = String(ev.data?.validation_stage || '').trim()
     const scopeVersion = typeof ev.data?.scope_version === 'number' ? ev.data.scope_version : undefined
 
     return (
@@ -325,7 +338,13 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
           </div>
           {(taskId || branchId) ? (
             <div className="truncate text-xs text-muted-foreground">
-              {[taskId ? `task ${taskId}` : null, branchId ? `branch ${branchId}` : null]
+              [
+                taskId ? `task ${taskId}` : null,
+                branchId ? `branch ${branchId}` : null,
+                taskKind ? `kind ${taskKind}` : null,
+                stage ? `stage ${stage}` : null,
+                validationStage ? `validation ${validationStage}` : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </div>
@@ -343,10 +362,15 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const coverage = typeof ev.data?.coverage === 'number' ? `${Math.round(ev.data.coverage * 100)}%` : ''
     const gapCount = typeof ev.data?.gap_count === 'number' ? `${ev.data.gap_count} gaps` : ''
     const nodeId = String(ev.data?.node_id || '').trim()
+    const validationStage = String(ev.data?.validation_stage || '').trim()
     const attempt = typeof ev.data?.attempt === 'number' ? ev.data.attempt : undefined
     const scopeVersion = typeof ev.data?.scope_version === 'number' ? ev.data.scope_version : undefined
     const actorLabel =
-      decision.startsWith('scope_') || decision.startsWith('clarify_') ? 'Intake' : 'Coordinator'
+      decision.startsWith('scope_') || decision.startsWith('clarify_')
+        ? 'Intake'
+        : validationStage
+          ? 'Verifier'
+          : 'Coordinator'
 
     return (
       <div className="flex items-start gap-2">
@@ -364,7 +388,11 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
           </div>
           {(nodeId || (attempt && attempt > 1)) ? (
             <div className="truncate text-xs text-muted-foreground">
-              {[nodeId ? `node ${nodeId}` : null, attempt && attempt > 1 ? `attempt ${attempt}` : null]
+              [
+                nodeId ? `node ${nodeId}` : null,
+                validationStage ? `validation ${validationStage}` : null,
+                attempt && attempt > 1 ? `attempt ${attempt}` : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </div>

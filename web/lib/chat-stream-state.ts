@@ -18,6 +18,10 @@ const KEY_DECISIONS = new Set([
   'scope_ready',
   'scope_revision_requested',
   'scope_approved',
+  'retry_branch',
+  'verification_retry_requested',
+  'coverage_gap_detected',
+  'verification_passed',
   'plan',
   'replan',
   'research',
@@ -88,7 +92,9 @@ function isKeyDeepResearchEvent(ev: ProcessEvent): boolean {
   }
 
   if (ev.type === 'research_artifact_update') {
-    return String(ev.data?.artifact_type || '').trim() === 'scope_draft'
+    return ['scope_draft', 'branch_synthesis', 'verification_result'].includes(
+      String(ev.data?.artifact_type || '').trim(),
+    )
   }
 
   if (ev.type === 'research_decision') {

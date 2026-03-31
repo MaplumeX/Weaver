@@ -79,8 +79,13 @@ def emit_task_update(
         "task_id": task.id,
         "status": status,
         "title": task.title or task.goal,
+        "objective_summary": task.objective or task.goal,
+        "task_kind": task.task_kind,
+        "stage": task.stage,
         "query": task.query,
+        "query_hints": list(task.query_hints),
         "branch_id": task.branch_id,
+        "input_artifact_ids": list(task.input_artifact_ids),
         "parent_context_id": task.parent_context_id,
         "agent_id": task.assigned_agent_id,
         "priority": task.priority,
@@ -106,25 +111,37 @@ def emit_artifact_update(
     artifact_type: str,
     status: str,
     task_id: str | None = None,
+    branch_id: str | None = None,
     agent_id: str | None = None,
     summary: str | None = None,
     source_url: str | None = None,
+    task_kind: str | None = None,
+    stage: str | None = None,
+    validation_stage: str | None = None,
     extra: dict[str, Any] | None = None,
 ) -> None:
     payload: dict[str, Any] = {
-        **_graph_context(runtime, task_id=task_id, branch_id=getattr(runtime, "root_branch_id", None)),
+        **_graph_context(runtime, task_id=task_id, branch_id=branch_id or getattr(runtime, "root_branch_id", None)),
         "artifact_id": artifact_id,
         "artifact_type": artifact_type,
         "status": status,
     }
     if task_id:
         payload["task_id"] = task_id
+    if branch_id:
+        payload["branch_id"] = branch_id
     if agent_id:
         payload["agent_id"] = agent_id
     if summary:
         payload["summary"] = summary
     if source_url:
         payload["source_url"] = source_url
+    if task_kind:
+        payload["task_kind"] = task_kind
+    if stage:
+        payload["stage"] = stage
+    if validation_stage:
+        payload["validation_stage"] = validation_stage
     if isinstance(extra, dict):
         payload.update(extra)
     emit(runtime.emitter, ToolEventType.RESEARCH_ARTIFACT_UPDATE, payload)
@@ -140,6 +157,10 @@ def emit_agent_start(
     iteration: int | None = None,
     branch_id: str | None = None,
     attempt: int | None = None,
+    task_kind: str | None = None,
+    stage: str | None = None,
+    validation_stage: str | None = None,
+    objective_summary: str | None = None,
 ) -> None:
     payload: dict[str, Any] = {
         **_graph_context(
@@ -156,6 +177,14 @@ def emit_agent_start(
         payload["task_id"] = task_id
     if iteration is not None:
         payload["iteration"] = iteration
+    if task_kind:
+        payload["task_kind"] = task_kind
+    if stage:
+        payload["stage"] = stage
+    if validation_stage:
+        payload["validation_stage"] = validation_stage
+    if objective_summary:
+        payload["objective_summary"] = objective_summary
     emit(runtime.emitter, ToolEventType.RESEARCH_AGENT_START, payload)
 
 
@@ -171,6 +200,10 @@ def emit_agent_complete(
     summary: str | None = None,
     branch_id: str | None = None,
     attempt: int | None = None,
+    task_kind: str | None = None,
+    stage: str | None = None,
+    validation_stage: str | None = None,
+    objective_summary: str | None = None,
 ) -> None:
     payload: dict[str, Any] = {
         **_graph_context(
@@ -190,6 +223,14 @@ def emit_agent_complete(
         payload["iteration"] = iteration
     if summary:
         payload["summary"] = summary
+    if task_kind:
+        payload["task_kind"] = task_kind
+    if stage:
+        payload["stage"] = stage
+    if validation_stage:
+        payload["validation_stage"] = validation_stage
+    if objective_summary:
+        payload["objective_summary"] = objective_summary
     emit(runtime.emitter, ToolEventType.RESEARCH_AGENT_COMPLETE, payload)
 
 
@@ -202,10 +243,15 @@ def emit_decision(
     coverage: float | None = None,
     gap_count: int | None = None,
     attempt: int | None = None,
+    branch_id: str | None = None,
+    task_id: str | None = None,
+    task_kind: str | None = None,
+    stage: str | None = None,
+    validation_stage: str | None = None,
     extra: dict[str, Any] | None = None,
 ) -> None:
     payload: dict[str, Any] = {
-        **_graph_context(runtime, attempt=attempt),
+        **_graph_context(runtime, attempt=attempt, branch_id=branch_id, task_id=task_id),
         "decision_type": decision_type,
         "reason": reason,
     }
@@ -215,6 +261,12 @@ def emit_decision(
         payload["coverage"] = coverage
     if gap_count is not None:
         payload["gap_count"] = gap_count
+    if task_kind:
+        payload["task_kind"] = task_kind
+    if stage:
+        payload["stage"] = stage
+    if validation_stage:
+        payload["validation_stage"] = validation_stage
     if isinstance(extra, dict):
         payload.update(extra)
     emit(runtime.emitter, ToolEventType.RESEARCH_DECISION, payload)

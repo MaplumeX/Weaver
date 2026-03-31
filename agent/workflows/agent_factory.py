@@ -24,6 +24,33 @@ from tools.core.registry import get_registered_tools
 
 logger = logging.getLogger(__name__)
 
+_DEEP_RESEARCH_TOOL_GROUPS = {
+    "search": {
+        "browser_search",
+        "tavily_search",
+        "multi_search",
+    },
+    "read": {
+        "browser_navigate",
+        "browser_click",
+        "crawl_url",
+        "crawl_urls",
+        "sb_browser_navigate",
+        "sb_browser_click",
+        "sb_browser_extract_text",
+        "sb_browser_scroll",
+        "sb_browser_press",
+        "sb_browser_type",
+    },
+    "extract": {
+        "sb_browser_extract_text",
+        "sb_browser_screenshot",
+        "crawl_url",
+        "crawl_urls",
+    },
+    "synthesize": set(),
+}
+
 
 def _build_llm(model: str, temperature: float = 0.7) -> ChatOpenAI:
     params = {
@@ -204,3 +231,33 @@ def build_tool_agent(*, model: str, tools: List[BaseTool], temperature: float = 
         tools,
         middleware=_build_middlewares(),
     )
+
+
+def _resolve_deep_research_tool_names(allowed_tools: List[str] | None = None) -> set[str]:
+    requested = [str(item).strip() for item in (allowed_tools or []) if str(item).strip()]
+    if not requested:
+        requested = ["search", "read", "extract"]
+
+    allowed_names: set[str] = set()
+    for item in requested:
+        if item in _DEEP_RESEARCH_TOOL_GROUPS:
+            allowed_names.update(_DEEP_RESEARCH_TOOL_GROUPS[item])
+        else:
+            allowed_names.add(item)
+    return allowed_names
+
+
+def build_deep_research_tool_agent(
+    *,
+    model: str | None = None,
+    allowed_tools: List[str] | None = None,
+    temperature: float = 0.1,
+) -> tuple[object, List[BaseTool]]:
+    """
+    Create a Deep Research-specific tool agent with a restricted toolset.
+    """
+    model_name = (model or settings.primary_model).strip()
+    allowed_names = _resolve_deep_research_tool_names(allowed_tools)
+    tools = [tool for tool in get_registered_tools() if tool.name in allowed_names]
+    agent = build_tool_agent(model=model_name, tools=tools, temperature=temperature)
+    return agent, tools
