@@ -4,6 +4,7 @@ from pathlib import Path
 import psycopg
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, StateGraph
+from psycopg.rows import dict_row
 
 from agent.runtime.nodes import (
     agent_node,
@@ -266,9 +267,14 @@ def create_checkpointer(database_url: str):
     if not database_url:
         raise ValueError("database_url is required to initialize the Postgres checkpointer.")
 
-    # Create connection (psycopg3)
+    # Match LangGraph's documented Postgres connection requirements.
     try:
-        conn = psycopg.connect(database_url)
+        conn = psycopg.connect(
+            database_url,
+            autocommit=True,
+            prepare_threshold=0,
+            row_factory=dict_row,
+        )
     except Exception as e:
         raise RuntimeError(f"Failed to connect to Postgres for checkpointer: {e}") from e
 

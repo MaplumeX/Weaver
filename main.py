@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+import psycopg
 import re
 import threading
 import time
@@ -38,6 +39,7 @@ from prometheus_client import (
     generate_latest,
 )
 from pydantic import BaseModel, Field, field_validator
+from psycopg.rows import dict_row
 from starlette.concurrency import run_in_threadpool
 
 from agent import (
@@ -444,7 +446,17 @@ def _init_store():
             raise ValueError("memory_store_url is required when memory_store_backend=postgres")
         from langgraph.store.postgres import PostgresStore
 
-        store_obj = PostgresStore.from_conn_string(url)
+        try:
+            conn = psycopg.connect(
+                url,
+                autocommit=True,
+                prepare_threshold=0,
+                row_factory=dict_row,
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to Postgres for memory store: {e}") from e
+
+        store_obj = PostgresStore(conn)
         store_obj.setup()
         logger.info("Initialized PostgresStore for long-term memory")
         return store_obj
