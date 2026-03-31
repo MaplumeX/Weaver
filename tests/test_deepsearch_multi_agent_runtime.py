@@ -19,14 +19,81 @@ class _FakePlanner:
     def __init__(self, _llm, _config=None):
         pass
 
-    def create_plan(self, topic, num_queries=5, existing_knowledge="", existing_queries=None):
+    def create_plan(
+        self,
+        topic,
+        num_queries=5,
+        existing_knowledge="",
+        existing_queries=None,
+        approved_scope=None,
+    ):
         return [
             {"query": f"{topic} aspect 1", "aspect": "aspect 1", "priority": 1},
             {"query": f"{topic} aspect 2", "aspect": "aspect 2", "priority": 2},
         ]
 
-    def refine_plan(self, topic, gaps, existing_queries, num_queries=3):
+    def refine_plan(self, topic, gaps, existing_queries, num_queries=3, approved_scope=None):
         return []
+
+
+class _FakeClarifyAgent:
+    def __init__(self, _llm, _config=None):
+        pass
+
+    def assess_intake(self, topic, clarify_answers=None):
+        return {
+            "needs_clarification": False,
+            "question": "",
+            "missing_information": [],
+            "intake_summary": {
+                "research_goal": f"Research {topic}",
+                "background": f"Known context for {topic}",
+                "constraints": [],
+                "time_range": "",
+                "source_preferences": [],
+                "exclusions": [],
+            },
+        }
+
+
+class _FakeScopeAgent:
+    def __init__(self, _llm, _config=None):
+        pass
+
+    def create_scope(self, topic, intake_summary=None, previous_scope=None, scope_feedback=""):
+        previous_scope = previous_scope or {}
+        if scope_feedback and previous_scope:
+            base_questions = list(previous_scope.get("core_questions") or [])
+            return {
+                "research_goal": previous_scope.get("research_goal") or f"Research {topic}",
+                "research_steps": [
+                    f"Refocus the research around the revision request: {scope_feedback}",
+                    f"Re-check the most important evidence about {topic}",
+                    "Update the final research framing before planning",
+                ],
+                "core_questions": base_questions or [f"What matters most about {topic}?"],
+                "in_scope": (previous_scope.get("in_scope") or [f"{topic} market and roadmap"]) + [scope_feedback],
+                "out_of_scope": previous_scope.get("out_of_scope") or [],
+                "constraints": previous_scope.get("constraints") or [],
+                "source_preferences": previous_scope.get("source_preferences") or [],
+                "deliverable_preferences": [],
+                "assumptions": [scope_feedback],
+            }
+        return {
+            "research_goal": intake_summary.get("research_goal") or f"Research {topic}",
+            "research_steps": [
+                f"Collect the latest evidence about the current state of {topic}",
+                f"Break down the most important questions and trade-offs in {topic}",
+                "Synthesize the findings into a research-ready outline",
+            ],
+            "core_questions": [f"What is the current state of {topic}?", f"What are the key trade-offs in {topic}?"],
+            "in_scope": [f"{topic} market and roadmap", f"{topic} ecosystem"],
+            "out_of_scope": ["unrelated consumer gadgets"],
+            "constraints": intake_summary.get("constraints") or [],
+            "source_preferences": intake_summary.get("source_preferences") or [],
+            "deliverable_preferences": ["Comparative report"],
+            "assumptions": [],
+        }
 
 
 class _FakeResearchAgent:
@@ -93,7 +160,14 @@ class _FakeReporter:
 
 
 class _SingleTaskPlanner(_FakePlanner):
-    def create_plan(self, topic, num_queries=5, existing_knowledge="", existing_queries=None):
+    def create_plan(
+        self,
+        topic,
+        num_queries=5,
+        existing_knowledge="",
+        existing_queries=None,
+        approved_scope=None,
+    ):
         return [{"query": f"{topic} aspect 1", "aspect": "aspect 1", "priority": 1}]
 
 
@@ -119,6 +193,8 @@ def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatc
     emitter = _DummyEmitter()
 
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
     monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _FakePlanner)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
@@ -150,7 +226,7 @@ def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatc
     assert len(artifact_store["evidence_cards"]) == 2
     assert len(artifact_store["report_section_drafts"]) == 2
     assert result["deepsearch_runtime_state"]["engine"] == "multi_agent"
-    assert {"planner", "researcher", "verifier", "coordinator", "reporter"} <= agent_roles
+    assert {"clarify", "scope", "planner", "researcher", "verifier", "coordinator", "reporter"} <= agent_roles
     assert "research_agent_start" in event_types
     assert "research_task_update" in event_types
     assert "research_artifact_update" in event_types
@@ -160,6 +236,8 @@ def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatc
 
 def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
     monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _FakePlanner)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
@@ -175,6 +253,9 @@ def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
     mermaid = graph.get_graph(xray=True).draw_mermaid()
 
     assert "bootstrap" in mermaid
+    assert "clarify" in mermaid
+    assert "scope" in mermaid
+    assert "scope_review" in mermaid
     assert "plan" in mermaid
     assert "dispatch" in mermaid
     assert "researcher" in mermaid
@@ -189,6 +270,8 @@ def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
     emitter = _DummyEmitter()
 
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
     monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _FakePlanner)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
@@ -225,6 +308,8 @@ def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch
     emitter = _DummyEmitter()
 
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
     monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _SingleTaskPlanner)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FlakyResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
@@ -259,3 +344,63 @@ def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch
     assert "failed" in statuses
     assert statuses.count("ready") >= 2
     assert statuses.count("in_progress") == 2
+
+
+def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
+    emitter = _DummyEmitter()
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _SingleTaskPlanner)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchCoordinator", _FakeCoordinator)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    config = {
+        "configurable": {
+            "thread_id": "thread_scope_review",
+            "deepsearch_engine": "multi_agent",
+            "allow_interrupts": True,
+            "deepsearch_query_num": 1,
+        }
+    }
+    runtime = multi_agent_runtime.MultiAgentDeepSearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        config,
+    )
+    graph = runtime.build_graph(checkpointer=MemorySaver())
+
+    first = graph.invoke(runtime.build_initial_graph_state(), config)
+    assert "__interrupt__" in first
+    first_prompt = first["__interrupt__"][0].value
+    assert first_prompt["checkpoint"] == "deepsearch_scope_review"
+    assert first_prompt["scope_version"] == 1
+    assert "1. Collect the latest evidence about the current state of AI chips" in first_prompt["content"]
+    assert "## Core Questions" not in first_prompt["content"]
+
+    second = graph.invoke(
+        Command(resume={"action": "revise_scope", "scope_feedback": "Focus on supply chain resilience"}),
+        config,
+    )
+    assert "__interrupt__" in second
+    second_prompt = second["__interrupt__"][0].value
+    assert second_prompt["checkpoint"] == "deepsearch_scope_review"
+    assert second_prompt["scope_version"] == 2
+    assert second_prompt["graph_run_id"] == first_prompt["graph_run_id"]
+    assert "1. Refocus the research around the revision request: Focus on supply chain resilience" in second_prompt["content"]
+
+    resumed = graph.invoke(Command(resume={"action": "approve_scope"}), config)
+    final_result = resumed["final_result"]
+    runtime_state = final_result["deepsearch_runtime_state"]
+
+    assert runtime_state["scope_revision_count"] == 1
+    assert runtime_state["approved_scope_draft"]["version"] == 2
+    assert runtime_state["approved_scope_draft"]["status"] == "approved"
+    assert final_result["deepsearch_task_queue"]["stats"]["completed"] == 1
+
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    assert "scope_revision_requested" in decision_types
+    assert "scope_approved" in decision_types

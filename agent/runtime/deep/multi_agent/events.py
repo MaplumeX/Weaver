@@ -105,6 +105,7 @@ def emit_artifact_update(
     agent_id: str | None = None,
     summary: str | None = None,
     source_url: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> None:
     payload: dict[str, Any] = {
         **_graph_context(runtime, task_id=task_id, branch_id=getattr(runtime, "root_branch_id", None)),
@@ -120,6 +121,8 @@ def emit_artifact_update(
         payload["summary"] = summary
     if source_url:
         payload["source_url"] = source_url
+    if isinstance(extra, dict):
+        payload.update(extra)
     emit(runtime.emitter, ToolEventType.RESEARCH_ARTIFACT_UPDATE, payload)
 
 
@@ -195,6 +198,7 @@ def emit_decision(
     coverage: float | None = None,
     gap_count: int | None = None,
     attempt: int | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> None:
     payload: dict[str, Any] = {
         **_graph_context(runtime, attempt=attempt),
@@ -207,6 +211,8 @@ def emit_decision(
         payload["coverage"] = coverage
     if gap_count is not None:
         payload["gap_count"] = gap_count
+    if isinstance(extra, dict):
+        payload.update(extra)
     emit(runtime.emitter, ToolEventType.RESEARCH_DECISION, payload)
 
 

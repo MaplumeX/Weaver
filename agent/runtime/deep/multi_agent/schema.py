@@ -12,7 +12,8 @@ from agent.core.context import ResearchWorkerContext
 
 TaskStatus = Literal["ready", "in_progress", "blocked", "completed", "failed", "cancelled"]
 ArtifactStatus = Literal["created", "updated", "completed", "discarded"]
-AgentRole = Literal["coordinator", "planner", "researcher", "verifier", "reporter"]
+ScopeDraftStatus = Literal["awaiting_review", "revision_requested", "approved"]
+AgentRole = Literal["clarify", "scope", "coordinator", "planner", "researcher", "verifier", "reporter"]
 
 
 def _now_iso() -> str:
@@ -25,6 +26,10 @@ class GraphScopeSnapshot(TypedDict, total=False):
     topic: str
     phase: str
     current_iteration: int
+    intake_status: str
+    scope_revision_count: int
+    current_scope_version: int
+    approved_scope_version: int
     budget: dict[str, Any]
     task_queue_stats: dict[str, Any]
     artifact_counts: dict[str, Any]
@@ -160,6 +165,31 @@ class FinalReportArtifact:
 
 
 @dataclass
+class ScopeDraft:
+    id: str
+    version: int
+    topic: str
+    research_goal: str
+    research_steps: list[str] = field(default_factory=list)
+    core_questions: list[str] = field(default_factory=list)
+    in_scope: list[str] = field(default_factory=list)
+    out_of_scope: list[str] = field(default_factory=list)
+    constraints: list[str] = field(default_factory=list)
+    source_preferences: list[str] = field(default_factory=list)
+    deliverable_preferences: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
+    intake_summary: dict[str, Any] = field(default_factory=dict)
+    feedback: str = ""
+    status: ScopeDraftStatus = "awaiting_review"
+    created_by: str = "scope"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class AgentRunRecord:
     id: str
     role: AgentRole
@@ -219,6 +249,8 @@ __all__ = [
     "KnowledgeGap",
     "ReportSectionDraft",
     "ResearchTask",
+    "ScopeDraft",
+    "ScopeDraftStatus",
     "TaskStatus",
     "WorkerExecutionResult",
     "WorkerScopeSnapshot",

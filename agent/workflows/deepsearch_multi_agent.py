@@ -19,18 +19,23 @@ from agent.runtime.deep.multi_agent.schema import (
     KnowledgeGap,
     ReportSectionDraft,
     ResearchTask,
+    ScopeDraft,
     WorkerExecutionResult,
 )
 from agent.runtime.deep.multi_agent.store import ArtifactStore, ResearchTaskQueue
+from agent.workflows.agents.clarify import DeepResearchClarifyAgent
 from agent.workflows.agents.coordinator import ResearchCoordinator
 from agent.workflows.agents.planner import ResearchPlanner
 from agent.workflows.agents.reporter import ResearchReporter
 from agent.workflows.agents.researcher import ResearchAgent
+from agent.workflows.agents.scope import DeepResearchScopeAgent
 from agent.workflows.knowledge_gap import GapAnalysisResult, KnowledgeGapAnalyzer
 
 MultiAgentDeepSearchRuntime = _MultiAgentDeepSearchRuntime
 
 _RUNTIME_COMPAT_EXPORTS = (
+    DeepResearchClarifyAgent,
+    DeepResearchScopeAgent,
     AgentRunRecord,
     ArtifactStore,
     BranchBrief,
@@ -47,6 +52,7 @@ _RUNTIME_COMPAT_EXPORTS = (
     ResearchReporter,
     ResearchTask,
     ResearchTaskQueue,
+    ScopeDraft,
     WorkerExecutionResult,
     create_chat_model,
     get_emitter_sync,
@@ -67,6 +73,8 @@ def create_multi_agent_deepsearch_graph(state, config, *, checkpointer=None, int
 
 
 __all__ = [
+    "DeepResearchClarifyAgent",
+    "DeepResearchScopeAgent",
     "AgentRunRecord",
     "ArtifactStore",
     "BranchBrief",
@@ -83,6 +91,7 @@ __all__ = [
     "ResearchReporter",
     "ResearchTask",
     "ResearchTaskQueue",
+    "ScopeDraft",
     "WorkerExecutionResult",
     "create_chat_model",
     "create_multi_agent_deepsearch_graph",

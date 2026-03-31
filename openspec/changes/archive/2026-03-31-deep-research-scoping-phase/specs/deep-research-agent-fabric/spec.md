@@ -1,7 +1,4 @@
-## Purpose
-定义 multi-agent Deep Research 的 graph 角色拓扑、职责边界与 researcher worker 分发契约。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Deep research role topology is explicit
 系统 MUST 将 Deep Research 的 `clarify`、`scope`、`planner`、`coordinator`、`researcher`、`verifier`、`reporter` 建模为显式的 graph-level 角色，而不是仅存在于单个 runtime 内部的隐式函数调用关系。
@@ -33,16 +30,3 @@
 - **WHEN** 研究任务需要搜索、读取或抽取外部信息
 - **THEN** 系统 MAY 将该执行能力集中在 researcher worker
 - **THEN** researcher 的 fan-out、预算边界和回流路径 MUST 仍由 graph 统一控制
-
-### Requirement: Researcher workers are graph-dispatched actors
-系统 MUST 通过 graph-native fan-out/fan-in 机制派发 researcher worker，而不是把并发研究封装为单节点内部线程池。
-
-#### Scenario: Multiple ready tasks are approved
-- **WHEN** coordinator 批准执行多个 `ready` 研究任务
-- **THEN** 系统 MUST 为每个任务创建独立的 researcher 执行路径
-- **THEN** 每条执行路径 MUST 绑定唯一任务标识并能够独立完成、失败或重试
-
-#### Scenario: Worker results return to the fabric
-- **WHEN** researcher worker 完成一个任务
-- **THEN** 系统 MUST 将该 worker 的结果回流到统一的 merge 或 reduce 阶段
-- **THEN** 系统 MUST 只在该阶段更新共享 artifacts、任务状态和预算计数

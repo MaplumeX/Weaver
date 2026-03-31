@@ -32,6 +32,7 @@ from agent.runtime.deep.multi_agent.schema import (
     KnowledgeGap,
     ReportSectionDraft,
     ResearchTask,
+    ScopeDraft,
     WorkerExecutionResult,
     WorkerScopeSnapshot,
     _now_iso,
@@ -150,6 +151,148 @@ def _derive_role_counters(agent_runs: list[AgentRunRecord]) -> dict[str, int]:
     return counters
 
 
+def _coerce_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text:
+            result.append(text)
+    return result
+
+
+def _scope_draft_from_payload(payload: dict[str, Any] | None) -> ScopeDraft | None:
+    if not isinstance(payload, dict) or not payload:
+        return None
+    return ScopeDraft(
+        id=str(payload.get("id") or support._new_id("scope")),
+        version=max(1, int(payload.get("version", 1) or 1)),
+        topic=str(payload.get("topic") or ""),
+        research_goal=str(payload.get("research_goal") or ""),
+        research_steps=_coerce_string_list(payload.get("research_steps")),
+        core_questions=_coerce_string_list(payload.get("core_questions")),
+        in_scope=_coerce_string_list(payload.get("in_scope")),
+        out_of_scope=_coerce_string_list(payload.get("out_of_scope")),
+        constraints=_coerce_string_list(payload.get("constraints")),
+        source_preferences=_coerce_string_list(payload.get("source_preferences")),
+        deliverable_preferences=_coerce_string_list(payload.get("deliverable_preferences")),
+        assumptions=_coerce_string_list(payload.get("assumptions")),
+        intake_summary=copy.deepcopy(payload.get("intake_summary") or {}),
+        feedback=str(payload.get("feedback") or ""),
+        status=str(payload.get("status") or "awaiting_review"),
+        created_by=str(payload.get("created_by") or "scope"),
+        created_at=str(payload.get("created_at") or _now_iso()),
+        updated_at=str(payload.get("updated_at") or _now_iso()),
+    )
+
+
+def _scope_version(payload: dict[str, Any] | None) -> int:
+    draft = _scope_draft_from_payload(payload)
+    return int(draft.version) if draft else 0
+
+
+def _format_scope_draft_markdown(payload: dict[str, Any] | ScopeDraft | None) -> str:
+    draft = payload if isinstance(payload, ScopeDraft) else _scope_draft_from_payload(payload)
+    if not draft:
+        return ""
+
+    research_steps = list(draft.research_steps or [])
+    if not research_steps:
+        focus_items = draft.in_scope or draft.core_questions or [draft.research_goal or draft.topic]
+        focus_text = "; ".join(item for item in focus_items[:3] if item) or (draft.research_goal or draft.topic)
+        question_text = "; ".join(item for item in draft.core_questions[:3] if item)
+        research_steps = [
+            f"先确认这次调研的目标与覆盖范围, 重点聚焦: {focus_text}.",
+            (
+                f"围绕这些关键问题收集最新信息与事实依据: {question_text}."
+                if question_text
+                else f'围绕"{draft.research_goal or draft.topic}"拆解关键问题并补齐必要背景信息.'
+            ),
+            "对比不同来源中的数据, 观点和时间线, 识别主要趋势, 差异与潜在风险.",
+            "最后整合证据, 输出结构化结论与可执行建议.",
+        ]
+
+    sections = [
+        f"# 研究计划草案 v{draft.version}",
+        "",
+        "如果按这个方向开始调研, 我会大致这样推进:",
+        "",
+    ]
+    sections.extend(f"{index}. {item}" for index, item in enumerate(research_steps, 1))
+    if draft.feedback:
+        sections.extend(
+            [
+                "",
+                "已吸收的最新修改要求:",
+                f"> {draft.feedback}",
+            ]
+        )
+    return "\n".join(sections)
+
+
+def _extract_interrupt_text(
+    payload: Any,
+    *,
+    keys: tuple[str, ...],
+) -> str:
+    if isinstance(payload, str):
+        return payload.strip()
+    if not isinstance(payload, dict):
+        return ""
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _build_scope_draft(
+    *,
+    topic: str,
+    version: int,
+    draft_payload: dict[str, Any],
+    intake_summary: dict[str, Any],
+    feedback: str,
+    agent_id: str,
+    previous: dict[str, Any] | None = None,
+) -> ScopeDraft:
+    previous_draft = _scope_draft_from_payload(previous)
+    return ScopeDraft(
+        id=previous_draft.id if previous_draft else support._new_id("scope"),
+        version=max(1, int(version or 1)),
+        topic=topic,
+        research_goal=str(
+            draft_payload.get("research_goal")
+            or (previous_draft.research_goal if previous_draft else "")
+            or topic
+        ).strip()
+        or topic,
+        research_steps=_coerce_string_list(draft_payload.get("research_steps"))
+        or (previous_draft.research_steps if previous_draft else []),
+        core_questions=_coerce_string_list(draft_payload.get("core_questions"))
+        or (previous_draft.core_questions if previous_draft else []),
+        in_scope=_coerce_string_list(draft_payload.get("in_scope"))
+        or (previous_draft.in_scope if previous_draft else []),
+        out_of_scope=_coerce_string_list(draft_payload.get("out_of_scope"))
+        or (previous_draft.out_of_scope if previous_draft else []),
+        constraints=_coerce_string_list(draft_payload.get("constraints"))
+        or _coerce_string_list(intake_summary.get("constraints"))
+        or (previous_draft.constraints if previous_draft else []),
+        source_preferences=_coerce_string_list(draft_payload.get("source_preferences"))
+        or _coerce_string_list(intake_summary.get("source_preferences"))
+        or (previous_draft.source_preferences if previous_draft else []),
+        deliverable_preferences=_coerce_string_list(draft_payload.get("deliverable_preferences"))
+        or (previous_draft.deliverable_preferences if previous_draft else []),
+        assumptions=_coerce_string_list(draft_payload.get("assumptions"))
+        or (previous_draft.assumptions if previous_draft else []),
+        intake_summary=copy.deepcopy(intake_summary),
+        feedback=feedback,
+        status="awaiting_review",
+        created_by=agent_id,
+    )
+
+
 @dataclass
 class _RuntimeView:
     owner: MultiAgentDeepSearchRuntime
@@ -174,6 +317,16 @@ class _RuntimeView:
         self.runtime_state.setdefault("planning_mode", "")
         self.runtime_state.setdefault("last_gap_result", {})
         self.runtime_state.setdefault("last_decision", {})
+        self.runtime_state.setdefault("intake_status", "pending")
+        self.runtime_state.setdefault("clarify_question", "")
+        self.runtime_state.setdefault("clarify_question_history", [])
+        self.runtime_state.setdefault("clarify_answer_history", [])
+        self.runtime_state.setdefault("intake_summary", {})
+        self.runtime_state.setdefault("scope_revision_count", 0)
+        self.runtime_state.setdefault("scope_feedback_history", [])
+        self.runtime_state.setdefault("pending_scope_feedback", "")
+        self.runtime_state.setdefault("current_scope_draft", {})
+        self.runtime_state.setdefault("approved_scope_draft", {})
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.owner, name)
@@ -278,12 +431,18 @@ class _RuntimeView:
     def _scope_summary(self) -> dict[str, Any]:
         task_snapshot = self.task_queue.snapshot()
         briefs = self.artifact_store.branch_briefs()
+        current_scope = copy.deepcopy(self.runtime_state.get("current_scope_draft") or {})
+        approved_scope = copy.deepcopy(self.runtime_state.get("approved_scope_draft") or {})
         graph_scope: GraphScopeSnapshot = {
             "graph_run_id": self.graph_run_id,
             "graph_attempt": self.graph_attempt,
             "topic": self.owner.topic,
             "phase": self.current_node_id,
             "current_iteration": self.current_iteration,
+            "intake_status": str(self.runtime_state.get("intake_status") or "pending"),
+            "scope_revision_count": int(self.runtime_state.get("scope_revision_count", 0) or 0),
+            "current_scope_version": _scope_version(current_scope),
+            "approved_scope_version": _scope_version(approved_scope),
             "budget": {
                 "searches_used": self.searches_used,
                 "tokens_used": self.tokens_used,
@@ -339,6 +498,21 @@ class _RuntimeView:
             "graph_scope": graph_scope,
             "branch_scopes": branch_scopes,
             "worker_scopes": worker_scopes,
+            "intake": {
+                "clarify_question": str(self.runtime_state.get("clarify_question") or ""),
+                "clarify_question_history": copy.deepcopy(
+                    self.runtime_state.get("clarify_question_history", [])
+                ),
+                "clarify_answer_history": copy.deepcopy(
+                    self.runtime_state.get("clarify_answer_history", [])
+                ),
+                "intake_summary": copy.deepcopy(self.runtime_state.get("intake_summary", {})),
+                "scope_feedback_history": copy.deepcopy(
+                    self.runtime_state.get("scope_feedback_history", [])
+                ),
+                "current_scope_draft": current_scope,
+                "approved_scope_draft": approved_scope,
+            },
         }
 
     def runtime_state_snapshot(self) -> dict[str, Any]:
@@ -363,6 +537,22 @@ class _RuntimeView:
             "role_counters": copy.deepcopy(self.runtime_state.get("role_counters", {})),
             "last_gap_result": copy.deepcopy(self.runtime_state.get("last_gap_result", {})),
             "last_decision": copy.deepcopy(self.runtime_state.get("last_decision", {})),
+            "intake_status": str(self.runtime_state.get("intake_status") or "pending"),
+            "clarify_question": str(self.runtime_state.get("clarify_question") or ""),
+            "clarify_question_history": copy.deepcopy(
+                self.runtime_state.get("clarify_question_history", [])
+            ),
+            "clarify_answer_history": copy.deepcopy(
+                self.runtime_state.get("clarify_answer_history", [])
+            ),
+            "intake_summary": copy.deepcopy(self.runtime_state.get("intake_summary", {})),
+            "scope_revision_count": int(self.runtime_state.get("scope_revision_count", 0) or 0),
+            "scope_feedback_history": copy.deepcopy(
+                self.runtime_state.get("scope_feedback_history", [])
+            ),
+            "pending_scope_feedback": str(self.runtime_state.get("pending_scope_feedback") or ""),
+            "current_scope_draft": copy.deepcopy(self.runtime_state.get("current_scope_draft", {})),
+            "approved_scope_draft": copy.deepcopy(self.runtime_state.get("approved_scope_draft", {})),
             "scope_summary": self._scope_summary(),
         }
 
@@ -420,6 +610,7 @@ class _RuntimeView:
         agent_id: str | None = None,
         summary: str | None = None,
         source_url: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         events.emit_artifact_update(
             self,
@@ -430,6 +621,7 @@ class _RuntimeView:
             agent_id=agent_id,
             summary=summary,
             source_url=source_url,
+            extra=extra,
         )
 
     def _emit_agent_start(
@@ -489,6 +681,7 @@ class _RuntimeView:
         coverage: float | None = None,
         gap_count: int | None = None,
         attempt: int | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         events.emit_decision(
             self,
@@ -498,6 +691,7 @@ class _RuntimeView:
             coverage=coverage,
             gap_count=gap_count,
             attempt=attempt,
+            extra=extra,
         )
 
     def _emit_research_tree_update(self) -> None:
@@ -579,6 +773,7 @@ class MultiAgentDeepSearchRuntime:
             self.cfg.get("thread_id") or self.state.get("cancel_token_id") or ""
         ).strip()
         self.emitter = self._deps.get_emitter_sync(self.thread_id) if self.thread_id else None
+        self.allow_interrupts = bool(self.cfg.get("allow_interrupts"))
 
         resume_runtime_state = self._resume_runtime_state_snapshot()
         self.start_ts = float(resume_runtime_state.get("started_at_ts") or time.time())
@@ -642,6 +837,14 @@ class MultiAgentDeepSearchRuntime:
             1,
             support._configurable_int(self.config, "deepsearch_task_retry_limit", 2),
         )
+        self.scope_revision_limit = max(
+            1,
+            support._configurable_int(self.config, "deepsearch_scope_revision_limit", 3),
+        )
+        self.max_clarify_rounds = max(
+            1,
+            support._configurable_int(self.config, "deepsearch_clarify_round_limit", 2),
+        )
         self.pause_before_merge = bool(self.cfg.get("deepsearch_pause_before_merge"))
 
         self.provider_profile = support._resolve_provider_profile(self.state)
@@ -652,6 +855,14 @@ class MultiAgentDeepSearchRuntime:
         verifier_model = support._model_for_task("gap_analysis", self.config)
         coordinator_model = support._model_for_task("planning", self.config)
 
+        self.clarifier = self._deps.DeepResearchClarifyAgent(
+            self._deps.create_chat_model(planner_model, temperature=0),
+            self.config,
+        )
+        self.scope_agent = self._deps.DeepResearchScopeAgent(
+            self._deps.create_chat_model(planner_model, temperature=0),
+            self.config,
+        )
         self.planner = self._deps.ResearchPlanner(
             self._deps.create_chat_model(planner_model, temperature=0),
             self.config,
@@ -737,6 +948,15 @@ class MultiAgentDeepSearchRuntime:
             return existing
         if artifact_store_snapshot.get("final_report"):
             return "finalize"
+        approved_scope = runtime_state_snapshot.get("approved_scope_draft")
+        current_scope = runtime_state_snapshot.get("current_scope_draft")
+        intake_status = str(runtime_state_snapshot.get("intake_status") or "pending").strip().lower()
+        if not isinstance(approved_scope, dict) or not approved_scope:
+            if isinstance(current_scope, dict) and current_scope:
+                return "scope_review"
+            if intake_status in {"ready_for_scope", "scope_revision_requested"}:
+                return "scope"
+            return "clarify"
         stats = task_queue_snapshot.get("stats", {}) if isinstance(task_queue_snapshot, dict) else {}
         if int(stats.get("total", 0) or 0) == 0:
             return "plan"
@@ -850,13 +1070,347 @@ class MultiAgentDeepSearchRuntime:
         return view.snapshot_patch(next_step=next_step, planning_mode=planning_mode)
 
     def _route_after_bootstrap(self, graph_state: MultiAgentGraphState) -> str:
+        next_step = str(graph_state.get("next_step") or "clarify").strip().lower()
+        if next_step in {"clarify", "scope", "scope_review", "dispatch", "verify", "report", "finalize"}:
+            return next_step
+        return "plan"
+
+    def _clarify_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+        view = self._view(graph_state, "clarify")
+        record = view.start_agent_run(
+            role="clarify",
+            phase="intake",
+            branch_id=view.root_branch_id,
+            attempt=view.graph_attempt,
+        )
+        try:
+            clarify_answers = list(view.runtime_state.get("clarify_answer_history") or [])
+            result = self.clarifier.assess_intake(
+                self.topic,
+                clarify_answers=clarify_answers,
+            )
+            intake_summary = copy.deepcopy(result.get("intake_summary") or {})
+            if intake_summary:
+                view.runtime_state["intake_summary"] = intake_summary
+
+            question = str(result.get("question") or "").strip()
+            missing_information = _coerce_string_list(result.get("missing_information"))
+            needs_clarification = bool(result.get("needs_clarification"))
+
+            if (
+                needs_clarification
+                and question
+                and self.allow_interrupts
+                and len(clarify_answers) < self.max_clarify_rounds
+            ):
+                prompt = {
+                    "checkpoint": "deepsearch_clarify",
+                    "message": question,
+                    "instruction": "Answer the clarification question so Deep Research can draft the scope.",
+                    "question": question,
+                    "content": "",
+                    "graph_run_id": view.graph_run_id,
+                    "graph_attempt": view.graph_attempt,
+                    "missing_information": missing_information,
+                    "intake_summary": intake_summary,
+                    "available_actions": ["answer_clarification"],
+                }
+                view._emit_decision(
+                    decision_type="clarify_required",
+                    reason=question,
+                    attempt=view.graph_attempt,
+                    extra={
+                        "missing_information": missing_information,
+                    },
+                )
+                view.finish_agent_run(
+                    record,
+                    status="completed",
+                    summary=question,
+                    branch_id=view.root_branch_id,
+                )
+                updated = interrupt(prompt)
+                answer = _extract_interrupt_text(
+                    updated,
+                    keys=("clarify_answer", "answer", "content", "feedback"),
+                )
+                if not answer:
+                    raise ValueError("deepsearch clarify resume requires non-empty clarify_answer")
+                question_history = list(view.runtime_state.get("clarify_question_history") or [])
+                question_history.append(question)
+                answer_history = list(view.runtime_state.get("clarify_answer_history") or [])
+                answer_history.append(answer)
+                view.runtime_state["clarify_question"] = question
+                view.runtime_state["clarify_question_history"] = question_history
+                view.runtime_state["clarify_answer_history"] = answer_history
+                view.runtime_state["intake_status"] = "pending"
+                return view.snapshot_patch(next_step="clarify")
+
+            if needs_clarification and question:
+                reason = (
+                    f"{question} (interrupts unavailable or clarify round limit reached; continuing with best-effort scope)"
+                )
+            else:
+                reason = "intake information is sufficient for scope drafting"
+            view.runtime_state["clarify_question"] = ""
+            view.runtime_state["intake_status"] = "ready_for_scope"
+            view._emit_decision(
+                decision_type="scope_ready",
+                reason=reason,
+                attempt=view.graph_attempt,
+                extra={
+                    "intake_summary": intake_summary,
+                },
+            )
+            view.finish_agent_run(
+                record,
+                status="completed",
+                summary=str(intake_summary.get("research_goal") or reason)[:240],
+                branch_id=view.root_branch_id,
+            )
+            return view.snapshot_patch(next_step="scope")
+        except Exception as exc:
+            view.finish_agent_run(
+                record,
+                status="failed",
+                summary=str(exc),
+                branch_id=view.root_branch_id,
+            )
+            raise
+
+    def _route_after_clarify(self, graph_state: MultiAgentGraphState) -> str:
+        next_step = str(graph_state.get("next_step") or "scope").strip().lower()
+        if next_step in {"clarify", "scope"}:
+            return next_step
+        return "scope"
+
+    def _scope_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+        view = self._view(graph_state, "scope")
+        record = view.start_agent_run(
+            role="scope",
+            phase="draft_scope",
+            branch_id=view.root_branch_id,
+            attempt=view.graph_attempt,
+        )
+        try:
+            intake_summary = copy.deepcopy(view.runtime_state.get("intake_summary") or {})
+            current_scope_payload = copy.deepcopy(view.runtime_state.get("current_scope_draft") or {})
+            pending_feedback = str(view.runtime_state.get("pending_scope_feedback") or "").strip()
+            current_scope = _scope_draft_from_payload(current_scope_payload)
+            next_version = 1
+            if current_scope:
+                next_version = current_scope.version + 1 if pending_feedback else current_scope.version
+
+            scope_payload = self.scope_agent.create_scope(
+                self.topic,
+                intake_summary=intake_summary,
+                previous_scope=current_scope_payload if pending_feedback else {},
+                scope_feedback=pending_feedback,
+            )
+            scope_draft = _build_scope_draft(
+                topic=self.topic,
+                version=next_version,
+                draft_payload=scope_payload,
+                intake_summary=intake_summary,
+                feedback=pending_feedback,
+                agent_id=record.agent_id,
+                previous=current_scope_payload if pending_feedback else None,
+            )
+
+            view.runtime_state["current_scope_draft"] = scope_draft.to_dict()
+            view.runtime_state["pending_scope_feedback"] = ""
+            view.runtime_state["scope_revision_count"] = max(0, scope_draft.version - 1)
+            view.runtime_state["intake_status"] = "awaiting_scope_review"
+
+            decision_type = "scope_revision_requested" if pending_feedback else "scope_ready"
+            decision_reason = (
+                pending_feedback
+                if pending_feedback
+                else "structured scope draft is ready for user review"
+            )
+            view._emit_decision(
+                decision_type=decision_type,
+                reason=decision_reason,
+                attempt=view.graph_attempt,
+                extra={
+                    "scope_version": scope_draft.version,
+                },
+            )
+            view._emit_artifact_update(
+                artifact_id=scope_draft.id,
+                artifact_type="scope_draft",
+                status=scope_draft.status,
+                agent_id=scope_draft.created_by,
+                summary=scope_draft.research_goal[:180],
+                extra={
+                    "scope_version": scope_draft.version,
+                    "review_state": scope_draft.status,
+                    "content": _format_scope_draft_markdown(scope_draft),
+                },
+            )
+            view.finish_agent_run(
+                record,
+                status="completed",
+                summary=scope_draft.research_goal[:240],
+                branch_id=view.root_branch_id,
+            )
+            return view.snapshot_patch(next_step="scope_review")
+        except Exception as exc:
+            view.finish_agent_run(
+                record,
+                status="failed",
+                summary=str(exc),
+                branch_id=view.root_branch_id,
+            )
+            raise
+
+    def _scope_review_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+        view = self._view(graph_state, "scope_review")
+        current_scope_payload = copy.deepcopy(view.runtime_state.get("current_scope_draft") or {})
+        scope_draft = _scope_draft_from_payload(current_scope_payload)
+        if not scope_draft:
+            return view.snapshot_patch(next_step="scope")
+
+        if not self.allow_interrupts:
+            approved_payload = scope_draft.to_dict()
+            approved_payload["status"] = "approved"
+            approved_payload["updated_at"] = _now_iso()
+            view.runtime_state["current_scope_draft"] = copy.deepcopy(approved_payload)
+            view.runtime_state["approved_scope_draft"] = copy.deepcopy(approved_payload)
+            view.runtime_state["intake_status"] = "scope_approved"
+            view._emit_decision(
+                decision_type="scope_approved",
+                reason="interrupts disabled; auto-approving current scope draft",
+                attempt=view.graph_attempt,
+                extra={"scope_version": scope_draft.version},
+            )
+            view._emit_artifact_update(
+                artifact_id=scope_draft.id,
+                artifact_type="scope_draft",
+                status="approved",
+                agent_id=scope_draft.created_by,
+                summary=scope_draft.research_goal[:180],
+                extra={
+                    "scope_version": scope_draft.version,
+                    "review_state": "approved",
+                    "content": _format_scope_draft_markdown(approved_payload),
+                },
+            )
+            return view.snapshot_patch(next_step="plan")
+
+        prompt = {
+            "checkpoint": "deepsearch_scope_review",
+            "message": "Review the proposed Deep Research scope.",
+            "instruction": (
+                "Approve the current scope draft to start research, or provide natural-language feedback "
+                "to request a rewrite. Direct field edits are not accepted."
+            ),
+            "graph_run_id": view.graph_run_id,
+            "graph_attempt": view.graph_attempt,
+            "scope_draft": scope_draft.to_dict(),
+            "scope_version": scope_draft.version,
+            "scope_revision_count": int(view.runtime_state.get("scope_revision_count", 0) or 0),
+            "content": _format_scope_draft_markdown(scope_draft),
+            "available_actions": ["approve_scope", "revise_scope"],
+            "allow_direct_edit": False,
+        }
+        updated = interrupt(prompt)
+        if isinstance(updated, dict) and any(
+            key in updated
+            for key in ("scope_draft", "current_scope_draft", "approved_scope_draft", "modifications")
+        ):
+            raise ValueError(
+                "Scope review does not accept direct scope draft edits; submit scope_feedback instead."
+            )
+
+        action = ""
+        if isinstance(updated, dict):
+            action = str(updated.get("action") or updated.get("decision") or "").strip().lower()
+        if not action:
+            action = (
+                "revise_scope"
+                if _extract_interrupt_text(updated, keys=("scope_feedback", "feedback", "content"))
+                else "approve_scope"
+            )
+
+        if action == "approve_scope":
+            approved_payload = scope_draft.to_dict()
+            approved_payload["status"] = "approved"
+            approved_payload["updated_at"] = _now_iso()
+            view.runtime_state["current_scope_draft"] = copy.deepcopy(approved_payload)
+            view.runtime_state["approved_scope_draft"] = copy.deepcopy(approved_payload)
+            view.runtime_state["intake_status"] = "scope_approved"
+            view._emit_decision(
+                decision_type="scope_approved",
+                reason="user approved the current scope draft",
+                attempt=view.graph_attempt,
+                extra={"scope_version": scope_draft.version},
+            )
+            view._emit_artifact_update(
+                artifact_id=scope_draft.id,
+                artifact_type="scope_draft",
+                status="approved",
+                agent_id=scope_draft.created_by,
+                summary=scope_draft.research_goal[:180],
+                extra={
+                    "scope_version": scope_draft.version,
+                    "review_state": "approved",
+                    "content": _format_scope_draft_markdown(approved_payload),
+                },
+            )
+            return view.snapshot_patch(next_step="plan")
+
+        if action != "revise_scope":
+            raise ValueError(f"Unsupported scope review action: {action}")
+
+        scope_feedback = _extract_interrupt_text(
+            updated,
+            keys=("scope_feedback", "feedback", "content"),
+        )
+        if not scope_feedback:
+            raise ValueError("revise_scope requires non-empty scope_feedback")
+        feedback_history = list(view.runtime_state.get("scope_feedback_history") or [])
+        feedback_history.append(
+            {
+                "scope_version": scope_draft.version,
+                "feedback": scope_feedback,
+                "at": _now_iso(),
+            }
+        )
+        view.runtime_state["scope_feedback_history"] = feedback_history
+        view.runtime_state["pending_scope_feedback"] = scope_feedback
+        view.runtime_state["intake_status"] = "scope_revision_requested"
+        view._emit_decision(
+            decision_type="scope_revision_requested",
+            reason=scope_feedback,
+            attempt=view.graph_attempt,
+            extra={"scope_version": scope_draft.version},
+        )
+        view._emit_artifact_update(
+            artifact_id=scope_draft.id,
+            artifact_type="scope_draft",
+            status="revision_requested",
+            agent_id=scope_draft.created_by,
+            summary=scope_feedback[:180],
+            extra={
+                "scope_version": scope_draft.version,
+                "review_state": "revision_requested",
+                "content": _format_scope_draft_markdown(scope_draft),
+            },
+        )
+        return view.snapshot_patch(next_step="scope")
+
+    def _route_after_scope_review(self, graph_state: MultiAgentGraphState) -> str:
         next_step = str(graph_state.get("next_step") or "plan").strip().lower()
-        if next_step in {"dispatch", "verify", "report", "finalize"}:
+        if next_step in {"scope", "plan"}:
             return next_step
         return "plan"
 
     def _plan_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "plan")
+        approved_scope = copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {})
+        if not approved_scope:
+            return view.snapshot_patch(next_step="scope_review")
         planning_mode = str(graph_state.get("planning_mode") or view.runtime_state.get("planning_mode") or "initial")
         phase = "replan" if planning_mode == "replan" else "initial_plan"
         record = view.start_agent_run(
@@ -881,16 +1435,18 @@ class MultiAgentDeepSearchRuntime:
                         self.query_num,
                         max(1, len(gap_result.suggested_queries) if gap_result else 1),
                     ),
+                    approved_scope=approved_scope,
                 )
-                context_id = f"replan-{view.current_iteration or 0}"
+                context_id = str(approved_scope.get("id") or f"replan-{view.current_iteration or 0}")
             else:
                 plan_items = self.planner.create_plan(
                     self.topic,
                     num_queries=self.query_num,
                     existing_knowledge=view._knowledge_summary(),
                     existing_queries=existing_queries,
+                    approved_scope=approved_scope,
                 )
-                context_id = view.root_branch_id or support._new_id("brief")
+                context_id = str(approved_scope.get("id") or view.root_branch_id or support._new_id("brief"))
 
             tasks = dispatcher.build_tasks_from_plan(
                 view,
@@ -1498,6 +2054,9 @@ class MultiAgentDeepSearchRuntime:
     def build_graph(self, *, checkpointer: Any = None, interrupt_before: Any = None):
         workflow = StateGraph(MultiAgentGraphState)
         workflow.add_node("bootstrap", self._bootstrap_node)
+        workflow.add_node("clarify", self._clarify_node)
+        workflow.add_node("scope", self._scope_node)
+        workflow.add_node("scope_review", self._scope_review_node)
         workflow.add_node("plan", self._plan_node)
         workflow.add_node("dispatch", self._dispatch_node)
         workflow.add_node("researcher", self._researcher_node)
@@ -1511,7 +2070,18 @@ class MultiAgentDeepSearchRuntime:
         workflow.add_conditional_edges(
             "bootstrap",
             self._route_after_bootstrap,
-            ["plan", "dispatch", "verify", "report", "finalize"],
+            ["clarify", "scope", "scope_review", "plan", "dispatch", "verify", "report", "finalize"],
+        )
+        workflow.add_conditional_edges(
+            "clarify",
+            self._route_after_clarify,
+            ["clarify", "scope"],
+        )
+        workflow.add_edge("scope", "scope_review")
+        workflow.add_conditional_edges(
+            "scope_review",
+            self._route_after_scope_review,
+            ["scope", "plan"],
         )
         workflow.add_edge("plan", "dispatch")
         workflow.add_conditional_edges(

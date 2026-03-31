@@ -4,13 +4,15 @@ Engine selection for deep-research runtimes.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
+
+from langgraph.errors import GraphBubbleUp
 
 from agent.workflows import deepsearch_optimized as _legacy_runtime
 from common.config import settings
 
 
-def run_multi_agent_deepsearch(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+def run_multi_agent_deepsearch(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     """
     Compatibility wrapper so callers can patch either the selector-local entrypoint
     or the legacy workflow module during the migration window.
@@ -19,18 +21,18 @@ def run_multi_agent_deepsearch(state: Dict[str, Any], config: Dict[str, Any]) ->
     return _legacy_runtime.run_multi_agent_deepsearch(state, config)
 
 
-def run_deepsearch_auto(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+def run_deepsearch_auto(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     """
     Select the concrete deep runtime without mixing selector logic into
     individual runtime modules.
     """
 
-    def _with_event_marker(result: Dict[str, Any]) -> Dict[str, Any]:
+    def _with_event_marker(result: dict[str, Any]) -> dict[str, Any]:
         if isinstance(result, dict) and not bool(result.get("is_cancelled")):
             result.setdefault("_deepsearch_events_emitted", True)
         return result
 
-    def _run_legacy_deepsearch() -> Dict[str, Any]:
+    def _run_legacy_deepsearch() -> dict[str, Any]:
         mode = _legacy_runtime._resolve_deepsearch_mode(config)
 
         if mode == "tree":
@@ -68,6 +70,8 @@ def run_deepsearch_auto(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[s
         try:
             _legacy_runtime.logger.info("[deepsearch] Using multi-agent runtime")
             return _with_event_marker(run_multi_agent_deepsearch(state, config))
+        except GraphBubbleUp:
+            raise
         except Exception as exc:
             _legacy_runtime.logger.error(
                 "[deepsearch] multi-agent runtime failed: %s", exc, exc_info=True

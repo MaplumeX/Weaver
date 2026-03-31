@@ -14,6 +14,7 @@ interface ChatInputProps {
   setInput: React.Dispatch<React.SetStateAction<string>>
   attachments: File[]
   setAttachments: (files: File[]) => void
+  placeholder?: string
   onSubmit: (e: React.FormEvent) => void
   isLoading: boolean
   onStop: () => void
@@ -32,6 +33,7 @@ export function ChatInput({
   setInput,
   attachments,
   setAttachments,
+  placeholder,
   onSubmit,
   isLoading,
   onStop,
@@ -511,7 +513,7 @@ export function ChatInput({
                 onKeyDown={handleKeyDown}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
-                placeholder={searchMode === 'mcp' ? `${mcpOptions.find(o => o.id === selectedMcp)?.label || 'MCP'}...` : t('askAnything')}
+                placeholder={placeholder || (searchMode === 'mcp' ? `${mcpOptions.find(o => o.id === selectedMcp)?.label || 'MCP'}...` : t('askAnything'))}
                 disabled={isLoading}
                 rows={1}
                 className={cn(

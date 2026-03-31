@@ -16,6 +16,7 @@ import { STORAGE_KEYS, DEFAULT_MODEL } from '@/lib/constants'
 import { useChatHistory } from '@/hooks/useChatHistory'
 import { useChatStream } from '@/hooks/useChatStream'
 import { filesToImageAttachments } from '@/lib/file-utils'
+import { getInterruptInputPlaceholder } from '@/lib/interrupt-review'
 import { Discover } from '@/components/views/Discover'
 import { Library } from '@/components/views/Library'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
@@ -31,6 +32,7 @@ export function Chat() {
   const [isArtifactsOpen, setIsArtifactsOpen] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
   const [showBrowserViewer, setShowBrowserViewer] = useState(true) // Browser viewer visibility
+  const [scopeRevisionMode, setScopeRevisionMode] = useState(false)
 
   const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'discover' | 'library'
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
@@ -68,7 +70,8 @@ export function Chat() {
     setThreadId,
     processChat,
     handleStop,
-    handleApproveInterrupt
+    handleApproveInterrupt,
+    resumeInterrupt
   } = useChatStream({ selectedModel, searchMode })
 
   // Debug: Log browser viewer conditions
@@ -80,6 +83,10 @@ export function Chat() {
       shouldShow: currentView === 'dashboard' && !!threadId
     })
   }, [currentView, threadId, showBrowserViewer])
+
+  useEffect(() => {
+    setScopeRevisionMode(false)
+  }, [pendingInterrupt?.checkpoint, pendingInterrupt?.content, pendingInterrupt?.messageId])
 
   // Load Model from LocalStorage
   useEffect(() => {
@@ -119,6 +126,7 @@ export function Chat() {
       setInput('')
       setThreadId(null)
       setPendingInterrupt(null)
+      setScopeRevisionMode(false)
       setSearchMode('') // default to direct LLM
       handleStop() // Abort any ongoing request
   }
@@ -153,6 +161,7 @@ export function Chat() {
       setInput('')
       setThreadId(null)
       setPendingInterrupt(null)
+      setScopeRevisionMode(false)
       handleStop()
     }
   }
@@ -162,11 +171,19 @@ export function Chat() {
     if ((!input.trim() && attachments.length === 0) || isLoading) return
 
     const imagePayloads = await filesToImageAttachments(attachments)
+    const trimmedInput = input.trim()
+
+    if (
+      (pendingInterrupt?.kind === 'clarify_question' || pendingInterrupt?.kind === 'scope_review') &&
+      !trimmedInput
+    ) {
+      return
+    }
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: input.trim(),
+      content: trimmedInput,
       attachments: imagePayloads
     }
 
@@ -182,6 +199,17 @@ export function Chat() {
         if (id) setCurrentSessionId(id)
     } else if (currentSessionId) {
         saveToHistory(newHistory, currentSessionId)
+    }
+
+    if (pendingInterrupt?.kind === 'clarify_question') {
+        await resumeInterrupt('answer_clarification', trimmedInput)
+        return
+    }
+
+    if (pendingInterrupt?.kind === 'scope_review') {
+        setScopeRevisionMode(false)
+        await resumeInterrupt('revise_scope', trimmedInput)
+        return
     }
 
     await processChat(newHistory, imagePayloads)
@@ -228,6 +256,8 @@ export function Chat() {
       }
   }
 
+  const inputPlaceholder = getInterruptInputPlaceholder(pendingInterrupt, { revisionMode: scopeRevisionMode })
+
   // Render Content based on View
   const renderContent = () => {
       if (currentView === 'discover') return <Discover />
@@ -253,7 +283,45 @@ export function Chat() {
                 className="scrollbar-thin scrollbar-thumb-muted/20"
                 itemContent={(index, message) => (
                     <div className="max-w-5xl mx-auto px-4 sm:px-0">
-                        <MessageItem key={message.id} message={message} onEdit={handleEditMessage} />
+                        <MessageItem
+                          key={message.id}
+                          message={message}
+                          onEdit={handleEditMessage}
+                          footer={
+                            pendingInterrupt?.kind === 'scope_review' && pendingInterrupt?.messageId === message.id ? (
+                              <div className="flex flex-col gap-3">
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => {
+                                      setScopeRevisionMode(false)
+                                      resumeInterrupt('approve_scope')
+                                    }}
+                                    disabled={isLoading}
+                                  >
+                                    确认开始研究
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant={scopeRevisionMode ? 'default' : 'secondary'}
+                                    onClick={() => {
+                                      setScopeRevisionMode(true)
+                                      setCurrentStatus('继续在下方输入框里说明你希望如何修改研究范围')
+                                    }}
+                                    disabled={isLoading}
+                                  >
+                                    继续修改
+                                  </Button>
+                                </div>
+                                {scopeRevisionMode ? (
+                                  <div className="text-xs text-muted-foreground">
+                                    在下方输入框继续补充修改意见，发送后会基于你的反馈重写草案。
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : undefined
+                          }
+                        />
                     </div>
                 )}
                 components={{
@@ -326,16 +394,18 @@ export function Chat() {
                     </Button>
                 </div>
 
-                {pendingInterrupt && (
+                {pendingInterrupt && pendingInterrupt.kind === 'tool_approval' && (
                 <div className="mx-4 mb-3 p-3 border rounded-xl bg-amber-50 text-amber-900 shadow-sm flex flex-col gap-2">
-                    <div className="text-sm font-semibold">Tool approval required</div>
+                    <div className="text-sm font-semibold">{pendingInterrupt.title || 'Review required'}</div>
                     <div className="text-xs text-amber-800">
-                    {pendingInterrupt.message || pendingInterrupt?.prompts?.[0]?.message || 'Approve tool execution to continue.'}
+                    {pendingInterrupt.description || 'Review the current checkpoint before continuing.'}
                     </div>
                     <div className="flex gap-2">
-                    <Button size="sm" onClick={handleApproveInterrupt} disabled={isLoading}>
+                    {pendingInterrupt.kind === 'tool_approval' && (
+                      <Button size="sm" onClick={handleApproveInterrupt} disabled={isLoading}>
                         Approve & Continue
-                    </Button>
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={() => setPendingInterrupt(null)} disabled={isLoading}>
                         Dismiss
                     </Button>
@@ -354,6 +424,7 @@ export function Chat() {
             setInput={setInput}
             attachments={attachments}
             setAttachments={setAttachments}
+            placeholder={inputPlaceholder || undefined}
             onSubmit={handleSubmit}
             isLoading={isLoading}
             onStop={handleStop}

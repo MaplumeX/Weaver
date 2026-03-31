@@ -5,7 +5,7 @@ Generates and refines structured research plans.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
@@ -14,13 +14,16 @@ logger = logging.getLogger(__name__)
 
 PLANNER_PROMPT = """
 # 角色
-你是一名研究规划专家，擅长为复杂话题制定全面的研究计划。
+你是一名研究规划专家, 擅长为复杂话题制定全面的研究计划。
 
 # 任务
-为以下主题制定研究计划，生成结构化的搜索查询列表。
+为以下主题制定研究计划, 生成结构化的搜索查询列表。
 
 # 主题
 {topic}
+
+# 已批准的研究范围
+{approved_scope}
 
 # 已有信息
 {existing_knowledge}
@@ -33,10 +36,10 @@ PLANNER_PROMPT = """
 2. 每个查询应覆盖主题的不同方面
 3. 查询不能与已有查询重复
 4. 查询应具体、有针对性
-5. 考虑以下维度：定义、背景、核心内容、应用场景、优缺点、发展趋势、案例分析
+5. 考虑以下维度: 定义, 背景, 核心内容, 应用场景, 优缺点, 发展趋势, 案例分析
 
 # 输出格式
-按优先级排序，每行一个查询。格式为 JSON 列表：
+按优先级排序, 每行一个查询. 格式为 JSON 列表:
 ```json
 [
     {{"query": "搜索查询1", "aspect": "覆盖的方面", "priority": 1}},
@@ -56,7 +59,7 @@ class ResearchPlanner:
     - Refine plans based on findings
     """
 
-    def __init__(self, llm: BaseChatModel, config: Dict[str, Any] = None):
+    def __init__(self, llm: BaseChatModel, config: dict[str, Any] | None = None):
         self.llm = llm
         self.config = config or {}
 
@@ -65,22 +68,22 @@ class ResearchPlanner:
         topic: str,
         num_queries: int = 5,
         existing_knowledge: str = "",
-        existing_queries: List[str] = None,
-    ) -> List[Dict[str, Any]]:
+        existing_queries: list[str] | None = None,
+        approved_scope: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Create a research plan.
 
         Returns:
             List of query dicts with 'query', 'aspect', 'priority'
         """
-        import json
-
         prompt = ChatPromptTemplate.from_messages([
             ("user", PLANNER_PROMPT)
         ])
 
         msg = prompt.format_messages(
             topic=topic,
+            approved_scope=self._format_scope_for_prompt(approved_scope),
             existing_knowledge=existing_knowledge or "暂无",
             existing_queries=", ".join(existing_queries or []) or "无",
             num_queries=num_queries,
@@ -94,10 +97,11 @@ class ResearchPlanner:
     def refine_plan(
         self,
         topic: str,
-        gaps: List[str],
-        existing_queries: List[str],
+        gaps: list[str],
+        existing_queries: list[str],
         num_queries: int = 3,
-    ) -> List[Dict[str, Any]]:
+        approved_scope: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Refine research plan based on identified knowledge gaps.
 
@@ -115,7 +119,7 @@ class ResearchPlanner:
         prompt = ChatPromptTemplate.from_messages([
             ("user", """
 # 任务
-基于以下知识缺口，补充研究计划。
+基于以下知识缺口, 补充研究计划。
 
 # 主题: {topic}
 
@@ -124,6 +128,9 @@ class ResearchPlanner:
 
 # 已有查询
 {existing_queries}
+
+# 已批准的研究范围
+{approved_scope}
 
 # 要求
 生成 {num_queries} 个针对知识缺口的搜索查询。
@@ -140,6 +147,7 @@ class ResearchPlanner:
             gaps=gap_text,
             existing_queries=", ".join(existing_queries),
             num_queries=num_queries,
+            approved_scope=self._format_scope_for_prompt(approved_scope),
         )
 
         response = self.llm.invoke(msg, config=self.config)
@@ -147,7 +155,7 @@ class ResearchPlanner:
 
         return self._parse_plan(content)
 
-    def _parse_plan(self, content: str) -> List[Dict[str, Any]]:
+    def _parse_plan(self, content: str) -> list[dict[str, Any]]:
         """Parse plan from LLM output."""
         import json
         import re
@@ -180,3 +188,50 @@ class ResearchPlanner:
         # Fallback: extract lines as queries
         lines = [line.strip() for line in content.split("\n") if line.strip()]
         return [{"query": line, "aspect": "", "priority": i} for i, line in enumerate(lines, 1)]
+
+    def _format_scope_for_prompt(self, approved_scope: dict[str, Any] | None) -> str:
+        if not isinstance(approved_scope, dict) or not approved_scope:
+            return "暂无已批准 scope, 请仅在必要时基于主题做最小范围规划."
+
+        sections = [
+            f"- research_goal: {approved_scope.get('research_goal', '')}",
+            "- research_steps:",
+        ]
+        sections.extend(
+            f"  - {item}"
+            for item in approved_scope.get("research_steps", [])
+            if isinstance(item, str) and item.strip()
+        )
+        sections.extend([
+            "- core_questions:",
+        ])
+        sections.extend(
+            f"  - {item}"
+            for item in approved_scope.get("core_questions", [])
+            if isinstance(item, str) and item.strip()
+        )
+        sections.append("- in_scope:")
+        sections.extend(
+            f"  - {item}"
+            for item in approved_scope.get("in_scope", [])
+            if isinstance(item, str) and item.strip()
+        )
+        sections.append("- out_of_scope:")
+        sections.extend(
+            f"  - {item}"
+            for item in approved_scope.get("out_of_scope", [])
+            if isinstance(item, str) and item.strip()
+        )
+        sections.append("- constraints:")
+        sections.extend(
+            f"  - {item}"
+            for item in approved_scope.get("constraints", [])
+            if isinstance(item, str) and item.strip()
+        )
+        sections.append("- source_preferences:")
+        sections.extend(
+            f"  - {item}"
+            for item in approved_scope.get("source_preferences", [])
+            if isinstance(item, str) and item.strip()
+        )
+        return "\n".join(sections)

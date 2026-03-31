@@ -1,4 +1,6 @@
 import pytest
+from langgraph.errors import GraphInterrupt
+from langgraph.types import Interrupt
 
 from agent.workflows import deepsearch_optimized, nodes
 
@@ -130,6 +132,34 @@ def test_run_deepsearch_auto_raises_when_multi_agent_fails(monkeypatch):
     monkeypatch.setattr(deepsearch_optimized.settings, "deepsearch_mode", "auto", raising=False)
 
     with pytest.raises(RuntimeError, match="multi-agent boom"):
+        deepsearch_optimized.run_deepsearch_auto(
+            {"input": "test"},
+            {"configurable": {"deepsearch_engine": "multi_agent"}},
+        )
+
+    assert called["linear"] is False
+    assert called["tree"] is False
+
+
+def test_run_deepsearch_auto_reraises_multi_agent_interrupt(monkeypatch):
+    called = {"linear": False, "tree": False}
+
+    def fake_multi_agent(state, config):
+        raise GraphInterrupt((Interrupt(value={"checkpoint": "deepsearch_clarify"}),))
+
+    monkeypatch.setattr(deepsearch_optimized, "run_multi_agent_deepsearch", fake_multi_agent)
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "run_deepsearch_optimized",
+        lambda *args, **kwargs: called.__setitem__("linear", True) or {"mode": "linear"},
+    )
+    monkeypatch.setattr(
+        deepsearch_optimized,
+        "run_deepsearch_tree",
+        lambda *args, **kwargs: called.__setitem__("tree", True) or {"mode": "tree"},
+    )
+
+    with pytest.raises(GraphInterrupt):
         deepsearch_optimized.run_deepsearch_auto(
             {"input": "test"},
             {"configurable": {"deepsearch_engine": "multi_agent"}},
@@ -498,3 +528,16 @@ def test_deepsearch_node_emits_completion_for_cancelled_result_even_with_marker(
 
     event_types = [name for name, _ in emitted]
     assert "research_node_complete" in event_types
+
+
+def test_deepsearch_node_reraises_graph_interrupt(monkeypatch):
+    def fake_auto(state, config):
+        raise GraphInterrupt((Interrupt(value={"checkpoint": "deepsearch_clarify"}),))
+
+    monkeypatch.setattr(nodes, "run_deepsearch_auto", fake_auto, raising=False)
+
+    with pytest.raises(GraphInterrupt):
+        nodes.deepsearch_node(
+            {"input": "test topic"},
+            {"configurable": {"thread_id": "thread_test"}},
+        )

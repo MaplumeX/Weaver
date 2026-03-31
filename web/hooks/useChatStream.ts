@@ -2,6 +2,11 @@ import { useState, useRef, useCallback } from 'react'
 import { Message, Artifact, ToolInvocation, ImageAttachment, ProcessEvent, RunMetrics, MessageSource } from '@/types/chat'
 import { getApiBaseUrl } from '@/lib/api'
 import { createLegacyChatStreamState, consumeLegacyChatStreamChunk } from '@/lib/chatStreamProtocol'
+import {
+  buildInterruptResumePayload,
+  getInterruptConversationMessage,
+  normalizeInterruptReview,
+} from '@/lib/interrupt-review'
 
 interface UseChatStreamProps {
   selectedModel: string
@@ -20,6 +25,8 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
   const attempt = typeof payload?.attempt === 'number' ? payload.attempt : undefined
 
   if (eventType === 'research_agent_start') {
+    if (role === 'clarify') return '多 Agent 调研：正在澄清研究目标与约束…'
+    if (role === 'scope') return '多 Agent 调研：正在生成研究范围草案…'
     if (role === 'planner') return '多 Agent 调研：正在规划研究任务…'
     if (role === 'researcher') {
       if (attempt && attempt > 1) return `多 Agent 调研：${agentId || 'researcher'} 开始重试任务…`
@@ -31,6 +38,8 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
   }
 
   if (eventType === 'research_agent_complete') {
+    if (role === 'clarify' && status === 'completed') return '多 Agent 调研：需求澄清完成'
+    if (role === 'scope' && status === 'completed') return '多 Agent 调研：范围草案已生成'
     if (role === 'reporter' && status === 'completed') return '多 Agent 调研：最终报告已生成'
     if (role === 'verifier' && status === 'completed') return '多 Agent 调研：覆盖度检查完成'
     if (role === 'researcher' && status === 'completed') return `多 Agent 调研：${agentId || 'researcher'} 已完成任务`
@@ -47,12 +56,21 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
   }
 
   if (eventType === 'research_artifact_update') {
+    if (artifactType === 'scope_draft') {
+      if (status === 'approved') return '多 Agent 调研：研究范围已批准，准备开始规划'
+      if (status === 'revision_requested') return '多 Agent 调研：已收到范围修改意见，正在重写草案'
+      return '多 Agent 调研：新的研究范围草案已生成'
+    }
     if (artifactType === 'evidence_card') return '多 Agent 调研：已记录新的证据卡片'
     if (artifactType === 'knowledge_gap') return '多 Agent 调研：识别到新的知识缺口'
     if (artifactType === 'final_report') return '多 Agent 调研：已落盘最终报告产物'
   }
 
   if (eventType === 'research_decision') {
+    if (decisionType === 'clarify_required') return '多 Agent 调研：需要补充研究背景与约束'
+    if (decisionType === 'scope_ready') return '多 Agent 调研：研究范围已准备好进入审阅'
+    if (decisionType === 'scope_revision_requested') return '多 Agent 调研：根据反馈重写研究范围'
+    if (decisionType === 'scope_approved') return '多 Agent 调研：研究范围已确认，开始正式规划'
     if (decisionType === 'plan' || decisionType === 'replan') return '多 Agent 调研：协调器决定补充规划'
     if (decisionType === 'research') return '多 Agent 调研：协调器决定继续研究'
     if (decisionType === 'synthesize' || decisionType === 'complete') return '多 Agent 调研：协调器决定进入汇总阶段'
@@ -60,6 +78,12 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
   }
 
   return null
+}
+
+function getInterruptStatusText(review: any, message: string): string {
+  if (review?.kind === 'clarify_question') return '继续补充你的研究目标与约束'
+  if (review?.kind === 'scope_review') return '请确认研究范围，或继续修改'
+  return review?.title || message || 'Review required before continuing'
 }
 
 function normalizeToolEvent(
@@ -290,21 +314,17 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             syncAssistantMessage()
           } else if (data.type === 'interrupt') {
             interrupted = true
-            setPendingInterrupt(data.data)
-            const msg = data.data?.message || data.data?.prompts?.[0]?.message
-            setCurrentStatus(msg || 'Approval required before continuing')
+            const reviewBase = normalizeInterruptReview(data.data)
+            const review = reviewBase ? { ...reviewBase, messageId: assistantMessage.id } : null
+            setPendingInterrupt(review)
+            const msg = getInterruptConversationMessage(reviewBase, data.data)
+            setCurrentStatus(getInterruptStatusText(review, msg))
+            assistantMessage.content =
+              assistantMessage.content || msg || review?.title || 'Review required before continuing.'
             assistantMessage.isStreaming = false
             assistantMessage.completedAt = Date.now()
             pushProcessEvent('interrupt', data.data)
             syncAssistantMessage()
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `interrupt-${Date.now()}`,
-                role: 'assistant',
-                content: msg || 'Approval required before running a tool.',
-              },
-            ])
             break
           } else if (data.type === 'tool') {
             const normalized = normalizeToolEvent('tool', data.data)
@@ -516,12 +536,12 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
     }
   }, [selectedModel, searchMode])
 
-  const handleApproveInterrupt = useCallback(async () => {
+  const resumeInterrupt = useCallback(async (action: string, input: string = '') => {
     if (!pendingInterrupt || !threadId) return
     setIsLoading(true)
-    setCurrentStatus('Resuming after approval...')
+    setCurrentStatus('Resuming review...')
     try {
-      const toolCalls = pendingInterrupt?.prompts?.[0]?.tool_calls
+      const resumePayload = buildInterruptResumePayload(pendingInterrupt, action, input)
       const res = await fetch(
         `${getApiBaseUrl()}/api/interrupt/resume`,
         {
@@ -529,20 +549,51 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             thread_id: threadId,
-            payload: { tool_approved: true, tool_calls: toolCalls },
+            payload: resumePayload,
             model: selectedModel,
             search_mode: searchMode
           })
         }
       )
-      if (!res.ok) throw new Error('Failed to resume')
+      if (!res.ok) {
+        let detail = 'Failed to resume'
+        try {
+          const err = await res.json()
+          detail = String(err?.detail || detail)
+        } catch {}
+        throw new Error(detail)
+      }
       const data = await res.json()
+      if (data?.status === 'interrupted') {
+        const nextReviewBase = normalizeInterruptReview({ interrupts: data.interrupts })
+        const nextMessageId = `assistant-${Date.now()}`
+        const nextReview = nextReviewBase ? { ...nextReviewBase, messageId: nextMessageId } : null
+        setPendingInterrupt(nextReview)
+        setCurrentStatus(
+          getInterruptStatusText(
+            nextReview,
+            getInterruptConversationMessage(nextReviewBase, { interrupts: data.interrupts }),
+          ),
+        )
+        setMessages(prev => [
+          ...prev,
+          {
+            id: nextMessageId,
+            role: 'assistant',
+            content: getInterruptConversationMessage(nextReviewBase, { interrupts: data.interrupts }) || 'Review required before continuing.',
+            createdAt: Date.now(),
+            completedAt: Date.now(),
+          }
+        ])
+        return
+      }
+      setPendingInterrupt(null)
       setMessages(prev => [
         ...prev,
         {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
-          content: data.content || 'Resumed and completed.',
+          content: data.content || data.message || 'Resumed and completed.',
         }
       ])
     } catch (err) {
@@ -552,15 +603,18 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
         {
           id: `error-${Date.now()}`,
           role: 'assistant',
-          content: 'Resume failed. Please retry.',
+          content: err instanceof Error ? err.message : 'Resume failed. Please retry.',
         }
       ])
     } finally {
-      setPendingInterrupt(null)
       setIsLoading(false)
       setCurrentStatus('')
     }
   }, [pendingInterrupt, threadId, selectedModel, searchMode])
+
+  const handleApproveInterrupt = useCallback(async () => {
+    await resumeInterrupt('approve')
+  }, [resumeInterrupt])
 
   return {
     messages,
@@ -577,6 +631,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
     setThreadId,
     processChat,
     handleStop,
-    handleApproveInterrupt
+    handleApproveInterrupt,
+    resumeInterrupt,
   }
 }

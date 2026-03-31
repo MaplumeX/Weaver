@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -1081,7 +1082,97 @@ def _serialize_interrupts(interrupts: Any) -> List[Any]:
     return result
 
 
-def _normalize_interrupt_resume_payload(payload: Any) -> Any:
+def _pending_interrupt_prompts(checkpoint_tuple: Any) -> List[Any]:
+    pending_writes = getattr(checkpoint_tuple, "pending_writes", []) or []
+    interrupt_items: List[Any] = []
+    for entry in pending_writes:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 3:
+            continue
+        _, key, value = entry
+        if key != "__interrupt__":
+            continue
+        if isinstance(value, (list, tuple)):
+            interrupt_items.extend(list(value))
+        elif value is not None:
+            interrupt_items.append(value)
+    return _serialize_interrupts(interrupt_items)
+
+
+def _pending_interrupt_prompts_for_thread(thread_id: str) -> List[Any]:
+    if not checkpointer:
+        return []
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return []
+    try:
+        existing = checkpointer.get_tuple({"configurable": {"thread_id": tid}})
+    except Exception:
+        return []
+    if not existing:
+        return []
+    return _pending_interrupt_prompts(existing)
+
+
+def _normalize_scope_review_resume_payload(payload: Any) -> Dict[str, Any]:
+    if isinstance(payload, str):
+        feedback = payload.strip()
+        if not feedback:
+            raise ValueError("Scope review resume requires either approve_scope or non-empty scope_feedback.")
+        return {"action": "revise_scope", "scope_feedback": feedback}
+
+    if not isinstance(payload, dict):
+        raise ValueError("Scope review resume payload must be an object or non-empty string.")
+
+    if any(
+        key in payload
+        for key in ("scope_draft", "current_scope_draft", "approved_scope_draft", "modifications")
+    ):
+        raise ValueError(
+            "Scope review does not accept direct scope draft edits; submit scope_feedback instead."
+        )
+
+    action = str(payload.get("action") or payload.get("decision") or "").strip().lower()
+    feedback = str(
+        payload.get("scope_feedback")
+        or payload.get("feedback")
+        or payload.get("content")
+        or ""
+    ).strip()
+    if not action:
+        action = "revise_scope" if feedback else "approve_scope"
+
+    if action == "approve_scope":
+        return {"action": "approve_scope"}
+    if action == "revise_scope":
+        if not feedback:
+            raise ValueError("revise_scope requires non-empty scope_feedback.")
+        return {"action": "revise_scope", "scope_feedback": feedback}
+    raise ValueError(f"Unsupported scope review action: {action}")
+
+
+def _normalize_clarify_resume_payload(payload: Any) -> Dict[str, Any]:
+    if isinstance(payload, str):
+        answer = payload.strip()
+        if not answer:
+            raise ValueError("Clarify resume requires non-empty clarify_answer.")
+        return {"clarify_answer": answer}
+
+    if not isinstance(payload, dict):
+        raise ValueError("Clarify resume payload must be an object or non-empty string.")
+
+    answer = str(
+        payload.get("clarify_answer")
+        or payload.get("answer")
+        or payload.get("content")
+        or payload.get("feedback")
+        or ""
+    ).strip()
+    if not answer:
+        raise ValueError("Clarify resume requires non-empty clarify_answer.")
+    return {"clarify_answer": answer}
+
+
+def _normalize_interrupt_resume_payload(payload: Any, prompt: Any = None) -> Any:
     """
     Normalize /api/interrupt/resume payloads for LangGraph `interrupt()` resumes.
 
@@ -1094,6 +1185,15 @@ def _normalize_interrupt_resume_payload(payload: Any) -> Any:
     This helper keeps backwards compatibility while allowing newer clients to
     send the native HITLResponse shape directly.
     """
+    checkpoint = ""
+    if isinstance(prompt, dict):
+        checkpoint = str(prompt.get("checkpoint") or "").strip()
+
+    if checkpoint == "deepsearch_scope_review":
+        return _normalize_scope_review_resume_payload(payload)
+    if checkpoint == "deepsearch_clarify":
+        return _normalize_clarify_resume_payload(payload)
+
     if not isinstance(payload, dict):
         return payload
 
@@ -1963,6 +2063,17 @@ async def stream_agent_events(
             "recursion_limit": 50,
         }
 
+        async def _build_pending_interrupt_event() -> Optional[str]:
+            nonlocal was_interrupted
+            prompts = _pending_interrupt_prompts_for_thread(thread_id)
+            if not prompts:
+                return None
+            was_interrupted = True
+            return await format_stream_event(
+                "interrupt",
+                {"thread_id": thread_id, "prompts": prompts},
+            )
+
         async def _drain_pending_tool_events() -> None:
             while not event_queue.empty():
                 try:
@@ -2065,6 +2176,12 @@ async def stream_agent_events(
                 event = next_event_task.result()
             except StopAsyncIteration:
                 break
+            except GraphBubbleUp:
+                interrupt_chunk = await _build_pending_interrupt_event()
+                if interrupt_chunk:
+                    yield interrupt_chunk
+                    return
+                raise
 
             event_type = event.get("event")
             name = event.get("name", "") or event.get("run_name", "")
@@ -2258,6 +2375,12 @@ async def stream_agent_events(
 
         async for queued_chunk in _drain_pending_tool_events():
             yield queued_chunk
+
+        if not final_output:
+            interrupt_chunk = await _build_pending_interrupt_event()
+            if interrupt_chunk:
+                yield interrupt_chunk
+                return
 
         if isinstance(final_output, dict):
             final_report = final_output.get("final_report", "")
@@ -2652,6 +2775,8 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
     existing = checkpointer.get_tuple({"configurable": {"thread_id": payload.thread_id}})
     if not existing:
         raise HTTPException(status_code=404, detail="No checkpoint found for this thread_id")
+    prompts = _pending_interrupt_prompts(existing)
+    first_prompt = prompts[0] if prompts else None
     config = {
         "configurable": {
             "thread_id": payload.thread_id,
@@ -2668,7 +2793,7 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
     }
 
     try:
-        resume_payload = _normalize_interrupt_resume_payload(payload.payload)
+        resume_payload = _normalize_interrupt_resume_payload(payload.payload, prompt=first_prompt)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -4447,20 +4572,7 @@ async def get_interrupt_status(thread_id: str, request: Request):
         if not checkpoint_tuple:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
-        pending_writes = getattr(checkpoint_tuple, "pending_writes", []) or []
-        interrupt_items: List[Any] = []
-        for entry in pending_writes:
-            if not isinstance(entry, (list, tuple)) or len(entry) != 3:
-                continue
-            _, key, value = entry
-            if key != "__interrupt__":
-                continue
-            if isinstance(value, (list, tuple)):
-                interrupt_items.extend(list(value))
-            elif value is not None:
-                interrupt_items.append(value)
-
-        prompts = _serialize_interrupts(interrupt_items)
+        prompts = _pending_interrupt_prompts(checkpoint_tuple)
         is_interrupted = bool(prompts)
 
         checkpoint_name: Optional[str] = None
@@ -4483,6 +4595,12 @@ async def get_interrupt_status(thread_id: str, request: Request):
                             allowed.add(d.strip())
                 if allowed:
                     available_actions = sorted(allowed)
+            elif isinstance(first.get("available_actions"), list):
+                available_actions = [
+                    str(item).strip()
+                    for item in first.get("available_actions", [])
+                    if isinstance(item, str) and item.strip()
+                ]
 
         if is_interrupted and not available_actions:
             # Generic interrupts support "approve" (resume as-is) and optional edits

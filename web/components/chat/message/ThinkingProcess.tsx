@@ -309,6 +309,7 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const sourceUrl = String(ev.data?.source_url || '').trim()
     const branchId = String(ev.data?.branch_id || '').trim()
     const taskId = String(ev.data?.task_id || '').trim()
+    const scopeVersion = typeof ev.data?.scope_version === 'number' ? ev.data.scope_version : undefined
 
     return (
       <div className="flex items-start gap-2">
@@ -317,6 +318,9 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
           <div className="truncate">
             <span className="font-medium text-foreground/80">Artifact</span>
             <span className="ml-2">{artifactType}</span>
+            {typeof scopeVersion === 'number' ? (
+              <span className="ml-2 text-xs text-muted-foreground">v{scopeVersion}</span>
+            ) : null}
             {status ? (
               <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                 {status}
@@ -344,14 +348,20 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const gapCount = typeof ev.data?.gap_count === 'number' ? `${ev.data.gap_count} gaps` : ''
     const nodeId = String(ev.data?.node_id || '').trim()
     const attempt = typeof ev.data?.attempt === 'number' ? ev.data.attempt : undefined
+    const scopeVersion = typeof ev.data?.scope_version === 'number' ? ev.data.scope_version : undefined
+    const actorLabel =
+      decision.startsWith('scope_') || decision.startsWith('clarify_') ? 'Intake' : 'Coordinator'
 
     return (
       <div className="flex items-start gap-2">
         <Sparkles className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
         <div className="min-w-0">
           <div className="truncate">
-            <span className="font-medium text-foreground/80">Coordinator</span>
+            <span className="font-medium text-foreground/80">{actorLabel}</span>
             {decision ? <span className="ml-2 font-mono text-[12px]">{decision}</span> : null}
+            {typeof scopeVersion === 'number' ? (
+              <span className="ml-2 text-xs text-muted-foreground">v{scopeVersion}</span>
+            ) : null}
             {[coverage || null, gapCount || null].filter(Boolean).map((item) => (
               <span key={item} className="ml-2 text-xs text-muted-foreground">{item}</span>
             ))}

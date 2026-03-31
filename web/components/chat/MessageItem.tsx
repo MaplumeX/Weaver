@@ -50,9 +50,10 @@ const preprocessContent = (content: string) => {
 interface MessageItemProps {
     message: Message
     onEdit?: (id: string, newContent: string) => void
+    footer?: React.ReactNode
 }
 
-const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
+const MessageItemBase = ({ message, onEdit, footer }: MessageItemProps) => {
   const isUser = (message.role || '').toLowerCase() === 'user'
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -326,6 +327,7 @@ const MessageItemBase = ({ message, onEdit }: MessageItemProps) => {
                 )}
                 
                 {/* Intentionally no typing indicator here; the Thinking row covers streaming state. */}
+                {footer ? <div className="mt-4">{footer}</div> : null}
               </div>
 
               {/* Actions: Copy, Speak & Edit */}

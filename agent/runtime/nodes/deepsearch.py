@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Any, Dict
+from typing import Any
 
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
+from langgraph.errors import GraphBubbleUp
 
 import agent.contracts.events as _events
 import agent.runtime.deep as _deep_runtime
@@ -42,11 +43,11 @@ def _resolve_deps(explicit_deps: Any = None) -> Any:
 
 
 def coordinator_node(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     config: RunnableConfig,
     *,
     _deps: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Coordinator node that decides the next research action.
     """
@@ -122,17 +123,17 @@ def coordinator_node(
         logger.error(f"Coordinator error: {e}", exc_info=True)
         return {
             "coordinator_action": "plan",
-            "coordinator_reasoning": f"Coordinator error, defaulting to plan: {str(e)}",
+            "coordinator_reasoning": f"Coordinator error, defaulting to plan: {e!s}",
             "missing_topics": state.get("missing_topics", []),
         }
 
 
 def deepsearch_node(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     config: RunnableConfig,
     *,
     _deps: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Deep search pipeline that iterates query → search → summarize."""
     deps = _resolve_deps(_deps)
     logger.info("Executing deepsearch node")
@@ -229,8 +230,10 @@ def deepsearch_node(
         return result
     except asyncio.CancelledError as e:
         return deps.handle_cancellation(state, e)
+    except GraphBubbleUp:
+        raise
     except Exception as e:
-        logger.error(f"Deepsearch error: {str(e)}", exc_info=settings.debug)
+        logger.error(f"Deepsearch error: {e!s}", exc_info=settings.debug)
         err_text = str(e)
         if "Model Not Exist" in err_text or "model_not_found" in err_text:
             msg = (
