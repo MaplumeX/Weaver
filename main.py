@@ -1560,6 +1560,7 @@ def _should_emit_thinking_summary_for_node(node_name: str) -> bool:
         "web_plan",
         "refine_plan",
         "clarify",
+        "supervisor",
     )
     return any(token in name for token in allow)
 
@@ -1609,6 +1610,12 @@ def _thinking_intro_for_node(node_name: str, *, use_zh: bool) -> str:
         return "我先确认是否需要你补充信息，避免跑偏。" if use_zh else "I'll check if any clarification is needed so we don't go off-track."
     if "planner" in name or "web_plan" in name or "refine_plan" in name:
         return "我会先拆解问题并生成一组检索关键词。" if use_zh else "I'll break the question down and generate targeted search queries."
+    if "supervisor" in name:
+        return (
+            "我会先结合已批准 scope 决定要派发哪些研究分支。"
+            if use_zh
+            else "I'll use the approved scope to decide which research branches to dispatch."
+        )
     if "perform_parallel_search" in name or (("search" in name) and "research" not in name):
         return "接下来我会检索并收集资料，多来源交叉验证。" if use_zh else "Next I'll search and collect sources, cross-checking across providers."
     if "deepsearch" in name:
@@ -2260,6 +2267,12 @@ async def _stream_graph_execution(
                         logger.debug(f"  Planning node started | Thread: {thread_id}")
                         yield await format_stream_event(
                             "status", {"text": "Creating research plan...", "step": "planning"}
+                        )
+                    elif "supervisor" in node_name:
+                        logger.debug(f"  Supervisor node started | Thread: {thread_id}")
+                        yield await format_stream_event(
+                            "status",
+                            {"text": "Evaluating scope and dispatching research branches...", "step": "supervisor"},
                         )
                     elif "deepsearch" in node_name:
                         logger.debug(f"  Deep research node started | Thread: {thread_id}")

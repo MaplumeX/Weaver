@@ -238,6 +238,8 @@ def test_worker_execution_result_roundtrip_preserves_branch_bundle():
         ),
         evidence_cards=[],
         section_draft=None,
+        coordination_requests=[],
+        submission=None,
         raw_results=[{"url": "https://example.com/roadmap", "summary": "Roadmap summary"}],
         tokens_used=42,
         searches_used=2,

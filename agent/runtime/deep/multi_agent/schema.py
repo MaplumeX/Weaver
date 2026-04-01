@@ -13,7 +13,7 @@ from agent.core.context import ResearchWorkerContext
 TaskStatus = Literal["ready", "in_progress", "blocked", "completed", "failed", "cancelled"]
 ArtifactStatus = Literal["created", "updated", "completed", "discarded"]
 ScopeDraftStatus = Literal["awaiting_review", "revision_requested", "approved"]
-AgentRole = Literal["clarify", "scope", "coordinator", "planner", "researcher", "verifier", "reporter"]
+AgentRole = Literal["clarify", "scope", "supervisor", "researcher", "verifier", "reporter"]
 TaskStage = Literal[
     "planned",
     "dispatch",
@@ -21,12 +21,19 @@ TaskStage = Literal[
     "read",
     "extract",
     "synthesize",
+    "verify",
+    "challenge",
+    "compare",
+    "submit",
     "claim_check",
     "coverage_check",
     "reported",
 ]
-ValidationStage = Literal["claim_check", "coverage_check"]
+ValidationStage = Literal["claim_check", "coverage_check", "challenge", "compare"]
 ValidationOutcome = Literal["passed", "failed", "needs_follow_up"]
+CoordinationRequestType = Literal["follow_up", "retry_branch", "replan", "escalation", "report_ready"]
+CoordinationRequestStatus = Literal["open", "accepted", "resolved", "dismissed"]
+SubmissionKind = Literal["research_bundle", "verification_bundle", "report_bundle"]
 
 
 def _now_iso() -> str:
@@ -43,6 +50,10 @@ class GraphScopeSnapshot(TypedDict, total=False):
     scope_revision_count: int
     current_scope_version: int
     approved_scope_version: int
+    supervisor_phase: str
+    supervisor_plan_id: str
+    latest_supervisor_decision_id: str
+    open_request_count: int
     budget: dict[str, Any]
     task_queue_stats: dict[str, Any]
     artifact_counts: dict[str, Any]
@@ -60,6 +71,8 @@ class BranchScopeSnapshot(TypedDict, total=False):
     current_stage: str
     verification_status: str
     latest_task_id: str | None
+    latest_submission_id: str | None
+    open_request_ids: list[str]
     task_ids: list[str]
 
 
@@ -68,6 +81,7 @@ class WorkerScopeSnapshot(TypedDict, total=False):
     task_id: str
     branch_id: str | None
     agent_id: str
+    role: AgentRole
     query: str
     objective: str
     task_kind: str
@@ -265,6 +279,70 @@ class VerificationResult:
 
 
 @dataclass
+class CoordinationRequest:
+    id: str
+    request_type: CoordinationRequestType
+    summary: str
+    branch_id: str | None = None
+    task_id: str | None = None
+    requested_by: str = ""
+    status: CoordinationRequestStatus = "open"
+    priority: int = 0
+    artifact_ids: list[str] = field(default_factory=list)
+    suggested_queries: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ResearchSubmission:
+    id: str
+    submission_kind: SubmissionKind
+    summary: str
+    task_id: str | None = None
+    branch_id: str | None = None
+    created_by: str = ""
+    result_status: str = "completed"
+    status: ArtifactStatus = "completed"
+    stage: str = ""
+    validation_stage: str = ""
+    artifact_ids: list[str] = field(default_factory=list)
+    request_ids: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class SupervisorDecisionArtifact:
+    id: str
+    phase: str
+    decision_type: str
+    summary: str
+    branch_id: str | None = None
+    task_ids: list[str] = field(default_factory=list)
+    request_ids: list[str] = field(default_factory=list)
+    next_step: str = ""
+    planning_mode: str = ""
+    iteration: int = 0
+    status: ArtifactStatus = "completed"
+    created_by: str = "supervisor"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class KnowledgeGap:
     id: str
     aspect: str
@@ -374,6 +452,8 @@ class WorkerExecutionResult:
     branch_synthesis: BranchSynthesis | None
     evidence_cards: list[EvidenceCard]
     section_draft: ReportSectionDraft | None
+    coordination_requests: list[CoordinationRequest]
+    submission: ResearchSubmission | None
     raw_results: list[dict[str, Any]]
     tokens_used: int
     searches_used: int = 0
@@ -393,6 +473,8 @@ class WorkerExecutionResult:
             "branch_synthesis": self.branch_synthesis.to_dict() if self.branch_synthesis else None,
             "evidence_cards": [card.to_dict() for card in self.evidence_cards],
             "section_draft": self.section_draft.to_dict() if self.section_draft else None,
+            "coordination_requests": [request.to_dict() for request in self.coordination_requests],
+            "submission": self.submission.to_dict() if self.submission else None,
             "raw_results": list(self.raw_results),
             "tokens_used": self.tokens_used,
             "searches_used": self.searches_used,
@@ -411,6 +493,9 @@ __all__ = [
     "BranchBrief",
     "BranchScopeSnapshot",
     "BranchSynthesis",
+    "CoordinationRequest",
+    "CoordinationRequestStatus",
+    "CoordinationRequestType",
     "EvidenceCard",
     "EvidencePassage",
     "FetchedDocument",
@@ -418,10 +503,13 @@ __all__ = [
     "GraphScopeSnapshot",
     "KnowledgeGap",
     "ReportSectionDraft",
+    "ResearchSubmission",
     "ResearchTask",
     "SourceCandidate",
     "ScopeDraft",
     "ScopeDraftStatus",
+    "SubmissionKind",
+    "SupervisorDecisionArtifact",
     "TaskStatus",
     "TaskStage",
     "ValidationOutcome",

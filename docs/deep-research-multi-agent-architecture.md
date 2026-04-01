@@ -2,6 +2,8 @@
 
 基于当前仓库实现的静态分析，时间点为 2026-03-30。
 
+> 2026-04-01 更新：`multi_agent` 控制面已经开始从公开的 `planner/coordinator` 迁移到 `supervisor_plan/supervisor_decide`。最新 rollout 说明见 `docs/deep-research-supervisor-rollout.md`。
+
 本文聚焦当前 Deep Research 的 `multi_agent` 运行时，而不是整个仓库或所有 Agent 模式。
 
 为避免把设计目标和实际实现混在一起，本文统一使用两类结论：

@@ -51,6 +51,15 @@ _DEEP_RESEARCH_TOOL_GROUPS = {
     "synthesize": set(),
 }
 
+_DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS = {
+    "clarify": {"fabric"},
+    "scope": {"fabric"},
+    "supervisor": {"fabric"},
+    "researcher": {"fabric", "search", "read", "extract", "synthesize"},
+    "verifier": {"fabric", "search", "read", "extract"},
+    "reporter": {"fabric", "synthesize", "execute_python_code"},
+}
+
 
 def _build_llm(model: str, temperature: float = 0.7) -> ChatOpenAI:
     params = {
@@ -247,17 +256,53 @@ def _resolve_deep_research_tool_names(allowed_tools: List[str] | None = None) ->
     return allowed_names
 
 
+def resolve_deep_research_role_tool_names(
+    role: str,
+    *,
+    allowed_tools: List[str] | None = None,
+    enable_supervisor_world_tools: bool = False,
+    enable_reporter_python_tools: bool = True,
+) -> set[str]:
+    normalized_role = str(role or "").strip().lower()
+    requested = list(_DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS.get(normalized_role, {"fabric"}))
+    if normalized_role == "supervisor" and enable_supervisor_world_tools:
+        requested.extend(["search", "read"])
+    if normalized_role == "reporter" and not enable_reporter_python_tools:
+        requested = [item for item in requested if item != "execute_python_code"]
+    requested.extend(str(item).strip() for item in (allowed_tools or []) if str(item).strip())
+    return _resolve_deep_research_tool_names(requested)
+
+
 def build_deep_research_tool_agent(
     *,
     model: str | None = None,
+    role: str | None = None,
     allowed_tools: List[str] | None = None,
+    extra_tools: List[BaseTool] | None = None,
     temperature: float = 0.1,
 ) -> tuple[object, List[BaseTool]]:
     """
     Create a Deep Research-specific tool agent with a restricted toolset.
     """
     model_name = (model or settings.primary_model).strip()
-    allowed_names = _resolve_deep_research_tool_names(allowed_tools)
-    tools = [tool for tool in get_registered_tools() if tool.name in allowed_names]
+    if role:
+        allowed_names = resolve_deep_research_role_tool_names(
+            role,
+            allowed_tools=allowed_tools,
+            enable_supervisor_world_tools=bool(
+                getattr(settings, "deepsearch_supervisor_allow_world_tools", False)
+            ),
+            enable_reporter_python_tools=bool(
+                getattr(settings, "deepsearch_reporter_enable_python_tools", True)
+            ),
+        )
+    else:
+        allowed_names = _resolve_deep_research_tool_names(allowed_tools)
+    tools = list(extra_tools or [])
+    existing_names = {tool.name for tool in tools if getattr(tool, "name", None)}
+    for tool in get_registered_tools():
+        if tool.name not in allowed_names or tool.name in existing_names:
+            continue
+        tools.append(tool)
     agent = build_tool_agent(model=model_name, tools=tools, temperature=temperature)
     return agent, tools

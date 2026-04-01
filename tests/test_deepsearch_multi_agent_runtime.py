@@ -2,7 +2,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
 import agent.workflows.deepsearch_multi_agent as multi_agent_runtime
-from agent.workflows.agents.coordinator import CoordinatorAction, CoordinatorDecision
+import agent.runtime.deep.multi_agent.graph as multi_agent_graph
+from agent.workflows.agents.supervisor import SupervisorAction, SupervisorDecision
 from agent.workflows.deepsearch_multi_agent import run_multi_agent_deepsearch
 
 
@@ -15,7 +16,32 @@ class _DummyEmitter:
         self.emitted.append((name, data))
 
 
-class _FakePlanner:
+def _default_plan(topic):
+    return [
+        {
+            "title": f"{topic} branch 1",
+            "objective": f"Understand the current state of {topic} aspect 1",
+            "task_kind": "branch_research",
+            "aspect": "aspect 1",
+            "acceptance_criteria": [f"Explain the current state of {topic} aspect 1"],
+            "allowed_tools": ["search", "read", "extract", "synthesize"],
+            "query_hints": [f"{topic} aspect 1"],
+            "priority": 1,
+        },
+        {
+            "title": f"{topic} branch 2",
+            "objective": f"Understand the current state of {topic} aspect 2",
+            "task_kind": "branch_research",
+            "aspect": "aspect 2",
+            "acceptance_criteria": [f"Explain the current state of {topic} aspect 2"],
+            "allowed_tools": ["search", "read", "extract", "synthesize"],
+            "query_hints": [f"{topic} aspect 2"],
+            "priority": 2,
+        },
+    ]
+
+
+class _FakeSupervisor:
     def __init__(self, _llm, _config=None):
         pass
 
@@ -27,31 +53,30 @@ class _FakePlanner:
         existing_queries=None,
         approved_scope=None,
     ):
-        return [
-            {
-                "title": f"{topic} branch 1",
-                "objective": f"Understand the current state of {topic} aspect 1",
-                "task_kind": "branch_research",
-                "aspect": "aspect 1",
-                "acceptance_criteria": [f"Explain the current state of {topic} aspect 1"],
-                "allowed_tools": ["search", "read", "extract", "synthesize"],
-                "query_hints": [f"{topic} aspect 1"],
-                "priority": 1,
-            },
-            {
-                "title": f"{topic} branch 2",
-                "objective": f"Understand the current state of {topic} aspect 2",
-                "task_kind": "branch_research",
-                "aspect": "aspect 2",
-                "acceptance_criteria": [f"Explain the current state of {topic} aspect 2"],
-                "allowed_tools": ["search", "read", "extract", "synthesize"],
-                "query_hints": [f"{topic} aspect 2"],
-                "priority": 2,
-            },
-        ]
+        return _default_plan(topic)
 
     def refine_plan(self, topic, gaps, existing_queries, num_queries=3, approved_scope=None):
         return []
+
+    def decide_next_action(self, **kwargs):
+        if kwargs.get("retry_task_ids"):
+            return SupervisorDecision(
+                action=SupervisorAction.RETRY_BRANCH,
+                reasoning="retry branch",
+                retry_task_ids=list(kwargs.get("retry_task_ids") or []),
+                request_ids=list(kwargs.get("request_ids") or []),
+            )
+        if int(kwargs.get("ready_task_count") or 0) > 0:
+            return SupervisorDecision(
+                action=SupervisorAction.DISPATCH,
+                reasoning="dispatch ready branches",
+                request_ids=list(kwargs.get("request_ids") or []),
+            )
+        return SupervisorDecision(
+            action=SupervisorAction.REPORT,
+            reasoning="evidence is sufficient",
+            request_ids=list(kwargs.get("request_ids") or []),
+        )
 
 
 class _FakeClarifyAgent:
@@ -160,18 +185,6 @@ class _FakeVerifier:
         )
 
 
-class _FakeCoordinator:
-    def __init__(self, _llm, config=None):
-        pass
-
-    def decide_next_action(self, **kwargs):
-        return CoordinatorDecision(
-            action=CoordinatorAction.COMPLETE,
-            reasoning="evidence is sufficient",
-            priority_topics=[],
-        )
-
-
 class _FakeReporter:
     def __init__(self, _llm, _config=None):
         pass
@@ -184,7 +197,15 @@ class _FakeReporter:
         return f"{topic} executive summary"
 
 
-class _SingleTaskPlanner(_FakePlanner):
+class _StrictReporter(_FakeReporter):
+    def generate_report(self, topic, findings, sources):
+        raise AssertionError(f"reporter fallback should not run for {topic}")
+
+    def generate_executive_summary(self, report, topic):
+        raise AssertionError(f"reporter fallback should not run for {topic}")
+
+
+class _SingleTaskSupervisor(_FakeSupervisor):
     def create_plan(
         self,
         topic,
@@ -193,18 +214,18 @@ class _SingleTaskPlanner(_FakePlanner):
         existing_queries=None,
         approved_scope=None,
     ):
-        return [
-            {
-                "title": f"{topic} branch 1",
-                "objective": f"Understand the current state of {topic} aspect 1",
-                "task_kind": "branch_research",
-                "aspect": "aspect 1",
-                "acceptance_criteria": [f"Explain the current state of {topic} aspect 1"],
-                "allowed_tools": ["search", "read", "extract", "synthesize"],
-                "query_hints": [f"{topic} aspect 1"],
-                "priority": 1,
-            }
-        ]
+        return _default_plan(topic)[:1]
+
+
+class _BudgetAwareSupervisor(_FakeSupervisor):
+    def decide_next_action(self, **kwargs):
+        if kwargs.get("budget_stop_reason"):
+            return SupervisorDecision(
+                action=SupervisorAction.REPORT,
+                reasoning="stop after budget exhaustion",
+                request_ids=list(kwargs.get("request_ids") or []),
+            )
+        return super().decide_next_action(**kwargs)
 
 
 class _FlakyResearchAgent(_FakeResearchAgent):
@@ -231,10 +252,9 @@ def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatc
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _FakePlanner)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchCoordinator", _FakeCoordinator)
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
@@ -266,10 +286,14 @@ def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatc
     assert len(artifact_store["evidence_cards"]) == 2
     assert len(artifact_store["branch_syntheses"]) == 2
     assert len(artifact_store["verification_results"]) == 4
+    assert len(artifact_store["coordination_requests"]) >= 1
+    assert len(artifact_store["submissions"]) >= 4
+    assert len(artifact_store["supervisor_decisions"]) >= 2
     assert len(artifact_store["report_section_drafts"]) == 2
     assert result["deepsearch_runtime_state"]["engine"] == "multi_agent"
     assert result["deepsearch_runtime_state"]["last_verification_summary"]["verified_branches"] == 2
-    assert {"clarify", "scope", "planner", "researcher", "verifier", "coordinator", "reporter"} <= agent_roles
+    assert result["deepsearch_runtime_state"]["supervisor_phase"] == "loop_decision"
+    assert {"clarify", "scope", "supervisor", "researcher", "verifier", "reporter"} <= agent_roles
     assert "research_agent_start" in event_types
     assert "research_task_update" in event_types
     assert "research_artifact_update" in event_types
@@ -294,10 +318,9 @@ def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _FakePlanner)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchCoordinator", _FakeCoordinator)
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: _DummyEmitter())
 
@@ -312,12 +335,12 @@ def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
     assert "clarify" in mermaid
     assert "scope" in mermaid
     assert "scope_review" in mermaid
-    assert "plan" in mermaid
+    assert "supervisor_plan" in mermaid
     assert "dispatch" in mermaid
     assert "researcher" in mermaid
     assert "merge" in mermaid
     assert "verify" in mermaid
-    assert "coordinate" in mermaid
+    assert "supervisor_decide" in mermaid
     assert "report" in mermaid
     assert "finalize" in mermaid
 
@@ -328,10 +351,9 @@ def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _FakePlanner)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchCoordinator", _FakeCoordinator)
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
@@ -373,10 +395,9 @@ def test_multi_agent_events_include_resume_flag_when_configured(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _SingleTaskPlanner)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchCoordinator", _FakeCoordinator)
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
@@ -415,10 +436,9 @@ def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _SingleTaskPlanner)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FlakyResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchCoordinator", _FakeCoordinator)
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
@@ -462,10 +482,9 @@ def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _SingleTaskPlanner)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchCoordinator", _FakeCoordinator)
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
@@ -514,6 +533,172 @@ def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
     decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
     assert "scope_revision_requested" in decision_types
     assert "scope_approved" in decision_types
+
+
+def test_supervisor_plan_waits_for_scope_approval_before_dispatch(monkeypatch):
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: _DummyEmitter())
+
+    runtime = multi_agent_runtime.MultiAgentDeepSearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_plan_gate", "deepsearch_engine": "multi_agent"}},
+    )
+
+    blocked = runtime._supervisor_plan_node(runtime.build_initial_graph_state())
+    assert blocked["next_step"] == "scope_review"
+
+    approved_state = runtime.build_initial_graph_state()
+    approved_state["runtime_state"]["approved_scope_draft"] = {
+        "id": "scope-1",
+        "version": 1,
+        "status": "approved",
+        "research_goal": "Research AI chips",
+    }
+    dispatched = runtime._supervisor_plan_node(approved_state)
+
+    assert dispatched["next_step"] == "dispatch"
+    assert dispatched["task_queue"]["stats"]["ready"] == 1
+    assert dispatched["runtime_state"]["supervisor_phase"] == "initial_plan"
+
+
+def test_multi_agent_runtime_uses_tool_agent_paths_when_enabled(monkeypatch):
+    emitter = _DummyEmitter()
+    bounded_roles = []
+
+    def _fake_run_bounded_tool_agent(session, **_kwargs):
+        bounded_roles.append((session.role, session.task.id if session.task else None))
+        if session.role == "researcher":
+            session.search_results.append(
+                {
+                    "title": "tool-agent result",
+                    "url": "https://example.com/tool-agent",
+                    "summary": "tool-agent summary",
+                    "raw_excerpt": "tool-agent raw excerpt",
+                    "provider": "fake",
+                }
+            )
+            session._ensure_extracted_result(session.search_results[0])
+            session.submit_research_bundle(
+                summary="tool-agent branch summary",
+                findings=["tool-agent finding"],
+            )
+        elif session.role == "verifier":
+            validation_stage = "claim_check"
+            if session.task and session.task.stage == "coverage_check":
+                validation_stage = "coverage_check"
+            session.submit_verification_bundle(
+                validation_stage=validation_stage,
+                outcome="passed",
+                summary=f"{validation_stage} passed",
+                recommended_action="report",
+            )
+        elif session.role == "reporter":
+            session.submit_report_bundle(
+                report_markdown="# AI chips\n\nTool-agent report",
+                executive_summary="tool-agent summary",
+                citation_urls=["https://example.com/tool-agent"],
+            )
+        return {"response": {}, "text": "", "tool_names": ["fabric_get_task"]}
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _StrictReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    monkeypatch.setattr(multi_agent_graph, "run_bounded_tool_agent", _fake_run_bounded_tool_agent)
+
+    result = run_multi_agent_deepsearch(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_tool_agents",
+                "deepsearch_engine": "multi_agent",
+                "deepsearch_query_num": 1,
+                "deepsearch_use_tool_agents": True,
+            }
+        },
+    )
+
+    assert result["deepsearch_artifact_store"]["final_report"]["executive_summary"] == "tool-agent summary"
+    assert {role for role, _task_id in bounded_roles} >= {"researcher", "verifier", "reporter"}
+    assert any(
+        item["submission_kind"] == "report_bundle"
+        for item in result["deepsearch_artifact_store"]["submissions"]
+    )
+
+
+def test_multi_agent_dispatch_stops_when_search_budget_is_exhausted(monkeypatch):
+    emitter = _DummyEmitter()
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _BudgetAwareSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    result = run_multi_agent_deepsearch(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_budget_stop",
+                "deepsearch_engine": "multi_agent",
+                "deepsearch_query_num": 2,
+                "deepsearch_tree_max_searches": 1,
+            }
+        },
+    )
+
+    assert result["deepsearch_runtime_state"]["budget_stop_reason"] == "search_budget_exceeded"
+    assert result["deepsearch_task_queue"]["stats"]["completed"] == 1
+    assert result["deepsearch_task_queue"]["stats"]["ready"] == 1
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    assert "dispatch" in decision_types
+    assert "budget_stop" in decision_types
+
+
+def test_multi_agent_runtime_honors_max_epochs_even_if_supervisor_wants_dispatch(monkeypatch):
+    emitter = _DummyEmitter()
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    result = run_multi_agent_deepsearch(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_max_epochs_stop",
+                "deepsearch_engine": "multi_agent",
+                "deepsearch_query_num": 2,
+                "deepsearch_max_epochs": 1,
+                "tree_parallel_branches": 1,
+            }
+        },
+    )
+
+    assert result["deepsearch_runtime_state"]["current_iteration"] == 1
+    assert result["deepsearch_task_queue"]["stats"]["completed"] == 1
+    assert result["deepsearch_task_queue"]["stats"]["ready"] == 1
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    assert "research" in decision_types
+    assert "report" in decision_types
 
 
 def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
@@ -582,10 +767,9 @@ def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _ClarifyWithFollowUp)
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _ScopeCapture)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchPlanner", _SingleTaskPlanner)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
     monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchCoordinator", _FakeCoordinator)
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 

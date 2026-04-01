@@ -112,3 +112,31 @@ def test_build_deep_research_tool_agent_filters_to_allowed_groups(monkeypatch):
         "crawl_url",
         "sb_browser_extract_text",
     ]
+
+
+def test_resolve_deep_research_role_tool_names_respects_supervisor_policy():
+    allowed = agent_factory.resolve_deep_research_role_tool_names(
+        "supervisor",
+        enable_supervisor_world_tools=False,
+    )
+    assert allowed == {"fabric"}
+
+    widened = agent_factory.resolve_deep_research_role_tool_names(
+        "supervisor",
+        enable_supervisor_world_tools=True,
+    )
+    assert {"fabric", "browser_navigate", "browser_search"} <= widened
+
+
+def test_resolve_deep_research_role_tool_names_respects_reporter_python_policy():
+    allowed = agent_factory.resolve_deep_research_role_tool_names(
+        "reporter",
+        enable_reporter_python_tools=True,
+    )
+    assert "execute_python_code" in allowed
+
+    restricted = agent_factory.resolve_deep_research_role_tool_names(
+        "reporter",
+        enable_reporter_python_tools=False,
+    )
+    assert "execute_python_code" not in restricted

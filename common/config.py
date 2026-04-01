@@ -363,6 +363,9 @@ class Settings(BaseSettings):
     deepsearch_claim_verifier_use_passages: bool = True  # use fetched passages for claim evidence
     deepsearch_claim_verifier_min_overlap_tokens: int = 2  # token overlap threshold for claim evidence
     deepsearch_claim_verifier_max_evidence_per_claim: int = 3  # max evidence passages/urls stored per claim
+    deepsearch_supervisor_allow_world_tools: bool = False  # allow supervisor spot-check tools
+    deepsearch_reporter_enable_python_tools: bool = True  # allow reporter formatting/export helpers
+    deepsearch_use_tool_agents: bool = True  # run bounded Deep Research tool agents before scripted fallback
 
     # Research Fetcher / Reader Settings
     reader_fallback_mode: str = "both"

@@ -13,14 +13,17 @@ from typing import Any
 from agent.runtime.deep.multi_agent.schema import (
     BranchBrief,
     BranchSynthesis,
+    CoordinationRequest,
     EvidenceCard,
     EvidencePassage,
     FetchedDocument,
     FinalReportArtifact,
     KnowledgeGap,
     ReportSectionDraft,
+    ResearchSubmission,
     ResearchTask,
     SourceCandidate,
+    SupervisorDecisionArtifact,
     VerificationResult,
     _now_iso,
 )
@@ -182,6 +185,9 @@ class ArtifactStore:
         self._evidence_cards: dict[str, EvidenceCard] = {}
         self._branch_syntheses: dict[str, BranchSynthesis] = {}
         self._verification_results: dict[str, VerificationResult] = {}
+        self._coordination_requests: dict[str, CoordinationRequest] = {}
+        self._submissions: dict[str, ResearchSubmission] = {}
+        self._supervisor_decisions: dict[str, SupervisorDecisionArtifact] = {}
         self._knowledge_gaps: dict[str, KnowledgeGap] = {}
         self._section_drafts: dict[str, ReportSectionDraft] = {}
         self._final_report: FinalReportArtifact | None = None
@@ -215,6 +221,18 @@ class ArtifactStore:
             self._verification_results = _restore_items(
                 snapshot.get("verification_results", []),
                 VerificationResult,
+            )
+            self._coordination_requests = _restore_items(
+                snapshot.get("coordination_requests", []),
+                CoordinationRequest,
+            )
+            self._submissions = _restore_items(
+                snapshot.get("submissions", []),
+                ResearchSubmission,
+            )
+            self._supervisor_decisions = _restore_items(
+                snapshot.get("supervisor_decisions", []),
+                SupervisorDecisionArtifact,
             )
             self._knowledge_gaps = _restore_items(snapshot.get("knowledge_gaps", []), KnowledgeGap)
             self._section_drafts = _restore_items(
@@ -268,6 +286,40 @@ class ArtifactStore:
             for result in verification_results:
                 result.updated_at = _now_iso()
                 self._verification_results[result.id] = result
+
+    def add_coordination_requests(self, requests: list[CoordinationRequest]) -> None:
+        with self._lock:
+            for request in requests:
+                request.updated_at = _now_iso()
+                self._coordination_requests[request.id] = request
+
+    def update_coordination_request_status(
+        self,
+        request_id: str,
+        status: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> CoordinationRequest | None:
+        with self._lock:
+            request = self._coordination_requests.get(request_id)
+            if not request:
+                return None
+            request.status = str(status or request.status)
+            request.updated_at = _now_iso()
+            if isinstance(metadata, dict) and metadata:
+                request.metadata.update(metadata)
+            return copy.deepcopy(request)
+
+    def add_submissions(self, submissions: list[ResearchSubmission]) -> None:
+        with self._lock:
+            for submission in submissions:
+                submission.updated_at = _now_iso()
+                self._submissions[submission.id] = submission
+
+    def add_supervisor_decision(self, artifact: SupervisorDecisionArtifact) -> None:
+        with self._lock:
+            artifact.updated_at = _now_iso()
+            self._supervisor_decisions[artifact.id] = artifact
 
     def replace_gaps(self, gaps: list[KnowledgeGap]) -> None:
         with self._lock:
@@ -324,6 +376,16 @@ class ArtifactStore:
                 for result in self._verification_results.values()
                 if result.task_id == task_id or (branch_id and result.branch_id == branch_id)
             ]
+            coordination_requests = [
+                asdict(request)
+                for request in self._coordination_requests.values()
+                if request.task_id == task_id or (branch_id and request.branch_id == branch_id)
+            ]
+            submissions = [
+                asdict(submission)
+                for submission in self._submissions.values()
+                if submission.task_id == task_id or (branch_id and submission.branch_id == branch_id)
+            ]
             gaps = [asdict(gap) for gap in self._knowledge_gaps.values()]
         return {
             "source_candidates": source_candidates,
@@ -333,6 +395,8 @@ class ArtifactStore:
             "section_drafts": sections,
             "branch_syntheses": syntheses,
             "verification_results": verification_results,
+            "coordination_requests": coordination_requests,
+            "submissions": submissions,
             "knowledge_gaps": gaps,
         }
 
@@ -381,6 +445,38 @@ class ArtifactStore:
             if validation_stage:
                 items = [item for item in items if item.validation_stage == validation_stage]
             return [copy.deepcopy(item) for item in items]
+
+    def coordination_requests(
+        self,
+        *,
+        branch_id: str | None = None,
+        status: str | None = None,
+    ) -> list[CoordinationRequest]:
+        with self._lock:
+            items = list(self._coordination_requests.values())
+            if branch_id:
+                items = [item for item in items if item.branch_id == branch_id]
+            if status:
+                items = [item for item in items if item.status == status]
+            return [copy.deepcopy(item) for item in items]
+
+    def submissions(
+        self,
+        *,
+        branch_id: str | None = None,
+        submission_kind: str | None = None,
+    ) -> list[ResearchSubmission]:
+        with self._lock:
+            items = list(self._submissions.values())
+            if branch_id:
+                items = [item for item in items if item.branch_id == branch_id]
+            if submission_kind:
+                items = [item for item in items if item.submission_kind == submission_kind]
+            return [copy.deepcopy(item) for item in items]
+
+    def supervisor_decisions(self) -> list[SupervisorDecisionArtifact]:
+        with self._lock:
+            return [copy.deepcopy(item) for item in self._supervisor_decisions.values()]
 
     def gap_artifacts(self) -> list[KnowledgeGap]:
         with self._lock:
@@ -445,6 +541,27 @@ class ArtifactStore:
                     for result in sorted(
                         self._verification_results.values(),
                         key=lambda item: (item.task_id, item.validation_stage, item.created_at, item.id),
+                    )
+                ],
+                "coordination_requests": [
+                    asdict(request)
+                    for request in sorted(
+                        self._coordination_requests.values(),
+                        key=lambda item: (item.priority, item.created_at, item.id),
+                    )
+                ],
+                "submissions": [
+                    asdict(submission)
+                    for submission in sorted(
+                        self._submissions.values(),
+                        key=lambda item: (item.created_at, item.id),
+                    )
+                ],
+                "supervisor_decisions": [
+                    asdict(decision)
+                    for decision in sorted(
+                        self._supervisor_decisions.values(),
+                        key=lambda item: (item.iteration, item.created_at, item.id),
                     )
                 ],
                 "knowledge_gaps": [

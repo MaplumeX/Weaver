@@ -1,5 +1,6 @@
 from agent.workflows import nodes
 from agent.workflows.agents.coordinator import CoordinatorAction, ResearchCoordinator
+from agent.workflows.agents.supervisor import ResearchSupervisor, SupervisorAction
 
 
 class _NeverInvokeLLM:
@@ -62,3 +63,41 @@ def test_coordinator_node_routes_low_quality_to_research_without_llm(monkeypatch
     result = nodes.coordinator_node(state, config={})
 
     assert result["coordinator_action"] == "research"
+
+
+def test_supervisor_honors_epoch_limit_before_dispatching_ready_tasks():
+    supervisor = ResearchSupervisor(_NeverInvokeLLM())
+
+    decision = supervisor.decide_next_action(
+        topic="AI chips",
+        num_queries=3,
+        num_sources=8,
+        num_summaries=2,
+        current_epoch=3,
+        max_epochs=3,
+        ready_task_count=2,
+        request_ids=["req-1"],
+    )
+
+    assert decision.action == SupervisorAction.REPORT
+    assert decision.reasoning == "已达到最大研究轮次，停止继续派发研究任务"
+    assert decision.request_ids == ["req-1"]
+
+
+def test_supervisor_honors_epoch_limit_before_retrying_branch():
+    supervisor = ResearchSupervisor(_NeverInvokeLLM())
+
+    decision = supervisor.decide_next_action(
+        topic="AI chips",
+        num_queries=3,
+        num_sources=8,
+        num_summaries=2,
+        current_epoch=4,
+        max_epochs=3,
+        retry_task_ids=["task-1"],
+        request_ids=["req-1"],
+    )
+
+    assert decision.action == SupervisorAction.REPORT
+    assert decision.reasoning == "已达到最大研究轮次，停止继续派发研究任务"
+    assert decision.retry_task_ids == []

@@ -4,7 +4,7 @@
 ## Requirements
 
 ### Requirement: Deep Research intake gates planning
-系统 MUST 在 `multi_agent` Deep Research 中先完成 intake/scoping，再允许 planner 生成研究任务。
+系统 MUST 在 `multi_agent` Deep Research 中先完成 clarify/scoping，再允许 `supervisor` 进入正式计划与调度。
 
 #### Scenario: Clarify runs before scope draft creation
 - **WHEN** 一个新的 `multi_agent` Deep Research 请求进入 deep runtime
@@ -13,7 +13,7 @@
 
 #### Scenario: Planning waits for approved scope
 - **WHEN** 当前研究请求还没有已批准的 scope draft
-- **THEN** 系统 MUST NOT 让 `planner` 直接基于原始 topic 生成研究任务
+- **THEN** 系统 MUST NOT 让 `supervisor` 直接基于原始 topic 生成正式研究任务
 - **THEN** 系统 MUST 继续停留在 intake/scoping 阶段直到 scope 被批准
 
 ### Requirement: Scope draft is structured and reviewable
@@ -25,8 +25,8 @@
 - **THEN** 该草案 MUST 能表达研究目标、核心问题、纳入范围、排除范围、约束或偏好等范围信息
 
 #### Scenario: User reviews draft before research begins
-- **WHEN** scope agent 产出新的 scope draft
-- **THEN** 系统 MUST 在进入 planner 前将该草案展示给用户审阅
+- **WHEN** `scope agent` 产出新的 scope draft
+- **THEN** 系统 MUST 在进入 `supervisor` 正式计划前将该草案展示给用户审阅
 - **THEN** 系统 MUST 通过可恢复的暂停点等待用户批准或提出修改意见
 
 #### Scenario: Review context survives pause and restore
@@ -50,15 +50,15 @@
 #### Scenario: Revision progress remains visible to the user
 - **WHEN** 用户提交 `scope_feedback` 后系统开始重写 scope draft
 - **THEN** 系统 MUST 让用户持续看到本次重写仍属于同一研究流程的后续进展
-- **THEN** 用户 MUST 在 planner 开始前看到重写后的新草案版本
+- **THEN** 用户 MUST 在 `supervisor` 开始正式规划前看到重写后的新草案版本
 
-### Requirement: Approved scope becomes the planner contract
-系统 MUST 将用户明确批准的 scope snapshot 作为 planner 与后续研究循环的唯一上游范围契约。
+### Requirement: Approved scope becomes the supervisor contract
+系统 MUST 将用户明确批准的 scope snapshot 作为 `supervisor` 与后续研究循环的唯一上游范围契约。
 
 #### Scenario: User approves the draft
 - **WHEN** 用户明确批准当前 scope draft
 - **THEN** 系统 MUST 将该版本记录为已批准 scope
-- **THEN** planner MUST 基于该已批准 scope 而不是未批准候选草案生成研究任务
+- **THEN** `supervisor` MUST 基于该已批准 scope 而不是未批准候选草案生成研究任务
 
 #### Scenario: Revised drafts do not override approval implicitly
 - **WHEN** 系统仍处于 scope 修订过程中且用户尚未批准最新草案
@@ -66,6 +66,6 @@
 - **THEN** 后续研究循环 MUST 保持阻塞状态
 
 #### Scenario: Approval handoff remains visible after scope review
-- **WHEN** 用户批准当前 scope draft 并且系统进入 planner 或正式研究阶段
+- **WHEN** 用户批准当前 scope draft 并且系统进入 `supervisor` 或正式研究阶段
 - **THEN** 系统 MUST 让用户继续观察到从 scope approval 进入 planning / research 的后续进展
 - **THEN** 客户端 MUST 不需要额外刷新或静默等待最终结果，才能知道批准后的流程已经继续执行

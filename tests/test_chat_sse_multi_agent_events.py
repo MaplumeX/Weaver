@@ -16,7 +16,7 @@ async def test_stream_flushes_multi_agent_events_before_graph_completion(monkeyp
         async def astream_events(self, *args, **kwargs):
             await emitter.emit(
                 ToolEvent.RESEARCH_AGENT_START,
-                {"agent_id": "planner-1", "role": "planner", "phase": "initial_plan"},
+                {"agent_id": "supervisor-1", "role": "supervisor", "phase": "initial_plan"},
             )
             event_released.set()
             await asyncio.sleep(0.2)
@@ -56,7 +56,7 @@ async def test_stream_flushes_multi_agent_events_before_graph_completion(monkeyp
     payload = json.loads(second_chunk[2:])
 
     assert payload["type"] == "research_agent_start"
-    assert payload["data"]["role"] == "planner"
+    assert payload["data"]["role"] == "supervisor"
 
 
 @pytest.mark.asyncio

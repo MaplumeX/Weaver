@@ -27,6 +27,7 @@ from agent.runtime.deep.multi_agent.schema import (
     AgentRunRecord,
     BranchBrief,
     BranchSynthesis,
+    CoordinationRequest,
     EvidenceCard,
     EvidencePassage,
     FetchedDocument,
@@ -34,17 +35,23 @@ from agent.runtime.deep.multi_agent.schema import (
     GraphScopeSnapshot,
     KnowledgeGap,
     ReportSectionDraft,
+    ResearchSubmission,
     ResearchTask,
     SourceCandidate,
     ScopeDraft,
+    SupervisorDecisionArtifact,
     VerificationResult,
     WorkerExecutionResult,
     WorkerScopeSnapshot,
     _now_iso,
 )
 from agent.runtime.deep.multi_agent.store import ArtifactStore, ResearchTaskQueue
-from agent.workflows.agents.coordinator import CoordinatorAction
+from agent.runtime.deep.multi_agent.tool_agents import (
+    DeepResearchToolAgentSession,
+    run_bounded_tool_agent,
+)
 from agent.workflows.claim_verifier import ClaimStatus, ClaimVerifier
+from agent.workflows.agents.supervisor import SupervisorAction
 from agent.workflows.knowledge_gap import GapAnalysisResult
 from common.cancellation import check_cancellation as _check_cancel_token
 from common.config import settings
@@ -126,6 +133,13 @@ def _restore_worker_result(payload: dict[str, Any]) -> WorkerExecutionResult:
     evidence_cards = [EvidenceCard(**item) for item in payload.get("evidence_cards", [])]
     section_payload = payload.get("section_draft")
     section_draft = ReportSectionDraft(**section_payload) if isinstance(section_payload, dict) else None
+    coordination_requests = [
+        CoordinationRequest(**item)
+        for item in payload.get("coordination_requests", [])
+        if isinstance(item, dict)
+    ]
+    submission_payload = payload.get("submission")
+    submission = ResearchSubmission(**submission_payload) if isinstance(submission_payload, dict) else None
     agent_run_payload = payload.get("agent_run")
     agent_run = AgentRunRecord(**agent_run_payload) if isinstance(agent_run_payload, dict) else None
     return WorkerExecutionResult(
@@ -137,6 +151,8 @@ def _restore_worker_result(payload: dict[str, Any]) -> WorkerExecutionResult:
         branch_synthesis=branch_synthesis,
         evidence_cards=evidence_cards,
         section_draft=section_draft,
+        coordination_requests=coordination_requests,
+        submission=submission,
         raw_results=list(payload.get("raw_results", [])),
         tokens_used=int(payload.get("tokens_used", 0) or 0),
         searches_used=int(payload.get("searches_used", 0) or 0),
@@ -401,6 +417,9 @@ class _RuntimeView:
         self.runtime_state.setdefault("last_gap_result", {})
         self.runtime_state.setdefault("last_decision", {})
         self.runtime_state.setdefault("last_verification_summary", {})
+        self.runtime_state.setdefault("supervisor_phase", "")
+        self.runtime_state.setdefault("supervisor_plan", {})
+        self.runtime_state.setdefault("supervisor_request_ids", [])
         self.runtime_state.setdefault("intake_status", "pending")
         self.runtime_state.setdefault("clarify_question", "")
         self.runtime_state.setdefault("clarify_question_history", [])
@@ -546,6 +565,16 @@ class _RuntimeView:
             "scope_revision_count": int(self.runtime_state.get("scope_revision_count", 0) or 0),
             "current_scope_version": _scope_version(current_scope),
             "approved_scope_version": _scope_version(approved_scope),
+            "supervisor_phase": str(self.runtime_state.get("supervisor_phase") or ""),
+            "supervisor_plan_id": str(
+                (self.runtime_state.get("supervisor_plan") or {}).get("id") or ""
+            ),
+            "latest_supervisor_decision_id": (
+                self.artifact_store.supervisor_decisions()[-1].id
+                if self.artifact_store.supervisor_decisions()
+                else ""
+            ),
+            "open_request_count": len(self.artifact_store.coordination_requests(status="open")),
             "budget": {
                 "searches_used": self.searches_used,
                 "tokens_used": self.tokens_used,
@@ -563,6 +592,9 @@ class _RuntimeView:
                 "evidence_cards": len(self.artifact_store.evidence_cards()),
                 "branch_syntheses": len(self.artifact_store.branch_syntheses()),
                 "verification_results": len(self.artifact_store.verification_results()),
+                "coordination_requests": len(self.artifact_store.coordination_requests()),
+                "submissions": len(self.artifact_store.submissions()),
+                "supervisor_decisions": len(self.artifact_store.supervisor_decisions()),
                 "knowledge_gaps": len(self.artifact_store.gap_artifacts()),
                 "report_section_drafts": len(self.artifact_store.section_drafts()),
                 "has_final_report": self.artifact_store.final_report() is not None,
@@ -581,6 +613,19 @@ class _RuntimeView:
                 "current_stage": brief.current_stage,
                 "verification_status": brief.verification_status,
                 "latest_task_id": brief.latest_task_id,
+                "latest_submission_id": (
+                    next(
+                        (
+                            submission.id
+                            for submission in reversed(self.artifact_store.submissions(branch_id=brief.id))
+                        ),
+                        None,
+                    )
+                ),
+                "open_request_ids": [
+                    request.id
+                    for request in self.artifact_store.coordination_requests(branch_id=brief.id, status="open")
+                ],
                 "task_ids": [task.id for task in self.task_queue.all_tasks() if task.branch_id == brief.id],
             }
             for brief in briefs
@@ -597,6 +642,7 @@ class _RuntimeView:
                         "task_id": str(item.get("task_id") or ""),
                         "branch_id": item.get("parent_scope_id"),
                         "agent_id": str(item.get("agent_id") or ""),
+                        "role": "researcher",
                         "query": str(item.get("query") or ""),
                         "objective": str((item.get("brief") or {}).get("objective") or ""),
                         "task_kind": str((item.get("brief") or {}).get("task_kind") or ""),
@@ -655,6 +701,11 @@ class _RuntimeView:
             "last_decision": copy.deepcopy(self.runtime_state.get("last_decision", {})),
             "last_verification_summary": copy.deepcopy(
                 self.runtime_state.get("last_verification_summary", {})
+            ),
+            "supervisor_phase": str(self.runtime_state.get("supervisor_phase") or ""),
+            "supervisor_plan": copy.deepcopy(self.runtime_state.get("supervisor_plan", {})),
+            "supervisor_request_ids": copy.deepcopy(
+                self.runtime_state.get("supervisor_request_ids", [])
             ),
             "intake_status": str(self.runtime_state.get("intake_status") or "pending"),
             "clarify_question": str(self.runtime_state.get("clarify_question") or ""),
@@ -860,6 +911,60 @@ class _RuntimeView:
     def _emit_research_tree_update(self) -> None:
         events.emit_research_tree_update(self)
 
+    def record_supervisor_decision(
+        self,
+        *,
+        phase: str,
+        decision_type: str,
+        summary: str,
+        next_step: str,
+        planning_mode: str = "",
+        task_ids: list[str] | None = None,
+        request_ids: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> SupervisorDecisionArtifact:
+        artifact = SupervisorDecisionArtifact(
+            id=support._new_id("supervisor_decision"),
+            phase=phase,
+            decision_type=decision_type,
+            summary=summary,
+            branch_id=self.root_branch_id,
+            task_ids=list(task_ids or []),
+            request_ids=list(request_ids or []),
+            next_step=next_step,
+            planning_mode=planning_mode,
+            iteration=self.current_iteration,
+            metadata=copy.deepcopy(metadata or {}),
+        )
+        self.artifact_store.add_supervisor_decision(artifact)
+        self.runtime_state["supervisor_phase"] = phase
+        self.runtime_state["last_decision"] = {
+            "id": artifact.id,
+            "decision_type": decision_type,
+            "summary": summary,
+            "next_step": next_step,
+            "planning_mode": planning_mode,
+            "task_ids": list(task_ids or []),
+            "request_ids": list(request_ids or []),
+        }
+        self._emit_artifact_update(
+            artifact_id=artifact.id,
+            artifact_type="supervisor_decision",
+            status=artifact.status,
+            branch_id=self.root_branch_id,
+            agent_id=artifact.created_by,
+            summary=summary[:180],
+            stage=phase,
+            extra={
+                "decision_type": decision_type,
+                "next_step": next_step,
+                "planning_mode": planning_mode,
+                "task_ids": list(task_ids or []),
+                "request_ids": list(request_ids or []),
+            },
+        )
+        return artifact
+
     def start_agent_run(
         self,
         *,
@@ -1036,23 +1141,29 @@ class MultiAgentDeepSearchRuntime:
         self.pause_before_merge = bool(self.cfg.get("deepsearch_pause_before_merge"))
 
         self.provider_profile = support._resolve_provider_profile(self.state)
+        self.enable_tool_agents = bool(
+            self.cfg.get("deepsearch_use_tool_agents", getattr(settings, "deepsearch_use_tool_agents", True))
+        )
 
-        planner_model = support._model_for_task("planning", self.config)
+        supervisor_model = support._model_for_task("planning", self.config)
         researcher_model = support._model_for_task("research", self.config)
         reporter_model = support._model_for_task("writing", self.config)
         verifier_model = support._model_for_task("gap_analysis", self.config)
-        coordinator_model = support._model_for_task("planning", self.config)
+        self.supervisor_model = supervisor_model
+        self.researcher_model = researcher_model
+        self.reporter_model = reporter_model
+        self.verifier_model = verifier_model
 
         self.clarifier = self._deps.DeepResearchClarifyAgent(
-            self._deps.create_chat_model(planner_model, temperature=0),
+            self._deps.create_chat_model(supervisor_model, temperature=0),
             self.config,
         )
         self.scope_agent = self._deps.DeepResearchScopeAgent(
-            self._deps.create_chat_model(planner_model, temperature=0),
+            self._deps.create_chat_model(supervisor_model, temperature=0),
             self.config,
         )
-        self.planner = self._deps.ResearchPlanner(
-            self._deps.create_chat_model(planner_model, temperature=0),
+        self.supervisor = self._deps.ResearchSupervisor(
+            self._deps.create_chat_model(supervisor_model, temperature=0),
             self.config,
         )
         self.researcher = self._deps.ResearchAgent(
@@ -1069,10 +1180,6 @@ class MultiAgentDeepSearchRuntime:
             self.config,
         )
         self.claim_verifier = ClaimVerifier()
-        self.coordinator = self._deps.ResearchCoordinator(
-            self._deps.create_chat_model(coordinator_model, temperature=0),
-            self.config,
-        )
 
     def _resume_task_queue_snapshot(self) -> dict[str, Any]:
         deep_runtime = self.state.get("deep_runtime") or {}
@@ -1148,10 +1255,12 @@ class MultiAgentDeepSearchRuntime:
             return "clarify"
         stats = task_queue_snapshot.get("stats", {}) if isinstance(task_queue_snapshot, dict) else {}
         if int(stats.get("total", 0) or 0) == 0:
-            return "plan"
+            return "supervisor_plan"
         if int(stats.get("ready", 0) or 0) > 0 or int(stats.get("in_progress", 0) or 0) > 0:
             return "dispatch"
-        return "verify"
+        if artifact_store_snapshot.get("final_report"):
+            return "finalize"
+        return "supervisor_decide"
 
     def build_initial_graph_state(self) -> MultiAgentGraphState:
         task_queue_snapshot = self._resume_task_queue_snapshot()
@@ -1257,15 +1366,25 @@ class MultiAgentDeepSearchRuntime:
             view.runtime_state,
         )
         planning_mode = str(graph_state.get("planning_mode") or view.runtime_state.get("planning_mode") or "").strip()
-        if next_step == "plan" and not planning_mode:
+        if next_step == "supervisor_plan" and not planning_mode:
             planning_mode = "initial"
         return view.snapshot_patch(next_step=next_step, planning_mode=planning_mode)
 
     def _route_after_bootstrap(self, graph_state: MultiAgentGraphState) -> str:
         next_step = str(graph_state.get("next_step") or "clarify").strip().lower()
-        if next_step in {"clarify", "scope", "scope_review", "dispatch", "verify", "report", "finalize"}:
+        if next_step in {
+            "clarify",
+            "scope",
+            "scope_review",
+            "supervisor_plan",
+            "dispatch",
+            "verify",
+            "supervisor_decide",
+            "report",
+            "finalize",
+        }:
             return next_step
-        return "plan"
+        return "supervisor_plan"
 
     def _clarify_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "clarify")
@@ -1498,7 +1617,7 @@ class MultiAgentDeepSearchRuntime:
                     "content": _format_scope_draft_markdown(approved_payload),
                 },
             )
-            return view.snapshot_patch(next_step="plan")
+            return view.snapshot_patch(next_step="supervisor_plan")
 
         prompt = {
             "checkpoint": "deepsearch_scope_review",
@@ -1560,7 +1679,7 @@ class MultiAgentDeepSearchRuntime:
                     "content": _format_scope_draft_markdown(approved_payload),
                 },
             )
-            return view.snapshot_patch(next_step="plan")
+            return view.snapshot_patch(next_step="supervisor_plan")
 
         if action != "revise_scope":
             raise ValueError(f"Unsupported scope review action: {action}")
@@ -1603,20 +1722,20 @@ class MultiAgentDeepSearchRuntime:
         return view.snapshot_patch(next_step="scope")
 
     def _route_after_scope_review(self, graph_state: MultiAgentGraphState) -> str:
-        next_step = str(graph_state.get("next_step") or "plan").strip().lower()
-        if next_step in {"scope", "plan"}:
+        next_step = str(graph_state.get("next_step") or "supervisor_plan").strip().lower()
+        if next_step in {"scope", "supervisor_plan"}:
             return next_step
-        return "plan"
+        return "supervisor_plan"
 
-    def _plan_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
-        view = self._view(graph_state, "plan")
+    def _supervisor_plan_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+        view = self._view(graph_state, "supervisor_plan")
         approved_scope = copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {})
         if not approved_scope:
             return view.snapshot_patch(next_step="scope_review")
         planning_mode = str(graph_state.get("planning_mode") or view.runtime_state.get("planning_mode") or "initial")
         phase = "replan" if planning_mode == "replan" else "initial_plan"
         record = view.start_agent_run(
-            role="planner",
+            role="supervisor",
             phase=phase,
             branch_id=view.root_branch_id,
             iteration=view.current_iteration or None,
@@ -1633,7 +1752,7 @@ class MultiAgentDeepSearchRuntime:
                     graph_state.get("latest_gap_result") or view.runtime_state.get("last_gap_result")
                 )
                 gap_labels = [gap.aspect for gap in gap_result.gaps] if gap_result else []
-                plan_items = self.planner.refine_plan(
+                plan_items = self.supervisor.refine_plan(
                     self.topic,
                     gaps=gap_labels,
                     existing_queries=existing_objectives,
@@ -1645,7 +1764,7 @@ class MultiAgentDeepSearchRuntime:
                 )
                 context_id = str(approved_scope.get("id") or f"replan-{view.current_iteration or 0}")
             else:
-                plan_items = self.planner.create_plan(
+                plan_items = self.supervisor.create_plan(
                     self.topic,
                     num_queries=self.query_num,
                     existing_knowledge=view._knowledge_summary(),
@@ -1691,14 +1810,60 @@ class MultiAgentDeepSearchRuntime:
                 for task in tasks:
                     view._emit_task_update(task=task, status=task.status, attempt=task.attempts)
                 view._emit_research_tree_update()
+            plan_snapshot = {
+                "id": support._new_id("supervisor_plan"),
+                "phase": phase,
+                "approved_scope_id": str(approved_scope.get("id") or ""),
+                "task_ids": [task.id for task in tasks],
+                "request_ids": list(view.runtime_state.get("supervisor_request_ids") or []),
+                "created_at": _now_iso(),
+            }
+            view.runtime_state["supervisor_phase"] = phase
+            view.runtime_state["supervisor_plan"] = plan_snapshot
+            decision_type = "supervisor_replan" if planning_mode == "replan" else "supervisor_plan"
+            decision_summary = f"生成 {len(tasks)} 个 branch 研究任务"
+            view._emit_decision(
+                decision_type=decision_type,
+                reason=decision_summary,
+                iteration=view.current_iteration or None,
+                attempt=view.graph_attempt,
+                extra={
+                    "task_ids": [task.id for task in tasks],
+                    "scope_id": approved_scope.get("id"),
+                    "scope_version": approved_scope.get("version"),
+                },
+            )
+            decision_artifact = view.record_supervisor_decision(
+                phase=phase,
+                decision_type=decision_type,
+                summary=decision_summary,
+                next_step="dispatch",
+                planning_mode="",
+                task_ids=[task.id for task in tasks],
+                request_ids=list(view.runtime_state.get("supervisor_request_ids") or []),
+                metadata={
+                    "scope_id": approved_scope.get("id"),
+                    "scope_version": approved_scope.get("version"),
+                    "task_count": len(tasks),
+                },
+            )
+            view.runtime_state["supervisor_request_ids"] = []
             view.finish_agent_run(
                 record,
                 status="completed",
-                summary=f"生成 {len(tasks)} 个 branch 研究任务",
+                summary=decision_summary,
                 iteration=view.current_iteration or None,
                 branch_id=view.root_branch_id,
             )
-            return view.snapshot_patch(next_step="dispatch", planning_mode="")
+            return view.snapshot_patch(
+                next_step="dispatch",
+                planning_mode="",
+                latest_decision={
+                    "id": decision_artifact.id,
+                    "decision_type": decision_type,
+                    "reasoning": decision_summary,
+                },
+            )
         except Exception as exc:
             view.finish_agent_run(
                 record,
@@ -1744,6 +1909,435 @@ class MultiAgentDeepSearchRuntime:
         if not payloads:
             return "verify"
         return [Send("researcher", {"worker_task": payload}) for payload in payloads]
+
+    def _try_researcher_tool_agent(
+        self,
+        *,
+        view: _RuntimeView,
+        task: ResearchTask,
+        record: AgentRunRecord,
+        worker_context: ResearchWorkerContext,
+        objective_summary: str,
+        current_stage: str,
+        branch_brief: BranchBrief | None,
+        iteration: int,
+        attempt: int,
+    ) -> WorkerExecutionResult | None:
+        if not self.enable_tool_agents:
+            return None
+        session = DeepResearchToolAgentSession(
+            runtime=view,
+            role="researcher",
+            topic=self.topic,
+            graph_run_id=view.graph_run_id,
+            branch_id=task.branch_id,
+            task=task,
+            iteration=iteration,
+            attempt=attempt,
+            allowed_capabilities=set(task.allowed_tools or []),
+            approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
+            related_artifacts=view.artifact_store.get_related_artifacts(task.id, branch_id=task.branch_id),
+        )
+        system_prompt = (
+            "You are the Deep Research branch researcher.\n"
+            "You must stay inside the active branch scope and only use the provided tools.\n"
+            "Always inspect task context first, gather evidence with search/read/extract as needed, "
+            "then call fabric_submit_research_bundle.\n"
+            "If blocked, call fabric_request_follow_up instead of inventing facts.\n"
+            "Finish with a compact JSON object containing summary and result_status."
+        )
+        user_prompt = (
+            f"Topic: {self.topic}\n"
+            f"Branch objective: {objective_summary}\n"
+            f"Branch summary: {(branch_brief.summary if branch_brief else '')}\n"
+            f"Primary query: {task.query}\n"
+            f"Query hints: {', '.join(_derive_branch_queries(task))}\n"
+            f"Acceptance criteria: {task.acceptance_criteria}\n"
+            f"Allowed capabilities: {task.allowed_tools}\n"
+        )
+        try:
+            run_bounded_tool_agent(
+                session,
+                model=self.researcher_model,
+                allowed_tools=task.allowed_tools,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                config=self.config,
+            )
+        except Exception:
+            return None
+        if not session.submissions or session.branch_synthesis is None:
+            return None
+
+        worker_context.summary_notes.append(session.branch_synthesis.summary)
+        worker_context.scraped_content.append(
+            {
+                "query": task.query,
+                "queries": _derive_branch_queries(task),
+                "objective": objective_summary,
+                "task_kind": task.task_kind,
+                "stage": "submit",
+                "results": list(session.search_results),
+                "timestamp": _now_iso(),
+                "task_id": task.id,
+                "agent_id": record.agent_id,
+                "attempt": attempt,
+                "branch_id": task.branch_id,
+                "tool_agent": True,
+            }
+        )
+        worker_context.sources.extend(support._compact_sources(session.search_results, limit=10))
+        worker_context.artifacts_created.extend(
+            [item.to_dict() for item in session.source_candidates]
+            + [item.to_dict() for item in session.fetched_documents]
+            + [item.to_dict() for item in session.evidence_passages]
+            + [item.to_dict() for item in session.evidence_cards]
+            + ([session.branch_synthesis.to_dict()] if session.branch_synthesis else [])
+            + ([session.section_draft.to_dict()] if session.section_draft else [])
+            + [item.to_dict() for item in session.coordination_requests]
+            + [item.to_dict() for item in session.submissions]
+        )
+        worker_context.is_complete = True
+        task.stage = "submit"
+        view.finish_agent_run(
+            record,
+            status="completed",
+            summary=session.branch_synthesis.summary[:240],
+            iteration=iteration,
+            branch_id=task.branch_id,
+            stage="submit",
+        )
+        return WorkerExecutionResult(
+            task=task,
+            context=worker_context,
+            source_candidates=session.source_candidates,
+            fetched_documents=session.fetched_documents,
+            evidence_passages=session.evidence_passages,
+            branch_synthesis=session.branch_synthesis,
+            evidence_cards=session.evidence_cards,
+            section_draft=session.section_draft,
+            coordination_requests=session.coordination_requests,
+            submission=session.submissions[-1],
+            raw_results=list(session.search_results),
+            tokens_used=max(session.tokens_used, support._estimate_tokens_from_text(session.branch_synthesis.summary)),
+            searches_used=session.searches_used,
+            branch_id=task.branch_id,
+            task_stage="submit",
+            result_status=session.submissions[-1].result_status,
+            agent_run=record,
+        )
+
+    def _try_verifier_tool_agent(
+        self,
+        *,
+        view: _RuntimeView,
+        task: ResearchTask,
+        synthesis: BranchSynthesis,
+        validation_stage: str,
+        claim_result: VerificationResult | None = None,
+        gap_result: GapAnalysisResult | None = None,
+        verified_knowledge: str = "",
+    ) -> DeepResearchToolAgentSession | None:
+        if not self.enable_tool_agents:
+            return None
+        related_artifacts = view.artifact_store.get_related_artifacts(task.id, branch_id=synthesis.branch_id)
+        session = DeepResearchToolAgentSession(
+            runtime=view,
+            role="verifier",
+            topic=self.topic,
+            graph_run_id=view.graph_run_id,
+            branch_id=synthesis.branch_id,
+            task=task,
+            iteration=view.current_iteration,
+            attempt=max(1, int(task.attempts or 1)),
+            allowed_capabilities={"search", "read", "extract"},
+            approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
+            related_artifacts=related_artifacts,
+        )
+        session.branch_synthesis = copy.deepcopy(synthesis)
+        session.source_candidates = [
+            SourceCandidate(**item)
+            for item in related_artifacts.get("source_candidates", [])
+            if isinstance(item, dict)
+        ]
+        session.fetched_documents = [
+            FetchedDocument(**item)
+            for item in related_artifacts.get("fetched_documents", [])
+            if isinstance(item, dict)
+        ]
+        session.evidence_passages = [
+            EvidencePassage(**item)
+            for item in related_artifacts.get("evidence_passages", [])
+            if isinstance(item, dict)
+        ]
+        session.evidence_cards = [
+            EvidenceCard(**item)
+            for item in related_artifacts.get("evidence_cards", [])
+            if isinstance(item, dict)
+        ]
+
+        system_prompt = (
+            "You are the Deep Research verifier.\n"
+            "Work only inside the active branch and only use the provided tools.\n"
+            "Inspect the current task and related artifacts first.\n"
+            "Use fabric_challenge_summary for claim checks, fabric_compare_coverage for coverage checks, "
+            "and search/read/extract only when you need extra evidence.\n"
+            "Always finish by calling fabric_submit_verification_bundle.\n"
+            "Return a compact JSON object with validation_stage, outcome, summary and recommended_action."
+        )
+        user_prompt = (
+            f"Topic: {self.topic}\n"
+            f"Validation stage: {validation_stage}\n"
+            f"Branch objective: {task.objective or task.title or task.goal}\n"
+            f"Acceptance criteria: {task.acceptance_criteria}\n"
+            f"Branch summary: {synthesis.summary}\n"
+            f"Citation URLs: {synthesis.citation_urls}\n"
+            f"Prior claim outcome: {(claim_result.outcome if claim_result else 'n/a')}\n"
+            f"Coverage analysis: {(gap_result.analysis if gap_result else '')}\n"
+            f"Suggested follow-up queries: {(gap_result.suggested_queries if gap_result else [])}\n"
+            f"Verified knowledge so far: {verified_knowledge[:1200]}\n"
+        )
+        try:
+            run_bounded_tool_agent(
+                session,
+                model=self.verifier_model,
+                allowed_tools=None,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                config=self.config,
+            )
+        except Exception:
+            return None
+        if not session.verification_results or not session.submissions:
+            return None
+        result = session.verification_results[-1]
+        if result.validation_stage != validation_stage:
+            return None
+        if validation_stage == "coverage_check" and gap_result and "gap_analysis" not in result.metadata:
+            result.metadata["gap_analysis"] = gap_result.analysis
+        return session
+
+    def _persist_verifier_tool_agent_session(
+        self,
+        *,
+        view: _RuntimeView,
+        task_map: dict[str, ResearchTask],
+        validation_stage: str,
+        source_candidates: list[SourceCandidate],
+        fetched_documents: list[FetchedDocument],
+        evidence_passages: list[EvidencePassage],
+        evidence_cards: list[EvidenceCard],
+        verification_results: list[VerificationResult],
+        coordination_requests: list[CoordinationRequest],
+        submissions: list[ResearchSubmission],
+    ) -> None:
+        existing_source_ids = {item.id for item in view.artifact_store.source_candidates()}
+        existing_document_ids = {item.id for item in view.artifact_store.fetched_documents()}
+        existing_passage_ids = {item.id for item in view.artifact_store.evidence_passages()}
+        existing_card_ids = {item.id for item in view.artifact_store.evidence_cards()}
+        source_candidates = [item for item in source_candidates if item.id not in existing_source_ids]
+        fetched_documents = [item for item in fetched_documents if item.id not in existing_document_ids]
+        evidence_passages = [item for item in evidence_passages if item.id not in existing_passage_ids]
+        evidence_cards = [item for item in evidence_cards if item.id not in existing_card_ids]
+        if source_candidates:
+            view.artifact_store.add_source_candidates(source_candidates)
+            for candidate in source_candidates:
+                branch_task = task_map.get(candidate.task_id)
+                view._emit_artifact_update(
+                    artifact_id=candidate.id,
+                    artifact_type="source_candidate",
+                    status=candidate.status,
+                    task_id=candidate.task_id,
+                    branch_id=candidate.branch_id,
+                    agent_id=candidate.created_by,
+                    summary=candidate.summary[:180],
+                    source_url=candidate.url,
+                    task_kind=branch_task.task_kind if branch_task else None,
+                    stage="search",
+                    validation_stage=validation_stage,
+                )
+        if fetched_documents:
+            view.artifact_store.add_fetched_documents(fetched_documents)
+            for document in fetched_documents:
+                branch_task = task_map.get(document.task_id)
+                view._emit_artifact_update(
+                    artifact_id=document.id,
+                    artifact_type="fetched_document",
+                    status=document.status,
+                    task_id=document.task_id,
+                    branch_id=document.branch_id,
+                    agent_id=document.created_by,
+                    summary=document.title[:180] or document.excerpt[:180],
+                    source_url=document.url,
+                    task_kind=branch_task.task_kind if branch_task else None,
+                    stage="read",
+                    validation_stage=validation_stage,
+                )
+        if evidence_passages:
+            view.artifact_store.add_evidence_passages(evidence_passages)
+            for passage in evidence_passages:
+                branch_task = task_map.get(passage.task_id)
+                view._emit_artifact_update(
+                    artifact_id=passage.id,
+                    artifact_type="evidence_passage",
+                    status=passage.status,
+                    task_id=passage.task_id,
+                    branch_id=passage.branch_id,
+                    agent_id=passage.created_by,
+                    summary=passage.quote[:180] or passage.text[:180],
+                    source_url=passage.url,
+                    task_kind=branch_task.task_kind if branch_task else None,
+                    stage="extract",
+                    validation_stage=validation_stage,
+                )
+        if evidence_cards:
+            view.artifact_store.add_evidence(evidence_cards)
+            for card in evidence_cards:
+                branch_task = task_map.get(card.task_id)
+                view._emit_artifact_update(
+                    artifact_id=card.id,
+                    artifact_type="evidence_card",
+                    status=card.status,
+                    task_id=card.task_id,
+                    branch_id=card.branch_id,
+                    agent_id=card.created_by,
+                    summary=card.summary[:180],
+                    source_url=card.source_url,
+                    task_kind=branch_task.task_kind if branch_task else None,
+                    stage="extract",
+                    validation_stage=validation_stage,
+                )
+        if verification_results:
+            view.artifact_store.add_verification_results(verification_results)
+            for result in verification_results:
+                branch_task = task_map.get(result.task_id)
+                view._emit_artifact_update(
+                    artifact_id=result.id,
+                    artifact_type="verification_result",
+                    status=result.status,
+                    task_id=result.task_id,
+                    branch_id=result.branch_id,
+                    agent_id=result.created_by,
+                    summary=result.summary,
+                    task_kind=branch_task.task_kind if branch_task else None,
+                    stage=validation_stage,
+                    validation_stage=result.validation_stage,
+                    extra={
+                        "outcome": result.outcome,
+                        "recommended_action": result.recommended_action,
+                        "gap_ids": list(result.gap_ids),
+                    },
+                )
+                if result.branch_id:
+                    brief = view.artifact_store.get_brief(result.branch_id)
+                    if brief:
+                        brief.latest_verification_id = result.id
+                        brief.current_stage = validation_stage
+                        brief.verification_status = result.outcome
+                        view.artifact_store.put_brief(brief)
+        if coordination_requests:
+            view.artifact_store.add_coordination_requests(coordination_requests)
+            for request in coordination_requests:
+                branch_task = task_map.get(request.task_id or "")
+                view._emit_artifact_update(
+                    artifact_id=request.id,
+                    artifact_type="coordination_request",
+                    status=request.status,
+                    task_id=request.task_id,
+                    branch_id=request.branch_id,
+                    agent_id=request.requested_by,
+                    summary=request.summary[:180],
+                    task_kind=branch_task.task_kind if branch_task else None,
+                    stage=validation_stage,
+                    validation_stage=validation_stage,
+                    extra={
+                        "request_type": request.request_type,
+                        "artifact_ids": list(request.artifact_ids),
+                        "suggested_queries": list(request.suggested_queries),
+                    },
+                )
+        if submissions:
+            view.artifact_store.add_submissions(submissions)
+            for submission in submissions:
+                branch_task = task_map.get(submission.task_id or "")
+                view._emit_artifact_update(
+                    artifact_id=submission.id,
+                    artifact_type="verification_submission",
+                    status=submission.status,
+                    task_id=submission.task_id,
+                    branch_id=submission.branch_id,
+                    agent_id=submission.created_by,
+                    summary=submission.summary[:180],
+                    task_kind=branch_task.task_kind if branch_task else None,
+                    stage=submission.stage or validation_stage,
+                    validation_stage=submission.validation_stage or validation_stage,
+                    extra={
+                        "submission_kind": submission.submission_kind,
+                        "result_status": submission.result_status,
+                        "artifact_ids": list(submission.artifact_ids),
+                        "request_ids": list(submission.request_ids),
+                    },
+                )
+
+    def _try_reporter_tool_agent(
+        self,
+        *,
+        view: _RuntimeView,
+        verified_syntheses: list[BranchSynthesis],
+        citation_urls: list[str],
+    ) -> DeepResearchToolAgentSession | None:
+        if not self.enable_tool_agents:
+            return None
+        session = DeepResearchToolAgentSession(
+            runtime=view,
+            role="reporter",
+            topic=self.topic,
+            graph_run_id=view.graph_run_id,
+            branch_id=view.root_branch_id,
+            iteration=view.current_iteration,
+            attempt=view.graph_attempt,
+            allowed_capabilities=set(),
+            approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
+            related_artifacts={
+                "branch_syntheses": [item.to_dict() for item in verified_syntheses],
+                "verification_results": [
+                    item.to_dict()
+                    for item in view.artifact_store.verification_results()
+                ],
+            },
+        )
+        synthesis_lines = "\n".join(
+            f"- {item.objective or item.branch_id or 'branch'}: {item.summary[:280]}"
+            for item in verified_syntheses[:8]
+        )
+        system_prompt = (
+            "You are the Deep Research reporter.\n"
+            "Only use verified branch artifacts from the blackboard.\n"
+            "Use fabric_get_verified_branch_summaries to inspect the final evidence base.\n"
+            "Use fabric_format_report_section when helpful, then call fabric_submit_report_bundle.\n"
+            "Do not introduce facts that are not supported by verified artifacts.\n"
+            "Return a compact JSON object with report_markdown, executive_summary and citation_urls."
+        )
+        user_prompt = (
+            f"Topic: {self.topic}\n"
+            f"Verified branch count: {len(verified_syntheses)}\n"
+            f"Verified synthesis previews:\n{synthesis_lines}\n"
+            f"Citation URLs: {citation_urls}\n"
+        )
+        try:
+            run_bounded_tool_agent(
+                session,
+                model=self.reporter_model,
+                allowed_tools=None,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                config=self.config,
+            )
+        except Exception:
+            return None
+        if session.final_report is None or not session.submissions:
+            return None
+        return session
 
     def _researcher_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "researcher")
@@ -1808,6 +2402,19 @@ class MultiAgentDeepSearchRuntime:
 
         try:
             view._check_cancel()
+            tool_result = self._try_researcher_tool_agent(
+                view=view,
+                task=task,
+                record=record,
+                worker_context=worker_context,
+                objective_summary=objective_summary,
+                current_stage=current_stage,
+                branch_brief=branch_brief,
+                iteration=iteration,
+                attempt=attempt,
+            )
+            if tool_result is not None:
+                return {"worker_results": [tool_result.to_dict()]}
             _emit_stage("search")
             queries = _derive_branch_queries(task)
             if not queries:
@@ -1989,6 +2596,29 @@ class MultiAgentDeepSearchRuntime:
                 + [branch_synthesis.to_dict(), section_draft.to_dict()]
             )
             worker_context.is_complete = True
+            submission = ResearchSubmission(
+                id=support._new_id("submission"),
+                submission_kind="research_bundle",
+                summary=branch_synthesis.summary[:240],
+                task_id=task.id,
+                branch_id=branch_id,
+                created_by=record.agent_id,
+                result_status="completed",
+                stage="submit",
+                artifact_ids=[
+                    *[candidate.id for candidate in source_candidates],
+                    *[document.id for document in fetched_documents],
+                    *[passage.id for passage in evidence_passages],
+                    *[card.id for card in evidence_cards],
+                    branch_synthesis.id,
+                    section_draft.id,
+                ],
+                metadata={
+                    "allowed_tools": list(task.allowed_tools),
+                    "queries": list(queries),
+                    "task_kind": task.task_kind,
+                },
+            )
 
             view.finish_agent_run(
                 record,
@@ -2008,6 +2638,8 @@ class MultiAgentDeepSearchRuntime:
                 branch_synthesis=branch_synthesis,
                 evidence_cards=evidence_cards,
                 section_draft=section_draft,
+                coordination_requests=[],
+                submission=submission,
                 raw_results=results,
                 tokens_used=support._estimate_tokens_from_results(results)
                 + support._estimate_tokens_from_text(summary),
@@ -2020,6 +2652,36 @@ class MultiAgentDeepSearchRuntime:
         except Exception as exc:
             worker_context.errors.append(str(exc))
             worker_context.is_complete = True
+            retry_request = CoordinationRequest(
+                id=support._new_id("request"),
+                request_type="retry_branch" if attempt < self.task_retry_limit else "follow_up",
+                summary=str(exc),
+                branch_id=branch_id,
+                task_id=task.id,
+                requested_by=record.agent_id,
+                artifact_ids=[],
+                suggested_queries=_derive_branch_queries(task),
+                metadata={
+                    "stage": current_stage,
+                    "allowed_tools": list(task.allowed_tools),
+                    "task_kind": task.task_kind,
+                },
+            )
+            submission = ResearchSubmission(
+                id=support._new_id("submission"),
+                submission_kind="research_bundle",
+                summary=str(exc),
+                task_id=task.id,
+                branch_id=branch_id,
+                created_by=record.agent_id,
+                result_status="failed",
+                stage=current_stage,
+                request_ids=[retry_request.id],
+                metadata={
+                    "allowed_tools": list(task.allowed_tools),
+                    "task_kind": task.task_kind,
+                },
+            )
             view.finish_agent_run(
                 record,
                 status="failed",
@@ -2037,6 +2699,8 @@ class MultiAgentDeepSearchRuntime:
                 branch_synthesis=None,
                 evidence_cards=[],
                 section_draft=None,
+                coordination_requests=[retry_request],
+                submission=submission,
                 raw_results=[],
                 tokens_used=0,
                 searches_used=0,
@@ -2070,6 +2734,47 @@ class MultiAgentDeepSearchRuntime:
 
             if result.agent_run:
                 view.agent_runs.append(result.agent_run)
+
+            if result.coordination_requests:
+                view.artifact_store.add_coordination_requests(result.coordination_requests)
+                for request in result.coordination_requests:
+                    view._emit_artifact_update(
+                        artifact_id=request.id,
+                        artifact_type="coordination_request",
+                        status=request.status,
+                        task_id=request.task_id,
+                        branch_id=request.branch_id,
+                        agent_id=request.requested_by,
+                        summary=request.summary[:180],
+                        task_kind=result.task.task_kind,
+                        stage=result.task_stage or result.task.stage,
+                        extra={
+                            "request_type": request.request_type,
+                            "artifact_ids": list(request.artifact_ids),
+                            "suggested_queries": list(request.suggested_queries),
+                        },
+                    )
+
+            if result.submission:
+                view.artifact_store.add_submissions([result.submission])
+                view._emit_artifact_update(
+                    artifact_id=result.submission.id,
+                    artifact_type="research_submission",
+                    status=result.submission.status,
+                    task_id=result.submission.task_id,
+                    branch_id=result.submission.branch_id,
+                    agent_id=result.submission.created_by,
+                    summary=result.submission.summary[:180],
+                    task_kind=result.task.task_kind,
+                    stage=result.submission.stage or result.task_stage or result.task.stage,
+                    validation_stage=result.submission.validation_stage or None,
+                    extra={
+                        "submission_kind": result.submission.submission_kind,
+                        "result_status": result.submission.result_status,
+                        "artifact_ids": list(result.submission.artifact_ids),
+                        "request_ids": list(result.submission.request_ids),
+                    },
+                )
 
             if result.source_candidates:
                 view.artifact_store.add_source_candidates(result.source_candidates)
@@ -2265,6 +2970,12 @@ class MultiAgentDeepSearchRuntime:
             validation_stage="claim_check",
         )
         claim_results: list[VerificationResult] = []
+        claim_submissions: list[ResearchSubmission] = []
+        claim_requests: list[CoordinationRequest] = []
+        claim_source_candidates: list[SourceCandidate] = []
+        claim_fetched_documents: list[FetchedDocument] = []
+        claim_evidence_passages: list[EvidencePassage] = []
+        claim_evidence_cards: list[EvidenceCard] = []
         claim_outcomes_by_task: dict[str, VerificationResult] = {}
         try:
             for synthesis in syntheses:
@@ -2276,6 +2987,24 @@ class MultiAgentDeepSearchRuntime:
                         status=task.status,
                         attempt=task.attempts,
                     )
+                if task:
+                    tool_session = self._try_verifier_tool_agent(
+                        view=view,
+                        task=task,
+                        synthesis=synthesis,
+                        validation_stage="claim_check",
+                    )
+                    if tool_session is not None:
+                        claim_source_candidates.extend(tool_session.source_candidates)
+                        claim_fetched_documents.extend(tool_session.fetched_documents)
+                        claim_evidence_passages.extend(tool_session.evidence_passages)
+                        claim_evidence_cards.extend(tool_session.evidence_cards)
+                        claim_requests.extend(tool_session.coordination_requests)
+                        claim_submissions.extend(tool_session.submissions)
+                        verification_result = tool_session.verification_results[-1]
+                        claim_results.append(verification_result)
+                        claim_outcomes_by_task[synthesis.task_id] = verification_result
+                        continue
                 related_passages = [
                     passage
                     for passage in view.artifact_store.evidence_passages(branch_id=synthesis.branch_id)
@@ -2348,31 +3077,35 @@ class MultiAgentDeepSearchRuntime:
                 )
                 claim_results.append(verification_result)
                 claim_outcomes_by_task[synthesis.task_id] = verification_result
+                claim_submissions.append(
+                    ResearchSubmission(
+                        id=support._new_id("submission"),
+                        submission_kind="verification_bundle",
+                        summary=summary,
+                        task_id=synthesis.task_id,
+                        branch_id=synthesis.branch_id,
+                        created_by=claim_record.agent_id,
+                        result_status=outcome,
+                        stage="verify",
+                        validation_stage="claim_check",
+                        artifact_ids=[verification_result.id],
+                        metadata={"recommended_action": recommended_action},
+                    )
+                )
 
             if claim_results:
-                view.artifact_store.add_verification_results(claim_results)
-                for result in claim_results:
-                    branch_task = task_map.get(result.task_id)
-                    view._emit_artifact_update(
-                        artifact_id=result.id,
-                        artifact_type="verification_result",
-                        status=result.status,
-                        task_id=result.task_id,
-                        branch_id=result.branch_id,
-                        agent_id=result.created_by,
-                        summary=result.summary,
-                        task_kind=branch_task.task_kind if branch_task else None,
-                        stage="claim_check",
-                        validation_stage=result.validation_stage,
-                        extra={"outcome": result.outcome, "recommended_action": result.recommended_action},
-                    )
-                    if result.branch_id:
-                        brief = view.artifact_store.get_brief(result.branch_id)
-                        if brief:
-                            brief.latest_verification_id = result.id
-                            brief.current_stage = "claim_check"
-                            brief.verification_status = result.outcome
-                            view.artifact_store.put_brief(brief)
+                self._persist_verifier_tool_agent_session(
+                    view=view,
+                    task_map=task_map,
+                    validation_stage="claim_check",
+                    source_candidates=claim_source_candidates,
+                    fetched_documents=claim_fetched_documents,
+                    evidence_passages=claim_evidence_passages,
+                    evidence_cards=claim_evidence_cards,
+                    verification_results=claim_results,
+                    coordination_requests=claim_requests,
+                    submissions=claim_submissions,
+                )
 
             view.finish_agent_run(
                 claim_record,
@@ -2445,6 +3178,12 @@ class MultiAgentDeepSearchRuntime:
                 )
 
             coverage_results: list[VerificationResult] = []
+            verification_requests: list[CoordinationRequest] = []
+            verification_submissions: list[ResearchSubmission] = []
+            coverage_source_candidates: list[SourceCandidate] = []
+            coverage_fetched_documents: list[FetchedDocument] = []
+            coverage_evidence_passages: list[EvidencePassage] = []
+            coverage_evidence_cards: list[EvidenceCard] = []
             verified_task_ids: list[str] = []
             retry_task_ids: list[str] = []
             failed_branch_count = 0
@@ -2452,11 +3191,50 @@ class MultiAgentDeepSearchRuntime:
             for synthesis in syntheses:
                 task = task_map.get(synthesis.task_id)
                 claim_result = claim_outcomes_by_task.get(synthesis.task_id)
+                if task:
+                    task.stage = "coverage_check"
+                    view._emit_task_update(
+                        task=task,
+                        status=task.status,
+                        attempt=task.attempts,
+                    )
                 missing_criteria = [
                     criterion
                     for criterion in (task.acceptance_criteria if task else [])
                     if not _criterion_is_covered(synthesis.summary, criterion)
                 ]
+                if task and claim_result and claim_result.outcome == "passed":
+                    tool_session = self._try_verifier_tool_agent(
+                        view=view,
+                        task=task,
+                        synthesis=synthesis,
+                        validation_stage="coverage_check",
+                        claim_result=claim_result,
+                        gap_result=gap_result,
+                        verified_knowledge=verified_knowledge,
+                    )
+                    if tool_session is not None:
+                        coverage_source_candidates.extend(tool_session.source_candidates)
+                        coverage_fetched_documents.extend(tool_session.fetched_documents)
+                        coverage_evidence_passages.extend(tool_session.evidence_passages)
+                        coverage_evidence_cards.extend(tool_session.evidence_cards)
+                        verification_requests.extend(tool_session.coordination_requests)
+                        verification_submissions.extend(tool_session.submissions)
+                        result = tool_session.verification_results[-1]
+                        if not result.gap_ids:
+                            result.gap_ids = [gap.id for gap in gap_artifacts]
+                        result.metadata.setdefault("missing_acceptance_criteria", missing_criteria)
+                        coverage_results.append(result)
+                        if result.outcome == "passed":
+                            verified_task_ids.append(synthesis.task_id)
+                        else:
+                            retry_task_ids.append(synthesis.task_id)
+                            if result.outcome == "failed":
+                                failed_branch_count += 1
+                            else:
+                                follow_up_branch_count += 1
+                        continue
+
                 if claim_result and claim_result.outcome == "failed":
                     outcome = "failed"
                     recommended_action = "retry_branch"
@@ -2499,35 +3277,118 @@ class MultiAgentDeepSearchRuntime:
                     },
                 )
                 coverage_results.append(result)
-
-            if coverage_results:
-                view.artifact_store.add_verification_results(coverage_results)
-                for result in coverage_results:
-                    branch_task = task_map.get(result.task_id)
-                    view._emit_artifact_update(
-                        artifact_id=result.id,
-                        artifact_type="verification_result",
-                        status=result.status,
-                        task_id=result.task_id,
-                        branch_id=result.branch_id,
-                        agent_id=result.created_by,
-                        summary=result.summary,
-                        task_kind=branch_task.task_kind if branch_task else None,
-                        stage="coverage_check",
-                        validation_stage=result.validation_stage,
-                        extra={
-                            "outcome": result.outcome,
-                            "recommended_action": result.recommended_action,
-                            "gap_ids": result.gap_ids,
+                request_ids: list[str] = []
+                if recommended_action == "retry_branch":
+                    task = task_map.get(synthesis.task_id)
+                    request = CoordinationRequest(
+                        id=support._new_id("request"),
+                        request_type="retry_branch",
+                        summary=summary,
+                        branch_id=synthesis.branch_id,
+                        task_id=synthesis.task_id,
+                        requested_by=coverage_record.agent_id,
+                        artifact_ids=[result.id],
+                        suggested_queries=_derive_branch_queries(task) if task else [],
+                        metadata={
+                            "validation_stage": result.validation_stage,
+                            "gap_ids": list(result.gap_ids),
+                            "missing_acceptance_criteria": missing_criteria,
                         },
                     )
-                    if result.branch_id:
-                        brief = view.artifact_store.get_brief(result.branch_id)
-                        if brief:
-                            brief.latest_verification_id = result.id
-                            brief.current_stage = "coverage_check"
-                            brief.verification_status = result.outcome
-                            view.artifact_store.put_brief(brief)
+                    verification_requests.append(request)
+                    request_ids.append(request.id)
+                verification_submissions.append(
+                    ResearchSubmission(
+                        id=support._new_id("submission"),
+                        submission_kind="verification_bundle",
+                        summary=summary,
+                        task_id=synthesis.task_id,
+                        branch_id=synthesis.branch_id,
+                        created_by=coverage_record.agent_id,
+                        result_status=outcome,
+                        stage="verify",
+                        validation_stage=result.validation_stage,
+                        artifact_ids=[result.id],
+                        request_ids=request_ids,
+                        metadata={
+                            "recommended_action": recommended_action,
+                            "gap_ids": list(result.gap_ids),
+                        },
+                    )
+                )
+
+            if coverage_results:
+                self._persist_verifier_tool_agent_session(
+                    view=view,
+                    task_map=task_map,
+                    validation_stage="coverage_check",
+                    source_candidates=coverage_source_candidates,
+                    fetched_documents=coverage_fetched_documents,
+                    evidence_passages=coverage_evidence_passages,
+                    evidence_cards=coverage_evidence_cards,
+                    verification_results=coverage_results,
+                    coordination_requests=verification_requests,
+                    submissions=verification_submissions,
+                )
+
+            if gap_artifacts and not retry_task_ids and not any(
+                request.request_type == "replan" for request in verification_requests
+            ):
+                replan_request = CoordinationRequest(
+                    id=support._new_id("request"),
+                    request_type="replan",
+                    summary="coverage 仍有缺口，需要 supervisor 补充规划",
+                    branch_id=view.root_branch_id,
+                    requested_by=coverage_record.agent_id,
+                    artifact_ids=[gap.id for gap in gap_artifacts],
+                    suggested_queries=list(gap_result.suggested_queries),
+                    metadata={"gap_count": len(gap_artifacts)},
+                )
+                verification_requests.append(replan_request)
+
+            if not retry_task_ids and not gap_artifacts and verified_task_ids and not any(
+                request.request_type == "report_ready" for request in verification_requests
+            ):
+                report_request = CoordinationRequest(
+                    id=support._new_id("request"),
+                    request_type="report_ready",
+                    summary="已验证分支结论足以进入最终汇总",
+                    branch_id=view.root_branch_id,
+                    requested_by=coverage_record.agent_id,
+                    artifact_ids=[
+                        result.id
+                        for result in coverage_results
+                        if result.outcome == "passed"
+                    ],
+                    metadata={"verified_task_ids": list(verified_task_ids)},
+                )
+                verification_requests.append(report_request)
+
+            if verification_requests:
+                supplemental_requests = [
+                    request
+                    for request in verification_requests
+                    if request.id not in {item.id for item in view.artifact_store.coordination_requests()}
+                ]
+                if supplemental_requests:
+                    view.artifact_store.add_coordination_requests(supplemental_requests)
+                    for request in supplemental_requests:
+                        view._emit_artifact_update(
+                            artifact_id=request.id,
+                            artifact_type="coordination_request",
+                            status=request.status,
+                            task_id=request.task_id,
+                            branch_id=request.branch_id,
+                            agent_id=request.requested_by,
+                            summary=request.summary[:180],
+                            stage="coverage_check",
+                            validation_stage="coverage_check",
+                            extra={
+                                "request_type": request.request_type,
+                                "artifact_ids": list(request.artifact_ids),
+                                "suggested_queries": list(request.suggested_queries),
+                            },
+                        )
 
             quality_summary = view._quality_summary(gap_result)
             view._emit(events.ToolEventType.QUALITY_UPDATE, quality_summary)
@@ -2541,7 +3402,12 @@ class MultiAgentDeepSearchRuntime:
                 "follow_up_branches": follow_up_branch_count,
                 "coverage_gap_count": len(gap_artifacts),
                 "replan_hints": list(gap_result.suggested_queries),
+                "request_ids": [request.id for request in verification_requests],
             }
+            view.runtime_state["supervisor_request_ids"] = [
+                request.id
+                for request in view.artifact_store.coordination_requests(status="open")
+            ]
             if verification_summary["retry_task_ids"]:
                 view._emit_decision(
                     decision_type="verification_retry_requested",
@@ -2583,7 +3449,7 @@ class MultiAgentDeepSearchRuntime:
                 validation_stage="coverage_check",
             )
             return view.snapshot_patch(
-                next_step="coordinate",
+                next_step="supervisor_decide",
                 latest_gap_result=gap_result.to_dict(),
                 latest_verification_summary=verification_summary,
             )
@@ -2599,8 +3465,8 @@ class MultiAgentDeepSearchRuntime:
             )
             raise
 
-    def _coordinate_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
-        view = self._view(graph_state, "coordinate")
+    def _supervisor_decide_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+        view = self._view(graph_state, "supervisor_decide")
         gap_result = _gap_result_from_payload(
             graph_state.get("latest_gap_result") or view.runtime_state.get("last_gap_result")
         )
@@ -2609,95 +3475,20 @@ class MultiAgentDeepSearchRuntime:
             or view.runtime_state.get("last_verification_summary")
             or {}
         )
+        open_requests = view.artifact_store.coordination_requests(status="open")
         record = view.start_agent_run(
-            role="coordinator",
+            role="supervisor",
             phase="loop_decision",
             branch_id=view.root_branch_id,
             iteration=view.current_iteration,
             attempt=view.graph_attempt,
         )
         try:
-            if view.budget_stop_reason:
-                latest_decision = {
-                    "action": "budget_stop",
-                    "reasoning": view.budget_stop_reason,
-                    "iteration": view.current_iteration,
-                }
-                view._emit_decision(
-                    decision_type="budget_stop",
-                    reason=view.budget_stop_reason,
-                    iteration=view.current_iteration,
-                    coverage=gap_result.overall_coverage if gap_result else None,
-                    gap_count=len(gap_result.gaps) if gap_result else None,
-                    attempt=view.graph_attempt,
-                )
-                view.finish_agent_run(
-                    record,
-                    status="completed",
-                    summary=view.budget_stop_reason,
-                    iteration=view.current_iteration,
-                    branch_id=view.root_branch_id,
-                )
-                return view.snapshot_patch(
-                    next_step="report",
-                    latest_decision=latest_decision,
-                    planning_mode="",
-                )
-
             retry_task_ids = [
                 task_id
                 for task_id in verification_summary.get("retry_task_ids", [])
                 if isinstance(task_id, str) and task_id.strip()
             ]
-            ready_for_retry = []
-            for task_id in retry_task_ids:
-                existing_task = view.task_queue.get(task_id)
-                if not existing_task:
-                    continue
-                if existing_task.attempts >= self.task_retry_limit:
-                    continue
-                retried_task = view.task_queue.update_stage(
-                    task_id,
-                    "dispatch",
-                    status="ready",
-                    reason="verification_follow_up",
-                )
-                if retried_task:
-                    ready_for_retry.append(retried_task)
-                    view._emit_task_update(
-                        task=retried_task,
-                        status=retried_task.status,
-                        attempt=retried_task.attempts,
-                        reason="verification_follow_up",
-                    )
-            if ready_for_retry:
-                latest_decision = {
-                    "action": "retry_branch",
-                    "reasoning": "branch 验证要求补证据，已重新放回调度队列",
-                    "iteration": view.current_iteration,
-                    "retry_task_ids": [task.id for task in ready_for_retry],
-                }
-                view._emit_decision(
-                    decision_type="retry_branch",
-                    reason=latest_decision["reasoning"],
-                    iteration=view.current_iteration,
-                    gap_count=len(gap_result.gaps) if gap_result else None,
-                    attempt=view.graph_attempt,
-                    extra={"retry_task_ids": latest_decision["retry_task_ids"]},
-                )
-                view.finish_agent_run(
-                    record,
-                    status="completed",
-                    summary=latest_decision["reasoning"],
-                    iteration=view.current_iteration,
-                    branch_id=view.root_branch_id,
-                )
-                return view.snapshot_patch(
-                    next_step="dispatch",
-                    latest_decision=latest_decision,
-                    planning_mode="",
-                )
-
             evidence_count = len(view.artifact_store.evidence_passages()) or len(view.artifact_store.evidence_cards())
             section_count = len(view.artifact_store.branch_syntheses())
             unique_urls = {
@@ -2712,23 +3503,35 @@ class MultiAgentDeepSearchRuntime:
                     if card.source_url
                 }
             citation_accuracy = min(1.0, len(unique_urls) / max(1, evidence_count)) if evidence_count else 0.0
-            decision = self.coordinator.decide_next_action(
-                topic=self.topic,
-                num_queries=view.task_queue.completed_count(),
-                num_sources=len(unique_urls),
-                num_summaries=section_count,
-                current_epoch=view.current_iteration,
-                max_epochs=self.max_epochs,
-                knowledge_summary=view._knowledge_summary(),
-                quality_score=gap_result.overall_coverage if gap_result else 0.0,
-                quality_gap_count=len(gap_result.gaps) if gap_result else 0,
-                citation_accuracy=citation_accuracy,
-                verification_summary=verification_summary,
-            )
+            if view.current_iteration >= self.max_epochs and not view.budget_stop_reason:
+                decision = self._deps.SupervisorDecision(
+                    action=SupervisorAction.REPORT,
+                    reasoning="已达到最大研究轮次，停止继续派发研究任务",
+                    request_ids=[request.id for request in open_requests],
+                )
+            else:
+                decision = self.supervisor.decide_next_action(
+                    topic=self.topic,
+                    num_queries=view.task_queue.completed_count(),
+                    num_sources=len(unique_urls),
+                    num_summaries=section_count,
+                    current_epoch=view.current_iteration,
+                    max_epochs=self.max_epochs,
+                    ready_task_count=view.task_queue.ready_count(),
+                    retry_task_ids=retry_task_ids,
+                    request_ids=[request.id for request in open_requests],
+                    budget_stop_reason=view.budget_stop_reason or "",
+                    knowledge_summary=view._knowledge_summary(),
+                    quality_score=gap_result.overall_coverage if gap_result else 0.0,
+                    quality_gap_count=len(gap_result.gaps) if gap_result else 0,
+                    citation_accuracy=citation_accuracy,
+                    verification_summary=verification_summary,
+                )
             latest_decision = {
                 "action": decision.action.value,
                 "reasoning": decision.reasoning,
                 "iteration": view.current_iteration,
+                "request_ids": list(decision.request_ids),
             }
             view._emit_decision(
                 decision_type=decision.action.value,
@@ -2738,6 +3541,80 @@ class MultiAgentDeepSearchRuntime:
                 gap_count=len(gap_result.gaps) if gap_result else None,
                 attempt=view.graph_attempt,
             )
+
+            next_step = "report"
+            planning_mode = ""
+            metadata: dict[str, Any] = {}
+            if decision.action == SupervisorAction.RETRY_BRANCH:
+                ready_for_retry = []
+                for task_id in decision.retry_task_ids:
+                    existing_task = view.task_queue.get(task_id)
+                    if not existing_task or existing_task.attempts >= self.task_retry_limit:
+                        continue
+                    retried_task = view.task_queue.update_stage(
+                        task_id,
+                        "dispatch",
+                        status="ready",
+                        reason="verification_follow_up",
+                    )
+                    if retried_task:
+                        ready_for_retry.append(retried_task)
+                        view._emit_task_update(
+                            task=retried_task,
+                            status=retried_task.status,
+                            attempt=retried_task.attempts,
+                            reason="verification_follow_up",
+                        )
+                next_step = "dispatch" if ready_for_retry else "report"
+                latest_decision["retry_task_ids"] = [task.id for task in ready_for_retry]
+                metadata["retry_task_ids"] = latest_decision["retry_task_ids"]
+            elif decision.action == SupervisorAction.PLAN:
+                next_step = "supervisor_plan"
+                planning_mode = "initial"
+            elif decision.action == SupervisorAction.REPLAN:
+                next_step = "supervisor_plan"
+                planning_mode = "replan"
+            elif decision.action == SupervisorAction.DISPATCH:
+                if view.task_queue.ready_count() > 0:
+                    next_step = "dispatch"
+                elif gap_result and gap_result.gaps:
+                    next_step = "supervisor_plan"
+                    planning_mode = "replan"
+                else:
+                    next_step = "report"
+            elif decision.action == SupervisorAction.STOP:
+                next_step = "report"
+
+            for request in open_requests:
+                resolved_status = "accepted" if request.id in decision.request_ids else request.status
+                updated = view.artifact_store.update_coordination_request_status(
+                    request.id,
+                    resolved_status,
+                    metadata={"resolved_by": "supervisor", "next_step": next_step},
+                )
+                if updated and updated.status != request.status:
+                    view._emit_artifact_update(
+                        artifact_id=updated.id,
+                        artifact_type="coordination_request",
+                        status=updated.status,
+                        task_id=updated.task_id,
+                        branch_id=updated.branch_id,
+                        agent_id="supervisor",
+                        summary=updated.summary[:180],
+                        stage="loop_decision",
+                        extra={"request_type": updated.request_type},
+                    )
+
+            decision_artifact = view.record_supervisor_decision(
+                phase="loop_decision",
+                decision_type=decision.action.value,
+                summary=decision.reasoning,
+                next_step=next_step,
+                planning_mode=planning_mode,
+                task_ids=list(latest_decision.get("retry_task_ids", [])),
+                request_ids=list(decision.request_ids),
+                metadata=metadata,
+            )
             view.finish_agent_run(
                 record,
                 status="completed",
@@ -2745,24 +3622,15 @@ class MultiAgentDeepSearchRuntime:
                 iteration=view.current_iteration,
                 branch_id=view.root_branch_id,
             )
-
-            next_step = "report"
-            planning_mode = ""
-            if view.current_iteration >= self.max_epochs:
-                next_step = "report"
-            elif view.task_queue.ready_count() > 0:
-                next_step = "dispatch"
-            elif (
-                decision.action not in {CoordinatorAction.COMPLETE, CoordinatorAction.SYNTHESIZE}
-                and gap_result
-                and gap_result.gaps
-            ):
-                next_step = "plan"
-                planning_mode = "replan"
             return view.snapshot_patch(
                 next_step=next_step,
                 planning_mode=planning_mode,
-                latest_decision=latest_decision,
+                latest_decision={
+                    **latest_decision,
+                    "id": decision_artifact.id,
+                    "next_step": next_step,
+                    "planning_mode": planning_mode,
+                },
             )
         except Exception as exc:
             view.finish_agent_run(
@@ -2774,9 +3642,9 @@ class MultiAgentDeepSearchRuntime:
             )
             raise
 
-    def _route_after_coordinate(self, graph_state: MultiAgentGraphState) -> str:
+    def _route_after_supervisor_decide(self, graph_state: MultiAgentGraphState) -> str:
         next_step = str(graph_state.get("next_step") or "report").strip().lower()
-        if next_step in {"plan", "dispatch", "report"}:
+        if next_step in {"supervisor_plan", "dispatch", "report"}:
             return next_step
         return "report"
 
@@ -2816,19 +3684,60 @@ class MultiAgentDeepSearchRuntime:
                 )
             )
 
-            final_report = self.reporter.generate_report(
-                self.topic,
-                findings=findings or [view._knowledge_summary() or "暂无充分结论"],
-                sources=citation_urls[: max(5, min(20, len(citation_urls)))],
-            )
-            executive_summary = self.reporter.generate_executive_summary(final_report, self.topic)
-            final_artifact = FinalReportArtifact(
-                id=support._new_id("final_report"),
-                report_markdown=final_report,
-                executive_summary=executive_summary,
+            tool_session = self._try_reporter_tool_agent(
+                view=view,
+                verified_syntheses=verified_syntheses,
                 citation_urls=citation_urls,
             )
+            report_submissions: list[ResearchSubmission] = []
+            if tool_session is not None and tool_session.final_report is not None:
+                final_artifact = tool_session.final_report
+                report_submissions = list(tool_session.submissions)
+                executive_summary = final_artifact.executive_summary
+            else:
+                final_report = self.reporter.generate_report(
+                    self.topic,
+                    findings=findings or [view._knowledge_summary() or "暂无充分结论"],
+                    sources=citation_urls[: max(5, min(20, len(citation_urls)))],
+                )
+                executive_summary = self.reporter.generate_executive_summary(final_report, self.topic)
+                final_artifact = FinalReportArtifact(
+                    id=support._new_id("final_report"),
+                    report_markdown=final_report,
+                    executive_summary=executive_summary,
+                    citation_urls=citation_urls,
+                    created_by=record.agent_id,
+                )
+                report_submissions = [
+                    ResearchSubmission(
+                        id=support._new_id("submission"),
+                        submission_kind="report_bundle",
+                        summary=executive_summary[:240] or final_report[:240],
+                        branch_id=view.root_branch_id,
+                        created_by=record.agent_id,
+                        result_status="completed",
+                        stage="submit",
+                        artifact_ids=[final_artifact.id],
+                    )
+                ]
             view.artifact_store.set_final_report(final_artifact)
+            if report_submissions:
+                view.artifact_store.add_submissions(report_submissions)
+                for submission in report_submissions:
+                    view._emit_artifact_update(
+                        artifact_id=submission.id,
+                        artifact_type="report_submission",
+                        status=submission.status,
+                        branch_id=submission.branch_id,
+                        agent_id=submission.created_by,
+                        summary=submission.summary[:180],
+                        stage=submission.stage or "submit",
+                        extra={
+                            "submission_kind": submission.submission_kind,
+                            "result_status": submission.result_status,
+                            "artifact_ids": list(submission.artifact_ids),
+                        },
+                    )
             view._emit_artifact_update(
                 artifact_id=final_artifact.id,
                 artifact_type="final_report",
@@ -2940,12 +3849,12 @@ class MultiAgentDeepSearchRuntime:
         workflow.add_node("clarify", self._clarify_node)
         workflow.add_node("scope", self._scope_node)
         workflow.add_node("scope_review", self._scope_review_node)
-        workflow.add_node("plan", self._plan_node)
+        workflow.add_node("supervisor_plan", self._supervisor_plan_node)
         workflow.add_node("dispatch", self._dispatch_node)
         workflow.add_node("researcher", self._researcher_node)
         workflow.add_node("merge", self._merge_node)
         workflow.add_node("verify", self._verify_node)
-        workflow.add_node("coordinate", self._coordinate_node)
+        workflow.add_node("supervisor_decide", self._supervisor_decide_node)
         workflow.add_node("report", self._report_node)
         workflow.add_node("finalize", self._finalize_node)
 
@@ -2953,7 +3862,17 @@ class MultiAgentDeepSearchRuntime:
         workflow.add_conditional_edges(
             "bootstrap",
             self._route_after_bootstrap,
-            ["clarify", "scope", "scope_review", "plan", "dispatch", "verify", "report", "finalize"],
+            [
+                "clarify",
+                "scope",
+                "scope_review",
+                "supervisor_plan",
+                "dispatch",
+                "verify",
+                "supervisor_decide",
+                "report",
+                "finalize",
+            ],
         )
         workflow.add_conditional_edges(
             "clarify",
@@ -2964,9 +3883,9 @@ class MultiAgentDeepSearchRuntime:
         workflow.add_conditional_edges(
             "scope_review",
             self._route_after_scope_review,
-            ["scope", "plan"],
+            ["scope", "supervisor_plan"],
         )
-        workflow.add_edge("plan", "dispatch")
+        workflow.add_edge("supervisor_plan", "dispatch")
         workflow.add_conditional_edges(
             "dispatch",
             self._route_after_dispatch,
@@ -2974,11 +3893,11 @@ class MultiAgentDeepSearchRuntime:
         )
         workflow.add_edge("researcher", "merge")
         workflow.add_edge("merge", "verify")
-        workflow.add_edge("verify", "coordinate")
+        workflow.add_edge("verify", "supervisor_decide")
         workflow.add_conditional_edges(
-            "coordinate",
-            self._route_after_coordinate,
-            ["plan", "dispatch", "report"],
+            "supervisor_decide",
+            self._route_after_supervisor_decide,
+            ["supervisor_plan", "dispatch", "report"],
         )
         workflow.add_edge("report", "finalize")
         workflow.add_edge("finalize", END)
