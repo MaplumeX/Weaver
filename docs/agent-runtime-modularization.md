@@ -21,9 +21,8 @@
 
 - 存放运行时公开装配入口。
 - `agent/runtime/nodes/*` 按职责暴露 graph node 入口。
-- `agent/runtime/deep/selector.py` 负责 deep runtime 选择。
-- `agent/runtime/deep/legacy_*` 已承载 legacy deep runtime 的 shared helper、事件辅助、linear orchestration 和 tree orchestration。
-- `agent/runtime/deep/multi_agent/*` 已承载 multi-agent runtime 的 schema、store、dispatcher、event helper、shared helper 和 entrypoint。
+- `agent/runtime/deep/entrypoints.py` 持有 Deep Research 的稳定公开入口。
+- `agent/runtime/deep/multi_agent/*` 承载唯一受支持的 Deep Research runtime，包括 schema、store、dispatcher、event helper、public artifacts 适配和 LangGraph entrypoint。
 
 ### `agent/core/*`
 
@@ -42,8 +41,8 @@
 
 1. 外围模块 `main.py`、`common/*`、`tools/*` -> `agent` facade 或 `agent/contracts/*`
 2. graph 装配 -> `agent/runtime/nodes/*`
-3. deep runtime 选择 -> `agent/runtime/deep/selector.py`
-4. 具体 runtime 实现 -> `agent/runtime/deep/*`
+3. deep runtime 入口 -> `agent/runtime/deep/entrypoints.py`
+4. 具体 runtime 实现 -> `agent/runtime/deep/multi_agent/*`
 
 反向依赖应避免：
 
@@ -82,24 +81,23 @@
 - `agent/contracts/*` 已成为外围共享契约入口
 - `agent/runtime/*` 已成为 runtime 公开装配入口
 - `agent/core/graph.py` 已从 `agent.runtime.nodes` 装配
-- deep runtime 的 engine 选择已从 `agent/workflows/deepsearch_optimized.py` 抽离到 `agent/runtime/deep/selector.py`
+- Deep Research 已收敛到单一 `multi_agent` runtime
 - `agent/runtime/nodes/*` 已承载 route、answer、planning、review、deepsearch 的真实节点实现
 - `agent/workflows/nodes.py` 已降级为兼容 facade，不再持有节点实现本体
-- `agent/runtime/deep/legacy_support.py`、`agent/runtime/deep/legacy_events.py`、`agent/runtime/deep/legacy_linear.py`、`agent/runtime/deep/legacy_tree.py` 已承载 legacy runtime 的真实实现
-- `agent/workflows/deepsearch_optimized.py` 已降级为兼容 facade，只保留旧导入路径和 monkeypatch 入口
-- `agent/runtime/deep/multi_agent/schema.py`、`store.py`、`support.py`、`dispatcher.py`、`events.py`、`runtime.py` 已承载 multi-agent runtime 的真实实现
-- `agent/workflows/deepsearch_multi_agent.py` 已降级为兼容 facade，只保留旧导入路径和测试 patch 点
+- `agent/runtime/deep/entrypoints.py`、`config.py`、`public_artifacts.py`、`shared.py` 已成为 Deep Research 的公开入口和共享契约层
+- `agent/runtime/deep/multi_agent/schema.py`、`store.py`、`support.py`、`dispatcher.py`、`events.py`、`runtime.py`、`graph.py` 已承载 multi-agent runtime 的真实实现
+- legacy deep runtime、selector 和 `agent.workflows.deepsearch_*` compatibility facade 已删除
 
-当前阶段已经完成“模块边界显式化”“外围依赖迁移”和 deep runtime 历史大文件的核心物理迁移。
+当前阶段已经完成“模块边界显式化”“外围依赖迁移”和 legacy Deep Research 清理。
 
 ## 开发约定
 
 - 新增外围依赖时，默认先看 `agent/__init__.py`、`agent/api.py`、`agent/contracts/*`
 - 新增 graph node 公开入口时，放到 `agent/runtime/nodes/*`
-- 新增 deep runtime 选择或 runtime entrypoint 时，放到 `agent/runtime/deep/*`
+- 新增 deep runtime facade 或 runtime entrypoint 时，放到 `agent/runtime/deep/*`
 - 不要再把 `agent.workflows.*` 的具体文件路径扩散为新的外部依赖约定
 
 ## 后续建议
 
 - 将 `agent/workflows/nodes.py` 中的节点实现逐步搬入 `agent/runtime/nodes/*` 对应模块
-- 在兼容窗口结束后，删除 `ContextManager` 别名、旧 `deepsearch_*` 平铺状态字段以及历史 workflow facade
+- 继续收敛旧 `deepsearch_*` 平铺状态字段，只保留 `state["deep_runtime"]` 作为权威内部快照

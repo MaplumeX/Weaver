@@ -22,7 +22,9 @@ __all__ = [
     "ResearchTaskQueue",
     "SupervisorDecisionArtifact",
     "WorkerExecutionResult",
+    "create_deepsearch_runtime_graph",
     "create_multi_agent_deepsearch_graph",
+    "run_deepsearch_runtime",
     "run_multi_agent_deepsearch",
 ]
 
@@ -41,7 +43,9 @@ _SYMBOL_TO_MODULE: Dict[str, str] = {
     "ResearchTaskQueue": "agent.runtime.deep.multi_agent.store",
     "SupervisorDecisionArtifact": "agent.runtime.deep.multi_agent.schema",
     "WorkerExecutionResult": "agent.runtime.deep.multi_agent.schema",
+    "create_deepsearch_runtime_graph": "agent.runtime.deep.multi_agent.runtime",
     "create_multi_agent_deepsearch_graph": "agent.runtime.deep.multi_agent.runtime",
+    "run_deepsearch_runtime": "agent.runtime.deep.multi_agent.runtime",
     "run_multi_agent_deepsearch": "agent.runtime.deep.multi_agent.runtime",
 }
 

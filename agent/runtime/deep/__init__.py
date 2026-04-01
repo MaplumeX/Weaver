@@ -9,15 +9,13 @@ from typing import Any, Dict
 
 __all__ = [
     "run_deepsearch_auto",
-    "run_deepsearch_optimized",
-    "run_deepsearch_tree",
+    "run_deepsearch_runtime",
     "run_multi_agent_deepsearch",
 ]
 
 _SYMBOL_TO_MODULE: Dict[str, str] = {
-    "run_deepsearch_auto": "agent.runtime.deep.selector",
-    "run_deepsearch_optimized": "agent.runtime.deep.legacy",
-    "run_deepsearch_tree": "agent.runtime.deep.legacy",
+    "run_deepsearch_auto": "agent.runtime.deep.entrypoints",
+    "run_deepsearch_runtime": "agent.runtime.deep.multi_agent",
     "run_multi_agent_deepsearch": "agent.runtime.deep.multi_agent",
 }
 

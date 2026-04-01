@@ -1,10 +1,11 @@
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
+import pytest
 
-import agent.workflows.deepsearch_multi_agent as multi_agent_runtime
 import agent.runtime.deep.multi_agent.graph as multi_agent_graph
+import agent.runtime.deep.multi_agent.graph as multi_agent_runtime
 from agent.workflows.agents.supervisor import SupervisorAction, SupervisorDecision
-from agent.workflows.deepsearch_multi_agent import run_multi_agent_deepsearch
+from agent.runtime.deep.multi_agent import run_multi_agent_deepsearch
 
 
 class _DummyEmitter:
@@ -244,6 +245,11 @@ class _FlakyResearchAgent(_FakeResearchAgent):
         if not results:
             return f"{topic} -> no results yet"
         return super().summarize_findings(topic, results, existing_summary=existing_summary)
+
+
+@pytest.fixture(autouse=True)
+def _disable_tool_agents_by_default(monkeypatch):
+    monkeypatch.setattr(multi_agent_runtime.settings, "deepsearch_use_tool_agents", False, raising=False)
 
 
 def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatch):
@@ -655,7 +661,7 @@ def test_multi_agent_dispatch_stops_when_search_budget_is_exhausted(monkeypatch)
                 "thread_id": "thread_budget_stop",
                 "deepsearch_engine": "multi_agent",
                 "deepsearch_query_num": 2,
-                "deepsearch_tree_max_searches": 1,
+                "deepsearch_max_searches": 1,
             }
         },
     )
@@ -688,7 +694,7 @@ def test_multi_agent_runtime_honors_max_epochs_even_if_supervisor_wants_dispatch
                 "deepsearch_engine": "multi_agent",
                 "deepsearch_query_num": 2,
                 "deepsearch_max_epochs": 1,
-                "tree_parallel_branches": 1,
+                "deepsearch_parallel_workers": 1,
             }
         },
     )

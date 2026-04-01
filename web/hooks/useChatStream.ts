@@ -46,8 +46,10 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
     if (role === 'scope') {
       return resumed ? '多 Agent 调研：正在根据反馈重写研究范围草案…' : '多 Agent 调研：正在生成研究范围草案…'
     }
-    if (role === 'planner') {
-      return resumed ? '多 Agent 调研：已确认范围，正在继续规划研究任务…' : '多 Agent 调研：正在规划研究任务…'
+    if (role === 'supervisor') {
+      return resumed
+        ? '多 Agent 调研：已确认范围，正在继续评估并派发研究分支…'
+        : '多 Agent 调研：正在评估范围并派发研究分支…'
     }
     if (role === 'researcher') {
       const target = taskTitle || agentId || 'researcher'
@@ -65,7 +67,6 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
       return resumed ? '多 Agent 调研：已恢复执行，正在验证分支结论…' : '多 Agent 调研：正在验证分支结论…'
     }
     if (role === 'reporter') return resumed ? '多 Agent 调研：已恢复执行，正在生成最终报告…' : '多 Agent 调研：正在生成最终报告…'
-    if (role === 'coordinator') return '多 Agent 调研：协调下一步动作…'
   }
 
   if (eventType === 'research_agent_complete') {
@@ -120,9 +121,9 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
     if (decisionType === 'retry_branch' || decisionType === 'verification_retry_requested') return '多 Agent 调研：验证要求重试当前 branch'
     if (decisionType === 'coverage_gap_detected') return '多 Agent 调研：验证发现 coverage gap，准备补充规划'
     if (decisionType === 'verification_passed') return '多 Agent 调研：分支验证通过，准备汇总'
-    if (decisionType === 'plan' || decisionType === 'replan') return '多 Agent 调研：协调器决定补充规划'
-    if (decisionType === 'research') return '多 Agent 调研：协调器决定继续研究'
-    if (decisionType === 'synthesize' || decisionType === 'complete') return '多 Agent 调研：协调器决定进入汇总阶段'
+    if (decisionType === 'plan' || decisionType === 'replan') return '多 Agent 调研：supervisor 决定补充规划'
+    if (decisionType === 'research') return '多 Agent 调研：supervisor 决定继续研究'
+    if (decisionType === 'synthesize' || decisionType === 'complete') return '多 Agent 调研：supervisor 决定进入汇总阶段'
     if (decisionType === 'budget_stop') return '多 Agent 调研：触发预算停止条件'
   }
 

@@ -41,7 +41,7 @@ from agent.prompts import (
 )
 from agent.runtime.deep import (
     run_deepsearch_auto,
-    run_deepsearch_tree,
+    run_deepsearch_runtime,
 )
 from agent.runtime.nodes import initialize_enhanced_tools
 from agent.workflows import (
@@ -51,7 +51,6 @@ from agent.workflows import (
     get_deep_agent_prompt,
     run_deepsearch,
     run_multi_agent_deepsearch,
-    run_deepsearch_optimized,
 )
 
 __all__ = [
@@ -84,14 +83,13 @@ __all__ = [
     "get_deep_agent_prompt",
     "run_deepsearch",
     "run_multi_agent_deepsearch",
-    "run_deepsearch_optimized",
     "build_writer_agent",
     "build_tool_agent",
     "build_agent_tools",
     "initialize_enhanced_tools",
     "summarize_messages",
     "run_deepsearch_auto",
-    "run_deepsearch_tree",
+    "run_deepsearch_runtime",
     # Shared contracts
     "get_search_cache",
     "clear_search_cache",

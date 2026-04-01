@@ -14,7 +14,7 @@ from langchain_openai import ChatOpenAI
 
 from agent.core.middleware import retry_call
 from agent.core.state import AgentState, QueryState
-from agent.workflows.deepsearch_optimized import _auto_mode_prefers_linear
+from agent.runtime.deep.shared import _auto_mode_prefers_linear
 from agent.workflows.source_url_utils import compact_unique_sources
 from common.cancellation import check_cancellation as _check_cancellation
 from common.config import settings

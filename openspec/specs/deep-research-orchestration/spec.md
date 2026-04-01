@@ -1,20 +1,20 @@
 ## Purpose
-定义 Deep Research 在 `legacy` 与 `multi_agent` 运行时之间的选择规则，以及 multi-agent 编排循环的核心行为。
+定义 Deep Research 收敛到单一 `multi_agent` 运行时后的入口约束与编排行为。
 
 ## Requirements
 
 ### Requirement: Deep Research engine selection
-系统 MUST 为 Deep Research 提供可配置的运行时引擎选择，并支持在 `legacy` 与 `multi_agent` 引擎之间切换。
+系统 MUST 将 Deep Research 固定到 `multi_agent` runtime，并移除 `legacy` engine、tree/linear 选择以及任何运行时回退分支。
 
-#### Scenario: Multi-agent engine is selected for deep research
-- **WHEN** 请求被路由到 `deep` 模式且运行配置选择 `multi_agent` 引擎
-- **THEN** 系统 MUST 从 `deepsearch` 入口启动一个 LangGraph 管理的 Deep Research 子图
-- **THEN** 系统 MUST 保持现有 Deep Research 入口、取消语义和最终报告输出契约不变
+#### Scenario: Deep research enters the only supported runtime
+- **WHEN** 请求被路由到 `deep` 模式
+- **THEN** 系统 MUST 直接启动 LangGraph 管理的 `multi_agent` Deep Research 子图
+- **THEN** 系统 MUST 保持现有 Deep Research 入口、取消语义和最终报告输出契约稳定
 
-#### Scenario: Legacy engine remains available
-- **WHEN** 请求被路由到 `deep` 模式且运行配置选择 `legacy` 引擎
-- **THEN** 系统 MUST 继续使用现有 legacy deepsearch runner
-- **THEN** 系统 MUST 不要求前端或 API 调用方更改请求格式
+#### Scenario: Obsolete legacy runtime inputs are rejected
+- **WHEN** 调用方仍传入 `legacy` engine、`deepsearch_mode` 或其他旧 tree/linear 选择输入
+- **THEN** 系统 MUST 不再路由到 legacy runtime，也 MUST NOT 静默回退到其他旧流程
+- **THEN** 系统 MUST 以显式迁移错误或配置校验失败暴露该输入已废弃
 
 ### Requirement: Supervisor-controlled research loop
 系统 MUST 由 `supervisor` 统一控制 multi-agent Deep Research 的研究循环，并通过显式 graph 转移驱动 clarify、scope、scope review、branch dispatch、验证、汇总和结束阶段。

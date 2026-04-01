@@ -4,7 +4,7 @@
 
 ## 目标
 
-本次改造把 `multi_agent` Deep Research 的控制面从公开的 `planner/coordinator` 双角色收敛为单一 `supervisor` 角色，并保留 `clarify -> scope -> scope_review` 前置门控。
+本次改造把 `multi_agent` Deep Research 的控制面从公开的 `planner/coordinator` 双角色收敛为单一 `supervisor` 角色，并保留 `clarify -> scope -> scope_review` 前置门控。自 2026-04-01 起，Deep Research 只保留 `multi_agent` 单一路径。
 
 ## 当前架构
 
@@ -41,14 +41,19 @@
   - `verify`
   - `report`
 
-## 回滚路径
+## 迁移说明
 
-如果 `multi_agent` supervisor 路径出现问题，按下面顺序回滚：
-
-1. 将 `deepsearch_engine` 切回 `legacy`。
-2. 保留 `clarify/scope/scope_review` 数据契约，不做 schema 回退。
-3. 忽略 `coordination_requests`、`submissions`、`supervisor_decisions` 三类新增 artifacts。
-4. 继续沿用既有 Deep Research 输出契约：`final_report`、`deepsearch_artifacts`、`research_tree`。
+- 移除的输入：
+  - `deepsearch_engine=legacy`
+  - `deepsearch_mode=auto|tree|linear`
+  - `tree_parallel_branches`
+  - `deepsearch_tree_max_searches`
+- 新配置名：
+  - `DEEPSEARCH_PARALLEL_WORKERS`
+  - `DEEPSEARCH_MAX_SEARCHES`
+- 回退方式：
+  - 不再提供运行时级别的 legacy fallback。
+  - 如果需要回退，只能整体回退这次 cleanup 变更。
 
 ## 后续缺口
 

@@ -16,13 +16,17 @@ from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
 from langgraph.types import Send, interrupt
 
+from agent.contracts.events import get_emitter_sync
+from agent.core.llm_factory import create_chat_model
 from agent.core.context import (
     ResearchWorkerContext,
     build_research_worker_context,
     merge_research_worker_context,
 )
 from agent.core.state import build_deep_runtime_snapshot
+from agent.runtime.deep.config import resolve_max_searches, resolve_parallel_workers
 from agent.runtime.deep.multi_agent import dispatcher, events, support
+from agent.runtime.deep.public_artifacts import build_public_deepsearch_artifacts
 from agent.runtime.deep.multi_agent.schema import (
     AgentRunRecord,
     BranchBrief,
@@ -51,8 +55,17 @@ from agent.runtime.deep.multi_agent.tool_agents import (
     run_bounded_tool_agent,
 )
 from agent.workflows.claim_verifier import ClaimStatus, ClaimVerifier
-from agent.workflows.agents.supervisor import SupervisorAction
+from agent.workflows.agents.clarify import DeepResearchClarifyAgent
+from agent.workflows.agents.reporter import ResearchReporter
+from agent.workflows.agents.researcher import ResearchAgent
+from agent.workflows.agents.scope import DeepResearchScopeAgent
+from agent.workflows.agents.supervisor import (
+    ResearchSupervisor,
+    SupervisorAction,
+    SupervisorDecision,
+)
 from agent.workflows.knowledge_gap import GapAnalysisResult
+from agent.workflows.knowledge_gap import KnowledgeGapAnalyzer
 from common.cancellation import check_cancellation as _check_cancel_token
 from common.config import settings
 
@@ -62,10 +75,7 @@ logger = logging.getLogger(__name__)
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.workflows.deepsearch_multi_agent")
-    if compat is None:
-        import agent.workflows.deepsearch_multi_agent as compat
-    return compat
+    return sys.modules[__name__]
 
 
 def _reduce_worker_payloads(
@@ -1096,11 +1106,7 @@ class MultiAgentDeepSearchRuntime:
         )
         self.parallel_workers = max(
             1,
-            support._configurable_int(
-                self.config,
-                "tree_parallel_branches",
-                settings.tree_parallel_branches,
-            ),
+            resolve_parallel_workers(self.config),
         )
         self.max_seconds = max(
             0.0,
@@ -1120,11 +1126,7 @@ class MultiAgentDeepSearchRuntime:
         )
         self.max_searches = max(
             0,
-            support._configurable_int(
-                self.config,
-                "deepsearch_tree_max_searches",
-                settings.deepsearch_tree_max_searches,
-            ),
+            resolve_max_searches(self.config),
         )
         self.task_retry_limit = max(
             1,
@@ -3779,15 +3781,15 @@ class MultiAgentDeepSearchRuntime:
         )
         elapsed = max(0.0, time.time() - self.start_ts)
 
-        deepsearch_artifacts = {
-            "mode": "multi_agent",
-            "engine": "multi_agent",
-            "task_queue": view.task_queue.snapshot(),
-            "artifact_store": view.artifact_store.snapshot(),
-            "research_tree": view._research_tree_snapshot(),
-            "quality_summary": quality_summary,
-            "runtime_state": view.runtime_state_snapshot(),
-        }
+        deepsearch_artifacts = build_public_deepsearch_artifacts(
+            task_queue=view.task_queue.snapshot(),
+            artifact_store=view.artifact_store.snapshot(),
+            research_tree=view._research_tree_snapshot(),
+            quality_summary=quality_summary,
+            runtime_state=view.runtime_state_snapshot(),
+            mode="multi_agent",
+            engine="multi_agent",
+        )
 
         view._emit(
             events.ToolEventType.RESEARCH_NODE_COMPLETE,

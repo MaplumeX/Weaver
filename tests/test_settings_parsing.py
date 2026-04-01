@@ -92,23 +92,17 @@ def test_cors_origins_list_does_not_auto_expand_in_prod():
     assert s.cors_origins_list == ["http://example.com", "http://foo.com"]
 
 
-@pytest.mark.parametrize(
-    "raw,expected",
-    [
-        ("auto", "auto"),
-        ("tree", "tree"),
-        ("linear", "linear"),
-        ("TREE", "tree"),
-        (" Linear ", "linear"),
-        ("", "auto"),
-        ("unknown", "auto"),
-    ],
-)
-def test_deepsearch_mode_normalizes_to_supported_values(raw, expected):
+def test_deepsearch_parallel_worker_settings_parse():
     from common.config import Settings
 
-    s = Settings(_env_file=None, deepsearch_mode=raw)
-    assert s.deepsearch_mode == expected
+    s = Settings(
+        _env_file=None,
+        deepsearch_parallel_workers=4,
+        deepsearch_max_searches=25,
+    )
+
+    assert s.deepsearch_parallel_workers == 4
+    assert s.deepsearch_max_searches == 25
 
 
 def test_deepsearch_freshness_warning_threshold_settings_parse():

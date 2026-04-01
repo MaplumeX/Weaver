@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from agent.runtime.deep.public_artifacts import build_public_deepsearch_artifacts_from_state
+
 logger = logging.getLogger(__name__)
 
 
@@ -413,6 +415,10 @@ class SessionManager:
         """Extract canonical deepsearch artifacts from state snapshot."""
         if not isinstance(state, dict):
             return {}
+
+        public_artifacts = build_public_deepsearch_artifacts_from_state(state)
+        if public_artifacts:
+            return public_artifacts
 
         artifacts = state.get("deepsearch_artifacts")
         scraped_content = state.get("scraped_content", [])

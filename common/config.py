@@ -298,8 +298,8 @@ class Settings(BaseSettings):
     tree_max_depth: int = 2  # Maximum tree depth (0 = root only)
     tree_max_branches: int = 4  # Maximum children per node
     tree_queries_per_branch: int = 3  # Number of queries per branch
-    tree_parallel_branches: int = 3  # Max concurrent branch exploration (0 = sequential)
-    deepsearch_tree_max_searches: int = 30  # 0 = disabled (hard cap on search calls in tree mode)
+    deepsearch_parallel_workers: int = 3  # Max concurrent branch workers
+    deepsearch_max_searches: int = 30  # 0 = disabled (hard cap on search calls)
 
     # Report Visualization Config
     enable_report_charts: bool = True  # Generate charts from data in reports
@@ -351,8 +351,6 @@ class Settings(BaseSettings):
     deepsearch_save_data: bool = False  # save deepsearch run data to disk
     deepsearch_save_dir: str = "eval/deepsearch_data"
     deepsearch_use_gap_analysis: bool = True  # use knowledge gap analysis for targeted queries
-    deepsearch_mode: str = "auto"  # auto | tree | linear
-    deepsearch_engine: str = "legacy"  # legacy | multi_agent
     deepsearch_max_seconds: float = 0.0  # 0 = disabled
     deepsearch_max_tokens: int = 0  # 0 = disabled
     deepsearch_freshness_warning_min_known: int = 3  # minimum dated results before warning checks
@@ -552,15 +550,6 @@ class Settings(BaseSettings):
             if cfg:
                 engines = [cfg.engine] + list(cfg.fallback_engines or [])
         return engines or ["tavily"]
-
-    @field_validator("deepsearch_mode", mode="before")
-    @classmethod
-    def normalize_deepsearch_mode(cls, value: str) -> str:
-        mode = str(value or "").strip().lower()
-        if mode in {"auto", "tree", "linear"}:
-            return mode
-        return "auto"
-
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent

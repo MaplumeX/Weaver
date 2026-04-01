@@ -54,8 +54,13 @@ from agent import (
     initialize_enhanced_tools,
     remove_emitter,
 )
-from agent.contracts.research import ClaimVerifier, extract_message_sources
+from agent.contracts.research import extract_message_sources
 from agent.contracts.search_cache import clear_search_cache, get_search_cache
+from agent.runtime.deep.config import (
+    SUPPORTED_DEEPSEARCH_ENGINE,
+    normalize_deepsearch_engine,
+    supported_engine_for_mode,
+)
 from common.agents_store import (
     AgentProfile,
     ensure_default_agent,
@@ -757,9 +762,17 @@ def _coerce_search_mode_input(value: Any) -> SearchMode | None:
         return SearchMode()
 
     if isinstance(value, dict):
+        if "deepsearchMode" in value or "deepsearch_mode" in value:
+            raise ValueError(
+                "Deep Research mode selection (`deepsearch_mode`) was removed on 2026-04-01. "
+                "Remove tree/linear/auto overrides and use the default `multi_agent` runtime."
+            )
         use_web = bool(value.get("useWebSearch", value.get("use_web", False)))
         use_agent = bool(value.get("useAgent", value.get("use_agent", False)))
         use_deep = bool(value.get("useDeepSearch", value.get("use_deep", False)))
+        deepsearch_engine = normalize_deepsearch_engine(
+            value.get("deepsearchEngine", value.get("deepsearch_engine"))
+        )
 
         # If booleans were not provided but a mode string exists, derive flags from it.
         if not (use_web or use_agent or use_deep) and isinstance(value.get("mode"), str):
@@ -778,7 +791,7 @@ def _coerce_search_mode_input(value: Any) -> SearchMode | None:
             useWebSearch=use_web,
             useAgent=use_agent,
             useDeepSearch=use_deep,
-            deepsearchEngine=value.get("deepsearchEngine", value.get("deepsearch_engine")),
+            deepsearchEngine=deepsearch_engine,
         )
 
     return None
@@ -1764,8 +1777,13 @@ def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | str | None
         use_agent = search_mode.useAgent
         use_deep = search_mode.useDeepSearch
         use_deep_prompt = use_deep
-        deepsearch_engine = search_mode.deepsearchEngine
+        deepsearch_engine = normalize_deepsearch_engine(search_mode.deepsearchEngine)
     elif isinstance(search_mode, dict):
+        if "deepsearchMode" in search_mode or "deepsearch_mode" in search_mode:
+            raise ValueError(
+                "Deep Research mode selection (`deepsearch_mode`) was removed on 2026-04-01. "
+                "Remove tree/linear/auto overrides and use the default `multi_agent` runtime."
+            )
         # Support both camelCase (frontend payload) and snake_case (already-normalized)
         use_web = bool(search_mode.get("useWebSearch", search_mode.get("use_web", False)))
         use_agent = bool(search_mode.get("useAgent", search_mode.get("use_agent", False)))
@@ -1773,7 +1791,9 @@ def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | str | None
         use_deep_prompt = bool(
             search_mode.get("useDeepPrompt", search_mode.get("use_deep_prompt", use_deep))
         )
-        deepsearch_engine = search_mode.get("deepsearchEngine", search_mode.get("deepsearch_engine"))
+        deepsearch_engine = normalize_deepsearch_engine(
+            search_mode.get("deepsearchEngine", search_mode.get("deepsearch_engine"))
+        )
 
         # If booleans were not provided but a mode string exists, derive flags from it
         if not (use_web or use_agent or use_deep) and isinstance(search_mode.get("mode"), str):
@@ -1809,6 +1829,11 @@ def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | str | None
     if use_deep and not use_agent:
         use_deep = False
         use_deep_prompt = False
+
+    if use_deep:
+        deepsearch_engine = supported_engine_for_mode(True)
+    else:
+        deepsearch_engine = None
 
     if use_agent:
         mode = "deep" if use_deep else "agent"
@@ -1877,9 +1902,9 @@ def _restore_thread_stream_context(thread_id: str) -> Dict[str, Any]:
 def _mode_info_from_session_state(state: Dict[str, Any]) -> Dict[str, Any]:
     route = str(state.get("route") or "").strip().lower()
     deep_runtime = state.get("deep_runtime") or {}
-    deepsearch_engine = state.get("deepsearch_engine")
+    deepsearch_engine = normalize_deepsearch_engine(state.get("deepsearch_engine"))
     if not deepsearch_engine and isinstance(deep_runtime, dict):
-        deepsearch_engine = deep_runtime.get("engine")
+        deepsearch_engine = normalize_deepsearch_engine(deep_runtime.get("engine"))
 
     has_deep_runtime = any(
         isinstance(state.get(key), dict) and bool(state.get(key))
@@ -1906,7 +1931,7 @@ def _mode_info_from_session_state(state: Dict[str, Any]) -> Dict[str, Any]:
         "use_deep": use_deep,
         "mode": "deep" if use_deep else ("agent" if use_agent else ("web" if use_web else "direct")),
         "use_deep_prompt": use_deep,
-        "deepsearch_engine": deepsearch_engine if use_deep else None,
+        "deepsearch_engine": supported_engine_for_mode(use_deep) or deepsearch_engine,
     }
 
 
@@ -1947,9 +1972,7 @@ def _build_initial_agent_state(
 ) -> AgentState:
     images = images or []
     user_id = user_id or settings.memory_user_id
-    deepsearch_engine = str(
-        mode_info.get("deepsearch_engine") or getattr(settings, "deepsearch_engine", "legacy")
-    )
+    deepsearch_engine = str(mode_info.get("deepsearch_engine") or SUPPORTED_DEEPSEARCH_ENGINE)
     initial_state: AgentState = {
         "input": input_text,
         "images": images,
@@ -2028,10 +2051,8 @@ _MULTI_AGENT_GENERIC_PROGRESS_NODE_NAMES = {
 
 
 def _is_multi_agent_deep_mode(mode_info: Dict[str, Any]) -> bool:
-    engine = str(
-        mode_info.get("deepsearch_engine") or getattr(settings, "deepsearch_engine", "legacy")
-    ).strip().lower()
-    return bool(mode_info.get("use_deep")) and engine == "multi_agent"
+    engine = str(mode_info.get("deepsearch_engine") or "").strip().lower()
+    return bool(mode_info.get("use_deep")) and engine == SUPPORTED_DEEPSEARCH_ENGINE
 
 
 def _should_emit_generic_progress_for_node(node_name: str, mode_info: Dict[str, Any]) -> bool:
@@ -2887,12 +2908,12 @@ async def chat(request: Request, payload: ChatRequest):
                 "errors": [],
                 "sub_agent_contexts": {},
                 "deepsearch_engine": str(
-                    mode_info.get("deepsearch_engine") or getattr(settings, "deepsearch_engine", "legacy")
+                    mode_info.get("deepsearch_engine") or SUPPORTED_DEEPSEARCH_ENGINE
                 ),
                 "deep_runtime": {
                     "engine": str(
                         mode_info.get("deepsearch_engine")
-                        or getattr(settings, "deepsearch_engine", "legacy")
+                        or SUPPORTED_DEEPSEARCH_ENGINE
                     ),
                     "task_queue": {},
                     "artifact_store": {},
@@ -3851,7 +3872,9 @@ async def export_report_endpoint(
         format_lower = format.lower().strip()
 
         if format_lower == "json":
-            deepsearch_artifacts = state.get("deepsearch_artifacts", {}) or {}
+            from common.session_manager import SessionManager
+
+            deepsearch_artifacts = SessionManager(checkpointer=object())._extract_deepsearch_artifacts(state) or {}
             if not isinstance(deepsearch_artifacts, dict):
                 deepsearch_artifacts = {}
 
@@ -3862,31 +3885,6 @@ async def export_report_endpoint(
             claims_payload = deepsearch_artifacts.get("claims")
             if not isinstance(claims_payload, list):
                 claims_payload = []
-                try:
-                    scraped_list = scraped if isinstance(scraped, list) else []
-                    passages_payload = deepsearch_artifacts.get("passages")
-                    passages_list = passages_payload if isinstance(passages_payload, list) else None
-
-                    if (scraped_list or passages_list) and isinstance(final_report, str) and final_report.strip():
-                        verifier = ClaimVerifier()
-                        checks = verifier.verify_report(
-                            final_report,
-                            scraped_list,
-                            passages=passages_list,
-                        )
-                        claims_payload = [
-                            {
-                                "claim": c.claim,
-                                "status": c.status.value,
-                                "evidence_urls": c.evidence_urls,
-                                "evidence_passages": c.evidence_passages,
-                                "score": c.score,
-                                "notes": c.notes,
-                            }
-                            for c in checks
-                        ]
-                except Exception:
-                    claims_payload = []
 
             quality_payload = deepsearch_artifacts.get("quality_summary")
             if not isinstance(quality_payload, dict):

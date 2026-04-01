@@ -17,12 +17,12 @@ test('maps research task updates to readable auto status', () => {
   assert.equal(text, '多 Agent 调研：执行 branch · latest AI chip roadmap · 执行分支任务')
 })
 
-test('maps coordinator decisions to readable auto status', () => {
+test('maps supervisor decisions to readable auto status', () => {
   const text = getDeepResearchAutoStatus('research_decision', {
     decision_type: 'synthesize',
   })
 
-  assert.equal(text, '多 Agent 调研：协调器决定进入汇总阶段')
+  assert.equal(text, '多 Agent 调研：supervisor 决定进入汇总阶段')
 })
 
 test('maps retry task updates to readable auto status', () => {
@@ -60,13 +60,13 @@ test('maps scope draft artifact revisions to readable auto status', () => {
   assert.equal(text, '多 Agent 调研：已收到范围修改意见，正在重写草案')
 })
 
-test('maps resumed planner lifecycle to readable auto status', () => {
+test('maps resumed supervisor lifecycle to readable auto status', () => {
   const text = getDeepResearchAutoStatus('research_agent_start', {
-    role: 'planner',
+    role: 'supervisor',
     resumed_from_checkpoint: true,
   })
 
-  assert.equal(text, '多 Agent 调研：已确认范围，正在继续规划研究任务…')
+  assert.equal(text, '多 Agent 调研：已确认范围，正在继续评估并派发研究分支…')
 })
 
 test('maps verifier claim-check lifecycle to readable auto status', () => {
@@ -95,10 +95,10 @@ test('continuation message keeps resumed process events in order', () => {
     { decision_type: 'scope_approved', resumed_from_checkpoint: true },
     100,
   )
-  message = appendProcessEvent(
+    message = appendProcessEvent(
     message,
     'research_agent_start',
-    { role: 'planner', resumed_from_checkpoint: true },
+    { role: 'supervisor', resumed_from_checkpoint: true },
     110,
   )
   message = appendProcessEvent(
@@ -126,7 +126,7 @@ test('retained process events keep early deep research phase anchors', () => {
       id: 'planner-start',
       type: 'research_agent_start',
       timestamp: 20,
-      data: { role: 'planner' },
+      data: { role: 'supervisor' },
     },
   ]
 

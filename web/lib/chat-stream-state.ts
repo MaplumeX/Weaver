@@ -7,10 +7,9 @@ const RETAIN_TAIL_EVENTS = 60
 const KEY_AGENT_ROLES = new Set([
   'clarify',
   'scope',
-  'planner',
+  'supervisor',
   'verifier',
   'reporter',
-  'coordinator',
 ])
 
 const KEY_DECISIONS = new Set([

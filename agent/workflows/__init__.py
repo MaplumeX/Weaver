@@ -16,7 +16,6 @@ __all__ = [
     "check_cancellation",
     "handle_cancellation",
     "run_deepsearch",
-    "run_deepsearch_optimized",
     "run_multi_agent_deepsearch",
     "get_deep_agent_prompt",
     "build_writer_agent",
@@ -45,8 +44,7 @@ _SYMBOL_TO_MODULE: Dict[str, str] = {
     "build_agent_tools": "agent.workflows.agent_tools",
     # Core workflows
     "run_deepsearch": "agent.workflows.deepsearch",
-    "run_deepsearch_optimized": "agent.workflows.deepsearch_optimized",
-    "run_multi_agent_deepsearch": "agent.workflows.deepsearch_multi_agent",
+    "run_multi_agent_deepsearch": "agent.runtime.deep.multi_agent",
     # Response/aggregation
     "ResponseHandler": "agent.workflows.response_handler",
     "ResultAggregator": "agent.workflows.result_aggregator",

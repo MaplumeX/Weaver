@@ -26,13 +26,14 @@ TBD - created by archiving change modularize-agent-runtime. Update Purpose after
 - **THEN** 它们 MUST 通过公开的 shared contracts 或 facade 访问这些结构，而不是直接导入 `agent.workflows.*` 内部实现
 
 ### Requirement: Workflow internals are not treated as external API
-系统 MUST 将 `agent.workflows.*` 和其他内部实现目录视为内部模块，除非某个入口被显式声明为公开契约。
+系统 MUST 将 `agent.workflows.*` 和其他内部实现目录视为内部模块；当 `multi_agent` 成为唯一受支持的 Deep Research runtime 后，系统 MUST 移除 `agent.workflows.deepsearch_*` 兼容入口，而不是继续把它们当作公开 API。
 
 #### Scenario: External module imports workflow internals
-- **WHEN** 外围模块尝试直接依赖 `agent.workflows.nodes`、`agent.workflows.deepsearch_*` 或其他内部实现位置
-- **THEN** 系统 MUST 提供 facade 或公开契约替代该依赖，并迁移外围调用方离开内部实现路径
+- **WHEN** 外围模块需要调用 Deep Research 相关能力、事件或 artifact contract
+- **THEN** 系统 MUST 提供 facade 或公开契约替代对 `agent.workflows.deepsearch_*` 的直接依赖
+- **THEN** 外围调用方 MUST 迁移离开 workflow internals 路径
 
-#### Scenario: Keeping compatibility during migration
-- **WHEN** 现有外围调用方暂时仍依赖内部模块
-- **THEN** 系统 MAY 提供短期兼容 re-export，但最终 MUST 收敛到 facade 或公开契约入口
-
+#### Scenario: Post-migration deep research compatibility exports are removed
+- **WHEN** `multi_agent` 已经成为唯一的 Deep Research runtime
+- **THEN** 系统 MUST NOT 继续保留 `agent.workflows.deepsearch_*` 作为受支持的兼容 re-export
+- **THEN** 任何仍需复用的能力 MUST 以显式公开入口或 shared contract 形式暴露

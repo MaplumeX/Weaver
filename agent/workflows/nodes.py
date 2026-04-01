@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import agent.contracts.events as _events
 import agent.contracts.search_cache as _search_cache_contracts
+import agent.runtime.deep as _deep_runtime
 import agent.runtime.nodes._shared as _shared
 import agent.workflows.agent_factory as _agent_factory
 import agent.workflows.agent_tools as _agent_tools
-import agent.workflows.deepsearch_optimized as _deepsearch_optimized
 import agent.workflows.stuck_middleware as _stuck_middleware
 from agent.runtime.nodes.answer import (
     agent_node,
@@ -74,7 +74,7 @@ settings = _shared.settings
 build_tool_agent = _agent_factory.build_tool_agent
 build_writer_agent = _agent_factory.build_writer_agent
 build_agent_tools = _agent_tools.build_agent_tools
-run_deepsearch_auto = _deepsearch_optimized.run_deepsearch_auto
+run_deepsearch_auto = _deep_runtime.run_deepsearch_auto
 detect_stuck = _stuck_middleware.detect_stuck
 inject_stuck_hint = _stuck_middleware.inject_stuck_hint
 

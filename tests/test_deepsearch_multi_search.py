@@ -1,10 +1,9 @@
 import pytest
 
-from agent.workflows import deepsearch, deepsearch_optimized
+from agent.workflows import deepsearch
 
 
-@pytest.mark.parametrize("module", [deepsearch, deepsearch_optimized])
-def test_search_query_prefers_multi_search(module, monkeypatch):
+def test_search_query_prefers_multi_search(monkeypatch):
     calls = {"multi": 0, "tavily": 0}
 
     def fake_multi_search(query, max_results=10, strategy=None):
@@ -27,11 +26,11 @@ def test_search_query_prefers_multi_search(module, monkeypatch):
             calls["tavily"] += 1
             raise AssertionError("tavily fallback should not be used when multi_search succeeds")
 
-    monkeypatch.setattr(module, "multi_search", fake_multi_search)
-    monkeypatch.setattr(module, "tavily_search", FakeTavily())
-    monkeypatch.setattr(module.settings, "search_strategy", "fallback")
+    monkeypatch.setattr(deepsearch, "multi_search", fake_multi_search)
+    monkeypatch.setattr(deepsearch, "tavily_search", FakeTavily())
+    monkeypatch.setattr(deepsearch.settings, "search_strategy", "fallback")
 
-    results = module._search_query("latest ai news", 5, {})
+    results = deepsearch._search_query("latest ai news", 5, {})
 
     assert calls["multi"] == 1
     assert calls["tavily"] == 0
@@ -40,8 +39,7 @@ def test_search_query_prefers_multi_search(module, monkeypatch):
     assert results[0]["raw_excerpt"] == "full content"
 
 
-@pytest.mark.parametrize("module", [deepsearch, deepsearch_optimized])
-def test_search_query_falls_back_to_tavily_on_multi_search_error(module, monkeypatch):
+def test_search_query_falls_back_to_tavily_on_multi_search_error(monkeypatch):
     calls = {"multi": 0, "tavily": 0}
 
     def fake_multi_search(query, max_results=10, strategy=None):
@@ -62,11 +60,11 @@ def test_search_query_falls_back_to_tavily_on_multi_search_error(module, monkeyp
                 }
             ]
 
-    monkeypatch.setattr(module, "multi_search", fake_multi_search)
-    monkeypatch.setattr(module, "tavily_search", FakeTavily())
-    monkeypatch.setattr(module.settings, "search_strategy", "fallback")
+    monkeypatch.setattr(deepsearch, "multi_search", fake_multi_search)
+    monkeypatch.setattr(deepsearch, "tavily_search", FakeTavily())
+    monkeypatch.setattr(deepsearch.settings, "search_strategy", "fallback")
 
-    results = module._search_query("ai chips", 3, {})
+    results = deepsearch._search_query("ai chips", 3, {})
 
     assert calls["multi"] == 1
     assert calls["tavily"] == 1
