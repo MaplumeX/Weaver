@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from agent.workflows import nodes
+import agent.compat.nodes as nodes
 from agent.workflows.quality_assessor import QualityReport
 
 
@@ -61,4 +61,3 @@ def test_evaluator_persists_citation_coverage_into_deepsearch_artifacts(monkeypa
     assert isinstance(quality, dict), "expected evaluator to persist quality_summary"
     assert quality.get("query_coverage_score") == 0.75
     assert quality.get("citation_coverage") == 0.92
-

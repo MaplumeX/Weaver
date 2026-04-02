@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.runtime.deep.public_artifacts import build_public_deepsearch_artifacts_from_state
+from agent.runtime.deep.state import resolve_deep_runtime_mode
 
 logger = logging.getLogger(__name__)
 
@@ -486,6 +487,19 @@ class SessionManager:
                     enriched["claims"] = claims
             return enriched
 
+        derived_artifacts = build_public_deepsearch_artifacts_from_state(state)
+        if isinstance(derived_artifacts, dict) and derived_artifacts:
+            enriched = dict(derived_artifacts)
+            if "sources" not in enriched:
+                sources = _maybe_extract_sources()
+                if sources:
+                    enriched["sources"] = sources
+            if "claims" not in enriched:
+                claims = _maybe_extract_claims()
+                if claims:
+                    enriched["claims"] = claims
+            return enriched
+
         queries = state.get("research_plan", []) if isinstance(state.get("research_plan", []), list) else []
         research_tree = state.get("research_tree")
 
@@ -536,9 +550,7 @@ class SessionManager:
         claims = _maybe_extract_claims()
 
         return {
-            "mode": state.get("deepsearch_mode")
-            or state.get("route")
-            or "deepsearch",
+            "mode": resolve_deep_runtime_mode(state),
             "queries": queries,
             "research_tree": research_tree,
             "quality_summary": quality_summary,

@@ -4,7 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import main
-from agent.workflows import nodes
+import agent.compat.nodes as nodes
 from agent.workflows.quality_assessor import QualityReport
 
 
@@ -73,4 +73,3 @@ async def test_export_json_includes_citation_coverage_after_evaluator_persists_s
     quality = payload.get("quality") or {}
     assert quality.get("query_coverage_score") == 0.75
     assert quality.get("citation_coverage") == pytest.approx(0.92)
-

@@ -27,7 +27,7 @@ from agent.runtime.deep.multi_agent.schema import (
     VerificationResult,
 )
 from agent.workflows.agent_factory import build_deep_research_tool_agent
-from agent.workflows.claim_verifier import ClaimStatus
+from agent.contracts.claim_verifier import ClaimStatus
 
 
 def _extract_json_object(content: str) -> dict[str, Any]:

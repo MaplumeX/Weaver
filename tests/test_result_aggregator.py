@@ -1,4 +1,4 @@
-from agent.workflows.result_aggregator import ResultAggregator
+from agent.contracts.result_aggregator import ResultAggregator
 
 
 def test_dedupe_by_url_strips_trailing_slash_and_keeps_longest_content():

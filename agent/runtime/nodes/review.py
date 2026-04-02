@@ -32,7 +32,7 @@ get_emitter_sync = _events.get_emitter_sync
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.workflows.nodes")
+    compat = sys.modules.get("agent.compat.nodes")
     if compat is not None:
         return compat
     return sys.modules[__name__]
@@ -504,7 +504,7 @@ Provide specific, actionable feedback and search queries to address gaps.""",
 
         claim_verifier_counts: Optional[Dict[str, Any]] = None
         try:
-            from agent.workflows.claim_verifier import ClaimStatus, ClaimVerifier
+            from agent.contracts.claim_verifier import ClaimStatus, ClaimVerifier
 
             scraped_content = state.get("scraped_content", [])
             scraped_list = scraped_content if isinstance(scraped_content, list) else []

@@ -1,3 +1,5 @@
+"""Explicit compatibility surface for legacy workflow node imports."""
+
 from __future__ import annotations
 
 import agent.contracts.events as _events

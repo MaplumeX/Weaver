@@ -1,18 +1,4 @@
-# agent-public-api-surface Specification
-
-## Purpose
-TBD - created by archiving change modularize-agent-runtime. Update Purpose after archive.
-## Requirements
-### Requirement: Agent facade remains the default public entrypoint
-系统 MUST 为外部调用方保留稳定的 `agent` facade 入口，并优先通过该入口暴露公开能力。
-
-#### Scenario: External module calls agent capability
-- **WHEN** `main.py`、`common/*`、`web` 生成代码或其他外围模块需要调用 agent 能力
-- **THEN** 系统 MUST 优先通过 `agent/__init__.py`、`agent/api.py` 或显式公开入口访问这些能力
-
-#### Scenario: Internal implementation moves
-- **WHEN** `agent` 包内部文件位置发生迁移
-- **THEN** 已声明为公开入口的 facade MUST 保持稳定，避免要求外围调用方跟随内部文件重组频繁改 import
+## MODIFIED Requirements
 
 ### Requirement: Shared contracts are imported from explicit public locations
 系统 MUST 为事件、registry、worker context、claim/result artifact 或其他跨层共享契约提供显式公开位置；这些公开位置 MUST 指向稳定 contract 定义或 facade wrapper，而 MUST NOT 继续把 `agent.workflows.*` 或 runtime loop 实现暴露为 contract backing。

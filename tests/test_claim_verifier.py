@@ -1,4 +1,4 @@
-from agent.workflows.claim_verifier import ClaimStatus, ClaimVerifier
+from agent.contracts.claim_verifier import ClaimStatus, ClaimVerifier
 
 
 def test_claim_without_matching_evidence_is_unsupported():

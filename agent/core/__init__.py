@@ -40,7 +40,7 @@ __all__ = [
 
 _SYMBOL_TO_MODULE: Dict[str, str] = {
     # Graph/state
-    "create_research_graph": "agent.core.graph",
+    "create_research_graph": "agent.runtime.graph",
     "create_checkpointer": "agent.core.graph",
     "AgentState": "agent.core.state",
     "QueryState": "agent.core.state",

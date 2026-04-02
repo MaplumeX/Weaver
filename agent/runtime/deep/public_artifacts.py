@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent.runtime.deep.state import read_deep_runtime_snapshot, resolve_deep_runtime_mode
 from agent.workflows.source_url_utils import canonicalize_source_url, compact_unique_sources
 
 
@@ -276,32 +277,24 @@ def build_public_deepsearch_artifacts_from_state(state: dict[str, Any]) -> dict[
     if not isinstance(state, dict):
         return {}
 
-    deep_runtime = state.get("deep_runtime")
-    if isinstance(deep_runtime, dict):
-        task_queue = deep_runtime.get("task_queue")
-        artifact_store = deep_runtime.get("artifact_store")
-        if isinstance(task_queue, dict) and isinstance(artifact_store, dict):
-            return build_public_deepsearch_artifacts(
-                task_queue=task_queue,
-                artifact_store=artifact_store,
-                research_tree=state.get("research_tree"),
-                quality_summary=state.get("quality_summary"),
-                runtime_state=deep_runtime.get("runtime_state"),
-                mode="multi_agent",
-                engine="multi_agent",
-            )
-
-    task_queue = state.get("deepsearch_task_queue")
-    artifact_store = state.get("deepsearch_artifact_store")
-    if isinstance(task_queue, dict) and isinstance(artifact_store, dict):
+    deep_runtime = read_deep_runtime_snapshot(state, default_engine="")
+    task_queue = deep_runtime.get("task_queue")
+    artifact_store = deep_runtime.get("artifact_store")
+    has_runtime_snapshot = (
+        isinstance(task_queue, dict)
+        and isinstance(artifact_store, dict)
+        and (bool(task_queue) or bool(artifact_store))
+    )
+    if has_runtime_snapshot:
+        mode = resolve_deep_runtime_mode(state, default_mode="multi_agent")
         return build_public_deepsearch_artifacts(
             task_queue=task_queue,
             artifact_store=artifact_store,
             research_tree=state.get("research_tree"),
             quality_summary=state.get("quality_summary"),
-            runtime_state=state.get("deepsearch_runtime_state"),
-            mode="multi_agent",
-            engine="multi_agent",
+            runtime_state=deep_runtime.get("runtime_state"),
+            mode=mode,
+            engine=str(deep_runtime.get("engine") or mode or "multi_agent"),
         )
 
     artifacts = state.get("deepsearch_artifacts")

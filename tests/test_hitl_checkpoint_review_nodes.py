@@ -37,7 +37,7 @@ def test_hitl_plan_review_node_interrupts_and_applies_updated_plan(monkeypatch: 
 
     monkeypatch.setattr(settings, "hitl_checkpoints", "plan", raising=False)
 
-    from agent.workflows.nodes import hitl_plan_review_node
+    from agent.runtime.nodes import hitl_plan_review_node
 
     cp = MemorySaver()
     builder = StateGraph(PlanState)
@@ -64,7 +64,7 @@ def test_hitl_draft_review_node_interrupts_and_applies_updated_content(monkeypat
 
     monkeypatch.setattr(settings, "hitl_checkpoints", "draft", raising=False)
 
-    from agent.workflows.nodes import hitl_draft_review_node
+    from agent.runtime.nodes import hitl_draft_review_node
 
     cp = MemorySaver()
     builder = StateGraph(DraftState)
@@ -91,7 +91,7 @@ def test_human_review_node_interrupts_when_final_checkpoint_enabled(monkeypatch:
 
     monkeypatch.setattr(settings, "hitl_checkpoints", "final", raising=False)
 
-    from agent.workflows.nodes import human_review_node
+    from agent.runtime.nodes import human_review_node
 
     cp = MemorySaver()
     builder = StateGraph(DraftState)
@@ -113,7 +113,7 @@ def test_hitl_sources_review_node_interrupts_and_saves_guidance(monkeypatch: pyt
 
     monkeypatch.setattr(settings, "hitl_checkpoints", "sources", raising=False)
 
-    from agent.workflows.nodes import hitl_sources_review_node
+    from agent.runtime.nodes import hitl_sources_review_node
 
     cp = MemorySaver()
     builder = StateGraph(SourcesState)

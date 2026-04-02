@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent.workflows import nodes
+import agent.compat.nodes as nodes
 
 
 def test_agent_node_delegates_simple_verification_query_to_fast_search(monkeypatch):

@@ -375,7 +375,7 @@ def _run_fast_agent_search(
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.workflows.nodes")
+    compat = sys.modules.get("agent.compat.nodes")
     if compat is not None:
         return compat
     return sys.modules[__name__]

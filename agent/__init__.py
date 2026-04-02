@@ -2,7 +2,8 @@
 Lightweight facade for the agent package.
 
 Only the stable, public-facing symbols are exported here. For anything else,
-import from the relevant submodule (agent.core.*, agent.workflows.*, etc.).
+import from the relevant submodule (agent.runtime.*, agent.contracts.*,
+agent.prompts.*, etc.).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ _PUBLIC_SYMBOLS = {
     "QueryDeduplicator",
     "ResearchPlan",
     "smart_route",
+    "get_context_window_manager",
     # Events / streaming
     "event_stream_generator",
     "get_emitter",
@@ -39,6 +41,7 @@ _PUBLIC_SYMBOLS = {
     "run_deepsearch",
     "run_deepsearch_auto",
     "run_deepsearch_runtime",
+    "run_multi_agent_deepsearch",
     "build_writer_agent",
     "build_tool_agent",
     "build_agent_tools",
@@ -62,6 +65,7 @@ __all__ = [
     "QueryDeduplicator",
     "ResearchPlan",
     "smart_route",
+    "get_context_window_manager",
     "event_stream_generator",
     "get_emitter",
     "get_emitter_sync",
@@ -79,6 +83,7 @@ __all__ = [
     "run_deepsearch",
     "run_deepsearch_auto",
     "run_deepsearch_runtime",
+    "run_multi_agent_deepsearch",
     "build_writer_agent",
     "build_tool_agent",
     "build_agent_tools",

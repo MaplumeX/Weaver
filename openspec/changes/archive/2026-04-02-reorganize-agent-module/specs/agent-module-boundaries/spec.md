@@ -1,8 +1,5 @@
-# agent-module-boundaries Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change modularize-agent-runtime. Update Purpose after archive.
-## Requirements
 ### Requirement: Agent package module boundaries are explicit
 系统 MUST 为 `agent/` 包中的主要目录建立显式职责边界，并使每个目录只承载单一类型的责任；facade、shared contracts、shared primitives、runtime orchestration、deep runtime internals、compatibility adapters、prompts/parsers MUST 有稳定且不重叠的目录归属。
 
@@ -32,29 +29,7 @@ TBD - created by archiving change modularize-agent-runtime. Update Purpose after
 - **THEN** 系统 MUST 将其视为边界失真的信号
 - **THEN** 系统 MUST 通过移动职责、抽离共享定义或收敛公开入口来消除该压力，而不是继续扩大兼容桥
 
-### Requirement: Duplicate infrastructure concepts are unified
-系统 MUST 为相同基础设施概念保留单一权威实现，并避免多个同名核心类型长期共存。
-
-#### Scenario: Duplicate manager names exist
-- **WHEN** 仓库中存在多个承担不同职责却使用相同核心名称的类型，例如多个 `ContextManager`
-- **THEN** 系统 MUST 通过重命名或职责迁移消除歧义，并让名称与真实职责一致
-
-#### Scenario: Duplicate cache implementations exist
-- **WHEN** 仓库中存在多个同名 `SearchCache` 实现
-- **THEN** 系统 MUST 明确其中唯一权威实现，其他实现 MUST 被移除、重命名或降级为显式 adapter
-
-### Requirement: Deep Research compatibility layers are removed from workflow internals
-系统 MUST 不再在 `agent.workflows.*` 中保留 Deep Research runtime 的兼容实现、镜像入口或共享 helper 宿主；相关职责 MUST 收敛到 runtime、shared contracts 和公开 facade 的明确边界内。
-
-#### Scenario: Reused deep research helper still exists in a legacy workflow module
-- **WHEN** 某个仍被当前功能使用的 Deep Research helper 仍定义在 `agent.workflows.deepsearch_*` 中
-- **THEN** 系统 MUST 将该 helper 迁移到显式 shared/runtime 模块
-- **THEN** 删除 legacy workflow 模块后，剩余调用方 MUST 不再依赖旧路径
-
-#### Scenario: Assigning ownership after cleanup
-- **WHEN** 系统重新梳理 Deep Research 相关目录职责
-- **THEN** `agent.runtime.deep.*` MUST 持有 runtime orchestration 与内部状态实现
-- **THEN** `agent.workflows.*` MUST NOT 继续承载隐藏的 Deep Research 入口或长期兼容层
+## ADDED Requirements
 
 ### Requirement: Compatibility adapters are explicitly isolated
 系统 MUST 将仍需保留的导入兼容桥放入显式 compatibility 模块，并使其生命周期与迁移计划绑定。

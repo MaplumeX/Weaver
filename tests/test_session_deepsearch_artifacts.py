@@ -132,3 +132,36 @@ def test_session_manager_includes_sources_and_claims_in_deepsearch_artifacts():
     artifacts = session_state.deepsearch_artifacts
     assert artifacts["sources"][0]["url"] == "https://example.com/"
     assert artifacts["claims"][0]["evidence_urls"][0] == "https://example.com/"
+
+
+def test_session_manager_extracts_artifacts_from_nested_deep_runtime():
+    state = {
+        "route": "deep",
+        "deep_runtime": {
+            "engine": "multi_agent",
+            "task_queue": {
+                "tasks": [
+                    {
+                        "id": "task_1",
+                        "query": "q1",
+                        "priority": 1,
+                        "created_at": "2026-04-02T00:00:00Z",
+                    }
+                ],
+                "stats": {"completed": 1},
+            },
+            "artifact_store": {},
+            "runtime_state": {"engine": "multi_agent"},
+            "agent_runs": [],
+        },
+        "quality_summary": {"summary_count": 1},
+    }
+
+    checkpointer = SimpleNamespace(get_tuple=lambda config: _fake_checkpoint_tuple(state))
+    manager = SessionManager(checkpointer)
+    session_state = manager.get_session_state("thread-nested-runtime")
+
+    assert session_state is not None
+    artifacts = session_state.deepsearch_artifacts
+    assert artifacts["mode"] == "multi_agent"
+    assert artifacts["queries"] == ["q1"]

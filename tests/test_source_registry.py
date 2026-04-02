@@ -1,5 +1,5 @@
-from agent.workflows.result_aggregator import ResultAggregator
-from agent.workflows.source_registry import SourceRegistry
+from agent.contracts.result_aggregator import ResultAggregator
+from agent.contracts.source_registry import SourceRegistry
 
 
 def test_source_registry_canonicalizes_tracking_params_and_fragments():

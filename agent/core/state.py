@@ -192,15 +192,15 @@ class AgentState(TypedDict):
     # ============ Deep Research Runtime ============
     # Nested runtime snapshot (preferred public shape)
     deep_runtime: DeepRuntimeSnapshot
-    # Selected deep research engine (legacy | multi_agent)
+    # Compatibility mirror of `deep_runtime.engine`
     deepsearch_engine: str
-    # Task queue snapshot for the active deep research runtime
+    # Compatibility mirror of `deep_runtime.task_queue`
     deepsearch_task_queue: Dict[str, Any]
-    # Structured artifact store snapshot for the active deep research runtime
+    # Compatibility mirror of `deep_runtime.artifact_store`
     deepsearch_artifact_store: Dict[str, Any]
-    # Runtime bookkeeping (epochs, budgets, fallback reason, etc.)
+    # Compatibility mirror of `deep_runtime.runtime_state`
     deepsearch_runtime_state: Dict[str, Any]
-    # Agent run lifecycle records for the current deep research execution
+    # Compatibility mirror of `deep_runtime.agent_runs`
     deepsearch_agent_runs: List[Dict[str, Any]]
 
     # ============ Metrics ============

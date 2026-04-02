@@ -4,7 +4,7 @@ import pytest
 
 import agent.runtime.deep.multi_agent.graph as multi_agent_graph
 import agent.runtime.deep.multi_agent.graph as multi_agent_runtime
-from agent.workflows.agents.supervisor import SupervisorAction, SupervisorDecision
+from agent.runtime.deep.roles.supervisor import SupervisorAction, SupervisorDecision
 from agent.runtime.deep.multi_agent import run_multi_agent_deepsearch
 
 

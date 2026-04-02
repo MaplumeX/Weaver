@@ -2,7 +2,7 @@
 Public API surface for the agent package.
 
 Keep this list small and stable; everything else should be imported from the
-specific submodules (agent.core.*, agent.workflows.*, agent.prompts.*, etc.).
+specific submodules (agent.runtime.*, agent.contracts.*, agent.prompts.*, etc.).
 """
 
 from agent.contracts.research import (
@@ -20,8 +20,6 @@ from agent.core import (
     ResearchPlan,
     ToolEvent,
     ToolEventType,
-    create_checkpointer,
-    create_research_graph,
     event_stream_generator,
     get_emitter,
     get_emitter_sync,
@@ -41,16 +39,18 @@ from agent.prompts import (
 )
 from agent.runtime.deep import (
     run_deepsearch_auto,
+    run_multi_agent_deepsearch,
     run_deepsearch_runtime,
 )
+from agent.runtime.graph import create_research_graph
 from agent.runtime.nodes import initialize_enhanced_tools
+from agent.core.graph import create_checkpointer
 from agent.workflows import (
     build_agent_tools,
     build_tool_agent,
     build_writer_agent,
     get_deep_agent_prompt,
     run_deepsearch,
-    run_multi_agent_deepsearch,
 )
 
 __all__ = [

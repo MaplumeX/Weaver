@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from agent.workflows import nodes
+import agent.compat.nodes as nodes
 from agent.workflows.quality_assessor import QualityReport
 
 

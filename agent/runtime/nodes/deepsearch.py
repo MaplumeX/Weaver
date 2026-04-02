@@ -36,7 +36,7 @@ direct_answer_node = _answer_nodes.direct_answer_node
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.workflows.nodes")
+    compat = sys.modules.get("agent.compat.nodes")
     if compat is not None:
         return compat
     return sys.modules[__name__]
@@ -51,7 +51,7 @@ def coordinator_node(
     """
     Coordinator node that decides the next research action.
     """
-    from agent.workflows.agents import ResearchCoordinator
+    from agent.runtime.deep.roles import ResearchCoordinator
 
     deps = _resolve_deps(_deps)
     logger.info("Executing coordinator node")

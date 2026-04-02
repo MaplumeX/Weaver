@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
-from agent.workflows.agents.clarify import DeepResearchClarifyAgent
-from agent.workflows.agents.scope import DeepResearchScopeAgent
-from agent.workflows.knowledge_gap import KnowledgeGapAnalyzer
+from agent.runtime.deep.roles.clarify import DeepResearchClarifyAgent
+from agent.runtime.deep.roles.scope import DeepResearchScopeAgent
+from agent.runtime.deep.services.knowledge_gap import KnowledgeGapAnalyzer
 
 
 class _CaptureLLM:

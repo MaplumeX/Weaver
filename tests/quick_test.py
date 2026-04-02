@@ -18,7 +18,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 os.environ.setdefault("OPENAI_API_KEY", "dummy-key")
 os.environ.setdefault("DATABASE_URL", "sqlite:///weaver.db")
 
-import agent.workflows.nodes as nodes  # noqa: E402
+import agent.runtime.nodes as nodes  # noqa: E402
 from agent.prompts.prompt_manager import PromptManager, get_prompt_manager  # noqa: E402
 
 

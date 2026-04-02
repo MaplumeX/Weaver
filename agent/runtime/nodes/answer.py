@@ -41,7 +41,7 @@ inject_stuck_hint = _stuck_middleware.inject_stuck_hint
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.workflows.nodes")
+    compat = sys.modules.get("agent.compat.nodes")
     if compat is not None:
         return compat
     return sys.modules[__name__]
@@ -235,7 +235,7 @@ def writer_node(
     """
     Writer node: Synthesizes research into a comprehensive report.
     """
-    from agent.workflows.result_aggregator import ResultAggregator
+    from agent.contracts.result_aggregator import ResultAggregator
 
     deps = _resolve_deps(_deps)
     logger.info("Executing writer node (with ResultAggregator)")

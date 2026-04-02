@@ -6,15 +6,15 @@ from agent.contracts.search_cache import get_search_cache as get_public_search_c
 from agent.contracts.source_registry import SourceRegistry
 from agent.contracts.worker_context import get_worker_context_store
 from agent.core.search_cache import get_search_cache as get_core_search_cache
+from agent.compat.nodes import deepsearch_node as compat_deepsearch_node
+from agent.compat.nodes import route_node as compat_route_node
 from agent.runtime.deep import entrypoints
 from agent.runtime.nodes import deepsearch_node, route_node
-from agent.workflows.nodes import deepsearch_node as legacy_deepsearch_node
-from agent.workflows.nodes import route_node as legacy_route_node
 
 
-def test_runtime_node_entrypoints_match_legacy_exports():
-    assert route_node is legacy_route_node
-    assert deepsearch_node is legacy_deepsearch_node
+def test_runtime_node_entrypoints_match_compat_exports():
+    assert route_node is compat_route_node
+    assert deepsearch_node is compat_deepsearch_node
 
 
 def test_public_search_cache_contract_uses_core_singleton():

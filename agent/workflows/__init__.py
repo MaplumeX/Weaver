@@ -12,11 +12,7 @@ import importlib
 from typing import Any, Dict
 
 __all__ = [
-    "initialize_enhanced_tools",
-    "check_cancellation",
-    "handle_cancellation",
     "run_deepsearch",
-    "run_multi_agent_deepsearch",
     "get_deep_agent_prompt",
     "build_writer_agent",
     "build_tool_agent",
@@ -25,17 +21,9 @@ __all__ = [
     "ContinuationState",
     "ToolResultInjector",
     "ContinuationHandler",
-    "ResultAggregator",
-    "QueryDeduplicator",
-    "get_search_cache",
-    "SearchCache",
 ]
 
 _SYMBOL_TO_MODULE: Dict[str, str] = {
-    # Graph node helpers
-    "initialize_enhanced_tools": "agent.workflows.nodes",
-    "check_cancellation": "agent.workflows.nodes",
-    "handle_cancellation": "agent.workflows.nodes",
     # Deep research helpers
     "get_deep_agent_prompt": "agent.workflows.deep_agent",
     # Agent factories/tools
@@ -44,18 +32,12 @@ _SYMBOL_TO_MODULE: Dict[str, str] = {
     "build_agent_tools": "agent.workflows.agent_tools",
     # Core workflows
     "run_deepsearch": "agent.workflows.deepsearch",
-    "run_multi_agent_deepsearch": "agent.runtime.deep.multi_agent",
     # Response/aggregation
     "ResponseHandler": "agent.workflows.response_handler",
-    "ResultAggregator": "agent.workflows.result_aggregator",
     # Continuation helpers
     "ContinuationHandler": "agent.workflows.continuation",
     "ContinuationState": "agent.workflows.continuation",
     "ToolResultInjector": "agent.workflows.continuation",
-    # Search cache (workflow-local)
-    "QueryDeduplicator": "agent.contracts.search_cache",
-    "SearchCache": "agent.contracts.search_cache",
-    "get_search_cache": "agent.contracts.search_cache",
 }
 
 

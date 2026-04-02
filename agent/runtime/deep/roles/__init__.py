@@ -1,4 +1,4 @@
-"""Specialized research agents module."""
+"""Runtime-owned Deep Research roles."""
 
 from .clarify import DeepResearchClarifyAgent
 from .coordinator import ResearchCoordinator

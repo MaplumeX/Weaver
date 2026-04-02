@@ -3,7 +3,7 @@ from langgraph.errors import GraphInterrupt
 from langgraph.types import Interrupt
 
 from agent.runtime.deep import entrypoints as deep_entrypoints
-from agent.workflows import nodes
+import agent.compat.nodes as nodes
 
 
 def test_deepsearch_node_uses_auto_runner(monkeypatch):

@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
-from agent.workflows.claim_verifier import ClaimStatus, ClaimVerifier
+from agent.contracts.claim_verifier import ClaimStatus, ClaimVerifier
 
 logger = logging.getLogger(__name__)
 

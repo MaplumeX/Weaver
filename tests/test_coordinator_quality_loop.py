@@ -1,6 +1,6 @@
-from agent.workflows import nodes
-from agent.workflows.agents.coordinator import CoordinatorAction, ResearchCoordinator
-from agent.workflows.agents.supervisor import ResearchSupervisor, SupervisorAction
+import agent.compat.nodes as nodes
+from agent.runtime.deep.roles.coordinator import CoordinatorAction, ResearchCoordinator
+from agent.runtime.deep.roles.supervisor import ResearchSupervisor, SupervisorAction
 
 
 class _NeverInvokeLLM:
