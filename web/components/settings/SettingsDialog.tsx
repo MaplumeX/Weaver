@@ -19,7 +19,11 @@ import { Check, ChevronDown, Plug, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getApiBaseUrl } from '@/lib/api'
 import { usePublicModels } from '@/hooks/usePublicModels'
-import { getModelAllowlist, getPublicModelOptions, resolveModelSelection } from '@/lib/model-selection'
+import {
+  getConfiguredModelEntries,
+  resolveModelSelection,
+  type ModelProviderId,
+} from '@/lib/model-selection'
 
 interface SettingsDialogProps {
   open: boolean
@@ -34,50 +38,22 @@ interface ModelProvider {
   models: { id: string; name: string }[]
 }
 
-const getModelProviders = (t: (key: any) => string): ModelProvider[] => [
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    models: [
-      { id: 'gpt-5', name: 'GPT-5' },
-      { id: 'gpt-4.1', name: 'GPT-4.1' },
-      { id: 'gpt-4o', name: 'GPT-4o' },
-    ]
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic',
-    models: [
-      { id: 'claude-sonnet-4-5-20250514', name: 'Claude Sonnet 4.5' },
-      { id: 'claude-opus-4-20250514', name: 'Claude Opus 4' },
-      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
-    ]
-  },
-  {
-    id: 'deepseek',
-    name: t('deepseek'),
-    models: [
-      { id: 'deepseek-chat', name: 'deepseek-chat' },
-      { id: 'deepseek-reasoner', name: 'deepseek-reasoner' },
-    ]
-  },
-  {
-    id: 'qwen',
-    name: t('qwen'),
-    models: [
-      { id: 'qwen-plus', name: 'qwen-plus' },
-      { id: 'qwen3-vl-flash', name: 'qwen3-vl-flash 🖼️' },
-    ]
-  },
-  {
-    id: 'zhipu',
-    name: t('zhipu'),
-    models: [
-      { id: 'glm-4.6', name: 'GLM-4.6' },
-      { id: 'glm-4.6v', name: 'glm-4.6v 🖼️' },
-    ]
+const getProviderName = (providerId: ModelProviderId, t: (key: any) => string): string => {
+  switch (providerId) {
+    case 'openai':
+      return 'OpenAI'
+    case 'anthropic':
+      return 'Anthropic'
+    case 'deepseek':
+      return t('deepseek')
+    case 'qwen':
+      return t('qwen')
+    case 'zhipu':
+      return t('zhipu')
+    default:
+      return 'Custom'
   }
-]
+}
 
 const languages = [
   { id: 'en', name: 'English', nativeName: 'English' },
@@ -106,31 +82,21 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   const [initialMcpEnabled, setInitialMcpEnabled] = useState(false)
   const [initialMcpConfig, setInitialMcpConfig] = useState('')
 
-  const staticModelProviders = getModelProviders(t)
-  const publicModelOptions = getPublicModelOptions(publicModels)
-  const allowlist = getModelAllowlist(publicModels)
+  const configuredModels = getConfiguredModelEntries(publicModels, [tempModel, selectedModel])
+  const modelProviders: ModelProvider[] = configuredModels.reduce<ModelProvider[]>((groups, model) => {
+    const existing = groups.find((group) => group.id === model.providerId)
+    if (existing) {
+      existing.models.push({ id: model.id, name: model.name })
+      return groups
+    }
 
-  const modelProviders: ModelProvider[] = allowlist
-    ? (() => {
-        const known = staticModelProviders.flatMap((p) => p.models.map((m) => m.id))
-        const filtered = staticModelProviders
-          .map((provider) => ({
-            ...provider,
-            models: provider.models.filter((m) => allowlist.has(m.id)),
-          }))
-          .filter((provider) => provider.models.length > 0)
-
-        const unknown = publicModelOptions.filter((id) => !known.includes(id))
-        if (unknown.length > 0) {
-          filtered.push({
-            id: 'custom',
-            name: 'Custom',
-            models: unknown.map((id) => ({ id, name: id })),
-          })
-        }
-        return filtered
-      })()
-    : staticModelProviders
+    groups.push({
+      id: model.providerId,
+      name: getProviderName(model.providerId, t),
+      models: [{ id: model.id, name: model.name }],
+    })
+    return groups
+  }, [])
 
   // Fetch MCP config
   const fetchMcpConfig = async () => {
@@ -258,9 +224,11 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
     onOpenChange(false)
   }
 
-  const allModels = modelProviders.flatMap(provider =>
-    provider.models.map(model => ({ ...model, provider: provider.id }))
-  )
+  const allModels = configuredModels.map((model) => ({
+    id: model.id,
+    name: model.name,
+    provider: model.providerId,
+  }))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

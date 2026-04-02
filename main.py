@@ -1069,40 +1069,17 @@ def _normalize_model_name(value: Any) -> str:
     return value.strip()
 
 
-def _is_openai_family_model(name: str) -> bool:
-    lowered = name.lower()
-    return "gpt" in lowered or lowered.startswith("o1") or lowered.startswith("o3")
-
-
-def _is_anthropic_family_model(name: str) -> bool:
-    return "claude" in name.lower()
-
-
-def _is_deepseek_family_model(name: str) -> bool:
-    return "deepseek" in name.lower()
-
-
-def _is_qwen_family_model(name: str) -> bool:
-    return "qwen" in name.lower()
-
-
-def _is_glm_family_model(name: str) -> bool:
-    lowered = name.lower()
-    return lowered.startswith("glm") or "glm" in lowered
-
-
 def _public_model_options() -> List[str]:
     """
-    A conservative allowlist for the frontend model dropdown and request validation.
+    Return only models that are explicitly configured on the backend.
 
-    Goal: avoid offering or accepting models that are unlikely to work with the
-    configured provider/gateway (e.g. selecting GPT-4o when OPENAI_BASE_URL
-    points to DeepSeek).
+    The frontend uses this list for the model dropdown, and request validation
+    uses it as the allowlist. We intentionally avoid provider-family
+    suggestions here so the UI only exposes runtime-configured models.
     """
 
     primary = _normalize_model_name(settings.primary_model)
     reasoning = _normalize_model_name(settings.reasoning_model)
-    base_url = _normalize_model_name(settings.openai_base_url).lower()
     opts: list[str] = []
     seen: set[str] = set()
 
@@ -1118,38 +1095,7 @@ def _public_model_options() -> List[str]:
 
     # Always allow the configured primary model.
     _add(primary)
-
-    # Provider-aware suggestions.
-    if _is_deepseek_family_model(primary) or "deepseek" in base_url:
-        _add("deepseek-chat")
-        _add("deepseek-reasoner")
-        if _is_deepseek_family_model(reasoning):
-            _add(reasoning)
-    elif _is_anthropic_family_model(primary):
-        if (settings.anthropic_api_key or "").strip():
-            _add("claude-sonnet-4-5-20250514")
-            _add("claude-opus-4-20250514")
-            _add("claude-sonnet-4-20250514")
-        if _is_anthropic_family_model(reasoning):
-            _add(reasoning)
-    elif _is_openai_family_model(primary):
-        if (settings.openai_api_key or "").strip():
-            _add("gpt-5")
-            _add("gpt-4.1")
-            _add("gpt-4o")
-            _add("o1-mini")
-            if _is_openai_family_model(reasoning):
-                _add(reasoning)
-    elif _is_qwen_family_model(primary) or "dashscope" in base_url or "aliyuncs" in base_url:
-        _add("qwen-plus")
-        _add("qwen3-vl-flash")
-        if _is_qwen_family_model(reasoning):
-            _add(reasoning)
-    elif _is_glm_family_model(primary) or "bigmodel" in base_url or "zhipu" in base_url:
-        _add("glm-4.6")
-        _add("glm-4.6v")
-        if _is_glm_family_model(reasoning):
-            _add(reasoning)
+    _add(reasoning)
 
     # Include task-specific overrides if they are explicitly configured.
     for attr in ("planner_model", "researcher_model", "writer_model", "evaluator_model", "critic_model"):

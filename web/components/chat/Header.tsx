@@ -4,8 +4,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { PanelLeft, Sun, Moon, ChevronDown, Check, LayoutPanelLeft, Settings } from 'lucide-react'
 import { useTheme } from '@/components/theme-provider'
-import { useI18n } from '@/lib/i18n/i18n-context'
-import { getModelAllowlist, getPublicModelOptions } from '@/lib/model-selection'
+import { getConfiguredModelEntries } from '@/lib/model-selection'
 import { SettingsDialog } from '@/components/settings/SettingsDialog'
 import { cn } from '@/lib/utils'
 import { usePublicModels } from '@/hooks/usePublicModels'
@@ -21,7 +20,6 @@ interface HeaderProps {
 
 export function Header({ sidebarOpen, onToggleSidebar, selectedModel, onModelChange, onToggleArtifacts, hasArtifacts }: HeaderProps) {
   const { theme, setTheme } = useTheme()
-  const { t } = useI18n()
   const { models: publicModels } = usePublicModels()
   const [isModelOpen, setIsModelOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -43,41 +41,7 @@ export function Header({ sidebarOpen, onToggleSidebar, selectedModel, onModelCha
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  const staticModels = [
-    // OpenAI 系列
-    { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI' },
-    { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'OpenAI' },
-    { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI' },
-
-    // Anthropic 系列
-    { id: 'claude-sonnet-4-5-20250514', name: 'Claude Sonnet 4.5', provider: 'Anthropic' },
-    { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', provider: 'Anthropic' },
-    { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', provider: 'Anthropic' },
-
-    // DeepSeek 系列
-    { id: 'deepseek-chat', name: 'deepseek-chat', provider: t('deepseek') },
-    { id: 'deepseek-reasoner', name: 'deepseek-reasoner', provider: t('deepseek') },
-
-    // 通义千问系列
-    { id: 'qwen-plus', name: 'qwen-plus', provider: t('qwen') },
-    { id: 'qwen3-vl-flash', name: 'qwen3-vl-flash 🖼️', provider: t('qwen') },
-
-    // 智谱 GLM 系列
-    { id: 'glm-4.6', name: 'GLM-4.6', provider: t('zhipu') },
-    { id: 'glm-4.6v', name: 'glm-4.6v 🖼️', provider: t('zhipu') },
-  ]
-
-  const publicModelOptions = getPublicModelOptions(publicModels)
-  const allowlist = getModelAllowlist(publicModels)
-
-  const models = allowlist
-    ? [
-        ...staticModels.filter((m) => allowlist.has(m.id)),
-        ...publicModelOptions
-          .filter((id) => !staticModels.some((m) => m.id === id))
-          .map((id) => ({ id, name: id, provider: 'Custom' })),
-      ]
-    : staticModels
+  const models = getConfiguredModelEntries(publicModels, [selectedModel])
 
   const currentModelName = models.find(m => m.id === selectedModel)?.name || selectedModel
 

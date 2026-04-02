@@ -25,3 +25,19 @@ async def test_public_config_endpoint_exposes_safe_defaults():
     assert "OPENAI_API_KEY" not in as_text
     assert "E2B_API_KEY" not in as_text
 
+
+def test_public_model_options_only_include_explicit_backend_models(monkeypatch):
+    monkeypatch.setattr(main.settings, "primary_model", "deepseek-v3-2-251201")
+    monkeypatch.setattr(main.settings, "reasoning_model", "deepseek-r1")
+    monkeypatch.setattr(main.settings, "planner_model", "gpt-5")
+    monkeypatch.setattr(main.settings, "researcher_model", "")
+    monkeypatch.setattr(main.settings, "writer_model", " ")
+    monkeypatch.setattr(main.settings, "evaluator_model", "claude-sonnet-4-5-20250514")
+    monkeypatch.setattr(main.settings, "critic_model", "deepseek-r1")
+
+    assert main._public_model_options() == [
+        "deepseek-v3-2-251201",
+        "deepseek-r1",
+        "gpt-5",
+        "claude-sonnet-4-5-20250514",
+    ]
