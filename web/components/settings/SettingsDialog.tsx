@@ -103,6 +103,8 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   const [mcpConfig, setMcpConfig] = useState('')
   const [mcpLoadedTools, setMcpLoadedTools] = useState(0)
   const [mcpLoading, setMcpLoading] = useState(false)
+  const [initialMcpEnabled, setInitialMcpEnabled] = useState(false)
+  const [initialMcpConfig, setInitialMcpConfig] = useState('')
 
   const staticModelProviders = getModelProviders(t)
   const publicModelOptions = getPublicModelOptions(publicModels)
@@ -138,8 +140,11 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
       if (!res.ok) throw new Error('Failed to fetch config')
       const data = await res.json()
       setMcpEnabled(data.enabled)
-      setMcpConfig(JSON.stringify(data.servers, null, 2))
+      const nextConfig = JSON.stringify(data.servers, null, 2)
+      setMcpConfig(nextConfig)
       setMcpLoadedTools(data.loaded_tools || 0)
+      setInitialMcpEnabled(data.enabled)
+      setInitialMcpConfig(nextConfig)
     } catch (e) {
       console.error(e)
     } finally {
@@ -226,10 +231,15 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   }
 
   const handleSave = async () => {
+    const hasMcpChanges = mcpEnabled !== initialMcpEnabled || mcpConfig !== initialMcpConfig
+    if (hasMcpChanges) {
+      const saved = await saveMcpConfig()
+      if (!saved) return
+    }
+
     onModelChange(tempModel)
     setLanguage(tempLanguage as any)
     localStorage.setItem('weaver-api-keys', JSON.stringify(apiKeys))
-    await saveMcpConfig()
     onOpenChange(false)
   }
 

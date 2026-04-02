@@ -1,8 +1,13 @@
 'use client'
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
-
-type Theme = 'dark' | 'light' | 'system'
+import {
+  DEFAULT_THEME,
+  readStoredTheme,
+  resolveAppliedTheme,
+  Theme,
+  writeStoredTheme,
+} from '@/lib/theme'
 
 interface ThemeProviderProps {
   children: React.ReactNode
@@ -16,7 +21,7 @@ interface ThemeProviderState {
 }
 
 const initialState: ThemeProviderState = {
-  theme: 'system',
+  theme: DEFAULT_THEME,
   setTheme: () => null,
 }
 
@@ -24,34 +29,34 @@ const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
 
 export function ThemeProvider({
   children,
-  defaultTheme = 'system',
+  defaultTheme = DEFAULT_THEME,
   storageKey = 'vite-ui-theme',
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(defaultTheme)
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (typeof window === 'undefined') return defaultTheme
+    return readStoredTheme(storageKey, defaultTheme, window.localStorage)
+  })
 
   useEffect(() => {
     const root = window.document.documentElement
-
+    const appliedTheme = resolveAppliedTheme(
+      theme,
+      window.matchMedia('(prefers-color-scheme: dark)').matches,
+    )
     root.classList.remove('light', 'dark')
-
-    if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
-        .matches
-        ? 'dark'
-        : 'light'
-
-      root.classList.add(systemTheme)
-      return
-    }
-
-    root.classList.add(theme)
+    root.classList.add(appliedTheme)
   }, [theme])
 
   const value = {
     theme,
     setTheme: (theme: Theme) => {
-      setTheme(theme)
+      writeStoredTheme(
+        storageKey,
+        theme,
+        typeof window === 'undefined' ? null : window.localStorage,
+      )
+      setThemeState(theme)
     },
   }
 
