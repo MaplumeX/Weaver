@@ -1,3 +1,5 @@
+import type { InterruptReview } from '@/lib/interrupt-review'
+
 export interface ToolInvocation {
   toolName: string
   toolCallId: string
@@ -53,6 +55,8 @@ export interface Message {
   isStreaming?: boolean
 }
 
+export type ChatSessionSource = 'remote' | 'cache' | 'legacy-local'
+
 export interface ChatSession {
   id: string
   title: string
@@ -62,6 +66,12 @@ export interface ChatSession {
   tags?: string[]
   isPinned?: boolean
   summary?: string
+  threadId?: string | null
+  status?: string
+  route?: string
+  searchMode?: string
+  canResume?: boolean
+  source?: ChatSessionSource
 }
 
 export interface Artifact {
@@ -77,4 +87,19 @@ export interface Artifact {
   createdAt: number
   updatedAt: number
   tags?: string[]
+}
+
+export interface SessionSnapshot {
+  sessionId: string
+  threadId?: string | null
+  messages: Message[]
+  artifacts: Artifact[]
+  pendingInterrupt?: InterruptReview | null
+  currentStatus?: string
+  route?: string
+  searchMode?: string
+  status?: string
+  canResume?: boolean
+  updatedAt: number
+  createdAt: number
 }

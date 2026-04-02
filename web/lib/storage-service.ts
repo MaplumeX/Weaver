@@ -1,3 +1,5 @@
+import { STORAGE_KEYS } from '@/lib/constants'
+
 export class StorageService {
   private static getItem<T>(key: string): T | null {
     if (typeof window === 'undefined') return null
@@ -20,19 +22,19 @@ export class StorageService {
   }
 
   static getHistory<T>(): T[] {
-    return this.getItem<T[]>('weaver-history') || []
+    return this.getItem<T[]>(STORAGE_KEYS.HISTORY) || []
   }
 
   static saveHistory<T>(history: T[]): void {
-    this.setItem('weaver-history', history)
+    this.setItem(STORAGE_KEYS.HISTORY, history)
   }
 
   static getArtifacts<T>(): T[] {
-    return this.getItem<T[]>('weaver-artifacts') || []
+    return this.getItem<T[]>(STORAGE_KEYS.ARTIFACTS) || []
   }
 
   static saveArtifacts<T>(artifacts: T[]): void {
-    this.setItem('weaver-artifacts', artifacts)
+    this.setItem(STORAGE_KEYS.ARTIFACTS, artifacts)
   }
 
   static getSessionMessages<T>(sessionId: string): T[] {
@@ -46,6 +48,19 @@ export class StorageService {
   static removeSessionMessages(sessionId: string): void {
     if (typeof window === 'undefined') return
     window.localStorage.removeItem(`session_${sessionId}`)
+  }
+
+  static getSessionSnapshot<T>(sessionId: string): T | null {
+    return this.getItem<T>(`${STORAGE_KEYS.SESSION_SNAPSHOT_PREFIX}${sessionId}`)
+  }
+
+  static saveSessionSnapshot<T>(sessionId: string, snapshot: T): void {
+    this.setItem(`${STORAGE_KEYS.SESSION_SNAPSHOT_PREFIX}${sessionId}`, snapshot)
+  }
+
+  static removeSessionSnapshot(sessionId: string): void {
+    if (typeof window === 'undefined') return
+    window.localStorage.removeItem(`${STORAGE_KEYS.SESSION_SNAPSHOT_PREFIX}${sessionId}`)
   }
 
   static clearAll(keysToKeep: string[] = []): void {
@@ -64,7 +79,12 @@ export class StorageService {
     // This is tricky without a list. We rely on the history list usually.
     // A robust way is to iterate all keys.
     Object.keys(window.localStorage).forEach(key => {
-        if (key.startsWith('session_') || key === 'weaver-history' || key === 'weaver-artifacts') {
+        if (
+          key.startsWith('session_') ||
+          key.startsWith(STORAGE_KEYS.SESSION_SNAPSHOT_PREFIX) ||
+          key === STORAGE_KEYS.HISTORY ||
+          key === STORAGE_KEYS.ARTIFACTS
+        ) {
              if (!keysToKeep.includes(key)) {
                  window.localStorage.removeItem(key)
              }

@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n/i18n-context'
-import { Plus, Compass, LayoutGrid, FolderOpen, MessageSquare, PanelLeft, Trash2, Settings, Pin, PinOff } from 'lucide-react'
+import { Plus, Compass, LayoutGrid, FolderOpen, MessageSquare, PanelLeft, Trash2, Pin, PinOff } from 'lucide-react'
 import { ChatSession } from '@/types/chat'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -15,12 +15,11 @@ interface SidebarProps {
   onSelectChat: (id: string) => void
   onDeleteChat: (id: string) => void
   onTogglePin: (id: string) => void
-  onRenameChat: (id: string, title: string) => void
   onClearHistory: () => void
-  onOpenSettings: () => void
   activeView: string
   onViewChange: (view: string) => void
   history: ChatSession[]
+  activeSessionId?: string | null
   isLoading?: boolean
 }
 
@@ -31,12 +30,11 @@ export function Sidebar({
     onSelectChat, 
     onDeleteChat,
     onTogglePin,
-    onRenameChat,
     onClearHistory,
-    onOpenSettings,
     activeView, 
     onViewChange, 
     history, 
+    activeSessionId,
     isLoading = false 
 }: SidebarProps) {
   const { t } = useI18n()
@@ -170,6 +168,7 @@ export function Sidebar({
                                   <SidebarChatItem 
                                     key={item.id} 
                                     item={item} 
+                                    isActive={activeSessionId === item.id}
                                     onSelect={onSelectChat} 
                                     onDelete={setDeleteId} 
                                     onTogglePin={onTogglePin}
@@ -192,6 +191,7 @@ export function Sidebar({
                                       <SidebarChatItem 
                                         key={item.id} 
                                         item={item} 
+                                        isActive={activeSessionId === item.id}
                                         onSelect={onSelectChat} 
                                         onDelete={setDeleteId} 
                                         onTogglePin={onTogglePin}
@@ -213,11 +213,13 @@ export function Sidebar({
 
 function SidebarChatItem({ 
     item, 
+    isActive,
     onSelect, 
     onDelete, 
     onTogglePin 
 }: { 
     item: ChatSession, 
+    isActive?: boolean,
     onSelect: (id: string) => void, 
     onDelete: (id: string) => void,
     onTogglePin: (id: string) => void
@@ -226,9 +228,14 @@ function SidebarChatItem({
         <div className="group relative">
             <button 
                 onClick={() => onSelect(item.id)}
-                className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-all duration-200 text-muted-foreground hover:bg-muted/60 hover:text-foreground text-left pr-12"
+                className={cn(
+                    "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-all duration-200 text-left pr-12",
+                    isActive
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                )}
             >
-                <MessageSquare className="h-4 w-4 shrink-0 transition-colors group-hover:text-primary" />
+                <MessageSquare className={cn("h-4 w-4 shrink-0 transition-colors", isActive ? "text-primary" : "group-hover:text-primary")} />
                 <span className="truncate">{item.title}</span>
             </button>
             <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center transition-all bg-gradient-to-l from-muted/60 pl-2">
