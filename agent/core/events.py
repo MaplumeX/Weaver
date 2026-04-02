@@ -69,7 +69,7 @@ class ToolEventType(str, Enum):
     # Research visualization events
     RESEARCH_NODE_START = "research_node_start"  # Research node begins
     RESEARCH_NODE_COMPLETE = "research_node_complete"  # Research node completed
-    RESEARCH_TREE_UPDATE = "research_tree_update"  # Research tree structure updated
+    DEEP_RESEARCH_TOPOLOGY_UPDATE = "deep_research_topology_update"  # Research topology updated
     SEARCH = "search"  # Search query executed with results
     QUALITY_UPDATE = "quality_update"  # Research quality/coverage metrics updated
     RESEARCH_AGENT_START = "research_agent_start"  # Structured research agent lifecycle start
@@ -395,12 +395,15 @@ class EventEmitter:
             },
         )
 
-    async def emit_research_tree_update(
+    async def emit_deep_research_topology_update(
         self,
-        tree: Dict[str, Any],
+        topology: Dict[str, Any],
     ) -> Event:
-        """Convenience method to emit research tree update event."""
-        return await self.emit(ToolEvent.RESEARCH_TREE_UPDATE, {"tree": tree})
+        """Convenience method to emit Deep Research topology updates."""
+        return await self.emit(
+            ToolEvent.DEEP_RESEARCH_TOPOLOGY_UPDATE,
+            {"topology": topology},
+        )
 
     async def emit_search(
         self,
@@ -540,7 +543,7 @@ class EventEmitter:
         coverage: Optional[float] = None,
         gap_count: Optional[int] = None,
     ) -> Event:
-        """Emit a coordinator decision event for Deep Research."""
+        """Emit a supervisor-owned decision event for Deep Research."""
         data: Dict[str, Any] = {
             "decision_type": decision_type,
             "reason": reason,

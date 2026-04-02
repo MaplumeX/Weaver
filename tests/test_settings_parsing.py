@@ -92,37 +92,37 @@ def test_cors_origins_list_does_not_auto_expand_in_prod():
     assert s.cors_origins_list == ["http://example.com", "http://foo.com"]
 
 
-def test_deepsearch_parallel_worker_settings_parse():
+def test_deep_research_parallel_worker_settings_parse():
     from common.config import Settings
 
     s = Settings(
         _env_file=None,
-        deepsearch_parallel_workers=4,
-        deepsearch_max_searches=25,
+        deep_research_parallel_workers=4,
+        deep_research_max_searches=25,
     )
 
-    assert s.deepsearch_parallel_workers == 4
-    assert s.deepsearch_max_searches == 25
+    assert s.deep_research_parallel_workers == 4
+    assert s.deep_research_max_searches == 25
 
 
-def test_deepsearch_freshness_warning_threshold_settings_parse():
+def test_deep_research_freshness_warning_threshold_settings_parse():
     from common.config import Settings
 
     s = Settings(
         _env_file=None,
-        deepsearch_freshness_warning_min_known=5,
-        deepsearch_freshness_warning_min_ratio=0.55,
+        deep_research_freshness_warning_min_known=5,
+        deep_research_freshness_warning_min_ratio=0.55,
     )
 
-    assert s.deepsearch_freshness_warning_min_known == 5
-    assert s.deepsearch_freshness_warning_min_ratio == 0.55
+    assert s.deep_research_freshness_warning_min_known == 5
+    assert s.deep_research_freshness_warning_min_ratio == 0.55
 
 
-def test_deepsearch_event_results_limit_setting_parse():
+def test_deep_research_event_results_limit_setting_parse():
     from common.config import Settings
 
-    s = Settings(_env_file=None, deepsearch_event_results_limit=7)
-    assert s.deepsearch_event_results_limit == 7
+    s = Settings(_env_file=None, deep_research_event_results_limit=7)
+    assert s.deep_research_event_results_limit == 7
 
 
 def test_agent_defaults_enable_provider_safe_middlewares(monkeypatch):

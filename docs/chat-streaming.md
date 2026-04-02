@@ -146,7 +146,7 @@ Inspector 的 Progress 面板使用 EventSource 连接：
 该流用于可视化 deep research 的过程（timeline/tree/quality 更新），常见事件：
 
 - `quality_update`
-- `research_tree_update`
+- `deep_research_topology_update`
 - `research_node_start` / `research_node_complete`
 - `research_agent_start` / `research_agent_complete`
 - `research_task_update`

@@ -344,7 +344,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
           } else if (data.type === 'research_node_start') {
             const nodeId = String(data.data?.node_id || data.data?.nodeId || '').trim()
             const epoch = data.data?.epoch
-            if (nodeId.includes('deepsearch')) {
+            if (nodeId.includes('deep_research')) {
               if (typeof epoch === 'number') {
                 setAutoStatus(`深度调研：开始第 ${epoch} 轮…`)
               } else {
@@ -358,11 +358,9 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
           } else if (data.type === 'research_node_complete') {
             const nodeId = String(data.data?.node_id || data.data?.nodeId || '').trim()
             const epoch = data.data?.epoch
-            if (nodeId.includes('deepsearch')) {
+            if (nodeId.includes('deep_research')) {
               if (typeof epoch === 'number') {
                 setAutoStatus(`深度调研：完成第 ${epoch} 轮，继续…`)
-              } else if (nodeId.includes('tree')) {
-                setAutoStatus('深度调研：树调研完成，准备生成报告…')
               } else {
                 setAutoStatus('深度调研：本轮完成，继续…')
               }
@@ -382,8 +380,8 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             }
             pushProcessEvent('quality_update', data.data)
             syncAssistantMessage()
-          } else if (data.type === 'research_tree_update') {
-            pushProcessEvent('research_tree_update', data.data)
+          } else if (data.type === 'deep_research_topology_update') {
+            pushProcessEvent('deep_research_topology_update', data.data)
             syncAssistantMessage()
           } else if (
             [

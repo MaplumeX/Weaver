@@ -290,10 +290,10 @@ def build_deep_research_tool_agent(
             role,
             allowed_tools=allowed_tools,
             enable_supervisor_world_tools=bool(
-                getattr(settings, "deepsearch_supervisor_allow_world_tools", False)
+                getattr(settings, "deep_research_supervisor_allow_world_tools", False)
             ),
             enable_reporter_python_tools=bool(
-                getattr(settings, "deepsearch_reporter_enable_python_tools", True)
+                getattr(settings, "deep_research_reporter_enable_python_tools", True)
             ),
         )
     else:

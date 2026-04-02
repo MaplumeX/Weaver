@@ -58,7 +58,7 @@ async def test_stream_emits_interrupt_when_graph_ends_without_final_output(monke
     _install_interrupt_checkpoint(
         monkeypatch,
         {
-            "checkpoint": "deepsearch_clarify",
+            "checkpoint": "deep_research_clarify",
             "message": "请补充研究目标",
             "instruction": "Answer the clarification question so Deep Research can draft the scope.",
         },
@@ -73,7 +73,7 @@ async def test_stream_emits_interrupt_when_graph_ends_without_final_output(monke
     types = [payload.get("type") for payload in payloads]
     assert "interrupt" in types
     interrupt_payload = payloads[types.index("interrupt")]
-    assert interrupt_payload["data"]["prompts"][0]["checkpoint"] == "deepsearch_clarify"
+    assert interrupt_payload["data"]["prompts"][0]["checkpoint"] == "deep_research_clarify"
     assert "completion" not in types
     assert "done" not in types
 
@@ -87,7 +87,7 @@ async def test_stream_emits_interrupt_when_graph_bubbles_up_interrupt(monkeypatc
                 (
                     Interrupt(
                         value={
-                            "checkpoint": "deepsearch_clarify",
+                            "checkpoint": "deep_research_clarify",
                             "message": "请补充研究目标",
                         }
                     ),
@@ -98,7 +98,7 @@ async def test_stream_emits_interrupt_when_graph_bubbles_up_interrupt(monkeypatc
     _install_interrupt_checkpoint(
         monkeypatch,
         {
-            "checkpoint": "deepsearch_clarify",
+            "checkpoint": "deep_research_clarify",
             "message": "请补充研究目标",
             "instruction": "Answer the clarification question so Deep Research can draft the scope.",
         },
@@ -113,5 +113,5 @@ async def test_stream_emits_interrupt_when_graph_bubbles_up_interrupt(monkeypatc
     types = [payload.get("type") for payload in payloads]
     assert "interrupt" in types
     interrupt_payload = payloads[types.index("interrupt")]
-    assert interrupt_payload["data"]["prompts"][0]["checkpoint"] == "deepsearch_clarify"
+    assert interrupt_payload["data"]["prompts"][0]["checkpoint"] == "deep_research_clarify"
     assert "error" not in types

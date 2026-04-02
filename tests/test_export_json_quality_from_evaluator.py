@@ -52,7 +52,7 @@ async def test_export_json_includes_citation_coverage_after_evaluator_persists_s
         "final_report": "According to the annual report, the company's revenue increased in 2024.",
         "scraped_content": [],
         "sources": [],
-        "deepsearch_artifacts": {
+        "deep_research_artifacts": {
             "mode": "linear",
             "quality_summary": {"query_coverage_score": 0.75},
         },

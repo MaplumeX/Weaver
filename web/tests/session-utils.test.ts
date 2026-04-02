@@ -62,7 +62,7 @@ test('buildPendingInterrupt restores scope review and binds it to the last assis
   const pending = buildPendingInterrupt(
     [
       {
-        checkpoint: 'deepsearch_scope_review',
+        checkpoint: 'deep_research_scope_review',
         content: 'Scope draft',
         instruction: 'Review the scope',
       },
@@ -82,7 +82,7 @@ test('deriveSearchModeFromRoute maps backend route names to frontend mode keys',
   assert.equal(deriveSearchModeFromRoute('agent'), 'agent')
   assert.equal(deriveSearchModeFromRoute('web'), 'agent')
   assert.equal(deriveSearchModeFromRoute('direct'), 'agent')
-  assert.equal(deriveSearchModeFromRoute('ultra'), 'deep')
+  assert.equal(deriveSearchModeFromRoute('ultra'), 'agent')
 })
 
 test('replaceSessionPreservingOrder updates an existing session without moving it', () => {

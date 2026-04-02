@@ -100,10 +100,6 @@ async def test_multi_agent_stream_suppresses_generic_clarify_progress(monkeypatc
         thread_id="thread_multi_agent",
         search_mode={
             "mode": "deep",
-            "use_agent": True,
-            "use_deep": True,
-            "use_deep_prompt": True,
-            "deepsearch_engine": "multi_agent",
         },
     ):
         events.append(json.loads(chunk[2:]))

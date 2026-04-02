@@ -33,7 +33,7 @@ async def test_export_forbidden_for_other_user_when_internal_auth_enabled(monkey
                 "user_id": "alice",
                 "final_report": "hello",
                 "scraped_content": [],
-                "deepsearch_artifacts": {},
+                "deep_research_artifacts": {},
             }
         }
     )

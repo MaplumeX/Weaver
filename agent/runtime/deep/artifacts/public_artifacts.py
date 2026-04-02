@@ -225,11 +225,11 @@ def _merge_quality_summary(
     return summary
 
 
-def build_public_deepsearch_artifacts(
+def build_public_deep_research_artifacts(
     *,
     task_queue: dict[str, Any] | None,
     artifact_store: dict[str, Any] | None,
-    research_tree: dict[str, Any] | None = None,
+    research_topology: dict[str, Any] | None = None,
     quality_summary: dict[str, Any] | None = None,
     runtime_state: dict[str, Any] | None = None,
     mode: str = "multi_agent",
@@ -255,7 +255,7 @@ def build_public_deepsearch_artifacts(
         "mode": mode,
         "engine": engine,
         "queries": _build_queries(queue_snapshot),
-        "research_tree": research_tree if isinstance(research_tree, dict) else {},
+        "research_topology": research_topology if isinstance(research_topology, dict) else {},
         "quality_summary": merged_quality,
         "query_coverage": (
             {"score": float(query_coverage_score)}
@@ -273,7 +273,7 @@ def build_public_deepsearch_artifacts(
     }
 
 
-def build_public_deepsearch_artifacts_from_state(state: dict[str, Any]) -> dict[str, Any]:
+def build_public_deep_research_artifacts_from_state(state: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(state, dict):
         return {}
 
@@ -287,17 +287,17 @@ def build_public_deepsearch_artifacts_from_state(state: dict[str, Any]) -> dict[
     )
     if has_runtime_snapshot:
         mode = resolve_deep_runtime_mode(state, default_mode="multi_agent")
-        return build_public_deepsearch_artifacts(
+        return build_public_deep_research_artifacts(
             task_queue=task_queue,
             artifact_store=artifact_store,
-            research_tree=state.get("research_tree"),
+            research_topology=state.get("research_topology"),
             quality_summary=state.get("quality_summary"),
             runtime_state=deep_runtime.get("runtime_state"),
             mode=mode,
             engine=str(deep_runtime.get("engine") or mode or "multi_agent"),
         )
 
-    artifacts = state.get("deepsearch_artifacts")
+    artifacts = state.get("deep_research_artifacts")
     if isinstance(artifacts, dict) and any(
         key in artifacts
         for key in (
@@ -315,6 +315,6 @@ def build_public_deepsearch_artifacts_from_state(state: dict[str, Any]) -> dict[
 
 
 __all__ = [
-    "build_public_deepsearch_artifacts",
-    "build_public_deepsearch_artifacts_from_state",
+    "build_public_deep_research_artifacts",
+    "build_public_deep_research_artifacts_from_state",
 ]

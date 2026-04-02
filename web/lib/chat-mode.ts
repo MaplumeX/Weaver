@@ -8,11 +8,9 @@ export interface SearchModePayload {
 
 export const DEFAULT_CHAT_MODE: ChatMode = 'agent'
 
-const DEEP_MODE_ALIASES = new Set(['deep', 'ultra', 'deep_agent', 'deep-agent'])
-
 export function normalizeChatMode(value?: string | null): ChatMode {
   const normalized = String(value || '').trim().toLowerCase()
-  if (DEEP_MODE_ALIASES.has(normalized)) {
+  if (normalized === 'deep') {
     return 'deep'
   }
   return 'agent'

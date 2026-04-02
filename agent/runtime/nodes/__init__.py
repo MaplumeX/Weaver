@@ -8,7 +8,7 @@ from agent.runtime.nodes.common import (
     handle_cancellation,
     initialize_enhanced_tools,
 )
-from agent.runtime.nodes.deepsearch import coordinator_node, deepsearch_node
+from agent.runtime.nodes.deep_research import deep_research_node
 from agent.runtime.nodes.planning import (
     compressor_node,
     initiate_research,
@@ -31,8 +31,7 @@ __all__ = [
     "check_cancellation",
     "clarify_node",
     "compressor_node",
-    "coordinator_node",
-    "deepsearch_node",
+    "deep_research_node",
     "evaluator_node",
     "handle_cancellation",
     "hitl_draft_review_node",

@@ -10,8 +10,7 @@ from agent.runtime.nodes import (
     agent_node,
     clarify_node,
     compressor_node,
-    coordinator_node,
-    deepsearch_node,
+    deep_research_node,
     evaluator_node,
     human_review_node,
     initiate_research,
@@ -41,13 +40,9 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     3. perform_parallel_search -> writer (aggregates results)
     4. writer -> END
 
-    Optional hierarchical mode (use_hierarchical_agents=True):
-    - Uses coordinator to decide next action: plan, research, synthesize, complete
-    - Enables more intelligent research loop control
+    Deep Research requests are routed to the canonical `deep_research` node.
     """
     from common.config import settings
-
-    use_hierarchical = getattr(settings, "use_hierarchical_agents", False)
 
     # Initialize the graph
     workflow = StateGraph(AgentState)
@@ -65,13 +60,9 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     workflow.add_node("evaluator", evaluator_node)
     workflow.add_node("reviser", revise_report_node)
     workflow.add_node("human_review", human_review_node)
-    workflow.add_node("deepsearch", deepsearch_node)
+    workflow.add_node("deep_research", deep_research_node)
     workflow.add_node("compressor", compressor_node)
     workflow.add_node("hitl_sources_review", hitl_sources_review_node)
-
-    # Add coordinator node for hierarchical mode
-    if use_hierarchical:
-        workflow.add_node("coordinator", coordinator_node)
 
     # Set entry point
     workflow.set_entry_point("router")
@@ -81,11 +72,8 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
         logger.info(f"[route_decision] state['route'] = '{route}'")
 
         if route == "deep":
-            if use_hierarchical:
-                logger.info("[route_decision] → Routing to 'coordinator' node (hierarchical)")
-                return "coordinator"
-            logger.info("[route_decision] → Routing to 'deepsearch' node")
-            return "deepsearch"
+            logger.info("[route_decision] → Routing to 'deep_research' node")
+            return "deep_research"
         if route == "agent":
             logger.info("[route_decision] → Routing to 'agent' node")
             return "agent"
@@ -96,33 +84,7 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
         logger.info("[route_decision] → Routing to 'agent' node (default)")
         return "agent"
 
-    route_targets = ["agent", "clarify", "deepsearch"]
-    if use_hierarchical:
-        route_targets.append("coordinator")
-
-    workflow.add_conditional_edges("router", route_decision, route_targets)
-
-    # Coordinator edges (hierarchical mode only)
-    if use_hierarchical:
-        def after_coordinator(state: AgentState) -> str:
-            action = state.get("coordinator_action", "research")
-            logger.info(f"[after_coordinator] action='{action}'")
-            if action == "plan":
-                return "planner"
-            elif action == "research":
-                return "planner"  # plan then research
-            elif action == "synthesize":
-                return "writer"
-            elif action == "complete":
-                return "human_review"
-            elif action == "reflect":
-                return "planner"  # reflect feeds back into planning
-            return "planner"
-
-        workflow.add_conditional_edges(
-            "coordinator", after_coordinator,
-            ["planner", "writer", "human_review"]
-        )
+    workflow.add_conditional_edges("router", route_decision, ["agent", "clarify", "deep_research"])
 
     def after_clarify(state: AgentState) -> str:
         return "human_review" if state.get("needs_clarification") else "planner"
@@ -152,16 +114,11 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
 
     def after_writer(state: AgentState) -> str:
         if state.get("route") == "deep":
-            if use_hierarchical:
-                return "coordinator"
             return "evaluator"
         return "human_review"
 
-    writer_targets = ["evaluator", "human_review"]
-    if use_hierarchical:
-        writer_targets.append("coordinator")
     workflow.add_edge("writer", "hitl_draft_review")
-    workflow.add_conditional_edges("hitl_draft_review", after_writer, writer_targets)
+    workflow.add_conditional_edges("hitl_draft_review", after_writer, ["evaluator", "human_review"])
 
     def after_evaluator(state: AgentState) -> str:
         """
@@ -213,7 +170,7 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     workflow.add_edge("agent", "human_review")
 
     # Final edge
-    workflow.add_edge("deepsearch", "human_review")
+    workflow.add_edge("deep_research", "human_review")
     workflow.add_edge("human_review", END)
 
     # HITL checkpoints are implemented via explicit review nodes that use

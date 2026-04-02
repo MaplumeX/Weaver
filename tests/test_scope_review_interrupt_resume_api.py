@@ -21,7 +21,7 @@ def _make_scope_review_graph(*, thread_id: str):
     def node(state: ScopeReviewState):
         updated = interrupt(
             {
-                "checkpoint": "deepsearch_scope_review",
+                "checkpoint": "deep_research_scope_review",
                 "instruction": "Approve the scope draft or submit feedback.",
                 "content": "scope version 1",
                 "scope_draft": {
@@ -40,7 +40,7 @@ def _make_scope_review_graph(*, thread_id: str):
         if action == "revise_scope":
             updated = interrupt(
                 {
-                    "checkpoint": "deepsearch_scope_review",
+                    "checkpoint": "deep_research_scope_review",
                     "instruction": "Approve the revised scope draft or submit more feedback.",
                     "content": "scope version 2",
                     "scope_draft": {
@@ -115,7 +115,7 @@ async def test_interrupt_resume_api_accepts_revise_scope_and_returns_next_interr
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "interrupted"
-    assert data["interrupts"][0]["checkpoint"] == "deepsearch_scope_review"
+    assert data["interrupts"][0]["checkpoint"] == "deep_research_scope_review"
     assert data["interrupts"][0]["scope_version"] == 2
 
 
@@ -195,5 +195,5 @@ async def test_interrupt_resume_api_streams_revise_scope_interrupt(monkeypatch):
     assert "status" in event_types
     assert event_types[-1] == "interrupt"
     interrupt_event = next(event for event in events if event["type"] == "interrupt")
-    assert interrupt_event["data"]["prompts"][0]["checkpoint"] == "deepsearch_scope_review"
+    assert interrupt_event["data"]["prompts"][0]["checkpoint"] == "deep_research_scope_review"
     assert interrupt_event["data"]["prompts"][0]["scope_version"] == 2

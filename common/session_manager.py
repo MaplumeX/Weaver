@@ -11,8 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from agent.runtime.deep.artifacts.public_artifacts import build_public_deepsearch_artifacts_from_state
-from agent.runtime.deep.state import resolve_deep_runtime_mode
+from agent.runtime.deep.artifacts.public_artifacts import build_public_deep_research_artifacts_from_state
 from common.checkpoint_ops import adelete_checkpoint, aget_checkpoint_tuple, alist_checkpoints
 
 logger = logging.getLogger(__name__)
@@ -52,7 +51,7 @@ class SessionState:
     state: Dict[str, Any]
     checkpoint_ts: str
     parent_checkpoint_id: Optional[str]
-    deepsearch_artifacts: Dict[str, Any] = field(default_factory=dict)
+    deep_research_artifacts: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -60,7 +59,7 @@ class SessionState:
             "checkpoint_ts": self.checkpoint_ts,
             "parent_checkpoint_id": self.parent_checkpoint_id,
             "state": self._sanitize_state(self.state),
-            "deepsearch_artifacts": self.deepsearch_artifacts,
+            "deep_research_artifacts": self.deep_research_artifacts,
         }
 
     def _sanitize_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -76,11 +75,11 @@ class SessionState:
             elif k in ("scraped_content", "pending_tool_calls"):
                 # Summarize large lists
                 sanitized[k] = f"[{len(v)} items]" if isinstance(v, list) else v
-            elif k == "deepsearch_artifacts" and isinstance(v, dict):
+            elif k == "deep_research_artifacts" and isinstance(v, dict):
                 sanitized[k] = {
                     "mode": v.get("mode"),
                     "queries_count": len(v.get("queries", []) or []),
-                    "has_tree": bool(v.get("research_tree")),
+                    "has_tree": bool(v.get("research_topology")),
                     "quality_summary": v.get("quality_summary", {}),
                 }
             else:
@@ -231,14 +230,14 @@ class SessionManager:
                 if parent_config:
                     parent_id = parent_config.get("configurable", {}).get("checkpoint_id")
 
-            deepsearch_artifacts = self._extract_deepsearch_artifacts(state)
+            deep_research_artifacts = self._extract_deep_research_artifacts(state)
 
             return SessionState(
                 thread_id=thread_id,
                 state=state,
                 checkpoint_ts=checkpoint_ts,
                 parent_checkpoint_id=parent_id,
-                deepsearch_artifacts=deepsearch_artifacts,
+                deep_research_artifacts=deep_research_artifacts,
             )
 
         except Exception as e:
@@ -267,14 +266,14 @@ class SessionManager:
                 if parent_config:
                     parent_id = parent_config.get("configurable", {}).get("checkpoint_id")
 
-            deepsearch_artifacts = self._extract_deepsearch_artifacts(state)
+            deep_research_artifacts = self._extract_deep_research_artifacts(state)
 
             return SessionState(
                 thread_id=thread_id,
                 state=state,
                 checkpoint_ts=checkpoint_ts,
                 parent_checkpoint_id=parent_id,
-                deepsearch_artifacts=deepsearch_artifacts,
+                deep_research_artifacts=deep_research_artifacts,
             )
         except Exception as e:
             logger.error(f"Error getting session state {thread_id}: {e}")
@@ -388,15 +387,14 @@ class SessionManager:
         """
         Build a restored state payload for session resumption.
 
-        Rehydrates deepsearch artifacts into top-level fields so graph execution
-        can continue from collected context instead of starting from scratch.
+        Restores the saved runtime snapshot and canonical public artifacts only.
         """
         session_state = self.get_session_state(thread_id)
         if not session_state:
             return None
 
         restored = deepcopy(session_state.state)
-        artifacts = session_state.deepsearch_artifacts or {}
+        artifacts = session_state.deep_research_artifacts or {}
 
         if isinstance(update_state, dict):
             restored.update(update_state)
@@ -405,17 +403,7 @@ class SessionManager:
             restored["resume_input"] = additional_input
 
         if artifacts:
-            restored["deepsearch_artifacts"] = artifacts
-            if artifacts.get("queries") and not restored.get("research_plan"):
-                restored["research_plan"] = list(artifacts.get("queries", []))
-            if artifacts.get("research_tree") and not restored.get("research_tree"):
-                restored["research_tree"] = artifacts.get("research_tree")
-            if artifacts.get("quality_summary") and not restored.get("quality_summary"):
-                restored["quality_summary"] = artifacts.get("quality_summary")
-            if artifacts.get("query_coverage") and not restored.get("query_coverage"):
-                restored["query_coverage"] = artifacts.get("query_coverage")
-            if artifacts.get("freshness_summary") and not restored.get("freshness_summary"):
-                restored["freshness_summary"] = artifacts.get("freshness_summary")
+            restored["deep_research_artifacts"] = deepcopy(artifacts)
 
         restored["resumed_from_checkpoint"] = True
         restored["resumed_at"] = datetime.utcnow().isoformat()
@@ -433,7 +421,7 @@ class SessionManager:
             return None
 
         restored = deepcopy(session_state.state)
-        artifacts = session_state.deepsearch_artifacts or {}
+        artifacts = session_state.deep_research_artifacts or {}
 
         if isinstance(update_state, dict):
             restored.update(update_state)
@@ -442,17 +430,7 @@ class SessionManager:
             restored["resume_input"] = additional_input
 
         if artifacts:
-            restored["deepsearch_artifacts"] = artifacts
-            if artifacts.get("queries") and not restored.get("research_plan"):
-                restored["research_plan"] = list(artifacts.get("queries", []))
-            if artifacts.get("research_tree") and not restored.get("research_tree"):
-                restored["research_tree"] = artifacts.get("research_tree")
-            if artifacts.get("quality_summary") and not restored.get("quality_summary"):
-                restored["quality_summary"] = artifacts.get("quality_summary")
-            if artifacts.get("query_coverage") and not restored.get("query_coverage"):
-                restored["query_coverage"] = artifacts.get("query_coverage")
-            if artifacts.get("freshness_summary") and not restored.get("freshness_summary"):
-                restored["freshness_summary"] = artifacts.get("freshness_summary")
+            restored["deep_research_artifacts"] = deepcopy(artifacts)
 
         restored["resumed_from_checkpoint"] = True
         restored["resumed_at"] = datetime.utcnow().isoformat()
@@ -576,155 +554,17 @@ class SessionManager:
             message_count=message_count,
         )
 
-    def _extract_deepsearch_artifacts(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract canonical deepsearch artifacts from state snapshot."""
+    def _extract_deep_research_artifacts(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract canonical Deep Research artifacts from state snapshot."""
         if not isinstance(state, dict):
             return {}
 
-        public_artifacts = build_public_deepsearch_artifacts_from_state(state)
+        public_artifacts = build_public_deep_research_artifacts_from_state(state)
         if public_artifacts:
             return public_artifacts
 
-        artifacts = state.get("deepsearch_artifacts")
-        scraped_content = state.get("scraped_content", [])
-        final_report = state.get("final_report") or state.get("draft_report") or ""
-
-        def _maybe_extract_sources() -> List[Dict[str, Any]]:
-            if not isinstance(scraped_content, list) or not scraped_content:
-                return []
-            try:
-                from agent.contracts.research import extract_message_sources
-
-                return extract_message_sources(scraped_content)
-            except Exception:
-                return []
-
-        def _maybe_extract_claims() -> List[Dict[str, Any]]:
-            if not isinstance(final_report, str) or not final_report.strip():
-                return []
-            scraped_list = scraped_content if isinstance(scraped_content, list) else []
-            passages_list: Optional[List[Dict[str, Any]]] = None
-            try:
-                from agent.contracts.research import ClaimVerifier
-
-                verifier = ClaimVerifier()
-                if isinstance(artifacts, dict):
-                    raw_passages = artifacts.get("passages")
-                    if isinstance(raw_passages, list) and raw_passages:
-                        passages_list = raw_passages
-
-                if not scraped_list and not passages_list:
-                    return []
-
-                checks = verifier.verify_report(
-                    final_report,
-                    scraped_list,
-                    passages=passages_list,
-                )
-                claims: List[Dict[str, Any]] = []
-                for check in checks:
-                    claims.append(
-                        {
-                            "claim": check.claim,
-                            "status": check.status.value,
-                            "evidence_urls": check.evidence_urls,
-                            "evidence_passages": check.evidence_passages,
-                            "score": check.score,
-                            "notes": check.notes,
-                        }
-                    )
-                return claims
-            except Exception:
-                return []
-
-        if isinstance(artifacts, dict):
-            enriched = dict(artifacts)
-            enriched.setdefault("fetched_pages", [])
-            enriched.setdefault("passages", [])
-            if "sources" not in enriched:
-                sources = _maybe_extract_sources()
-                if sources:
-                    enriched["sources"] = sources
-            if "claims" not in enriched:
-                claims = _maybe_extract_claims()
-                if claims:
-                    enriched["claims"] = claims
-            return enriched
-
-        derived_artifacts = build_public_deepsearch_artifacts_from_state(state)
-        if isinstance(derived_artifacts, dict) and derived_artifacts:
-            enriched = dict(derived_artifacts)
-            if "sources" not in enriched:
-                sources = _maybe_extract_sources()
-                if sources:
-                    enriched["sources"] = sources
-            if "claims" not in enriched:
-                claims = _maybe_extract_claims()
-                if claims:
-                    enriched["claims"] = claims
-            return enriched
-
-        queries = state.get("research_plan", []) if isinstance(state.get("research_plan", []), list) else []
-        research_tree = state.get("research_tree")
-
-        quality_summary: Dict[str, Any] = {}
-        raw_quality = state.get("quality_summary")
-        if isinstance(raw_quality, dict) and raw_quality:
-            quality_summary = raw_quality
-        else:
-            summary_count = len(state.get("summary_notes", []) or [])
-            source_count = len(state.get("scraped_content", []) or [])
-            quality_overall_score = state.get("quality_overall_score")
-            if summary_count > 0 or source_count > 0 or quality_overall_score is not None:
-                quality_summary = {
-                    "summary_count": summary_count,
-                    "source_count": source_count,
-                    "revision_count": int(state.get("revision_count", 0) or 0),
-                    "quality_overall_score": quality_overall_score,
-                }
-
-        query_coverage = state.get("query_coverage")
-        if not isinstance(query_coverage, dict):
-            query_coverage = {}
-        if not query_coverage and isinstance(quality_summary, dict):
-            nested_coverage = quality_summary.get("query_coverage")
-            if isinstance(nested_coverage, dict) and nested_coverage:
-                query_coverage = nested_coverage
-            else:
-                query_coverage_score = quality_summary.get("query_coverage_score")
-                if query_coverage_score is not None:
-                    try:
-                        query_coverage = {"score": float(query_coverage_score)}
-                    except (TypeError, ValueError):
-                        query_coverage = {}
-        freshness_summary = state.get("freshness_summary")
-        if not isinstance(freshness_summary, dict):
-            freshness_summary = {}
-
-        if (
-            not queries
-            and not research_tree
-            and not quality_summary
-            and not query_coverage
-            and not freshness_summary
-        ):
-            return {}
-
-        sources = _maybe_extract_sources()
-        claims = _maybe_extract_claims()
-
-        return {
-            "mode": resolve_deep_runtime_mode(state),
-            "queries": queries,
-            "research_tree": research_tree,
-            "quality_summary": quality_summary,
-            "query_coverage": query_coverage,
-            "freshness_summary": freshness_summary,
-            "fetched_pages": [],
-            "passages": [],
-            "sources": sources,
-            "claims": claims,
-        }
+        artifacts = state.get("deep_research_artifacts")
+        return dict(artifacts) if isinstance(artifacts, dict) else {}
 
 
 # Global session manager instance

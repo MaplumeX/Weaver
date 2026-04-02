@@ -1,6 +1,6 @@
 import pytest
 
-from agent.runtime.deep import legacy as deepsearch
+from agent.runtime.deep.support import runtime_support as deep_research_support
 
 
 def test_search_query_prefers_multi_search(monkeypatch):
@@ -26,11 +26,11 @@ def test_search_query_prefers_multi_search(monkeypatch):
             calls["tavily"] += 1
             raise AssertionError("tavily fallback should not be used when multi_search succeeds")
 
-    monkeypatch.setattr(deepsearch, "multi_search", fake_multi_search)
-    monkeypatch.setattr(deepsearch, "tavily_search", FakeTavily())
-    monkeypatch.setattr(deepsearch.settings, "search_strategy", "fallback")
+    monkeypatch.setattr(deep_research_support, "multi_search", fake_multi_search)
+    monkeypatch.setattr(deep_research_support, "tavily_search", FakeTavily())
+    monkeypatch.setattr(deep_research_support.settings, "search_strategy", "fallback")
 
-    results = deepsearch._search_query("latest ai news", 5, {})
+    results = deep_research_support._search_query("latest ai news", 5, {})
 
     assert calls["multi"] == 1
     assert calls["tavily"] == 0
@@ -60,11 +60,11 @@ def test_search_query_falls_back_to_tavily_on_multi_search_error(monkeypatch):
                 }
             ]
 
-    monkeypatch.setattr(deepsearch, "multi_search", fake_multi_search)
-    monkeypatch.setattr(deepsearch, "tavily_search", FakeTavily())
-    monkeypatch.setattr(deepsearch.settings, "search_strategy", "fallback")
+    monkeypatch.setattr(deep_research_support, "multi_search", fake_multi_search)
+    monkeypatch.setattr(deep_research_support, "tavily_search", FakeTavily())
+    monkeypatch.setattr(deep_research_support.settings, "search_strategy", "fallback")
 
-    results = deepsearch._search_query("ai chips", 3, {})
+    results = deep_research_support._search_query("ai chips", 3, {})
 
     assert calls["multi"] == 1
     assert calls["tavily"] == 1

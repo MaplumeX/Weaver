@@ -7,12 +7,12 @@ from agent.contracts.source_registry import SourceRegistry
 from agent.contracts.worker_context import get_worker_context_store
 from agent.core.search_cache import get_search_cache as get_core_search_cache
 from agent.runtime.deep import entrypoints
-from agent.runtime.nodes import deepsearch_node, route_node
+from agent.runtime.nodes import deep_research_node, route_node
 
 
 def test_runtime_node_entrypoints_are_importable():
     assert callable(route_node)
-    assert callable(deepsearch_node)
+    assert callable(deep_research_node)
 
 
 def test_public_search_cache_contract_uses_core_singleton():
@@ -30,19 +30,19 @@ def test_public_contracts_are_importable():
 def test_runtime_entrypoint_dispatches_multi_agent(monkeypatch):
     monkeypatch.setattr(
         entrypoints,
-        "_run_deepsearch_runtime",
+        "_run_deep_research_runtime",
         lambda _state, _config: {"engine": "multi_agent", "is_cancelled": False},
     )
 
-    result = entrypoints.run_deepsearch_auto({"input": "AI chips"}, {"configurable": {}})
+    result = entrypoints.run_deep_research({"input": "AI chips"}, {"configurable": {}})
 
     assert result["engine"] == "multi_agent"
-    assert result["_deepsearch_events_emitted"] is True
+    assert result["_deep_research_events_emitted"] is True
 
 
 def test_runtime_entrypoint_rejects_legacy_engine_override():
     with pytest.raises(ValueError, match="removed on 2026-04-01"):
-        entrypoints.run_deepsearch_auto(
+        entrypoints.run_deep_research(
             {"input": "AI chips"},
             {"configurable": {"deepsearch_engine": "legacy"}},
         )

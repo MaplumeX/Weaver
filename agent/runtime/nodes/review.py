@@ -505,10 +505,10 @@ Provide specific, actionable feedback and search queries to address gaps.""",
 
             scraped_content = state.get("scraped_content", [])
             scraped_list = scraped_content if isinstance(scraped_content, list) else []
-            deepsearch_artifacts = state.get("deepsearch_artifacts", {}) or {}
-            if not isinstance(deepsearch_artifacts, dict):
-                deepsearch_artifacts = {}
-            passages_payload = deepsearch_artifacts.get("passages")
+            deep_research_artifacts = state.get("deep_research_artifacts", {}) or {}
+            if not isinstance(deep_research_artifacts, dict):
+                deep_research_artifacts = {}
+            passages_payload = deep_research_artifacts.get("passages")
             passages_list = passages_payload if isinstance(passages_payload, list) else None
 
             if (scraped_list or passages_list) and isinstance(report, str) and report.strip():
@@ -581,13 +581,13 @@ Provide specific, actionable feedback and search queries to address gaps.""",
         quality_summary_state = state.get("quality_summary")
         quality_summary: Dict[str, Any] = quality_summary_state if isinstance(quality_summary_state, dict) else {}
 
-        state_deepsearch_artifacts = state.get("deepsearch_artifacts")
-        deepsearch_artifacts: Optional[Dict[str, Any]] = None
-        if isinstance(state_deepsearch_artifacts, dict):
-            artifact_quality_state = state_deepsearch_artifacts.get("quality_summary")
+        state_deep_research_artifacts = state.get("deep_research_artifacts")
+        deep_research_artifacts: Optional[Dict[str, Any]] = None
+        if isinstance(state_deep_research_artifacts, dict):
+            artifact_quality_state = state_deep_research_artifacts.get("quality_summary")
             artifact_quality = artifact_quality_state if isinstance(artifact_quality_state, dict) else {}
-            deepsearch_artifacts = {
-                **state_deepsearch_artifacts,
+            deep_research_artifacts = {
+                **state_deep_research_artifacts,
                 "quality_summary": {
                     **artifact_quality,
                     **quality_patch,
@@ -609,8 +609,8 @@ Provide specific, actionable feedback and search queries to address gaps.""",
                 **quality_patch,
             },
         }
-        if deepsearch_artifacts is not None:
-            result["deepsearch_artifacts"] = deepsearch_artifacts
+        if deep_research_artifacts is not None:
+            result["deep_research_artifacts"] = deep_research_artifacts
 
         return result
 

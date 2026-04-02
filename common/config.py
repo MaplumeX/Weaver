@@ -279,9 +279,6 @@ class Settings(BaseSettings):
     evaluator_model: str = ""  # Model for quality evaluation (defaults to reasoning_model)
     critic_model: str = ""  # Model for URL selection/critique (defaults to reasoning_model)
 
-    # Hierarchical Agent Config
-    use_hierarchical_agents: bool = False  # Enable coordinator→planner→researcher→reporter flow
-
     # Domain Routing Config
     domain_routing_enabled: bool = False  # Enable domain-specific routing and prompts
 
@@ -293,13 +290,9 @@ class Settings(BaseSettings):
     rag_chunk_size: int = 1000  # Document chunk size
     rag_chunk_overlap: int = 200  # Overlap between chunks
 
-    # Tree-based Research Config
-    tree_exploration_enabled: bool = True  # Enable tree-based deep research
-    tree_max_depth: int = 2  # Maximum tree depth (0 = root only)
-    tree_max_branches: int = 4  # Maximum children per node
-    tree_queries_per_branch: int = 3  # Number of queries per branch
-    deepsearch_parallel_workers: int = 3  # Max concurrent branch workers
-    deepsearch_max_searches: int = 30  # 0 = disabled (hard cap on search calls)
+    # Deep Research Runtime Config
+    deep_research_parallel_workers: int = 3  # Max concurrent branch workers
+    deep_research_max_searches: int = 30  # 0 = disabled (hard cap on search calls)
 
     # Report Visualization Config
     enable_report_charts: bool = True  # Generate charts from data in reports
@@ -342,28 +335,23 @@ class Settings(BaseSettings):
     search_batch_size: int = 3  # 搜索批次大小
     api_rate_limit: float = 0.5  # API 调用间隔（秒）
 
-    # Deepsearch Settings
-    deepsearch_max_epochs: int = 3
-    deepsearch_query_num: int = 5
-    deepsearch_results_per_query: int = 5
-    deepsearch_enable_crawler: bool = False  # enable simple fallback crawler
-    deepsearch_enable_research_fetcher: bool = False  # fetch page bodies for evidence passages
-    deepsearch_save_data: bool = False  # save deepsearch run data to disk
-    deepsearch_save_dir: str = "eval/deepsearch_data"
-    deepsearch_use_gap_analysis: bool = True  # use knowledge gap analysis for targeted queries
-    deepsearch_max_seconds: float = 0.0  # 0 = disabled
-    deepsearch_max_tokens: int = 0  # 0 = disabled
-    deepsearch_freshness_warning_min_known: int = 3  # minimum dated results before warning checks
-    deepsearch_freshness_warning_min_ratio: float = 0.4  # warn if fresh_30_ratio drops below this
-    deepsearch_event_results_limit: int = 5  # max search results included in SSE event payloads
-    deepsearch_report_sources_limit: int = 20  # max sources exposed to writer + appended to report
-    deepsearch_visualize_browser: bool = True  # drive sandbox browser so Live view isn't blank
-    deepsearch_claim_verifier_use_passages: bool = True  # use fetched passages for claim evidence
-    deepsearch_claim_verifier_min_overlap_tokens: int = 2  # token overlap threshold for claim evidence
-    deepsearch_claim_verifier_max_evidence_per_claim: int = 3  # max evidence passages/urls stored per claim
-    deepsearch_supervisor_allow_world_tools: bool = False  # allow supervisor spot-check tools
-    deepsearch_reporter_enable_python_tools: bool = True  # allow reporter formatting/export helpers
-    deepsearch_use_tool_agents: bool = True  # run bounded Deep Research tool agents before scripted fallback
+    # Deep Research Settings
+    deep_research_max_epochs: int = 3
+    deep_research_query_num: int = 5
+    deep_research_results_per_query: int = 5
+    deep_research_max_seconds: float = 0.0  # 0 = disabled
+    deep_research_max_tokens: int = 0  # 0 = disabled
+    deep_research_freshness_warning_min_known: int = 3  # minimum dated results before warning checks
+    deep_research_freshness_warning_min_ratio: float = 0.4  # warn if fresh_30_ratio drops below this
+    deep_research_event_results_limit: int = 5  # max search results included in SSE event payloads
+    deep_research_report_sources_limit: int = 20  # max sources exposed to writer + appended to report
+    deep_research_visualize_browser: bool = True  # drive sandbox browser so Live view isn't blank
+    deep_research_claim_verifier_use_passages: bool = True  # use fetched passages for claim evidence
+    deep_research_claim_verifier_min_overlap_tokens: int = 2  # token overlap threshold for claim evidence
+    deep_research_claim_verifier_max_evidence_per_claim: int = 3  # max evidence passages/urls stored per claim
+    deep_research_supervisor_allow_world_tools: bool = False  # allow supervisor spot-check tools
+    deep_research_reporter_enable_python_tools: bool = True  # allow reporter formatting/export helpers
+    deep_research_use_tool_agents: bool = True  # run bounded Deep Research tool agents before scripted fallback
 
     # Research Fetcher / Reader Settings
     reader_fallback_mode: str = "both"

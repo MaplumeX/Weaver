@@ -1,8 +1,8 @@
 """
-Browser visualization helpers for DeepSearch / Tree research.
+Browser visualization helpers for Deep Research.
 
 Goal:
-- When running DeepSearch, keep the sandbox browser "alive" (navigate/scroll/screenshot)
+- When running Deep Research, keep the sandbox browser "alive" (navigate/scroll/screenshot)
   so the frontend Live view is not stuck on a blank page.
 - Emit the same tool_* events as sb_browser_* tools so the Thinking accordion and
   screenshot timeline stay consistent.
@@ -38,13 +38,13 @@ def _resolve_thread_id(state: Dict[str, Any], config: Dict[str, Any]) -> str:
     if not thread_id:
         thread_id = str(state.get("thread_id") or "").strip()
     if not thread_id:
-        # Best-effort fallback used elsewhere in deepsearch for the emitter.
+        # Best-effort fallback used elsewhere in deep research for the emitter.
         thread_id = str(state.get("cancel_token_id") or "").strip()
     return thread_id
 
 
 def _can_visualize() -> bool:
-    return bool(getattr(settings, "deepsearch_visualize_browser", False))
+    return bool(getattr(settings, "deep_research_visualize_browser", False))
 
 
 def _is_http_url(url: str) -> bool:

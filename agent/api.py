@@ -39,12 +39,7 @@ from agent.prompts import (
     get_writer_prompt,
     set_prompt_manager,
 )
-from agent.runtime.deep import (
-    run_deepsearch,
-    run_deepsearch_auto,
-    run_multi_agent_deepsearch,
-    run_deepsearch_runtime,
-)
+from agent.runtime.deep import run_deep_research
 from agent.runtime.graph import create_research_graph
 from agent.runtime.nodes import initialize_enhanced_tools
 from agent.runtime.graph import create_checkpointer
@@ -77,15 +72,12 @@ __all__ = [
     "set_prompt_manager",
     # Runtime/builders/tools
     "get_deep_agent_prompt",
-    "run_deepsearch",
-    "run_multi_agent_deepsearch",
+    "run_deep_research",
     "build_writer_agent",
     "build_tool_agent",
     "build_agent_tools",
     "initialize_enhanced_tools",
     "summarize_messages",
-    "run_deepsearch_auto",
-    "run_deepsearch_runtime",
     # Shared contracts
     "get_search_cache",
     "clear_search_cache",

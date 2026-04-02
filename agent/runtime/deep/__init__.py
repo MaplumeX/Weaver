@@ -8,17 +8,15 @@ import importlib
 from typing import Any, Dict
 
 __all__ = [
-    "run_deepsearch",
-    "run_deepsearch_auto",
-    "run_deepsearch_runtime",
-    "run_multi_agent_deepsearch",
+    "run_deep_research",
+    "run_deep_research_runtime",
+    "run_multi_agent_deep_research",
 ]
 
 _SYMBOL_TO_MODULE: Dict[str, str] = {
-    "run_deepsearch": "agent.runtime.deep.legacy",
-    "run_deepsearch_auto": "agent.runtime.deep.entrypoints",
-    "run_deepsearch_runtime": "agent.runtime.deep.orchestration",
-    "run_multi_agent_deepsearch": "agent.runtime.deep.orchestration",
+    "run_deep_research": "agent.runtime.deep.entrypoints",
+    "run_deep_research_runtime": "agent.runtime.deep.orchestration",
+    "run_multi_agent_deep_research": "agent.runtime.deep.orchestration",
 }
 
 

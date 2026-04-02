@@ -23,7 +23,7 @@ class _FakeEvalLLM:
         )
 
 
-def test_evaluator_persists_citation_coverage_into_deepsearch_artifacts(monkeypatch):
+def test_evaluator_persists_citation_coverage_into_deep_research_artifacts(monkeypatch):
     class FakeAssessor:
         def __init__(self, llm, config=None):
             pass
@@ -47,7 +47,7 @@ def test_evaluator_persists_citation_coverage_into_deepsearch_artifacts(monkeypa
         "draft_report": "According to the annual report, the company's revenue increased in 2024.",
         "scraped_content": [],
         "sources": [],
-        "deepsearch_artifacts": {
+        "deep_research_artifacts": {
             "mode": "linear",
             "quality_summary": {"query_coverage_score": 0.75},
         },
@@ -55,8 +55,8 @@ def test_evaluator_persists_citation_coverage_into_deepsearch_artifacts(monkeypa
 
     result = nodes.evaluator_node(state, config={})
 
-    artifacts = result.get("deepsearch_artifacts")
-    assert isinstance(artifacts, dict), "expected evaluator to return updated deepsearch_artifacts"
+    artifacts = result.get("deep_research_artifacts")
+    assert isinstance(artifacts, dict), "expected evaluator to return updated deep_research_artifacts"
     quality = artifacts.get("quality_summary")
     assert isinstance(quality, dict), "expected evaluator to persist quality_summary"
     assert quality.get("query_coverage_score") == 0.75

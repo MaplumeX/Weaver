@@ -57,9 +57,7 @@ from agent import (
 from agent.contracts.research import extract_message_sources
 from agent.contracts.search_cache import clear_search_cache, get_search_cache
 from agent.runtime.deep.config import (
-    SUPPORTED_DEEPSEARCH_ENGINE,
-    normalize_deepsearch_engine,
-    supported_engine_for_mode,
+    SUPPORTED_DEEP_RESEARCH_RUNTIME,
 )
 from common.agents_store import (
     AgentProfile,
@@ -841,7 +839,6 @@ _LEGACY_AGENT_SESSION_MODES = {
     "tavily",
     "web",
 }
-_LEGACY_DEEP_SESSION_MODES = {"deep", "deep_agent", "deep-agent", "ultra"}
 _REMOVED_PUBLIC_SEARCH_MODES = {
     "clarify",
     "deep_agent",
@@ -871,11 +868,8 @@ def _search_mode_object_hint() -> str:
     return 'Use `{"mode":"agent"}` or `{"mode":"deep"}`.'
 
 
-def _migrate_stored_chat_mode(value: Any) -> SearchModeLiteral:
-    normalized = str(value or "").strip().lower()
-    if normalized in _LEGACY_DEEP_SESSION_MODES:
-        return "deep"
-    return "agent"
+def _canonical_chat_mode(value: Any) -> SearchModeLiteral:
+    return "deep" if str(value or "").strip().lower() == "deep" else "agent"
 
 
 class SearchMode(BaseModel):
@@ -1470,9 +1464,9 @@ def _normalize_interrupt_resume_payload(payload: Any, prompt: Any = None) -> Any
     if isinstance(prompt, dict):
         checkpoint = str(prompt.get("checkpoint") or "").strip()
 
-    if checkpoint == "deepsearch_scope_review":
+    if checkpoint == "deep_research_scope_review":
         return _normalize_scope_review_resume_payload(payload)
-    if checkpoint == "deepsearch_clarify":
+    if checkpoint == "deep_research_clarify":
         return _normalize_clarify_resume_payload(payload)
 
     if not isinstance(payload, dict):
@@ -2053,22 +2047,7 @@ def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | None) -> D
                     f"`search_mode.mode` must be one of {', '.join(_PUBLIC_SEARCH_MODE_OPTIONS)}."
                 )
             mode = lowered
-        elif bool(search_mode.get("use_deep")):
-            mode = "deep"
-        else:
-            mode = "agent"
-
-    use_deep = mode == "deep"
-    deepsearch_engine = supported_engine_for_mode(use_deep)
-
-    return {
-        "use_web": False,
-        "use_agent": True,
-        "use_deep": use_deep,
-        "mode": mode,
-        "use_deep_prompt": use_deep,
-        "deepsearch_engine": deepsearch_engine,
-    }
+    return {"mode": mode}
 
 
 def _normalize_images_payload(images: Optional[List[ImagePayload]]) -> List[Dict[str, Any]]:
@@ -2123,7 +2102,6 @@ def _mode_info_from_session_state(state: Dict[str, Any]) -> Dict[str, Any]:
     deep_runtime = state.get("deep_runtime")
     if not isinstance(deep_runtime, dict):
         deep_runtime = {}
-    deepsearch_engine = normalize_deepsearch_engine(deep_runtime.get("engine"))
 
     has_deep_runtime = any(
         isinstance(deep_runtime.get(key), dict) and bool(deep_runtime.get(key))
@@ -2132,17 +2110,8 @@ def _mode_info_from_session_state(state: Dict[str, Any]) -> Dict[str, Any]:
         isinstance(deep_runtime.get("agent_runs"), list) and bool(deep_runtime.get("agent_runs"))
     )
 
-    mode = "deep" if has_deep_runtime or _migrate_stored_chat_mode(route) == "deep" else "agent"
-    use_deep = mode == "deep"
-
-    return {
-        "use_web": False,
-        "use_agent": True,
-        "use_deep": use_deep,
-        "mode": mode,
-        "use_deep_prompt": use_deep,
-        "deepsearch_engine": supported_engine_for_mode(use_deep) or deepsearch_engine,
-    }
+    mode = "deep" if has_deep_runtime or route == "deep" else "agent"
+    return {"mode": mode}
 
 
 def _build_agent_graph_config(
@@ -2158,7 +2127,6 @@ def _build_agent_graph_config(
         "thread_id": thread_id,
         "model": model,
         "search_mode": mode_info,
-        "deepsearch_engine": mode_info.get("deepsearch_engine"),
         "agent_profile": agent_profile.model_dump(mode="json") if agent_profile else None,
         "user_id": user_id or settings.memory_user_id,
         "allow_interrupts": bool(checkpointer),
@@ -2182,7 +2150,9 @@ def _build_initial_agent_state(
 ) -> AgentState:
     images = images or []
     user_id = user_id or settings.memory_user_id
-    deepsearch_engine = str(mode_info.get("deepsearch_engine") or SUPPORTED_DEEPSEARCH_ENGINE)
+    deep_runtime_engine = (
+        SUPPORTED_DEEP_RESEARCH_RUNTIME if mode_info.get("mode") == "deep" else ""
+    )
     initial_state: AgentState = {
         "input": input_text,
         "images": images,
@@ -2207,7 +2177,7 @@ def _build_initial_agent_state(
         "errors": [],
         "sub_agent_contexts": {},
         "deep_runtime": {
-            "engine": deepsearch_engine,
+            "engine": deep_runtime_engine,
             "task_queue": {},
             "artifact_store": {},
             "runtime_state": {},
@@ -2220,7 +2190,7 @@ def _build_initial_agent_state(
     messages: list[Any] = []
     if mode_info.get("mode") == "agent" and agent_profile and agent_profile.system_prompt:
         messages.append(SystemMessage(content=agent_profile.system_prompt))
-    if mode_info.get("use_deep_prompt"):
+    if mode_info.get("mode") == "deep":
         messages.append(SystemMessage(content=get_deep_agent_prompt()))
 
     store_memories = _store_search(input_text, user_id=user_id)
@@ -2256,8 +2226,7 @@ _MULTI_AGENT_GENERIC_PROGRESS_NODE_NAMES = {
 
 
 def _is_multi_agent_deep_mode(mode_info: Dict[str, Any]) -> bool:
-    engine = str(mode_info.get("deepsearch_engine") or "").strip().lower()
-    return bool(mode_info.get("use_deep")) and engine == SUPPORTED_DEEPSEARCH_ENGINE
+    return mode_info.get("mode") == "deep"
 
 
 def _should_emit_generic_progress_for_node(node_name: str, mode_info: Dict[str, Any]) -> bool:
@@ -2388,8 +2357,8 @@ async def _stream_graph_execution(
                     yield_event = await format_stream_event("research_node_start", tool_event.data)
                 elif tool_event.type == ToolEvent.RESEARCH_NODE_COMPLETE:
                     yield_event = await format_stream_event("research_node_complete", tool_event.data)
-                elif tool_event.type == ToolEvent.RESEARCH_TREE_UPDATE:
-                    yield_event = await format_stream_event("research_tree_update", tool_event.data)
+                elif tool_event.type == ToolEvent.DEEP_RESEARCH_TOPOLOGY_UPDATE:
+                    yield_event = await format_stream_event("deep_research_topology_update", tool_event.data)
                 elif tool_event.type == ToolEvent.QUALITY_UPDATE:
                     yield_event = await format_stream_event("quality_update", tool_event.data)
                 elif tool_event.type == ToolEvent.SEARCH:
@@ -3113,9 +3082,8 @@ async def chat(request: Request, payload: ChatRequest):
                 "errors": [],
                 "sub_agent_contexts": {},
                 "deep_runtime": {
-                    "engine": str(
-                        mode_info.get("deepsearch_engine")
-                        or SUPPORTED_DEEPSEARCH_ENGINE
+                    "engine": (
+                        SUPPORTED_DEEP_RESEARCH_RUNTIME if mode_info.get("mode") == "deep" else ""
                     ),
                     "task_queue": {},
                     "artifact_store": {},
@@ -3127,7 +3095,7 @@ async def chat(request: Request, payload: ChatRequest):
             messages: list[Any] = []
             if mode_info.get("mode") == "agent" and agent_profile and agent_profile.system_prompt:
                 messages.append(SystemMessage(content=agent_profile.system_prompt))
-            if mode_info.get("use_deep_prompt"):
+            if mode_info.get("mode") == "deep":
                 messages.append(SystemMessage(content=get_deep_agent_prompt()))
 
             store_memories = _store_search(last_message, user_id=user_id)
@@ -3148,7 +3116,6 @@ async def chat(request: Request, payload: ChatRequest):
                     "thread_id": "default",
                     "model": model,
                     "search_mode": mode_info,
-                    "deepsearch_engine": mode_info.get("deepsearch_engine"),
                     "agent_profile": agent_profile.model_dump(mode="json")
                     if agent_profile
                     else None,
@@ -3577,9 +3544,9 @@ async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
         if not session_state:
             raise ValueError("session not found")
 
-        artifacts = session_state.deepsearch_artifacts or {}
+        artifacts = session_state.deep_research_artifacts or {}
         if not isinstance(artifacts, dict):
-            raise TypeError("deepsearch_artifacts is not a dict")
+            raise TypeError("deep_research_artifacts is not a dict")
 
         sources = artifacts.get("sources", [])
         if isinstance(sources, list):
@@ -3676,7 +3643,7 @@ async def get_run_metrics(thread_id: str, request: Request):
     if not metrics:
         raise HTTPException(status_code=404, detail="Run not found")
     payload = metrics.to_dict()
-    payload["route"] = _migrate_stored_chat_mode(payload.get("route"))
+    payload["route"] = _canonical_chat_mode(payload.get("route"))
     return RunMetricsResponse(
         **payload,
         evidence_summary=await _build_run_evidence_summary(thread_id),
@@ -3988,19 +3955,19 @@ async def export_report_endpoint(
         if format_lower == "json":
             from common.session_manager import SessionManager
 
-            deepsearch_artifacts = SessionManager(checkpointer=object())._extract_deepsearch_artifacts(state) or {}
-            if not isinstance(deepsearch_artifacts, dict):
-                deepsearch_artifacts = {}
+            deep_research_artifacts = SessionManager(checkpointer=object())._extract_deep_research_artifacts(state) or {}
+            if not isinstance(deep_research_artifacts, dict):
+                deep_research_artifacts = {}
 
-            sources_payload = deepsearch_artifacts.get("sources")
+            sources_payload = deep_research_artifacts.get("sources")
             if not isinstance(sources_payload, list):
                 sources_payload = extracted_sources
 
-            claims_payload = deepsearch_artifacts.get("claims")
+            claims_payload = deep_research_artifacts.get("claims")
             if not isinstance(claims_payload, list):
                 claims_payload = []
 
-            quality_payload = deepsearch_artifacts.get("quality_summary")
+            quality_payload = deep_research_artifacts.get("quality_summary")
             if not isinstance(quality_payload, dict):
                 quality_payload = state.get("quality_summary", {}) or {}
                 if not isinstance(quality_payload, dict):
@@ -4338,7 +4305,7 @@ async def list_sessions(
         session_payloads = []
         for session in sessions:
             payload = session.to_dict()
-            payload["route"] = _migrate_stored_chat_mode(payload.get("route"))
+            payload["route"] = _canonical_chat_mode(payload.get("route"))
             session_payloads.append(payload)
 
         return {
@@ -4379,7 +4346,7 @@ async def get_session(thread_id: str, request: Request):
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
         payload = session.to_dict()
-        payload["route"] = _migrate_stored_chat_mode(payload.get("route"))
+        payload["route"] = _canonical_chat_mode(payload.get("route"))
         return payload
 
     except HTTPException:
@@ -4449,7 +4416,7 @@ async def get_session_evidence(thread_id: str, request: Request):
             if isinstance(owner, str) and owner.strip() and owner.strip() != principal_id:
                 raise HTTPException(status_code=403, detail="Forbidden")
 
-        artifacts = session_state.deepsearch_artifacts or {}
+        artifacts = session_state.deep_research_artifacts or {}
         if not isinstance(artifacts, dict):
             artifacts = {}
 
@@ -4517,18 +4484,18 @@ async def resume_session(
         if restored_state is None:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
-        deepsearch_artifacts = restored_state.get("deepsearch_artifacts", {}) or {}
-        quality_summary = deepsearch_artifacts.get("quality_summary", {}) if isinstance(
-            deepsearch_artifacts, dict
+        deep_research_artifacts = restored_state.get("deep_research_artifacts", {}) or {}
+        quality_summary = deep_research_artifacts.get("quality_summary", {}) if isinstance(
+            deep_research_artifacts, dict
         ) else {}
-        queries = deepsearch_artifacts.get("queries", []) if isinstance(
-            deepsearch_artifacts, dict
+        queries = deep_research_artifacts.get("queries", []) if isinstance(
+            deep_research_artifacts, dict
         ) else []
-        query_coverage = deepsearch_artifacts.get("query_coverage", {}) if isinstance(
-            deepsearch_artifacts, dict
+        query_coverage = deep_research_artifacts.get("query_coverage", {}) if isinstance(
+            deep_research_artifacts, dict
         ) else {}
-        freshness_summary = deepsearch_artifacts.get("freshness_summary", {}) if isinstance(
-            deepsearch_artifacts, dict
+        freshness_summary = deep_research_artifacts.get("freshness_summary", {}) if isinstance(
+            deep_research_artifacts, dict
         ) else {}
         if not isinstance(query_coverage, dict):
             query_coverage = {}
@@ -4567,12 +4534,12 @@ async def resume_session(
                 "route": state.state.get("route"),
                 "revision_count": state.state.get("revision_count", 0),
                 "has_report": bool(state.state.get("final_report")),
-                "has_deepsearch_artifacts": bool(deepsearch_artifacts),
-                "deepsearch_queries": len(queries) if isinstance(queries, list) else 0,
+                "has_deep_research_artifacts": bool(deep_research_artifacts),
+                "deep_research_queries": len(queries) if isinstance(queries, list) else 0,
             },
-            "deepsearch_resume": {
-                "artifacts_restored": bool(deepsearch_artifacts),
-                "mode": deepsearch_artifacts.get("mode") if isinstance(deepsearch_artifacts, dict) else None,
+            "deep_research_resume": {
+                "artifacts_restored": bool(deep_research_artifacts),
+                "mode": deep_research_artifacts.get("mode") if isinstance(deep_research_artifacts, dict) else None,
                 "quality_summary": quality_summary if isinstance(quality_summary, dict) else {},
                 "query_coverage_score": query_coverage_score,
                 "freshness_warning": freshness_warning,

@@ -10,18 +10,30 @@ import main
 async def test_export_report_json_includes_evidence_payload(monkeypatch):
     state = {
         "final_report": "According to the report, revenue increased by 20% in 2024.",
-        "scraped_content": [
-            {
-                "results": [
-                    {
-                        "title": "Annual Report",
-                        "url": "https://example.com/?utm_source=test",
-                        "summary": "The annual report shows revenue increased by 20% in 2024.",
-                    }
-                ]
-            }
-        ],
-        "quality_summary": {"summary_count": 1, "source_count": 1},
+        "deep_research_artifacts": {
+            "sources": [
+                {
+                    "title": "Annual Report",
+                    "url": "https://example.com/?utm_source=test",
+                }
+            ],
+            "claims": [
+                {
+                    "claim": "Revenue increased by 20% in 2024.",
+                    "status": "verified",
+                    "evidence_urls": ["https://example.com/"],
+                    "evidence_passages": [
+                        {
+                            "url": "https://example.com/",
+                            "snippet_hash": "passage_001",
+                            "quote": "Revenue increased by 20% in 2024.",
+                            "heading_path": ["Financial Highlights"],
+                        }
+                    ],
+                }
+            ],
+            "quality_summary": {"summary_count": 1, "source_count": 1},
+        },
     }
 
     checkpoint = SimpleNamespace(checkpoint={"channel_values": state})
@@ -41,7 +53,7 @@ async def test_export_report_json_includes_evidence_payload(monkeypatch):
     assert isinstance(data.get("report"), str)
     assert isinstance(data.get("sources"), list)
     assert isinstance(data.get("claims"), list)
-    assert data.get("claims"), "expected claim verifier to produce at least one claim"
+    assert data.get("claims"), "expected canonical deep research artifacts to include claims"
     claim = (data.get("claims") or [None])[0] or {}
     assert isinstance(claim.get("evidence_urls"), list)
     assert isinstance(claim.get("evidence_passages"), list)
@@ -53,18 +65,25 @@ async def test_export_report_json_includes_evidence_payload(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_export_report_json_claim_verifier_prefers_passages_when_available(monkeypatch):
+async def test_export_report_json_preserves_passage_level_claim_evidence(monkeypatch):
     state = {
         "final_report": "The company's revenue increased in 2024 according to the annual report.",
         "scraped_content": [],
-        "deepsearch_artifacts": {
-            "passages": [
-                {
-                    "url": "https://example.com/earnings?utm_source=test",
-                    "text": "In 2024, the company's revenue increased by 5% year over year.",
-                    "snippet_hash": "passage_123",
-                    "quote": "In 2024, the company's revenue increased by 5% year over year.",
-                    "heading_path": ["Results"],
+        "deep_research_artifacts": {
+            "claims": [
+                    {
+                        "claim": "The company's revenue increased in 2024.",
+                        "status": "verified",
+                        "evidence_urls": ["https://example.com/earnings"],
+                        "evidence_passages": [
+                            {
+                                "url": "https://example.com/earnings",
+                                "text": "In 2024, the company's revenue increased by 5% year over year.",
+                                "snippet_hash": "passage_123",
+                                "quote": "In 2024, the company's revenue increased by 5% year over year.",
+                                "heading_path": ["Results"],
+                            }
+                    ],
                 }
             ]
         },

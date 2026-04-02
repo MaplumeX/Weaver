@@ -1,8 +1,6 @@
 ## Purpose
 定义 multi-agent Deep Research 在任务协作、证据沉淀和最终汇总中的结构化 artifacts 契约。
-
 ## Requirements
-
 ### Requirement: Coordination requests are blackboard artifacts
 系统 MUST 将 follow-up request、retry hint、escalation 和报告就绪通知表示为 blackboard 上的一等结构化 payload，而不是仅以自由文本备注存在。
 
@@ -103,14 +101,15 @@
 - **THEN** 系统 MUST 避免依赖并发时序决定最终 artifact 状态
 
 ### Requirement: Public deep research artifacts are derived from the multi-agent store
-系统 MUST 从 `multi_agent` runtime 的权威 task queue、artifact store 和 final report 快照生成公开的 Deep Research artifacts 视图，而不是依赖 legacy runner 风格的兼容拼装对象。
+系统 MUST 从 canonical Deep Research runtime 的权威 task queue、artifact store、topology 快照和 final report 快照生成公开的 Deep Research artifacts 视图，而 MUST NOT 再依赖 `deepsearch_artifacts`、`research_plan`、`research_tree` 或其他旧顶层 fallback 字段做兼容拼装。
 
 #### Scenario: Session or API exports public deep research artifacts
-- **WHEN** `SessionManager`、API 响应或导出逻辑需要读取 `deepsearch_artifacts`
-- **THEN** 系统 MUST 从 `fetched_documents`、`evidence_passages`、`verification_results`、`final_report` 和质量快照生成公开 artifacts
-- **THEN** 公开 artifacts MUST 暴露客户端仍依赖的 `sources`、`fetched_pages`、`passages`、`claims`、`quality_summary` 和最终报告字段，而不要求调用方解析内部 store 结构
+- **WHEN** `SessionManager`、API 响应或导出逻辑需要读取公开 Deep Research artifacts
+- **THEN** 系统 MUST 输出 canonical artifact payload，并暴露客户端仍依赖的 `sources`、`fetched_pages`、`passages`、`claims`、`quality_summary`、最终报告和 topology 信息
+- **THEN** 调用方 MUST NOT 需要解析 `deepsearch_artifacts`、`research_plan` 或 `research_tree` 才能恢复当前 Deep Research 结果
 
-#### Scenario: Public artifact export reuses recorded verification output
-- **WHEN** `multi_agent` runtime 已经记录 claim/citation 验证结果或来源证据
-- **THEN** 系统 MUST 直接复用这些结构化产物构建公开 `claims` 与来源信息
-- **THEN** 系统 MUST NOT 通过 legacy verifier 回填或重新解析自由文本来生成第二份事实源
+#### Scenario: Resume path rebuilds from canonical artifacts only
+- **WHEN** 调用方在 interrupt、暂停或会话恢复后继续执行 Deep Research
+- **THEN** 系统 MUST 仅基于 canonical public artifacts 与权威 runtime snapshot 恢复执行上下文
+- **THEN** 系统 MUST NOT 再把旧的 `deepsearch_artifacts`、`research_plan`、`research_tree` 或其他兼容字段回填到顶层 state
+

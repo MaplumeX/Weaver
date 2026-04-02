@@ -12,7 +12,7 @@ test('normalizes scope review interrupts into review metadata', () => {
   const review = normalizeInterruptReview({
     prompts: [
       {
-        checkpoint: 'deepsearch_scope_review',
+        checkpoint: 'deep_research_scope_review',
         instruction: 'Approve or revise the scope.',
         content: 'scope version 1',
         available_actions: ['approve_scope', 'revise_scope'],
@@ -30,7 +30,7 @@ test('builds revise_scope payloads from scope review input', () => {
   const review = normalizeInterruptReview({
     prompts: [
       {
-        checkpoint: 'deepsearch_scope_review',
+        checkpoint: 'deep_research_scope_review',
         instruction: 'Approve or revise the scope.',
       },
     ],
@@ -49,7 +49,7 @@ test('builds clarify payloads from freeform answers', () => {
   const review = normalizeInterruptReview({
     prompts: [
       {
-        checkpoint: 'deepsearch_clarify',
+        checkpoint: 'deep_research_clarify',
         message: 'What time range should the research cover?',
       },
     ],
@@ -67,7 +67,7 @@ test('formats clarify interrupts as normal conversation prompts', () => {
   const review = normalizeInterruptReview({
     prompts: [
       {
-        checkpoint: 'deepsearch_clarify',
+        checkpoint: 'deep_research_clarify',
         message: '你更关心整体趋势还是出行影响？',
       },
     ],
@@ -85,7 +85,7 @@ test('uses scope draft content as the in-chat review message', () => {
   const review = normalizeInterruptReview({
     prompts: [
       {
-        checkpoint: 'deepsearch_scope_review',
+        checkpoint: 'deep_research_scope_review',
         instruction: 'Approve or revise the scope.',
         content: '## 研究范围草案',
       },
@@ -97,10 +97,10 @@ test('uses scope draft content as the in-chat review message', () => {
 
 test('provides conversation-style placeholders for clarify and scope revision', () => {
   const clarifyReview = normalizeInterruptReview({
-    prompts: [{ checkpoint: 'deepsearch_clarify', message: '请补充目标' }],
+    prompts: [{ checkpoint: 'deep_research_clarify', message: '请补充目标' }],
   })
   const scopeReview = normalizeInterruptReview({
-    prompts: [{ checkpoint: 'deepsearch_scope_review', content: 'scope draft' }],
+    prompts: [{ checkpoint: 'deep_research_scope_review', content: 'scope draft' }],
   })
 
   assert.equal(getInterruptInputPlaceholder(clarifyReview), '继续补充你的研究目标、范围或约束')

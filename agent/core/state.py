@@ -161,19 +161,11 @@ class AgentState(TypedDict):
     # Last error message
     last_error: str
 
-    # ============ Research Tree ============
-    # Tree-based research structure (serialized dict)
-    research_tree: Dict[str, Any]
+    # ============ Research Topology ============
+    # Deep Research topology snapshot (serialized dict)
+    research_topology: Dict[str, Any]
     # Current branch being explored
     current_branch_id: Optional[str]
-    # Whether tree exploration is enabled
-    tree_exploration_enabled: bool
-
-    # ============ Hierarchical Agent Control ============
-    # Coordinator's chosen action (plan, research, synthesize, reflect, complete)
-    coordinator_action: str
-    # Coordinator's reasoning for the decision
-    coordinator_reasoning: str
 
     # ============ Compressed Knowledge ============
     # Structured compressed knowledge from research

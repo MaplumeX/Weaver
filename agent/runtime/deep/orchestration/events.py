@@ -19,7 +19,7 @@ def emit(emitter: Any, event_type: ToolEventType | str, payload: dict[str, Any])
     try:
         emitter.emit_sync(event_type, payload)
     except Exception as exc:
-        logger.debug("[deepsearch-multi-agent] failed to emit %s: %s", event_type, exc)
+        logger.debug("[deep-research-multi-agent] failed to emit %s: %s", event_type, exc)
 
 
 def _graph_context(
@@ -272,12 +272,12 @@ def emit_decision(
     emit(runtime.emitter, ToolEventType.RESEARCH_DECISION, payload)
 
 
-def emit_research_tree_update(runtime: Any) -> None:
+def emit_deep_research_topology_update(runtime: Any) -> None:
     emit(
         runtime.emitter,
-        ToolEventType.RESEARCH_TREE_UPDATE,
+        ToolEventType.DEEP_RESEARCH_TOPOLOGY_UPDATE,
         {
-            "tree": runtime._research_tree_snapshot(),
+            "topology": runtime._research_topology_snapshot(),
             "engine": "multi_agent",
             "quality": runtime._quality_summary(None),
         },
@@ -291,7 +291,7 @@ __all__ = [
     "emit_agent_start",
     "emit_artifact_update",
     "emit_decision",
-    "emit_research_tree_update",
+    "emit_deep_research_topology_update",
     "emit_task_update",
     "get_emitter_sync",
 ]

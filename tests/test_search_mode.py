@@ -15,29 +15,22 @@ from main import SearchMode, _coerce_search_mode_input, _normalize_search_mode
 
 def test_normalize_search_mode_defaults_to_agent():
     mode = _normalize_search_mode(None)
-    assert mode["mode"] == "agent"
-    assert mode["use_agent"] is True
-    assert mode["use_deep"] is False
+    assert mode == {"mode": "agent"}
 
 
 def test_normalize_search_mode_deep_object():
     mode = _normalize_search_mode(SearchMode(mode="deep"))
-    assert mode["mode"] == "deep"
-    assert mode["use_agent"] is True
-    assert mode["use_deep"] is True
+    assert mode == {"mode": "deep"}
 
 
-def test_normalize_search_mode_internal_mode_info_dict():
-    mode = _normalize_search_mode({"mode": "agent", "use_agent": True})
-    assert mode["mode"] == "agent"
-    assert mode["use_agent"] is True
-    assert mode["use_deep"] is False
+def test_normalize_search_mode_accepts_canonical_mode_dict():
+    mode = _normalize_search_mode({"mode": "agent"})
+    assert mode == {"mode": "agent"}
 
 
-def test_normalize_search_mode_internal_deep_flag_dict():
-    mode = _normalize_search_mode({"use_deep": True})
-    assert mode["mode"] == "deep"
-    assert mode["use_deep"] is True
+def test_normalize_search_mode_ignores_missing_mode_in_internal_dict():
+    mode = _normalize_search_mode({})
+    assert mode == {"mode": "agent"}
 
 
 @pytest.mark.parametrize(

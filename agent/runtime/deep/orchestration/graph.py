@@ -28,7 +28,7 @@ from agent.runtime.deep.config import resolve_max_searches, resolve_parallel_wor
 from agent.runtime.deep.state import read_deep_runtime_snapshot
 import agent.runtime.deep.orchestration.dispatcher as dispatcher
 import agent.runtime.deep.orchestration.events as events
-from agent.runtime.deep.artifacts.public_artifacts import build_public_deepsearch_artifacts
+from agent.runtime.deep.artifacts.public_artifacts import build_public_deep_research_artifacts
 from agent.runtime.deep.schema import (
     AgentRunRecord,
     BranchBrief,
@@ -100,7 +100,7 @@ def _resolve_deps(explicit_deps: Any = None) -> Any:
 
 @dataclass
 class _RuntimeView:
-    owner: MultiAgentDeepSearchRuntime
+    owner: MultiAgentDeepResearchRuntime
     shared_state: dict[str, Any]
     task_queue: ResearchTaskQueue
     artifact_store: ArtifactStore
@@ -231,10 +231,10 @@ class _RuntimeView:
             "branch_id": self.root_branch_id,
         }
 
-    def _research_tree_snapshot(self) -> dict[str, Any]:
+    def _research_topology_snapshot(self) -> dict[str, Any]:
         tasks = sorted(self.task_queue.all_tasks(), key=lambda task: (task.priority, task.created_at, task.id))
         return {
-            "id": "deepsearch_multi_agent",
+            "id": "deep_research_multi_agent",
             "topic": self.owner.topic,
             "engine": "multi_agent",
             "graph_run_id": self.graph_run_id,
@@ -615,8 +615,8 @@ class _RuntimeView:
             extra=extra,
         )
 
-    def _emit_research_tree_update(self) -> None:
-        events.emit_research_tree_update(self)
+    def _emit_deep_research_topology_update(self) -> None:
+        events.emit_deep_research_topology_update(self)
 
     def record_supervisor_decision(
         self,
@@ -756,7 +756,7 @@ class _RuntimeView:
         return record
 
 
-class MultiAgentDeepSearchRuntime:
+class MultiAgentDeepResearchRuntime:
     def __init__(self, state: dict[str, Any], config: dict[str, Any]):
         self._deps = _resolve_deps()
         self.state = dict(state)
@@ -781,24 +781,24 @@ class MultiAgentDeepSearchRuntime:
             1,
             support._configurable_int(
                 self.config,
-                "deepsearch_max_epochs",
-                settings.deepsearch_max_epochs,
+                "deep_research_max_epochs",
+                settings.deep_research_max_epochs,
             ),
         )
         self.query_num = max(
             1,
             support._configurable_int(
                 self.config,
-                "deepsearch_query_num",
-                settings.deepsearch_query_num,
+                "deep_research_query_num",
+                settings.deep_research_query_num,
             ),
         )
         self.results_per_query = max(
             1,
             support._configurable_int(
                 self.config,
-                "deepsearch_results_per_query",
-                settings.deepsearch_results_per_query,
+                "deep_research_results_per_query",
+                settings.deep_research_results_per_query,
             ),
         )
         self.parallel_workers = max(
@@ -809,16 +809,16 @@ class MultiAgentDeepSearchRuntime:
             0.0,
             support._configurable_float(
                 self.config,
-                "deepsearch_max_seconds",
-                settings.deepsearch_max_seconds,
+                "deep_research_max_seconds",
+                settings.deep_research_max_seconds,
             ),
         )
         self.max_tokens = max(
             0,
             support._configurable_int(
                 self.config,
-                "deepsearch_max_tokens",
-                settings.deepsearch_max_tokens,
+                "deep_research_max_tokens",
+                settings.deep_research_max_tokens,
             ),
         )
         self.max_searches = max(
@@ -827,21 +827,21 @@ class MultiAgentDeepSearchRuntime:
         )
         self.task_retry_limit = max(
             1,
-            support._configurable_int(self.config, "deepsearch_task_retry_limit", 2),
+            support._configurable_int(self.config, "deep_research_task_retry_limit", 2),
         )
         self.scope_revision_limit = max(
             1,
-            support._configurable_int(self.config, "deepsearch_scope_revision_limit", 3),
+            support._configurable_int(self.config, "deep_research_scope_revision_limit", 3),
         )
         self.max_clarify_rounds = max(
             1,
-            support._configurable_int(self.config, "deepsearch_clarify_round_limit", 2),
+            support._configurable_int(self.config, "deep_research_clarify_round_limit", 2),
         )
-        self.pause_before_merge = bool(self.cfg.get("deepsearch_pause_before_merge"))
+        self.pause_before_merge = bool(self.cfg.get("deep_research_pause_before_merge"))
 
         self.provider_profile = support._resolve_provider_profile(self.state)
         self.enable_tool_agents = bool(
-            self.cfg.get("deepsearch_use_tool_agents", getattr(settings, "deepsearch_use_tool_agents", True))
+            self.cfg.get("deep_research_use_tool_agents", getattr(settings, "deep_research_use_tool_agents", True))
         )
 
         supervisor_model = support._model_for_task("planning", self.config)
@@ -1107,7 +1107,7 @@ class MultiAgentDeepSearchRuntime:
                 and len(clarify_answers) < self.max_clarify_rounds
             ):
                 prompt = {
-                    "checkpoint": "deepsearch_clarify",
+                    "checkpoint": "deep_research_clarify",
                     "message": question,
                     "instruction": "Answer the clarification question so Deep Research can draft the scope.",
                     "question": question,
@@ -1138,7 +1138,7 @@ class MultiAgentDeepSearchRuntime:
                     keys=("clarify_answer", "answer", "content", "feedback"),
                 )
                 if not answer:
-                    raise ValueError("deepsearch clarify resume requires non-empty clarify_answer")
+                    raise ValueError("deep_research clarify resume requires non-empty clarify_answer")
                 question_history = list(view.runtime_state.get("clarify_question_history") or [])
                 question_history.append(question)
                 answer_history = list(view.runtime_state.get("clarify_answer_history") or [])
@@ -1307,7 +1307,7 @@ class MultiAgentDeepSearchRuntime:
             return view.snapshot_patch(next_step="supervisor_plan")
 
         prompt = {
-            "checkpoint": "deepsearch_scope_review",
+            "checkpoint": "deep_research_scope_review",
             "message": "Review the proposed Deep Research scope.",
             "instruction": (
                 "Approve the current scope draft to start research, or provide natural-language feedback "
@@ -1496,7 +1496,7 @@ class MultiAgentDeepSearchRuntime:
                     )
                 for task in tasks:
                     view._emit_task_update(task=task, status=task.status, attempt=task.attempts)
-                view._emit_research_tree_update()
+                view._emit_deep_research_topology_update()
             plan_snapshot = {
                 "id": support._new_id("supervisor_plan"),
                 "phase": phase,
@@ -2406,7 +2406,7 @@ class MultiAgentDeepSearchRuntime:
         if self.pause_before_merge and payloads:
             interrupt(
                 {
-                    "checkpoint": "deepsearch_merge",
+                    "checkpoint": "deep_research_merge",
                     "graph_run_id": view.graph_run_id,
                     "iteration": view.current_iteration,
                     "pending_workers": len(payloads),
@@ -2633,7 +2633,7 @@ class MultiAgentDeepSearchRuntime:
                         reason=reason,
                     )
 
-        view._emit_research_tree_update()
+        view._emit_deep_research_topology_update()
         return view.snapshot_patch(
             next_step="verify",
             pending_worker_tasks=[],
@@ -3466,10 +3466,10 @@ class MultiAgentDeepSearchRuntime:
         )
         elapsed = max(0.0, time.time() - self.start_ts)
 
-        deepsearch_artifacts = build_public_deepsearch_artifacts(
+        deep_research_artifacts = build_public_deep_research_artifacts(
             task_queue=view.task_queue.snapshot(),
             artifact_store=view.artifact_store.snapshot(),
-            research_tree=view._research_tree_snapshot(),
+            research_topology=view._research_topology_snapshot(),
             quality_summary=quality_summary,
             runtime_state=view.runtime_state_snapshot(),
             mode="multi_agent",
@@ -3479,7 +3479,7 @@ class MultiAgentDeepSearchRuntime:
         view._emit(
             events.ToolEventType.RESEARCH_NODE_COMPLETE,
             {
-                "node_id": "deepsearch_multi_agent",
+                "node_id": "deep_research_multi_agent",
                 "summary": executive_summary or report_text[:1200],
                 "sources": sources,
                 "quality": quality_summary,
@@ -3513,8 +3513,8 @@ class MultiAgentDeepSearchRuntime:
             "final_report": report_text,
             "quality_summary": quality_summary,
             "sources": sources,
-            "deepsearch_artifacts": deepsearch_artifacts,
-            "research_tree": view._research_tree_snapshot(),
+            "deep_research_artifacts": deep_research_artifacts,
+            "research_topology": view._research_topology_snapshot(),
             "messages": messages,
             "is_complete": False,
             "budget_stop_reason": view.budget_stop_reason,
@@ -3594,30 +3594,30 @@ class MultiAgentDeepSearchRuntime:
             return {
                 "is_cancelled": True,
                 "is_complete": True,
-                "errors": ["DeepSearch was cancelled"],
+                "errors": ["Deep Research was cancelled"],
                 "final_report": "任务已被取消",
             }
 
 
-def create_multi_agent_deepsearch_graph(
+def create_multi_agent_deep_research_graph(
     state: dict[str, Any],
     config: dict[str, Any],
     *,
     checkpointer: Any = None,
     interrupt_before: Any = None,
 ):
-    runtime = MultiAgentDeepSearchRuntime(state, config)
+    runtime = MultiAgentDeepResearchRuntime(state, config)
     return runtime.build_graph(checkpointer=checkpointer, interrupt_before=interrupt_before)
 
 
-def run_multi_agent_deepsearch(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-    runtime = MultiAgentDeepSearchRuntime(state, config)
+def run_multi_agent_deep_research(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    runtime = MultiAgentDeepResearchRuntime(state, config)
     return runtime.run()
 
 
 __all__ = [
     "GapAnalysisResult",
-    "MultiAgentDeepSearchRuntime",
-    "create_multi_agent_deepsearch_graph",
-    "run_multi_agent_deepsearch",
+    "MultiAgentDeepResearchRuntime",
+    "create_multi_agent_deep_research_graph",
+    "run_multi_agent_deep_research",
 ]

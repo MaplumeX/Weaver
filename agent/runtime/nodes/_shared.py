@@ -174,7 +174,7 @@ def handle_cancellation(state: AgentState, error: Exception) -> Dict[str, Any]:
 
 
 def _event_results_limit() -> int:
-    return max(1, min(20, int(getattr(settings, "deepsearch_event_results_limit", 5) or 5)))
+    return max(1, min(20, int(getattr(settings, "deep_research_event_results_limit", 5) or 5)))
 
 
 def _build_compact_unique_source_preview(

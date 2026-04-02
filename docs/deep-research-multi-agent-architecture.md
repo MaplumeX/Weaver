@@ -1,120 +1,380 @@
-# Weaver Deep Research Multi-Agent 架构分析
+# Deep Research Multi-Agent 架构分析
 
-基于当前仓库实现的静态分析，时间点为 2026-04-02。
+更新日期：2026-04-02
 
-> 当前仓库中，Deep Research 已只保留 `multi_agent` runtime。legacy tree/linear runtime、selector 和旧的 workflow compatibility facade 已移除。
+## 1. 分析结论
 
-本文聚焦当前 Deep Research 的唯一受支持实现，而不是整个仓库或所有 Agent 模式。
+当前 Deep Research 已经是一个真正的 LangGraph 子图运行时，而不是“单节点里手写循环”。它的核心协作模式不是 agent 直接互发消息，而是：
 
-为避免把设计目标和实际实现混在一起，本文统一使用两类结论：
+1. `supervisor` 生成任务
+2. `dispatch` 把任务 fan-out 给 `researcher`
+3. `merge` 把 worker 结果写回黑板
+4. `verify` 基于黑板做 claim/coverage 校验
+5. `supervisor_decide` 读取请求和质量信号，决定 retry / replan / report
+6. `report` 只消费“已验证”的 branch synthesis
 
-- `事实`：可直接从代码、配置、规格或测试证明
-- `推断`：基于当前模块组合方式得出的工程判断
+因此，这套架构本质上是“图驱动 + 任务队列 + artifact blackboard + 受限角色 agent”。
 
-## 1. 分析范围
+## 2. 运行边界
 
-- 入口与图级编排：
-  - `main.py`
-  - `agent/runtime/graph.py`
-  - `agent/runtime/nodes/deepsearch.py`
-  - `agent/runtime/deep/entrypoints.py`
-- Multi-agent 运行时内核：
-  - `agent/runtime/deep/orchestration/graph.py`
-  - `agent/runtime/deep/orchestration/runtime.py`
-  - `agent/runtime/deep/artifacts/public_artifacts.py`
-  - `agent/runtime/deep/schema.py`
-  - `agent/runtime/deep/store.py`
-  - `agent/runtime/deep/support/*`
-  - `agent/core/context.py`
-  - `agent/core/state.py`
-- 角色代理实现：
-  - `agent/runtime/deep/roles/supervisor.py`
-  - `agent/runtime/deep/roles/researcher.py`
-  - `agent/runtime/deep/roles/reporter.py`
-  - `agent/runtime/deep/roles/scope.py`
-  - `agent/runtime/deep/roles/clarify.py`
-- 支撑能力：
-  - `agent/runtime/deep/services/knowledge_gap.py`
-  - `agent/research/domain_router.py`
-  - `agent/contracts/events.py`
-- 前端与规格契约：
-  - `web/hooks/useChatStream.ts`
-  - `openspec/changes/remove-legacy-deep-research/specs/**/*.md`
-  - `tests/test_deepsearch_multi_agent_runtime.py`
-  - `tests/test_chat_sse_multi_agent_events.py`
+### 显式事实
 
-## 2. 架构概览
+- Deep Research 对外入口是 `deep_research_node()`。
+- `deep_research_node()` 调用 `run_deep_research()`。
+- `run_deep_research()` 只允许 `multi_agent` runtime，并进入 `MultiAgentDeepResearchRuntime.run()`。
+- `MultiAgentDeepResearchRuntime.build_graph()` 会编译独立子图。
 
-- `事实`：Deep Research 的图级入口仍然是单个 `deepsearch_node`，由它完成入口事件、取消检查、简单问题短路和统一收尾。
-- `事实`：`run_deepsearch_auto()` 现在只会校验输入并委托 `multi_agent` runtime，不再做 engine 选择，也不会回退到 legacy。
-- `事实`：已移除 `deepsearch_engine=legacy`、`deepsearch_mode`、`tree_parallel_branches`、`deepsearch_tree_max_searches` 等旧输入；调用方传入会收到显式迁移错误。
-- `推断`：当前系统的 multi-agent 更准确地说是“内嵌在 Deep Research 节点里的专用 LangGraph runtime”，而不是“整个后端图已经全面多代理化”。
+### 重要含义
 
-### 2.1 高层结构图
+- 外层 graph 看到的是单个 `deep_research` 节点。
+- Deep Research 内部自己再维护一张更细的 agent fabric 图。
+- checkpoint / resume / SSE 都能围绕同一个子图状态工作。
+
+## 3. 子图全流程
 
 ```mermaid
 flowchart LR
-    API["API / SSE 入口<br/>main.py"] --> Stream["stream_agent_events()"]
-    Stream --> Graph["research_graph"]
-    Graph --> Router["route_node()"]
-    Router --> DeepNode["deepsearch_node"]
-    DeepNode --> Entrypoint["run_deepsearch_auto()"]
-    Entrypoint --> Runtime["MultiAgentDeepSearchRuntime"]
-
-    Runtime --> Supervisor["Supervisor / Scope / Clarify"]
-    Runtime --> Queue["ResearchTaskQueue"]
-    Runtime --> Store["ArtifactStore"]
-    Runtime --> Verifier["KnowledgeGapAnalyzer"]
-    Runtime --> Reporter["ResearchReporter"]
-
-    Queue --> Workers["Researcher worker pool"]
-    Workers --> Search["search / read / extract"]
-    Workers --> Context["ResearchWorkerContext fork/merge"]
-
-    Runtime --> PublicArtifacts["build_public_deepsearch_artifacts()"]
-    Runtime --> Events["research_* 事件"]
-    PublicArtifacts --> Stream
-    Events --> Stream
-    Stream --> UI["前端 useChatStream"]
+    bootstrap --> clarify
+    clarify --> clarify
+    clarify --> scope
+    scope --> scope_review
+    scope_review --> scope
+    scope_review --> supervisor_plan
+    supervisor_plan --> dispatch
+    dispatch --> researcher
+    dispatch --> verify
+    researcher --> merge
+    merge --> verify
+    verify --> supervisor_decide
+    supervisor_decide --> supervisor_plan
+    supervisor_decide --> dispatch
+    supervisor_decide --> report
+    report --> finalize
+    finalize --> END
 ```
 
-## 3. 模块地图
+### 节点职责
 
-| 模块 | 角色 | 主要职责 |
+| 节点 | 类型 | 职责 |
 | --- | --- | --- |
-| `main.py` | 入口壳 | 归一化 Deep Research 输入、构建初始状态、翻译流式事件 |
-| `agent/runtime/nodes/deepsearch.py` | Deep Research 节点壳 | 发 `research_node_start`、简单问题短路、委托 `run_deepsearch_auto()` |
-| `agent/runtime/deep/entrypoints.py` | 稳定入口 | 校验旧输入已废弃，并把请求交给唯一受支持的 runtime |
-| `agent/runtime/deep/orchestration/graph.py` | 运行时内核 | 管预算、任务队列、产物仓、worker 并发、agent run 记录、最终结果回填 |
-| `agent/runtime/deep/artifacts/public_artifacts.py` | 公开契约适配层 | 从内部 `task_queue` / `artifact_store` / `final_report` 生成公开 `deepsearch_artifacts` |
-| `common/session_manager.py` | Session 消费方 | 读取公开 artifacts 视图，不再二次拼装 legacy 风格结果 |
-| `web/hooks/useChatStream.ts` | 前端事件消费 | 直接基于 `supervisor` / `researcher` / `verifier` / `reporter` 渲染进度 |
+| `bootstrap` | runtime node | 恢复 checkpoint、重建根 branch brief、恢复 next step |
+| `clarify` | agent role | 判断 intake 是否足够，必要时中断向用户追问 |
+| `scope` | agent role | 生成结构化 scope draft |
+| `scope_review` | HITL gate | 等待用户批准或要求重写 scope |
+| `supervisor_plan` | agent role | 把已批准 scope 转成 branch task 和 branch brief |
+| `dispatch` | runtime node | 根据预算和并发限制 claim ready task，并 fan-out 给 researcher |
+| `researcher` | agent role | 执行 branch research，产出证据和 synthesis |
+| `merge` | runtime node | 把 worker result 合并回 shared state、task queue、artifact store |
+| `verify` | agent role + verifier pipeline | 先做 claim_check，再做 coverage_check，并生成 request / verification artifact |
+| `supervisor_decide` | agent role | 统一决定 retry_branch / replan / dispatch / report / stop |
+| `report` | agent role | 只消费已验证 branch synthesis，生成最终报告 |
+| `finalize` | runtime node | 输出 `deep_runtime` 快照和公共 `deep_research_artifacts` |
 
-## 4. 依赖方向
+## 4. 有哪些 agent，职责是什么
 
-- `事实`：`deepsearch_node()` 不关心 runtime 内部角色编排，只依赖稳定入口。
-- `事实`：`MultiAgentDeepSearchRuntime` 是真正的控制平面，直接依赖 clarify、scope、supervisor、researcher、verifier、reporter 六类角色。
-- `事实`：公开 `deepsearch_artifacts` 已从 runtime 内部快照派生，不再通过 session 或 API 层重新解析自由文本生成第二份事实源。
-- `推断`：Deep Research 当前的模块边界已经从“工作流兼容层 + 多条旧路径”收敛为“单一 runtime + 显式 facade/shared contracts”。
+### 4.1 角色总表
 
-## 5. 运行时主循环
+| 角色 | 当前 graph 中的实现方式 | 主要职责 | 输入 | 输出 |
+| --- | --- | --- | --- | --- |
+| `clarify` | 专用 LLM 角色类 `DeepResearchClarifyAgent` | intake 归一化、判断是否需要追问 | 原始问题、clarify 历史 | `intake_summary`、clarify question |
+| `scope` | 专用 LLM 角色类 `DeepResearchScopeAgent` | 生成或重写 scope draft | intake summary、clarify transcript、scope feedback | `ScopeDraft` |
+| `supervisor` | 专用 LLM 角色类 `ResearchSupervisor` | 统一负责 plan / replan / loop decision | approved scope、任务队列、请求、质量信号 | `ResearchTask`、`SupervisorDecisionArtifact` |
+| `researcher` | 默认走 `ResearchAgent`，可切换 bounded tool-agent | 执行 branch research，生成证据和分支结论 | `ResearchTask`、branch brief、相关 artifact | `ResearchSubmission`、`BranchSynthesis`、证据 artifact |
+| `verifier` | 默认走 `ClaimVerifier + KnowledgeGapAnalyzer + coverage logic`，可切换 bounded tool-agent | 校验 claim、覆盖度和验收标准 | `BranchSynthesis`、evidence passages、gap result | `VerificationResult`、`CoordinationRequest`、verification submission |
+| `reporter` | 默认走 `ResearchReporter`，可切换 bounded tool-agent | 汇总最终报告 | 仅已验证 branch synthesis | `FinalReportArtifact`、report submission |
 
-1. `run_deepsearch_auto()` 校验输入中不存在 legacy engine / mode / tree 配置。
-2. `MultiAgentDeepSearchRuntime` 初始化 topic、thread_id、预算参数、provider profile、任务队列、产物仓和角色对象。
-3. runtime 先完成 clarify / scope / scope review，再由 supervisor 生成初始计划。
-4. `ResearchTaskQueue` 调度 ready 任务，researcher worker 并发执行查询与总结。
-5. runtime 合并 worker 结果，写入 artifact store，并通过 verifier 做 coverage / gap 分析。
-6. supervisor 决定继续 dispatch、retry、replan 或 report。
-7. reporter 生成最终报告，`build_public_deepsearch_artifacts()` 同步产出公开 artifacts 视图。
+### 4.2 两类“agent 实现”
 
-## 6. 公开契约
+这里要区分两件事：
 
-- `事实`：客户端消费的公开对象仍保留 `sources`、`fetched_pages`、`passages`、`claims`、`quality_summary`、`final_report` 等字段。
-- `事实`：这些字段现在来自 `multi_agent` 记录的结构化产物，而不是 legacy verifier 的二次回填。
-- `事实`：公开事件角色已经统一到 `supervisor`、`researcher`、`verifier`、`reporter`，不再暴露 `planner` / `coordinator` 别名。
+- 角色存在于流程设计里
+- 角色是否真的以“tool agent loop”执行
 
-## 7. 工程结论
+当前代码中：
 
-- `事实`：当前 Deep Research 已不存在运行时级别的双轨实现。
-- `事实`：外围模块应通过 `agent.runtime.deep`、`agent.runtime.deep.orchestration`、`agent.api` 或 `agent` facade 的公开入口访问能力，而不是依赖 builders / research / runtime 的内部文件路径。
-- `推断`：后续演进重点应放在 `orchestration`、`roles`、`services`、`artifacts`、`support` 这几个已显式 ownership 的子域上，而不是继续维护兼容 facade。
+- `clarify`、`scope`、`supervisor` 是专用角色类，不走通用 tool-agent loop。
+- `researcher`、`verifier`、`reporter` 有两套实现：
+  - 默认：专用 Python 逻辑
+  - 可选：`deep_research_use_tool_agents=true` 时切 bounded tool-agent
+
+所以“multi-agent”强调的是角色和状态机，不等于每个角色都必须是 LangChain tool-calling agent。
+
+## 5. 每个 agent 的工具边界
+
+### 5.1 默认实现下的工具
+
+| 角色 | 默认工具能力 |
+| --- | --- |
+| `clarify` | 无外部工具，只有 LLM prompt |
+| `scope` | 无外部工具，只有 LLM prompt |
+| `supervisor` | 无外部工具，内部调用 `ResearchPlanner` 和 supervisor 自身的确定性决策规则 |
+| `researcher` | 通过 `ResearchAgent` 调用 `_search_with_tracking()`，再由 runtime 构造 source/document/passage/card/synthesis |
+| `verifier` | `ClaimVerifier`、`KnowledgeGapAnalyzer`、覆盖度规则、验收标准检查 |
+| `reporter` | `ResearchReporter.generate_report()` 和 `generate_executive_summary()` |
+
+### 5.2 tool-agent 模式下的角色 allowlist
+
+`agent/builders/agent_factory.py` 为 Deep Research 定义了角色级 allowlist：
+
+| 角色 | 允许的工具组 |
+| --- | --- |
+| `clarify` | `fabric` |
+| `scope` | `fabric` |
+| `supervisor` | `fabric` |
+| `researcher` | `fabric` + `search` + `read` + `extract` + `synthesize` |
+| `verifier` | `fabric` + `search` + `read` + `extract` |
+| `reporter` | `fabric` + `synthesize` + `execute_python_code` |
+
+工具组会展开成实际工具名：
+
+- `search`：`browser_search`、`tavily_search`、`multi_search`
+- `read`：`browser_navigate`、`browser_click`、`crawl_url`、`crawl_urls`、`sb_browser_*`
+- `extract`：`sb_browser_extract_text`、`sb_browser_screenshot`、`crawl_url`、`crawl_urls`
+- `reporter` 还可选 `execute_python_code`
+
+### 5.3 fabric 工具
+
+fabric 工具是 Deep Research 的内部黑板接口，不直接暴露整个系统能力。
+
+### 所有角色共享
+
+- `fabric_get_scope`
+- `fabric_get_task`
+- `fabric_get_related_artifacts`
+
+### `supervisor`
+
+- `fabric_get_task_queue`
+- `fabric_get_open_requests`
+
+### `researcher`
+
+- `fabric_search`
+- `fabric_read`
+- `fabric_extract`
+- `fabric_request_follow_up`
+- `fabric_submit_research_bundle`
+
+### `verifier`
+
+- `fabric_search`
+- `fabric_read`
+- `fabric_extract`
+- `fabric_challenge_summary`
+- `fabric_compare_coverage`
+- `fabric_analyze_coverage`
+- `fabric_submit_verification_bundle`
+
+### `reporter`
+
+- `fabric_get_verified_branch_summaries`
+- `fabric_format_report_section`
+- `fabric_submit_report_bundle`
+
+## 6. agent 间如何协作
+
+### 6.1 协作媒介不是对话，而是三套状态载体
+
+### 1. `ResearchTaskQueue`
+
+负责 branch task 生命周期：
+
+- `enqueue`
+- `claim_ready_tasks`
+- `update_stage`
+- `update_status`
+- `requeue_in_progress`
+
+它是 `supervisor -> dispatch -> researcher` 的主下行通道。
+
+### 2. `ArtifactStore`
+
+负责所有结构化中间产物：
+
+- branch brief
+- source candidate
+- fetched document
+- evidence passage / card
+- branch synthesis
+- verification result
+- coordination request
+- submission
+- supervisor decision
+- knowledge gap
+- report section draft
+- final report
+
+它是所有角色共享的 blackboard。
+
+### 3. `shared_state` / `ResearchWorkerContext`
+
+- `shared_state` 保存 Deep Research 期间仍需回写到顶层的通用状态，比如 `scraped_content`、`summary_notes`、`sources`、`errors`。
+- `ResearchWorkerContext` 是 branch worker 的隔离上下文。
+- `merge_research_worker_context()` 把 worker 结果回并到共享状态。
+
+### 6.2 协作模式
+
+### `supervisor -> researcher`
+
+- `supervisor_plan` 把 scope 翻译为 `ResearchTask`
+- `dispatch` claim ready task
+- LangGraph 通过 `Send("researcher", {"worker_task": payload})` fan-out 给多个 researcher
+
+### `researcher -> verifier`
+
+- researcher 不直接调用 verifier
+- researcher 只把结果写成 artifact 和 submission
+- `merge` 把这些结果持久化后，`verify` 节点统一读取黑板执行校验
+
+### `verifier -> supervisor`
+
+- verifier 不直接改写任务队列
+- verifier 通过 `CoordinationRequest` 上报：
+  - `retry_branch`
+  - `replan`
+  - `report_ready`
+- `supervisor_decide` 再读取这些 request 做统一决策
+
+### `supervisor -> report`
+
+- 当 `supervisor_decide` 判断可汇总时，路由到 `report`
+- `report` 只消费同时通过 `claim_check` 和 `coverage_check` 的 `BranchSynthesis`
+
+### 人类用户 -> agent fabric
+
+- `clarify` 可以 `interrupt()` 向用户追问
+- `scope_review` 可以 `interrupt()` 等待用户批准 scope 或给自然语言修改意见
+- 这两个中断点构成 Deep Research 的前置门控
+
+## 7. 关键产物
+
+| 产物 | 谁生成 | 谁消费 | 用途 |
+| --- | --- | --- | --- |
+| `BranchBrief` | `supervisor_plan` | `researcher`、UI | 描述 branch 的主题、目标和边界 |
+| `ResearchTask` | `supervisor_plan` | `dispatch`、`researcher` | 可调度工作单元 |
+| `SourceCandidate` | `researcher` 或 verifier tool-agent | `reporter`、公共 artifacts | 候选来源 |
+| `FetchedDocument` | `researcher` 或 verifier tool-agent | verifier、公共 artifacts | 已抓取正文 |
+| `EvidencePassage` | `researcher` 或 verifier tool-agent | `ClaimVerifier`、公共 artifacts | 可引用证据片段 |
+| `EvidenceCard` | `researcher` 或 verifier tool-agent | UI、公共 artifacts | 紧凑证据摘要 |
+| `BranchSynthesis` | `researcher` | `verify`、`report` | 分支级结论 |
+| `VerificationResult` | `verify` | `supervisor_decide`、`report` | claim/coverage 校验结果 |
+| `CoordinationRequest` | `researcher` 或 `verify` | `supervisor_decide` | 上行请求信号 |
+| `ResearchSubmission` | `researcher` / `verify` / `reporter` | `ArtifactStore`、UI | 结构化提交记录 |
+| `SupervisorDecisionArtifact` | `supervisor_plan` / `supervisor_decide` | UI、恢复逻辑 | 记录控制面决策 |
+| `KnowledgeGap` | `verify` | `supervisor_plan` | coverage 缺口 |
+| `ReportSectionDraft` | `researcher` | `report` | 分支汇总的候选章节 |
+| `FinalReportArtifact` | `report` | `finalize`、SessionManager、API | 最终报告 |
+| `AgentRunRecord` | runtime | 观测、恢复、统计 | 记录 agent 运行轨迹 |
+
+## 8. 产物如何在 agent 间交换
+
+### 8.1 交换主路径
+
+1. `clarify` 把 intake 结果写进 `runtime_state.intake_summary`
+2. `scope` 把 scope draft 写进 `runtime_state.current_scope_draft`
+3. `scope_review` 批准后把 scope 写进 `runtime_state.approved_scope_draft`
+4. `supervisor_plan` 读取 approved scope，写入：
+   - `ResearchTaskQueue`
+   - `ArtifactStore.branch_briefs`
+   - `SupervisorDecisionArtifact`
+5. `dispatch` 从队列 claim task，并把 `worker_task` payload 通过 `Send` 传给 researcher
+6. `researcher` 读取：
+   - 当前 task
+   - branch brief
+   - related artifacts
+   然后产出 `WorkerExecutionResult`
+7. `merge` 把 `WorkerExecutionResult` 拆开并写回：
+   - `shared_state`
+   - `ArtifactStore`
+   - `ResearchTaskQueue`
+8. `verify` 读取 `BranchSynthesis`、`EvidencePassage`、acceptance criteria、gap analysis，写入：
+   - `VerificationResult`
+   - `CoordinationRequest`
+   - verification submission
+9. `supervisor_decide` 读取 open requests、queue stats、gap result、verified branch 数量，产出：
+   - request 状态更新
+   - retry task requeue
+   - `SupervisorDecisionArtifact`
+10. `report` 只读取双重通过验证的 syntheses，写入：
+   - `FinalReportArtifact`
+   - report submission
+11. `finalize` 把内部快照收束为：
+   - `deep_runtime`
+   - `deep_research_artifacts`
+   - `research_topology`
+   - `quality_summary`
+
+### 8.2 交换媒介总结
+
+| 交换类型 | 媒介 |
+| --- | --- |
+| 控制流下发 | `next_step`、`planning_mode`、`ResearchTaskQueue` |
+| 并行 fan-out | LangGraph `Send(...)` |
+| 分支结果回收 | `worker_results` + `merge` 节点 |
+| 结构化数据共享 | `ArtifactStore` |
+| 顶层兼容状态同步 | `shared_state` + `merge_research_worker_context()` |
+| 对用户中断 | `interrupt()` |
+| 对前端可观测性 | `RESEARCH_*` 事件 |
+
+## 9. 关键观测点
+
+Deep Research 会持续发出结构化事件：
+
+- `research_agent_start`
+- `research_agent_complete`
+- `research_task_update`
+- `research_artifact_update`
+- `research_decision`
+- `quality_update`
+- `deep_research_topology_update`
+
+这使前端可以区分：
+
+- `clarify`
+- `scope`
+- `supervisor`
+- `research`
+- `verify`
+- `report`
+
+而不是只能看到一个“Deep Research 正在运行”的黑盒状态。
+
+## 10. 最终产物如何离开子图
+
+`finalize` 节点会生成两层输出：
+
+### 内部恢复层
+
+- `deep_runtime`
+  - `task_queue`
+  - `artifact_store`
+  - `runtime_state`
+  - `agent_runs`
+
+### 对外消费层
+
+- `deep_research_artifacts`
+  - `queries`
+  - `research_topology`
+  - `quality_summary`
+  - `fetched_pages`
+  - `passages`
+  - `sources`
+  - `claims`
+  - `final_report`
+  - `executive_summary`
+
+`common/session_manager.py` 和 API 层后续读取的是第二层公共形态，而不是直接把内部 `ArtifactStore` 暴露出去。
+
+## 11. 关键观察
+
+### 显式事实
+
+- 当前 multi-agent 的核心协作机制是“任务队列 + blackboard + 决策 artifact”，不是 agent 之间直接会话。
+- `supervisor` 是唯一控制面角色，`researcher/verifier/reporter` 都是受限执行器。
+- `report` 严格只消费已验证 branch synthesis，这一点对最终报告可信度很关键。
+
+### 推断
+
+- 这套结构比自由自治 agent network 更可测试、更容易 checkpoint/resume，也更容易把 SSE 事件和前端 UI 对齐。
+- 设计明显偏向“工程可控性”和“产物可追踪性”，而不是追求最大化自治。

@@ -61,7 +61,7 @@ async def test_session_resume_forbidden_for_other_user_when_internal_auth_enable
                 "is_complete": False,
                 "is_cancelled": False,
                 "status": "paused",
-                "deepsearch_artifacts": {},
+                "deep_research_artifacts": {},
             },
         }
     )

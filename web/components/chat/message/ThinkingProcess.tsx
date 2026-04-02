@@ -483,7 +483,7 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     )
   }
 
-  if (kind === 'research_tree_update') {
+  if (kind === 'deep_research_topology_update') {
     return (
       <div className="flex items-start gap-2">
         <TreePine className="mt-0.5 h-4 w-4 text-muted-foreground/60" />

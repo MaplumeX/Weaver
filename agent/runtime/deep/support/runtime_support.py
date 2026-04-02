@@ -94,7 +94,7 @@ def _resolve_search_strategy() -> SearchStrategy:
         return SearchStrategy(raw)
     except ValueError:
         logger.warning(
-            "[deepsearch-multi-agent] invalid search_strategy=%s, fallback to fallback",
+            "[deep-research-multi-agent] invalid search_strategy=%s, fallback to fallback",
             raw,
         )
         return SearchStrategy.FALLBACK
@@ -126,7 +126,7 @@ def _cache_query_key(
     provider_profile: Optional[List[str]],
 ) -> str:
     joined_profile = ",".join(provider_profile or [])
-    return f"deepsearch-multi-agent::{strategy.value}::{max_results}::{joined_profile}::{query}"
+    return f"deep-research-multi-agent::{strategy.value}::{max_results}::{joined_profile}::{query}"
 
 
 def _search_query(
@@ -156,7 +156,7 @@ def _search_query(
             cache.set(cache_key, copy.deepcopy(normalized))
             return normalized
     except Exception as exc:
-        logger.warning("[deepsearch-multi-agent] multi_search failed, falling back: %s", exc)
+        logger.warning("[deep-research-multi-agent] multi_search failed, falling back: %s", exc)
 
     try:
         fallback_results = tavily_search.invoke(
@@ -167,7 +167,7 @@ def _search_query(
             cache.set(cache_key, copy.deepcopy(fallback_results))
         return fallback_results or []
     except Exception as exc:
-        logger.warning("[deepsearch-multi-agent] tavily_search failed: %s", exc)
+        logger.warning("[deep-research-multi-agent] tavily_search failed: %s", exc)
         return []
 
 

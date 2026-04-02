@@ -51,10 +51,10 @@ async def test_session_evidence_includes_fetched_pages_and_passages(monkeypatch)
     }
     state = SessionState(
         thread_id="thread-evidence",
-        state={"route": "deep", "deepsearch_artifacts": artifacts},
+        state={"route": "deep", "deep_research_artifacts": artifacts},
         checkpoint_ts="",
         parent_checkpoint_id=None,
-        deepsearch_artifacts=artifacts,
+        deep_research_artifacts=artifacts,
     )
 
     class FakeManager:
@@ -87,14 +87,27 @@ async def test_session_evidence_includes_fetched_pages_and_passages(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_session_evidence_enriches_claims_from_passages(monkeypatch):
+async def test_session_evidence_returns_canonical_claims_from_artifacts(monkeypatch):
     state = {
-        "final_report": "The company's revenue increased in 2024 according to the annual report.",
-        "scraped_content": [],
-        "deepsearch_artifacts": {
+        "deep_research_artifacts": {
+            "claims": [
+                {
+                    "claim": "Revenue increased in 2024.",
+                    "status": "verified",
+                    "evidence_urls": ["https://example.com/earnings"],
+                    "evidence_passages": [
+                        {
+                            "url": "https://example.com/earnings",
+                            "snippet_hash": "passage_123",
+                            "quote": "In 2024, the company's revenue increased by 5% year over year.",
+                            "heading_path": ["Results"],
+                        }
+                    ],
+                }
+            ],
             "passages": [
                 {
-                    "url": "https://example.com/earnings?utm_source=test",
+                    "url": "https://example.com/earnings",
                     "text": "In 2024, the company's revenue increased by 5% year over year.",
                     "start_char": 0,
                     "end_char": 66,
@@ -116,10 +129,10 @@ async def test_session_evidence_enriches_claims_from_passages(monkeypatch):
     assert resp.status_code == 200
     data = resp.json() or {}
     assert isinstance(data.get("claims"), list)
-    assert data.get("claims"), "expected claim verifier to enrich claims from passages"
+    assert data.get("claims"), "expected canonical claims to be returned"
     claim = (data.get("claims") or [None])[0] or {}
     assert isinstance(claim.get("evidence_passages"), list)
     assert claim.get("evidence_passages"), "expected passage evidence to be present"
     passage = (claim.get("evidence_passages") or [None])[0] or {}
     assert passage.get("snippet_hash") == "passage_123"
-    assert "utm_source" not in str(passage.get("url") or "")
+    assert passage.get("url") == "https://example.com/earnings"

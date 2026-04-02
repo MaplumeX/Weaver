@@ -4,7 +4,7 @@ import pytest
 
 import agent.runtime.deep.orchestration.graph as multi_agent_graph
 import agent.runtime.deep.orchestration.graph as multi_agent_runtime
-from agent.runtime.deep.orchestration import run_multi_agent_deepsearch
+from agent.runtime.deep.orchestration import run_multi_agent_deep_research
 from agent.runtime.deep.roles.supervisor import SupervisorAction, SupervisorDecision
 
 
@@ -249,10 +249,10 @@ class _FlakyResearchAgent(_FakeResearchAgent):
 
 @pytest.fixture(autouse=True)
 def _disable_tool_agents_by_default(monkeypatch):
-    monkeypatch.setattr(multi_agent_runtime.settings, "deepsearch_use_tool_agents", False, raising=False)
+    monkeypatch.setattr(multi_agent_runtime.settings, "deep_research_use_tool_agents", False, raising=False)
 
 
-def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatch):
+def test_run_multi_agent_deep_research_merges_artifacts_and_emits_events(monkeypatch):
     emitter = _DummyEmitter()
 
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
@@ -264,14 +264,13 @@ def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatc
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
-    result = run_multi_agent_deepsearch(
+    result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
                 "thread_id": "thread_test",
-                "deepsearch_engine": "multi_agent",
-                "deepsearch_query_num": 2,
-                "deepsearch_results_per_query": 2,
+                                "deep_research_query_num": 2,
+                "deep_research_results_per_query": 2,
             }
         },
     )
@@ -330,9 +329,9 @@ def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: _DummyEmitter())
 
-    runtime = multi_agent_runtime.MultiAgentDeepSearchRuntime(
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
         {"input": "AI chips", "sub_agent_contexts": {}},
-        {"configurable": {"thread_id": "thread_topology", "deepsearch_engine": "multi_agent"}},
+        {"configurable": {"thread_id": "thread_topology"}},
     )
     graph = runtime.build_graph()
     mermaid = graph.get_graph(xray=True).draw_mermaid()
@@ -366,11 +365,10 @@ def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
     config = {
         "configurable": {
             "thread_id": "thread_resume",
-            "deepsearch_engine": "multi_agent",
-            "deepsearch_pause_before_merge": True,
+                        "deep_research_pause_before_merge": True,
         }
     }
-    runtime = multi_agent_runtime.MultiAgentDeepSearchRuntime(
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
         {"input": "AI chips", "sub_agent_contexts": {}},
         config,
     )
@@ -379,7 +377,7 @@ def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
     interrupted = graph.invoke(runtime.build_initial_graph_state(), config)
     assert "__interrupt__" in interrupted
     interrupt_payload = interrupted["__interrupt__"][0].value
-    assert interrupt_payload["checkpoint"] == "deepsearch_merge"
+    assert interrupt_payload["checkpoint"] == "deep_research_merge"
 
     resume_config = {
         "configurable": {
@@ -407,13 +405,12 @@ def test_multi_agent_events_include_resume_flag_when_configured(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
-    run_multi_agent_deepsearch(
+    run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
                 "thread_id": "thread_resume_flag",
-                "deepsearch_engine": "multi_agent",
-                "deepsearch_query_num": 1,
+                                "deep_research_query_num": 1,
                 "resumed_from_checkpoint": True,
             }
         },
@@ -448,15 +445,14 @@ def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
-    result = run_multi_agent_deepsearch(
+    result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
                 "thread_id": "thread_retry",
-                "deepsearch_engine": "multi_agent",
-                "deepsearch_query_num": 1,
-                "deepsearch_task_retry_limit": 2,
-                "deepsearch_max_epochs": 3,
+                                "deep_research_query_num": 1,
+                "deep_research_task_retry_limit": 2,
+                "deep_research_max_epochs": 3,
             }
         },
     )
@@ -497,12 +493,11 @@ def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
     config = {
         "configurable": {
             "thread_id": "thread_scope_review",
-            "deepsearch_engine": "multi_agent",
-            "allow_interrupts": True,
-            "deepsearch_query_num": 1,
+                        "allow_interrupts": True,
+            "deep_research_query_num": 1,
         }
     }
-    runtime = multi_agent_runtime.MultiAgentDeepSearchRuntime(
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
         {"input": "AI chips", "sub_agent_contexts": {}},
         config,
     )
@@ -511,7 +506,7 @@ def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
     first = graph.invoke(runtime.build_initial_graph_state(), config)
     assert "__interrupt__" in first
     first_prompt = first["__interrupt__"][0].value
-    assert first_prompt["checkpoint"] == "deepsearch_scope_review"
+    assert first_prompt["checkpoint"] == "deep_research_scope_review"
     assert first_prompt["scope_version"] == 1
     assert "1. Collect the latest evidence about the current state of AI chips" in first_prompt["content"]
     assert "## Core Questions" not in first_prompt["content"]
@@ -522,7 +517,7 @@ def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
     )
     assert "__interrupt__" in second
     second_prompt = second["__interrupt__"][0].value
-    assert second_prompt["checkpoint"] == "deepsearch_scope_review"
+    assert second_prompt["checkpoint"] == "deep_research_scope_review"
     assert second_prompt["scope_version"] == 2
     assert second_prompt["graph_run_id"] == first_prompt["graph_run_id"]
     assert "1. Refocus the research around the revision request: Focus on supply chain resilience" in second_prompt["content"]
@@ -551,9 +546,9 @@ def test_supervisor_plan_waits_for_scope_approval_before_dispatch(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: _DummyEmitter())
 
-    runtime = multi_agent_runtime.MultiAgentDeepSearchRuntime(
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
         {"input": "AI chips", "sub_agent_contexts": {}},
-        {"configurable": {"thread_id": "thread_plan_gate", "deepsearch_engine": "multi_agent"}},
+        {"configurable": {"thread_id": "thread_plan_gate"}},
     )
 
     blocked = runtime._supervisor_plan_node(runtime.build_initial_graph_state())
@@ -622,14 +617,13 @@ def test_multi_agent_runtime_uses_tool_agent_paths_when_enabled(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
     monkeypatch.setattr(multi_agent_graph, "run_bounded_tool_agent", _fake_run_bounded_tool_agent)
 
-    result = run_multi_agent_deepsearch(
+    result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
                 "thread_id": "thread_tool_agents",
-                "deepsearch_engine": "multi_agent",
-                "deepsearch_query_num": 1,
-                "deepsearch_use_tool_agents": True,
+                                "deep_research_query_num": 1,
+                "deep_research_use_tool_agents": True,
             }
         },
     )
@@ -654,14 +648,13 @@ def test_multi_agent_dispatch_stops_when_search_budget_is_exhausted(monkeypatch)
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
-    result = run_multi_agent_deepsearch(
+    result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
                 "thread_id": "thread_budget_stop",
-                "deepsearch_engine": "multi_agent",
-                "deepsearch_query_num": 2,
-                "deepsearch_max_searches": 1,
+                                "deep_research_query_num": 2,
+                "deep_research_max_searches": 1,
             }
         },
     )
@@ -686,15 +679,14 @@ def test_multi_agent_runtime_honors_max_epochs_even_if_supervisor_wants_dispatch
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
-    result = run_multi_agent_deepsearch(
+    result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
                 "thread_id": "thread_max_epochs_stop",
-                "deepsearch_engine": "multi_agent",
-                "deepsearch_query_num": 2,
-                "deepsearch_max_epochs": 1,
-                "deepsearch_parallel_workers": 1,
+                                "deep_research_query_num": 2,
+                "deep_research_max_epochs": 1,
+                "deep_research_parallel_workers": 1,
             }
         },
     )
@@ -782,12 +774,11 @@ def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
     config = {
         "configurable": {
             "thread_id": "thread_clarify_scope_context",
-            "deepsearch_engine": "multi_agent",
-            "allow_interrupts": True,
-            "deepsearch_query_num": 1,
+                        "allow_interrupts": True,
+            "deep_research_query_num": 1,
         }
     }
-    runtime = multi_agent_runtime.MultiAgentDeepSearchRuntime(
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
         {"input": "AI chips", "sub_agent_contexts": {}},
         config,
     )
@@ -796,7 +787,7 @@ def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
     first = graph.invoke(runtime.build_initial_graph_state(), config)
     assert "__interrupt__" in first
     first_prompt = first["__interrupt__"][0].value
-    assert first_prompt["checkpoint"] == "deepsearch_clarify"
+    assert first_prompt["checkpoint"] == "deep_research_clarify"
 
     second = graph.invoke(
         Command(resume={"clarify_answer": "Only 2024 annual filings"}),
@@ -804,7 +795,7 @@ def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
     )
     assert "__interrupt__" in second
     second_prompt = second["__interrupt__"][0].value
-    assert second_prompt["checkpoint"] == "deepsearch_scope_review"
+    assert second_prompt["checkpoint"] == "deep_research_scope_review"
 
     assert len(clarify_calls) >= 3
     assert clarify_calls[0]["clarify_history"] == []

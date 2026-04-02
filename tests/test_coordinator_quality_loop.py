@@ -1,5 +1,3 @@
-import agent.runtime.nodes.deepsearch as nodes
-from agent.runtime.deep.roles.coordinator import CoordinatorAction, ResearchCoordinator
 from agent.runtime.deep.roles.supervisor import ResearchSupervisor, SupervisorAction
 
 
@@ -8,10 +6,10 @@ class _NeverInvokeLLM:
         raise AssertionError("LLM should not be called when quality guardrails decide action")
 
 
-def test_coordinator_prefers_research_for_low_quality_signals():
-    coordinator = ResearchCoordinator(_NeverInvokeLLM())
+def test_supervisor_prefers_replan_for_low_quality_signals():
+    supervisor = ResearchSupervisor(_NeverInvokeLLM())
 
-    decision = coordinator.decide_next_action(
+    decision = supervisor.decide_next_action(
         topic="AI chips",
         num_queries=4,
         num_sources=8,
@@ -23,13 +21,13 @@ def test_coordinator_prefers_research_for_low_quality_signals():
         citation_accuracy=0.3,
     )
 
-    assert decision.action == CoordinatorAction.RESEARCH
+    assert decision.action == SupervisorAction.REPLAN
 
 
-def test_coordinator_allows_complete_for_high_quality_signals():
-    coordinator = ResearchCoordinator(_NeverInvokeLLM())
+def test_supervisor_allows_report_for_high_quality_signals():
+    supervisor = ResearchSupervisor(_NeverInvokeLLM())
 
-    decision = coordinator.decide_next_action(
+    decision = supervisor.decide_next_action(
         topic="AI chips",
         num_queries=4,
         num_sources=12,
@@ -41,28 +39,22 @@ def test_coordinator_allows_complete_for_high_quality_signals():
         citation_accuracy=0.86,
     )
 
-    assert decision.action == CoordinatorAction.COMPLETE
+    assert decision.action == SupervisorAction.REPORT
 
 
-def test_coordinator_node_routes_low_quality_to_research_without_llm(monkeypatch):
-    monkeypatch.setattr(nodes, "_chat_model", lambda *args, **kwargs: _NeverInvokeLLM())
+def test_supervisor_prefers_plan_before_any_queries():
+    supervisor = ResearchSupervisor(_NeverInvokeLLM())
 
-    state = {
-        "input": "Summarize AI chip market",
-        "research_plan": ["q1"],
-        "scraped_content": [{"query": "q1", "results": []}],
-        "summary_notes": ["draft summary"],
-        "revision_count": 0,
-        "max_revisions": 2,
-        "quality_overall_score": 0.4,
-        "quality_gap_count": 2,
-        "eval_dimensions": {"citation_coverage": 0.35, "coverage": 0.7},
-        "missing_topics": ["pricing"],
-    }
+    decision = supervisor.decide_next_action(
+        topic="Summarize AI chip market",
+        num_queries=0,
+        num_sources=0,
+        num_summaries=0,
+        current_epoch=0,
+        max_epochs=3,
+    )
 
-    result = nodes.coordinator_node(state, config={})
-
-    assert result["coordinator_action"] == "research"
+    assert decision.action == SupervisorAction.PLAN
 
 
 def test_supervisor_honors_epoch_limit_before_dispatching_ready_tasks():

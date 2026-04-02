@@ -18,11 +18,11 @@ from common.session_manager import SessionState
 
 
 @pytest.mark.asyncio
-async def test_resume_session_returns_deepsearch_artifact_context(monkeypatch):
+async def test_resume_session_returns_deep_research_artifact_context(monkeypatch):
     artifacts = {
-        "mode": "tree",
+        "mode": "multi_agent",
         "queries": ["q1", "q2"],
-        "research_tree": {"nodes": {"root": {"topic": "AI"}}},
+        "research_topology": {"nodes": {"root": {"topic": "AI"}}},
         "quality_summary": {"summary_count": 2, "source_count": 5},
         "query_coverage": {"score": 0.8, "covered": 2, "total": 3},
         "freshness_summary": {"known_count": 3, "fresh_count": 1, "fresh_ratio": 0.33},
@@ -33,11 +33,12 @@ async def test_resume_session_returns_deepsearch_artifact_context(monkeypatch):
             "route": "deep",
             "revision_count": 1,
             "final_report": "",
-            "deepsearch_artifacts": artifacts,
+            "research_plan": ["q1", "q2"],
+            "deep_research_artifacts": artifacts,
         },
         checkpoint_ts="",
         parent_checkpoint_id=None,
-        deepsearch_artifacts=artifacts,
+        deep_research_artifacts=artifacts,
     )
 
     class FakeManager:
@@ -52,9 +53,6 @@ async def test_resume_session_returns_deepsearch_artifact_context(monkeypatch):
         @staticmethod
         async def abuild_resume_state(thread_id: str, additional_input=None, update_state=None):
             restored = dict(state.state)
-            restored["research_plan"] = list(artifacts["queries"])
-            restored["research_tree"] = artifacts["research_tree"]
-            restored["quality_summary"] = artifacts["quality_summary"]
             restored["resumed_from_checkpoint"] = True
             return restored
 
@@ -71,18 +69,18 @@ async def test_resume_session_returns_deepsearch_artifact_context(monkeypatch):
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
-    assert data["current_state"]["has_deepsearch_artifacts"] is True
-    assert data["deepsearch_resume"]["artifacts_restored"] is True
-    assert data["deepsearch_resume"]["mode"] == "tree"
-    assert data["deepsearch_resume"]["query_coverage_score"] == 0.8
-    assert data["deepsearch_resume"]["freshness_warning"] == ""
+    assert data["current_state"]["has_deep_research_artifacts"] is True
+    assert data["deep_research_resume"]["artifacts_restored"] is True
+    assert data["deep_research_resume"]["mode"] == "multi_agent"
+    assert data["deep_research_resume"]["query_coverage_score"] == 0.8
+    assert data["deep_research_resume"]["freshness_warning"] == ""
     assert data["resume_state"]["research_plan_count"] == 2
 
 
 @pytest.mark.asyncio
 async def test_resume_session_uses_quality_summary_coverage_fallback(monkeypatch):
     artifacts = {
-        "mode": "linear",
+        "mode": "multi_agent",
         "queries": ["q1"],
         "quality_summary": {"query_coverage_score": 0.6, "summary_count": 1},
     }
@@ -91,11 +89,11 @@ async def test_resume_session_uses_quality_summary_coverage_fallback(monkeypatch
         state={
             "route": "deep",
             "revision_count": 0,
-            "deepsearch_artifacts": artifacts,
+            "deep_research_artifacts": artifacts,
         },
         checkpoint_ts="",
         parent_checkpoint_id=None,
-        deepsearch_artifacts=artifacts,
+        deep_research_artifacts=artifacts,
     )
 
     class FakeManager:
@@ -125,4 +123,4 @@ async def test_resume_session_uses_quality_summary_coverage_fallback(monkeypatch
 
     assert resp.status_code == 200
     data = resp.json()
-    assert data["deepsearch_resume"]["query_coverage_score"] == 0.6
+    assert data["deep_research_resume"]["query_coverage_score"] == 0.6

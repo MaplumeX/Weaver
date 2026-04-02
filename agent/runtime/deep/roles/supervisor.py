@@ -11,9 +11,39 @@ from enum import Enum
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.prompts import ChatPromptTemplate
 
-from .coordinator import CoordinatorAction, ResearchCoordinator
 from .planner import ResearchPlanner
+
+
+SUPERVISOR_DECISION_PROMPT = """
+# 角色
+你是一名 Deep Research supervisor，负责决定当前研究循环的下一步动作。
+
+# 当前研究状态
+- 主题: {topic}
+- 已完成查询数: {num_queries}
+- 已收集来源数: {num_sources}
+- 已生成摘要数: {num_summaries}
+- 当前轮次: {current_epoch}/{max_epochs}
+- 质量总分: {quality_score}
+- 缺口数量: {quality_gap_count}
+- 引用准确/覆盖: {citation_accuracy}
+- 已知信息摘要: {knowledge_summary}
+
+# 可选动作
+1. plan: 首次生成研究计划
+2. dispatch: 继续派发当前 ready branch
+3. replan: 基于缺口和验证反馈重规划
+4. report: 停止研究并生成最终报告
+5. stop: 终止当前研究循环
+
+# 输出格式
+严格按照以下格式输出：
+action: <动作名称>
+reasoning: <决策理由>
+priority_topics: <如选择 replan，可列出优先研究的子话题，逗号分隔>
+"""
 
 
 class SupervisorAction(str, Enum):
@@ -40,7 +70,7 @@ class ResearchSupervisor:
     def __init__(self, llm: BaseChatModel, config: dict[str, Any] | None = None):
         self.config = config or {}
         self._planner = ResearchPlanner(llm, self.config)
-        self._coordinator = ResearchCoordinator(llm, self.config)
+        self._llm = llm
 
     def create_plan(
         self,
@@ -131,7 +161,7 @@ class ResearchSupervisor:
                 request_ids=normalized_request_ids,
             )
 
-        coordinator_decision = self._coordinator.decide_next_action(
+        action, reasoning, priority_topics = self._decide_action(
             topic=topic,
             num_queries=num_queries,
             num_sources=num_sources,
@@ -142,34 +172,105 @@ class ResearchSupervisor:
             quality_score=quality_score,
             quality_gap_count=quality_gap_count,
             citation_accuracy=citation_accuracy,
-            verification_summary=verification_summary,
-        )
-        action = self._map_coordinator_action(
-            coordinator_decision.action,
-            quality_gap_count=quality_gap_count,
+            verification_summary=verification_summary or {},
         )
         return SupervisorDecision(
             action=action,
-            reasoning=coordinator_decision.reasoning,
-            priority_topics=list(coordinator_decision.priority_topics),
+            reasoning=reasoning,
+            priority_topics=priority_topics,
             request_ids=normalized_request_ids,
         )
 
-    def _map_coordinator_action(
+    def _decide_action(
         self,
-        action: CoordinatorAction,
         *,
+        topic: str,
+        num_queries: int,
+        num_sources: int,
+        num_summaries: int,
+        current_epoch: int,
+        max_epochs: int,
+        knowledge_summary: str,
+        quality_score: float | None,
         quality_gap_count: int,
-    ) -> SupervisorAction:
-        if action == CoordinatorAction.COMPLETE or action == CoordinatorAction.SYNTHESIZE:
-            return SupervisorAction.REPORT
-        if action == CoordinatorAction.PLAN:
-            return SupervisorAction.PLAN if quality_gap_count <= 0 else SupervisorAction.REPLAN
-        if action == CoordinatorAction.REFLECT:
-            return SupervisorAction.REPLAN if quality_gap_count > 0 else SupervisorAction.DISPATCH
-        if action == CoordinatorAction.RESEARCH:
-            return SupervisorAction.REPLAN if quality_gap_count > 0 else SupervisorAction.DISPATCH
-        return SupervisorAction.DISPATCH
+        citation_accuracy: float | None,
+        verification_summary: dict[str, Any],
+    ) -> tuple[SupervisorAction, str, list[str]]:
+        retry_branches = max(0, int(verification_summary.get("retry_branches", 0) or 0))
+        failed_branches = max(0, int(verification_summary.get("failed_branches", 0) or 0))
+        verified_branches = max(0, int(verification_summary.get("verified_branches", 0) or 0))
+
+        if num_queries == 0:
+            return SupervisorAction.PLAN, "研究尚未开始，需要先生成研究计划", []
+        if failed_branches > 0:
+            return SupervisorAction.REPLAN, "分支执行存在失败，基于当前证据重规划研究任务", []
+        if retry_branches > 0:
+            return SupervisorAction.REPLAN, "验证指出仍存在证据缺口，需要补充研究计划", []
+        if (
+            quality_score is not None
+            and max(num_summaries, verified_branches) > 0
+            and quality_score >= 0.82
+            and quality_gap_count == 0
+            and (citation_accuracy is None or citation_accuracy >= 0.7)
+        ):
+            return SupervisorAction.REPORT, "质量评估良好且无明显缺口，可以进入最终汇总", []
+        if (
+            quality_score is not None
+            and (
+                quality_score < 0.6
+                or quality_gap_count > 0
+                or (citation_accuracy is not None and citation_accuracy < 0.55)
+            )
+        ):
+            return SupervisorAction.REPLAN, "质量信号显示仍存在覆盖或证据缺口，需要重规划", []
+
+        prompt = ChatPromptTemplate.from_messages([("user", SUPERVISOR_DECISION_PROMPT)])
+        response = self._llm.invoke(
+            prompt.format_messages(
+                topic=topic,
+                num_queries=num_queries,
+                num_sources=num_sources,
+                num_summaries=num_summaries,
+                current_epoch=current_epoch,
+                max_epochs=max_epochs,
+                quality_score=f"{quality_score:.2f}" if quality_score is not None else "unknown",
+                quality_gap_count=quality_gap_count,
+                citation_accuracy=(
+                    f"{citation_accuracy:.2f}" if citation_accuracy is not None else "unknown"
+                ),
+                knowledge_summary=(
+                    (knowledge_summary[:1600] + "\n\n验证摘要: " + str(verification_summary)[:400])
+                    if verification_summary
+                    else (knowledge_summary[:2000] or "暂无")
+                ),
+            ),
+            config=self.config,
+        )
+        return self._parse_decision(getattr(response, "content", "") or "")
+
+    def _parse_decision(
+        self,
+        content: str,
+    ) -> tuple[SupervisorAction, str, list[str]]:
+        action = SupervisorAction.DISPATCH
+        reasoning = ""
+        priority_topics: list[str] = []
+
+        for raw_line in content.strip().splitlines():
+            line = raw_line.strip()
+            if line.lower().startswith("action:"):
+                candidate = line.split(":", 1)[1].strip().lower()
+                try:
+                    action = SupervisorAction(candidate)
+                except ValueError:
+                    action = SupervisorAction.DISPATCH
+            elif line.lower().startswith("reasoning:"):
+                reasoning = line.split(":", 1)[1].strip()
+            elif line.lower().startswith("priority_topics:"):
+                topics_str = line.split(":", 1)[1].strip()
+                priority_topics = [topic.strip() for topic in topics_str.split(",") if topic.strip()]
+
+        return action, reasoning or "继续执行当前 Deep Research 控制流", priority_topics
 
 
 __all__ = [

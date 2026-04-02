@@ -513,7 +513,7 @@ Start a new chat session with streaming response.
 | `task_update` | Task status changed | `task_id`, `status`, `progress` |
 | `research_node_start` | Deep research node started | `node_id`, `topic`, `depth` |
 | `research_node_complete` | Deep research node completed | `node_id`, `summary`, `quality` |
-| `research_tree_update` | Research tree snapshot updated | `tree`, `quality` |
+| `deep_research_topology_update` | Deep Research topology snapshot updated | `topology`, `quality` |
 | `quality_update` | Research quality diagnostics updated | `query_coverage_score`, `freshness_summary`, etc. |
 | `search` | Search run update | `query`, `provider`, `results`, `count` |
 | `artifact` | Artifact generated | `id`, `type`, `title`, `content` |

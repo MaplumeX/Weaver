@@ -36,7 +36,7 @@ def read_deep_runtime_snapshot(
 def resolve_deep_runtime_mode(
     state: dict[str, Any] | None,
     *,
-    default_mode: str = "deepsearch",
+    default_mode: str = "deep_research",
 ) -> str:
     snapshot = read_deep_runtime_snapshot(state, default_engine="")
     engine = str(snapshot.get("engine") or "").strip()

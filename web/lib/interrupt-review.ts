@@ -42,7 +42,7 @@ export function normalizeInterruptReview(raw: any): InterruptReview | null {
     }
   }
 
-  if (checkpoint === 'deepsearch_scope_review') {
+  if (checkpoint === 'deep_research_scope_review') {
     return {
       kind: 'scope_review',
       checkpoint,
@@ -56,7 +56,7 @@ export function normalizeInterruptReview(raw: any): InterruptReview | null {
     }
   }
 
-  if (checkpoint === 'deepsearch_clarify') {
+  if (checkpoint === 'deep_research_clarify') {
     return {
       kind: 'clarify_question',
       checkpoint,
