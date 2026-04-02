@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agent.runtime.deep.artifacts.public_artifacts import build_public_deepsearch_artifacts_from_state
 from agent.runtime.deep.state import resolve_deep_runtime_mode
+from common.checkpoint_ops import adelete_checkpoint, aget_checkpoint_tuple, alist_checkpoints
 
 logger = logging.getLogger(__name__)
 
@@ -129,75 +130,37 @@ class SessionManager:
         Returns:
             List of SessionInfo objects
         """
-        sessions = []
-
         try:
-            # Get all thread IDs from checkpointer
-            # Note: This implementation depends on the checkpointer type
-            if hasattr(self.checkpointer, "list"):
-                # Postgres checkpointer with list method
-                checkpoints = list(self.checkpointer.list({"configurable": {}}))
-            elif hasattr(self.checkpointer, "storage"):
-                # Memory checkpointer
-                checkpoints = []
-                for config, checkpoint in self.checkpointer.storage.items():
-                    checkpoints.append({"config": config, "checkpoint": checkpoint})
-            else:
-                logger.warning("Checkpointer does not support listing")
-                return []
-
-            seen_threads = set()
-
-            for cp_info in checkpoints[:limit * 2]:  # Get extra to account for duplicates
-                try:
-                    if isinstance(cp_info, tuple):
-                        config, checkpoint = cp_info
-                    else:
-                        config = cp_info.get("config", {})
-                        checkpoint = cp_info.get("checkpoint", cp_info)
-
-                    thread_id = None
-                    if isinstance(config, dict):
-                        thread_id = config.get("configurable", {}).get("thread_id")
-                    elif hasattr(config, "configurable"):
-                        thread_id = config.configurable.get("thread_id")
-
-                    if not thread_id or thread_id in seen_threads:
-                        continue
-
-                    seen_threads.add(thread_id)
-
-                    # Extract state from checkpoint
-                    state = {}
-                    if hasattr(checkpoint, "checkpoint"):
-                        state = checkpoint.checkpoint.get("channel_values", {})
-                    elif isinstance(checkpoint, dict):
-                        state = checkpoint.get("channel_values", {})
-
-                    if user_id_filter:
-                        owner = state.get("user_id")
-                        if not isinstance(owner, str) or owner.strip() != user_id_filter:
-                            continue
-
-                    session_info = self._build_session_info(thread_id, state, checkpoint)
-
-                    # Apply status filter
-                    if status_filter and session_info.status != status_filter:
-                        continue
-
-                    sessions.append(session_info)
-
-                    if len(sessions) >= limit:
-                        break
-
-                except Exception as e:
-                    logger.debug(f"Error processing checkpoint: {e}")
-                    continue
+            checkpoints = self._list_checkpoints_sync()
+            return self._build_sessions(
+                checkpoints,
+                limit=limit,
+                status_filter=status_filter,
+                user_id_filter=user_id_filter,
+            )
 
         except Exception as e:
             logger.error(f"Error listing sessions: {e}")
+            return []
 
-        return sessions
+    async def alist_sessions(
+        self,
+        limit: int = 50,
+        status_filter: Optional[str] = None,
+        user_id_filter: Optional[str] = None,
+    ) -> List[SessionInfo]:
+        """Asynchronously list all sessions."""
+        try:
+            checkpoints = await self._list_checkpoints_async()
+            return self._build_sessions(
+                checkpoints,
+                limit=limit,
+                status_filter=status_filter,
+                user_id_filter=user_id_filter,
+            )
+        except Exception as e:
+            logger.error(f"Error listing sessions: {e}")
+            return []
 
     def get_session(self, thread_id: str) -> Optional[SessionInfo]:
         """
@@ -219,6 +182,21 @@ class SessionManager:
             state = checkpoint_tuple.checkpoint.get("channel_values", {})
             return self._build_session_info(thread_id, state, checkpoint_tuple)
 
+        except Exception as e:
+            logger.error(f"Error getting session {thread_id}: {e}")
+            return None
+
+    async def aget_session(self, thread_id: str) -> Optional[SessionInfo]:
+        """Asynchronously get session info by thread ID."""
+        try:
+            config = {"configurable": {"thread_id": thread_id}}
+            checkpoint_tuple = await aget_checkpoint_tuple(self.checkpointer, config)
+
+            if not checkpoint_tuple:
+                return None
+
+            state = checkpoint_tuple.checkpoint.get("channel_values", {})
+            return self._build_session_info(thread_id, state, checkpoint_tuple)
         except Exception as e:
             logger.error(f"Error getting session {thread_id}: {e}")
             return None
@@ -267,6 +245,41 @@ class SessionManager:
             logger.error(f"Error getting session state {thread_id}: {e}")
             return None
 
+    async def aget_session_state(self, thread_id: str) -> Optional[SessionState]:
+        """Asynchronously get full session state."""
+        try:
+            config = {"configurable": {"thread_id": thread_id}}
+            checkpoint_tuple = await aget_checkpoint_tuple(self.checkpointer, config)
+
+            if not checkpoint_tuple:
+                return None
+
+            state = checkpoint_tuple.checkpoint.get("channel_values", {})
+            checkpoint_ts = ""
+            parent_id = None
+
+            if hasattr(checkpoint_tuple, "metadata"):
+                metadata = checkpoint_tuple.metadata or {}
+                checkpoint_ts = metadata.get("created_at", "")
+
+            if hasattr(checkpoint_tuple, "parent_config"):
+                parent_config = checkpoint_tuple.parent_config
+                if parent_config:
+                    parent_id = parent_config.get("configurable", {}).get("checkpoint_id")
+
+            deepsearch_artifacts = self._extract_deepsearch_artifacts(state)
+
+            return SessionState(
+                thread_id=thread_id,
+                state=state,
+                checkpoint_ts=checkpoint_ts,
+                parent_checkpoint_id=parent_id,
+                deepsearch_artifacts=deepsearch_artifacts,
+            )
+        except Exception as e:
+            logger.error(f"Error getting session state {thread_id}: {e}")
+            return None
+
     def delete_session(self, thread_id: str) -> bool:
         """
         Delete a session and all its checkpoints.
@@ -303,6 +316,27 @@ class SessionManager:
             logger.error(f"Error deleting session {thread_id}: {e}")
             return False
 
+    async def adelete_session(self, thread_id: str) -> bool:
+        """Asynchronously delete a session and all its checkpoints."""
+        try:
+            config = {"configurable": {"thread_id": thread_id}}
+
+            if await adelete_checkpoint(self.checkpointer, config):
+                logger.info(f"Deleted session: {thread_id}")
+                return True
+
+            if hasattr(self.checkpointer, "put") or hasattr(self.checkpointer, "aput"):
+                checkpoint_tuple = await aget_checkpoint_tuple(self.checkpointer, config)
+                if checkpoint_tuple:
+                    logger.info(f"Marked session as deleted: {thread_id}")
+                    return True
+
+            logger.warning(f"Checkpointer does not support deletion: {thread_id}")
+            return False
+        except Exception as e:
+            logger.error(f"Error deleting session {thread_id}: {e}")
+            return False
+
     def can_resume(self, thread_id: str) -> Tuple[bool, str]:
         """
         Check if a session can be resumed.
@@ -314,6 +348,23 @@ class SessionManager:
             Tuple of (can_resume, reason)
         """
         session = self.get_session(thread_id)
+        if not session:
+            return False, "Session not found"
+
+        if session.status == "completed":
+            return False, "Session already completed"
+
+        if session.status == "deleted":
+            return False, "Session has been deleted"
+
+        if session.status == "running":
+            return False, "Session is currently running"
+
+        return True, "Session can be resumed"
+
+    async def acan_resume(self, thread_id: str) -> Tuple[bool, str]:
+        """Asynchronously check if a session can be resumed."""
+        session = await self.aget_session(thread_id)
         if not session:
             return False, "Session not found"
 
@@ -369,6 +420,119 @@ class SessionManager:
         restored["resumed_from_checkpoint"] = True
         restored["resumed_at"] = datetime.utcnow().isoformat()
         return restored
+
+    async def abuild_resume_state(
+        self,
+        thread_id: str,
+        additional_input: Optional[str] = None,
+        update_state: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Asynchronously build a restored state payload for session resumption."""
+        session_state = await self.aget_session_state(thread_id)
+        if not session_state:
+            return None
+
+        restored = deepcopy(session_state.state)
+        artifacts = session_state.deepsearch_artifacts or {}
+
+        if isinstance(update_state, dict):
+            restored.update(update_state)
+
+        if additional_input:
+            restored["resume_input"] = additional_input
+
+        if artifacts:
+            restored["deepsearch_artifacts"] = artifacts
+            if artifacts.get("queries") and not restored.get("research_plan"):
+                restored["research_plan"] = list(artifacts.get("queries", []))
+            if artifacts.get("research_tree") and not restored.get("research_tree"):
+                restored["research_tree"] = artifacts.get("research_tree")
+            if artifacts.get("quality_summary") and not restored.get("quality_summary"):
+                restored["quality_summary"] = artifacts.get("quality_summary")
+            if artifacts.get("query_coverage") and not restored.get("query_coverage"):
+                restored["query_coverage"] = artifacts.get("query_coverage")
+            if artifacts.get("freshness_summary") and not restored.get("freshness_summary"):
+                restored["freshness_summary"] = artifacts.get("freshness_summary")
+
+        restored["resumed_from_checkpoint"] = True
+        restored["resumed_at"] = datetime.utcnow().isoformat()
+        return restored
+
+    def _list_checkpoints_sync(self) -> List[Any]:
+        if hasattr(self.checkpointer, "list"):
+            return list(self.checkpointer.list({"configurable": {}}))
+        if hasattr(self.checkpointer, "storage"):
+            checkpoints = []
+            for config, checkpoint in self.checkpointer.storage.items():
+                checkpoints.append({"config": config, "checkpoint": checkpoint})
+            return checkpoints
+        logger.warning("Checkpointer does not support listing")
+        return []
+
+    async def _list_checkpoints_async(self) -> List[Any]:
+        if hasattr(self.checkpointer, "alist") or hasattr(self.checkpointer, "list"):
+            return await alist_checkpoints(self.checkpointer, {"configurable": {}})
+        if hasattr(self.checkpointer, "storage"):
+            checkpoints = []
+            for config, checkpoint in self.checkpointer.storage.items():
+                checkpoints.append({"config": config, "checkpoint": checkpoint})
+            return checkpoints
+        logger.warning("Checkpointer does not support listing")
+        return []
+
+    def _build_sessions(
+        self,
+        checkpoints: List[Any],
+        *,
+        limit: int,
+        status_filter: Optional[str],
+        user_id_filter: Optional[str],
+    ) -> List[SessionInfo]:
+        sessions = []
+        seen_threads = set()
+
+        for cp_info in checkpoints[:limit * 2]:
+            try:
+                if isinstance(cp_info, tuple):
+                    config, checkpoint = cp_info
+                else:
+                    config = cp_info.get("config", {})
+                    checkpoint = cp_info.get("checkpoint", cp_info)
+
+                thread_id = None
+                if isinstance(config, dict):
+                    thread_id = config.get("configurable", {}).get("thread_id")
+                elif hasattr(config, "configurable"):
+                    thread_id = config.configurable.get("thread_id")
+
+                if not thread_id or thread_id in seen_threads:
+                    continue
+
+                seen_threads.add(thread_id)
+
+                state = {}
+                if hasattr(checkpoint, "checkpoint"):
+                    state = checkpoint.checkpoint.get("channel_values", {})
+                elif isinstance(checkpoint, dict):
+                    state = checkpoint.get("channel_values", {})
+
+                if user_id_filter:
+                    owner = state.get("user_id")
+                    if not isinstance(owner, str) or owner.strip() != user_id_filter:
+                        continue
+
+                session_info = self._build_session_info(thread_id, state, checkpoint)
+                if status_filter and session_info.status != status_filter:
+                    continue
+
+                sessions.append(session_info)
+                if len(sessions) >= limit:
+                    break
+            except Exception as e:
+                logger.debug(f"Error processing checkpoint: {e}")
+                continue
+
+        return sessions
 
     def _build_session_info(
         self,

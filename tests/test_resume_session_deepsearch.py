@@ -42,15 +42,15 @@ async def test_resume_session_returns_deepsearch_artifact_context(monkeypatch):
 
     class FakeManager:
         @staticmethod
-        def can_resume(thread_id: str):
+        async def acan_resume(thread_id: str):
             return True, "ok"
 
         @staticmethod
-        def get_session_state(thread_id: str):
+        async def aget_session_state(thread_id: str):
             return state
 
         @staticmethod
-        def build_resume_state(thread_id: str, additional_input=None, update_state=None):
+        async def abuild_resume_state(thread_id: str, additional_input=None, update_state=None):
             restored = dict(state.state)
             restored["research_plan"] = list(artifacts["queries"])
             restored["research_tree"] = artifacts["research_tree"]
@@ -100,15 +100,15 @@ async def test_resume_session_uses_quality_summary_coverage_fallback(monkeypatch
 
     class FakeManager:
         @staticmethod
-        def can_resume(thread_id: str):
+        async def acan_resume(thread_id: str):
             return True, "ok"
 
         @staticmethod
-        def get_session_state(thread_id: str):
+        async def aget_session_state(thread_id: str):
             return state
 
         @staticmethod
-        def build_resume_state(thread_id: str, additional_input=None, update_state=None):
+        async def abuild_resume_state(thread_id: str, additional_input=None, update_state=None):
             restored = dict(state.state)
             restored["resumed_from_checkpoint"] = True
             return restored

@@ -1,12 +1,14 @@
 import importlib
 import sys
 
+import pytest
 from psycopg.rows import dict_row
 
 from agent.runtime import graph
 
 
-def test_create_checkpointer_uses_langgraph_postgres_connection_settings(monkeypatch):
+@pytest.mark.asyncio
+async def test_create_checkpointer_uses_langgraph_postgres_connection_settings(monkeypatch):
     captured: dict[str, object] = {}
     sentinel_conn = object()
 
@@ -14,18 +16,18 @@ def test_create_checkpointer_uses_langgraph_postgres_connection_settings(monkeyp
         def __init__(self, conn):
             captured["conn"] = conn
 
-        def setup(self):
+        async def setup(self):
             captured["setup_called"] = True
 
-    def fake_connect(database_url, **kwargs):
+    async def fake_connect(database_url, **kwargs):
         captured["database_url"] = database_url
         captured["kwargs"] = kwargs
         return sentinel_conn
 
-    monkeypatch.setattr(graph.psycopg, "connect", fake_connect)
-    monkeypatch.setattr(graph, "PostgresSaver", DummySaver)
+    monkeypatch.setattr(graph.psycopg.AsyncConnection, "connect", fake_connect)
+    monkeypatch.setattr(graph, "AsyncPostgresSaver", DummySaver)
 
-    checkpointer = graph.create_checkpointer("postgresql://example")
+    checkpointer = await graph.create_checkpointer("postgresql://example")
 
     assert isinstance(checkpointer, DummySaver)
     assert captured["conn"] is sentinel_conn

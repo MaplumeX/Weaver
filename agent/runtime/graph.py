@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 import psycopg
-from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, StateGraph
 from psycopg.rows import dict_row
 
@@ -28,7 +28,7 @@ from agent.runtime.nodes import (
     writer_node,
 )
 
-from agent.core.state import AgentState, QueryState
+from agent.core.state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +258,7 @@ def export_graph_mermaid(output_path: str = "graph_mermaid.md", xray: bool = Tru
     return path
 
 
-def create_checkpointer(database_url: str):
+async def create_checkpointer(database_url: str):
     """
     Create a PostgreSQL checkpointer for state persistence.
 
@@ -269,7 +269,7 @@ def create_checkpointer(database_url: str):
 
     # Match LangGraph's documented Postgres connection requirements.
     try:
-        conn = psycopg.connect(
+        conn = await psycopg.AsyncConnection.connect(
             database_url,
             autocommit=True,
             prepare_threshold=0,
@@ -278,11 +278,10 @@ def create_checkpointer(database_url: str):
     except Exception as e:
         raise RuntimeError(f"Failed to connect to Postgres for checkpointer: {e}") from e
 
-    # Create checkpointer
-    checkpointer = PostgresSaver(conn)
+    checkpointer = AsyncPostgresSaver(conn)
 
     # Setup tables
-    checkpointer.setup()
+    await checkpointer.setup()
 
     logger.info("PostgreSQL checkpointer initialized")
     return checkpointer

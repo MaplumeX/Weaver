@@ -77,6 +77,7 @@ from common.agents_store import (
 )
 from common.cancellation import TaskStatus, cancellation_manager
 from common.chat_stream_translate import translate_legacy_line_to_sse
+from common.checkpoint_ops import aget_checkpoint_tuple
 from common.config import settings
 from common.logger import get_logger, setup_logging
 from common.metrics import metrics_registry
@@ -378,7 +379,7 @@ def _apply_rate_limit_headers(response: Any, *, limit: int, remaining: int, rese
     response.headers["X-RateLimit-Reset"] = str(reset_ts)
 
 
-def _require_thread_owner(request: Request, thread_id: str) -> None:
+async def _require_thread_owner(request: Request, thread_id: str) -> None:
     """
     Enforce per-user thread isolation when internal auth is enabled.
 
@@ -405,7 +406,7 @@ def _require_thread_owner(request: Request, thread_id: str) -> None:
         from common.session_manager import get_session_manager
 
         manager = get_session_manager(checkpointer)
-        session_state = manager.get_session_state(thread_id)
+        session_state = await manager.aget_session_state(thread_id)
         if not session_state or not isinstance(session_state.state, dict):
             return
         persisted_owner = session_state.state.get("user_id")
@@ -436,11 +437,16 @@ async def _cleanup_rate_limit_buckets():
 
 
 # Initialize agent graphs with short-term memory (checkpointer)
-if settings.database_url:
-    checkpointer = create_checkpointer(settings.database_url)
-else:
-    # Fallback to in-memory checkpointer for short-term memory
-    checkpointer = MemorySaver()
+checkpointer = MemorySaver()
+store = None
+research_graph = None
+support_graph = None
+_checkpointer_conn = None
+_store_conn = None
+_checkpointer_status = "initializing" if settings.database_url else "not_configured"
+_checkpointer_error = ""
+_store_status = "initializing" if settings.memory_store_backend.lower().strip() != "memory" else "disabled"
+_store_error = ""
 
 
 def _init_store():
@@ -479,15 +485,102 @@ def _init_store():
     return None
 
 
-# Long-term memory store (configurable via .env)
-store = _init_store()
+def _compile_runtime_graphs() -> None:
+    global research_graph, support_graph
+    research_graph = create_research_graph(
+        checkpointer=checkpointer,
+        interrupt_before=settings.interrupt_nodes_list,
+        store=store,
+    )
+    support_graph = create_support_graph(checkpointer=checkpointer, store=store)
 
-research_graph = create_research_graph(
-    checkpointer=checkpointer,
-    interrupt_before=settings.interrupt_nodes_list,
-    store=store,
-)
-support_graph = create_support_graph(checkpointer=checkpointer, store=store)
+
+_compile_runtime_graphs()
+
+
+async def _close_runtime_resources() -> None:
+    global _checkpointer_conn, _store_conn
+
+    checkpointer_conn = _checkpointer_conn
+    _checkpointer_conn = None
+    if checkpointer_conn is not None and hasattr(checkpointer_conn, "close"):
+        await checkpointer_conn.close()
+
+    store_conn = _store_conn
+    _store_conn = None
+    if store_conn is not None and hasattr(store_conn, "close"):
+        await run_in_threadpool(store_conn.close)
+
+
+async def _initialize_runtime_state() -> None:
+    global checkpointer, store, _checkpointer_conn, _store_conn
+    global _checkpointer_status, _checkpointer_error, _store_status, _store_error
+
+    await _close_runtime_resources()
+
+    try:
+        runtime_changed = False
+
+        if settings.database_url:
+            _checkpointer_status = "initializing"
+            _checkpointer_error = ""
+            checkpointer = await create_checkpointer(settings.database_url)
+            _checkpointer_conn = getattr(checkpointer, "conn", None)
+            _checkpointer_status = "ready"
+            runtime_changed = True
+        elif checkpointer is None:
+            checkpointer = MemorySaver()
+            _checkpointer_status = "not_configured"
+            _checkpointer_error = ""
+            runtime_changed = True
+        else:
+            _checkpointer_status = "not_configured"
+            _checkpointer_error = ""
+
+        backend = settings.memory_store_backend.lower().strip()
+        if backend == "memory":
+            if store is not None:
+                store = None
+                runtime_changed = True
+            _store_status = "disabled"
+            _store_error = ""
+        else:
+            _store_status = "initializing"
+            _store_error = ""
+            store = await run_in_threadpool(_init_store)
+            _store_conn = getattr(store, "conn", None)
+            _store_status = "ready"
+            runtime_changed = True
+
+        if runtime_changed:
+            _compile_runtime_graphs()
+    except Exception as e:
+        if settings.database_url:
+            checkpointer = None
+            _checkpointer_status = "failed"
+            _checkpointer_error = str(e)
+        else:
+            checkpointer = MemorySaver()
+            _checkpointer_status = "not_configured"
+            _checkpointer_error = ""
+
+        store = None
+        if settings.memory_store_backend.lower().strip() == "memory":
+            _store_status = "disabled"
+            _store_error = ""
+        else:
+            _store_status = "failed"
+            _store_error = str(e)
+
+        await _close_runtime_resources()
+        _compile_runtime_graphs()
+        raise
+
+
+def _checkpointer_backend_name() -> str:
+    if settings.database_url:
+        return "postgres"
+    return "memory"
 mcp_thread_id = "default"  # thread id for MCP event emission; per-request tools will override
 mcp_enabled = settings.enable_mcp
 mcp_servers_config = settings.mcp_servers
@@ -543,12 +636,17 @@ async def startup_event():
             name="weaver-rate-limit-cleanup",
         )
 
+    await _initialize_runtime_state()
+
     # Log configuration
     logger.info(f"Environment: {'DEBUG' if settings.debug else 'PRODUCTION'}")
     logger.info(f"Primary Model: {settings.primary_model}")
     logger.info(f"Reasoning Model: {settings.reasoning_model}")
-    logger.info(f"Database: {'Configured' if settings.database_url else 'Not configured'}")
+    logger.info(f"Database: {_checkpointer_status}")
+    logger.info(f"Checkpointer backend: {_checkpointer_backend_name()}")
     logger.info(f"Checkpointer: {'Enabled' if checkpointer else 'Disabled'}")
+    logger.info(f"Store backend: {settings.memory_store_backend.lower().strip()}")
+    logger.info(f"Store status: {_store_status}")
 
     # Initialize MCP tools
     global mcp_loaded_tools, mcp_servers_config
@@ -713,6 +811,12 @@ async def shutdown_event():
         logger.info("Trigger system shutdown successfully")
     except Exception as e:
         logger.error(f"Error shutting down trigger system: {e}", exc_info=True)
+
+    try:
+        await _close_runtime_resources()
+        logger.info("Runtime storage closed successfully")
+    except Exception as e:
+        logger.error(f"Error closing runtime storage: {e}", exc_info=True)
 
     logger.info("=" * 80)
     logger.info("Shutdown Complete")
@@ -1124,14 +1228,14 @@ def _pending_interrupt_prompts(checkpoint_tuple: Any) -> List[Any]:
     return _serialize_interrupts(interrupt_items)
 
 
-def _pending_interrupt_prompts_for_thread(thread_id: str) -> List[Any]:
+async def _pending_interrupt_prompts_for_thread(thread_id: str) -> List[Any]:
     if not checkpointer:
         return []
     tid = str(thread_id or "").strip()
     if not tid:
         return []
     try:
-        existing = checkpointer.get_tuple({"configurable": {"thread_id": tid}})
+        existing = await aget_checkpoint_tuple(checkpointer, {"configurable": {"thread_id": tid}})
     except Exception:
         return []
     if not existing:
@@ -1339,7 +1443,11 @@ async def health():
     """Detailed health check."""
     return {
         "status": "healthy",
-        "database": "configured" if settings.database_url else "not configured",
+        "database": _checkpointer_status if settings.database_url else "not_configured",
+        "database_backend": _checkpointer_backend_name(),
+        "database_error": _checkpointer_error if _checkpointer_status == "failed" else "",
+        "store": _store_status,
+        "store_backend": settings.memory_store_backend.lower().strip(),
         "version": app.version,
         "uptime_seconds": time.monotonic() - APP_STARTED_AT,
         "timestamp": datetime.now().isoformat(),
@@ -1392,7 +1500,7 @@ async def cancel_chat(thread_id: str, request: Request, payload: CancelRequest |
         thread_id: 浠诲姟绾跨▼ ID
         request: 鍙€夌殑鍙栨秷鍘熷洜
     """
-    _require_thread_owner(request, thread_id)
+    await _require_thread_owner(request, thread_id)
 
     reason = payload.reason if payload else "User requested cancellation"
     logger.info(f"Cancel request received for thread: {thread_id}, reason: {reason}")
@@ -1870,7 +1978,7 @@ def _normalize_images_payload(images: Optional[List[ImagePayload]]) -> List[Dict
     return normalized
 
 
-def _restore_thread_stream_context(thread_id: str) -> Dict[str, Any]:
+async def _restore_thread_stream_context(thread_id: str) -> Dict[str, Any]:
     restored: Dict[str, Any] = {
         "input_text": "",
         "user_id": settings.memory_user_id,
@@ -1883,7 +1991,7 @@ def _restore_thread_stream_context(thread_id: str) -> Dict[str, Any]:
         from common.session_manager import get_session_manager
 
         manager = get_session_manager(checkpointer)
-        session_state = manager.get_session_state(thread_id)
+        session_state = await manager.aget_session_state(thread_id)
     except Exception:
         return restored
 
@@ -2126,7 +2234,7 @@ async def _stream_graph_execution(
 
         async def _build_pending_interrupt_event() -> Optional[str]:
             nonlocal was_interrupted
-            prompts = _pending_interrupt_prompts_for_thread(thread_id)
+            prompts = await _pending_interrupt_prompts_for_thread(thread_id)
             if not prompts:
                 return None
             was_interrupted = True
@@ -2442,7 +2550,7 @@ async def _stream_graph_execution(
             if interrupt_chunk:
                 yield interrupt_chunk
                 return
-            restored = _restore_thread_stream_context(thread_id)
+            restored = await _restore_thread_stream_context(thread_id)
             restored_state = restored.get("state") if isinstance(restored.get("state"), dict) else {}
             if isinstance(restored_state, dict) and restored_state.get("final_report"):
                 final_output = restored_state
@@ -2610,7 +2718,7 @@ async def support_chat(request: Request, payload: SupportChatRequest):
                 ),
             )
 
-        result = support_graph.invoke(state, config=config)
+        result = await support_graph.ainvoke(state, config=config)
         messages = result.get("messages", [])
         reply = ""
         for msg in reversed(messages):
@@ -2683,7 +2791,7 @@ async def stream_resumed_agent_events(
     search_mode: SearchMode | Dict[str, Any] | str | None = None,
     agent_id: str | None = None,
 ):
-    restored = _restore_thread_stream_context(thread_id)
+    restored = await _restore_thread_stream_context(thread_id)
     restored_state = restored.get("state") if isinstance(restored.get("state"), dict) else {}
     mode_info = (
         _normalize_search_mode(search_mode)
@@ -2983,13 +3091,13 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
     # Fast path: avoid invoking the graph when no checkpoint exists for this thread.
     if not payload.thread_id or not str(payload.thread_id).strip():
         raise HTTPException(status_code=400, detail="thread_id is required")
-    _require_thread_owner(request, payload.thread_id)
-    existing = checkpointer.get_tuple({"configurable": {"thread_id": payload.thread_id}})
+    await _require_thread_owner(request, payload.thread_id)
+    existing = await aget_checkpoint_tuple(checkpointer, {"configurable": {"thread_id": payload.thread_id}})
     if not existing:
         raise HTTPException(status_code=404, detail="No checkpoint found for this thread_id")
     prompts = _pending_interrupt_prompts(existing)
     first_prompt = prompts[0] if prompts else None
-    restored = _restore_thread_stream_context(payload.thread_id)
+    restored = await _restore_thread_stream_context(payload.thread_id)
     restored_state = restored.get("state") if isinstance(restored.get("state"), dict) else {}
     mode_info = (
         _normalize_search_mode(payload.search_mode)
@@ -3323,7 +3431,7 @@ class RunMetricsResponse(BaseModel):
     evidence_summary: RunEvidenceSummary
 
 
-def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
+async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
     sources_count = 0
     unsupported_claims_count = 0
     freshness_ratio_30d: Optional[float] = None
@@ -3353,7 +3461,7 @@ def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
         from common.session_manager import get_session_manager
 
         manager = get_session_manager(checkpointer)
-        session_state = manager.get_session_state(thread_id)
+        session_state = await manager.aget_session_state(thread_id)
         if not session_state:
             raise ValueError("session not found")
 
@@ -3458,7 +3566,7 @@ async def get_run_metrics(thread_id: str, request: Request):
     payload = metrics.to_dict()
     return RunMetricsResponse(
         **payload,
-        evidence_summary=_build_run_evidence_summary(thread_id),
+        evidence_summary=await _build_run_evidence_summary(thread_id),
     )
 
 
@@ -3710,7 +3818,7 @@ async def get_traces(thread_id: str, request: Request):
     if not settings.enable_tracing:
         raise HTTPException(status_code=400, detail="Tracing is not enabled")
 
-    _require_thread_owner(request, thread_id)
+    await _require_thread_owner(request, thread_id)
 
     trace = get_trace(thread_id)
     if not trace:
@@ -3731,7 +3839,7 @@ async def get_trace_summary(thread_id: str, request: Request):
     if not settings.enable_tracing:
         raise HTTPException(status_code=400, detail="Tracing is not enabled")
 
-    _require_thread_owner(request, thread_id)
+    await _require_thread_owner(request, thread_id)
 
     summary = _get_summary(thread_id)
     if not summary:
@@ -3752,7 +3860,7 @@ async def get_all_traces(thread_id: str, request: Request):
     if not settings.enable_tracing:
         raise HTTPException(status_code=400, detail="Tracing is not enabled")
 
-    _require_thread_owner(request, thread_id)
+    await _require_thread_owner(request, thread_id)
 
     traces = _get_all(thread_id)
     return {"thread_id": thread_id, "count": len(traces), "traces": traces}
@@ -3823,9 +3931,9 @@ async def export_report_endpoint(
         raise HTTPException(status_code=400, detail="No checkpointer configured")
 
     try:
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
         config = {"configurable": {"thread_id": thread_id}}
-        checkpoint = checkpointer.get_tuple(config)
+        checkpoint = await aget_checkpoint_tuple(checkpointer, config)
         if not checkpoint:
             raise HTTPException(status_code=404, detail=f"No checkpoint found for thread {thread_id}")
 
@@ -4199,7 +4307,7 @@ async def list_sessions(
         user_filter = None
         if internal_key:
             user_filter = (getattr(request.state, "principal_id", "") or "").strip() or "internal"
-        sessions = manager.list_sessions(limit=limit, status_filter=status, user_id_filter=user_filter)
+        sessions = await manager.alist_sessions(limit=limit, status_filter=status, user_id_filter=user_filter)
 
         return {
             "count": len(sessions),
@@ -4227,13 +4335,13 @@ async def get_session(thread_id: str, request: Request):
         internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
         if internal_key:
             principal_id = (getattr(request.state, "principal_id", "") or "").strip()
-            session_state = manager.get_session_state(thread_id)
+            session_state = await manager.aget_session_state(thread_id)
             if session_state and isinstance(session_state.state, dict):
                 owner = session_state.state.get("user_id")
                 if isinstance(owner, str) and owner.strip() and owner.strip() != principal_id:
                     raise HTTPException(status_code=403, detail="Forbidden")
 
-        session = manager.get_session(thread_id)
+        session = await manager.aget_session(thread_id)
 
         if not session:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
@@ -4259,7 +4367,7 @@ async def get_session_state(thread_id: str, request: Request):
         from common.session_manager import get_session_manager
 
         manager = get_session_manager(checkpointer)
-        state = manager.get_session_state(thread_id)
+        state = await manager.aget_session_state(thread_id)
 
         if not state:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
@@ -4292,7 +4400,7 @@ async def get_session_evidence(thread_id: str, request: Request):
         from common.session_manager import get_session_manager
 
         manager = get_session_manager(checkpointer)
-        session_state = manager.get_session_state(thread_id)
+        session_state = await manager.aget_session_state(thread_id)
         if not session_state:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
@@ -4349,21 +4457,21 @@ async def resume_session(
     try:
         from common.session_manager import get_session_manager
 
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
 
         manager = get_session_manager(checkpointer)
 
         # Check if session can be resumed
-        can_resume, reason = manager.can_resume(thread_id)
+        can_resume, reason = await manager.acan_resume(thread_id)
         if not can_resume:
             raise HTTPException(status_code=400, detail=reason)
 
         # Get current state
-        state = manager.get_session_state(thread_id)
+        state = await manager.aget_session_state(thread_id)
         if not state:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
-        restored_state = manager.build_resume_state(
+        restored_state = await manager.abuild_resume_state(
             thread_id=thread_id,
             additional_input=payload.additional_input if payload else None,
             update_state=payload.update_state if payload else None,
@@ -4458,10 +4566,10 @@ async def delete_session(thread_id: str, request: Request):
     try:
         from common.session_manager import get_session_manager
 
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
 
         manager = get_session_manager(checkpointer)
-        success = manager.delete_session(thread_id)
+        success = await manager.adelete_session(thread_id)
 
         if not success:
             raise HTTPException(status_code=400, detail=f"Failed to delete session: {thread_id}")
@@ -4527,7 +4635,7 @@ class VersionsResponse(BaseModel):
 async def create_share(thread_id: str, request: Request, req: ShareRequest):
     """Create a share link for a session."""
     try:
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
         from common.collaboration import create_share_link
 
         link = create_share_link(
@@ -4561,7 +4669,7 @@ async def get_share(share_id: str):
             from common.session_manager import get_session_manager
 
             manager = get_session_manager(checkpointer)
-            session_state = manager.get_session_state(link["thread_id"])
+            session_state = await manager.aget_session_state(link["thread_id"])
             if session_state and isinstance(session_state.state, dict):
                 state = session_state.state
                 raw_messages = state.get("messages", [])
@@ -4643,7 +4751,7 @@ async def delete_share(share_id: str):
 async def add_comment(thread_id: str, request: Request, req: CommentRequest):
     """Add a comment to a session."""
     try:
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
         from common.collaboration import add_comment
 
         comment = add_comment(
@@ -4662,7 +4770,7 @@ async def add_comment(thread_id: str, request: Request, req: CommentRequest):
 async def get_comments(thread_id: str, request: Request, message_id: Optional[str] = None):
     """Get comments for a session."""
     try:
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
         from common.collaboration import get_comments
 
         comments = get_comments(thread_id, message_id)
@@ -4676,7 +4784,7 @@ async def get_comments(thread_id: str, request: Request, message_id: Optional[st
 async def get_versions(thread_id: str, request: Request):
     """Get version history for a session."""
     try:
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
         from common.collaboration import list_versions
 
         versions = list_versions(thread_id)
@@ -4693,13 +4801,13 @@ async def create_version(thread_id: str, request: Request, label: Optional[str] 
         if not checkpointer:
             raise HTTPException(status_code=400, detail="No checkpointer configured")
 
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
 
         from common.collaboration import save_version
         from common.session_manager import get_session_manager
 
         manager = get_session_manager(checkpointer)
-        session = manager.get_session(thread_id)
+        session = await manager.aget_session(thread_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
@@ -4724,7 +4832,7 @@ async def create_version(thread_id: str, request: Request, label: Optional[str] 
 async def restore_version(thread_id: str, version_id: str, request: Request):
     """Restore a session from a version snapshot."""
     try:
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
         from common.collaboration import get_version_snapshot
 
         snapshot = get_version_snapshot(version_id)
@@ -4774,9 +4882,9 @@ async def get_interrupt_status(thread_id: str, request: Request):
         raise HTTPException(status_code=400, detail="No checkpointer configured")
 
     try:
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
         config = {"configurable": {"thread_id": thread_id}}
-        checkpoint_tuple = checkpointer.get_tuple(config)
+        checkpoint_tuple = await aget_checkpoint_tuple(checkpointer, config)
 
         if not checkpoint_tuple:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
@@ -4848,9 +4956,9 @@ async def resume_from_interrupt(thread_id: str, request: Request, payload: Inter
         raise HTTPException(status_code=400, detail="No checkpointer configured")
 
     try:
-        _require_thread_owner(request, thread_id)
+        await _require_thread_owner(request, thread_id)
         config = {"configurable": {"thread_id": thread_id}}
-        checkpoint_tuple = checkpointer.get_tuple(config)
+        checkpoint_tuple = await aget_checkpoint_tuple(checkpointer, config)
 
         if not checkpoint_tuple:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
@@ -5264,7 +5372,7 @@ async def list_screenshots(request: Request, thread_id: Optional[str] = None, li
     if internal_key:
         if not thread_id or not str(thread_id).strip():
             raise HTTPException(status_code=400, detail="thread_id is required")
-        _require_thread_owner(request, str(thread_id))
+        await _require_thread_owner(request, str(thread_id))
 
     service = get_screenshot_service()
     screenshots = service.list_screenshots(thread_id=thread_id, limit=limit)
@@ -5306,7 +5414,7 @@ async def stream_tool_events(thread_id: str, request: Request, last_event_id: Op
             console.log(data.type, data.data);
         };
     """
-    _require_thread_owner(request, thread_id)
+    await _require_thread_owner(request, thread_id)
 
     async def event_generator():
         def _as_message_event(frame: str) -> str:
@@ -5391,7 +5499,7 @@ async def get_browser_session_info(thread_id: str, request: Request):
 
     Returns browser session status and capabilities for real-time viewing.
     """
-    _require_thread_owner(request, thread_id)
+    await _require_thread_owner(request, thread_id)
 
     result = {
         "active": False,
@@ -5437,7 +5545,7 @@ async def trigger_browser_screenshot(thread_id: str, request: Request):
     """
     Trigger a manual screenshot capture for the browser session.
     """
-    _require_thread_owner(request, thread_id)
+    await _require_thread_owner(request, thread_id)
 
     # Avoid cold-starting a sandbox here: manual screenshots should only be
     # available once a live session already exists (e.g. via the WS viewer or
@@ -5562,7 +5670,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                 from common.session_manager import get_session_manager
 
                 manager = get_session_manager(checkpointer)
-                session_state = manager.get_session_state(thread_id)
+                session_state = await manager.aget_session_state(thread_id)
                 if session_state and isinstance(session_state.state, dict):
                     persisted_owner = session_state.state.get("user_id")
                     if (

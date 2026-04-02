@@ -59,7 +59,7 @@ async def test_session_evidence_includes_fetched_pages_and_passages(monkeypatch)
 
     class FakeManager:
         @staticmethod
-        def get_session_state(thread_id: str):
+        async def aget_session_state(thread_id: str):
             if thread_id != "thread-evidence":
                 return None
             return state
