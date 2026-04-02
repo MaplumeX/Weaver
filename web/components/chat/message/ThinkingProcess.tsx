@@ -245,22 +245,22 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
               {status}
             </span>
           </div>
-          {(phase || taskId) ? (
-            <div className="truncate text-xs text-muted-foreground">
-              [
-                phase || null,
-                stage ? `stage ${stage}` : null,
-                validationStage ? `validation ${validationStage}` : null,
+	          {(phase || taskId) ? (
+	            <div className="truncate text-xs text-muted-foreground">
+	              {[
+	                phase || null,
+	                stage ? `stage ${stage}` : null,
+	                validationStage ? `validation ${validationStage}` : null,
                 taskKind ? `kind ${taskKind}` : null,
                 taskId ? `task ${taskId}` : null,
-                branchId ? `branch ${branchId}` : null,
-                nodeId ? `node ${nodeId}` : null,
-                attempt && attempt > 1 ? `attempt ${attempt}` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </div>
-          ) : null}
+	                branchId ? `branch ${branchId}` : null,
+	                nodeId ? `node ${nodeId}` : null,
+	                attempt && attempt > 1 ? `attempt ${attempt}` : null,
+	              ]
+	                .filter(Boolean)
+	                .join(' · ')}
+	            </div>
+	          ) : null}
           {summary ? <div className="line-clamp-2 text-xs text-muted-foreground">{summary}</div> : null}
         </div>
       </div>
@@ -291,18 +291,18 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
               </span>
             ) : null}
           </div>
-          <div className="truncate text-xs text-muted-foreground">
-            [
-              query || null,
-              taskKind ? `kind ${taskKind}` : null,
-              stage ? `stage ${stage}` : null,
-              typeof priority === 'number' ? `p${priority}` : null,
-              branchId ? `branch ${branchId}` : null,
-              attempt && attempt > 1 ? `attempt ${attempt}` : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </div>
+	          <div className="truncate text-xs text-muted-foreground">
+	            {[
+	              query || null,
+	              taskKind ? `kind ${taskKind}` : null,
+	              stage ? `stage ${stage}` : null,
+	              typeof priority === 'number' ? `p${priority}` : null,
+	              branchId ? `branch ${branchId}` : null,
+	              attempt && attempt > 1 ? `attempt ${attempt}` : null,
+	            ]
+	              .filter(Boolean)
+	              .join(' · ')}
+	          </div>
         </div>
       </div>
     )
@@ -336,19 +336,19 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
               </span>
             ) : null}
           </div>
-          {(taskId || branchId) ? (
-            <div className="truncate text-xs text-muted-foreground">
-              [
-                taskId ? `task ${taskId}` : null,
-                branchId ? `branch ${branchId}` : null,
-                taskKind ? `kind ${taskKind}` : null,
-                stage ? `stage ${stage}` : null,
-                validationStage ? `validation ${validationStage}` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </div>
-          ) : null}
+	          {(taskId || branchId) ? (
+	            <div className="truncate text-xs text-muted-foreground">
+	              {[
+	                taskId ? `task ${taskId}` : null,
+	                branchId ? `branch ${branchId}` : null,
+	                taskKind ? `kind ${taskKind}` : null,
+	                stage ? `stage ${stage}` : null,
+	                validationStage ? `validation ${validationStage}` : null,
+	              ]
+	                .filter(Boolean)
+	                .join(' · ')}
+	            </div>
+	          ) : null}
           {summary ? <div className="line-clamp-2 text-xs text-muted-foreground">{summary}</div> : null}
           {sourceUrl ? <div className="truncate font-mono text-xs text-muted-foreground">{sourceUrl}</div> : null}
         </div>
@@ -386,17 +386,17 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
               <span key={item} className="ml-2 text-xs text-muted-foreground">{item}</span>
             ))}
           </div>
-          {(nodeId || (attempt && attempt > 1)) ? (
-            <div className="truncate text-xs text-muted-foreground">
-              [
-                nodeId ? `node ${nodeId}` : null,
-                validationStage ? `validation ${validationStage}` : null,
-                attempt && attempt > 1 ? `attempt ${attempt}` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </div>
-          ) : null}
+	          {(nodeId || (attempt && attempt > 1)) ? (
+	            <div className="truncate text-xs text-muted-foreground">
+	              {[
+	                nodeId ? `node ${nodeId}` : null,
+	                validationStage ? `validation ${validationStage}` : null,
+	                attempt && attempt > 1 ? `attempt ${attempt}` : null,
+	              ]
+	                .filter(Boolean)
+	                .join(' · ')}
+	            </div>
+	          ) : null}
           {reason ? <div className="line-clamp-2 text-xs text-muted-foreground">{reason}</div> : null}
         </div>
       </div>
