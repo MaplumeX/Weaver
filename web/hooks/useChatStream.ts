@@ -493,11 +493,16 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
     [],
   )
 
-  const processChat = useCallback(async (messageHistory: Message[], images?: ImageAttachment[]) => {
+  const processChat = useCallback(async (
+    messageHistory: Message[],
+    images?: ImageAttachment[],
+    modelOverride?: string,
+  ) => {
     setIsLoading(true)
     abortControllerRef.current = new AbortController()
 
     try {
+      const requestModel = String(modelOverride || selectedModel || '').trim()
       const response = await fetch(
         `${getApiBaseUrl()}/api/chat`,
         {
@@ -508,7 +513,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
           body: JSON.stringify({
             messages: messageHistory.map(m => ({ role: m.role, content: m.content })),
             stream: true,
-            model: selectedModel,
+            model: requestModel,
             search_mode: searchMode,
             images: (images || []).map(img => ({
               name: img.name,
@@ -547,12 +552,17 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
     }
   }, [selectedModel, searchMode, consumeStreamingResponse])
 
-  const resumeInterrupt = useCallback(async (action: string, input: string = '') => {
+  const resumeInterrupt = useCallback(async (
+    action: string,
+    input: string = '',
+    modelOverride?: string,
+  ) => {
     if (!pendingInterrupt || !threadId) return
     setIsLoading(true)
     setCurrentStatus('继续执行调研流程…')
     abortControllerRef.current = new AbortController()
     try {
+      const requestModel = String(modelOverride || selectedModel || '').trim()
       const resumePayload = buildInterruptResumePayload(pendingInterrupt, action, input)
       const res = await fetch(
         `${getApiBaseUrl()}/api/interrupt/resume`,
@@ -563,7 +573,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             thread_id: threadId,
             payload: resumePayload,
             stream: true,
-            model: selectedModel,
+            model: requestModel,
             search_mode: searchMode,
           }),
           signal: abortControllerRef.current.signal,

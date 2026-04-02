@@ -19,6 +19,7 @@ import { Check, ChevronDown, Plug, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getApiBaseUrl } from '@/lib/api'
 import { usePublicModels } from '@/hooks/usePublicModels'
+import { getModelAllowlist, getPublicModelOptions, resolveModelSelection } from '@/lib/model-selection'
 
 interface SettingsDialogProps {
   open: boolean
@@ -104,8 +105,8 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
   const [mcpLoading, setMcpLoading] = useState(false)
 
   const staticModelProviders = getModelProviders(t)
-  const allowlistKey = publicModels?.options?.length ? publicModels.options.join('|') : ''
-  const allowlist = publicModels?.options?.length ? new Set(publicModels.options) : null
+  const publicModelOptions = getPublicModelOptions(publicModels)
+  const allowlist = getModelAllowlist(publicModels)
 
   const modelProviders: ModelProvider[] = allowlist
     ? (() => {
@@ -117,7 +118,7 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
           }))
           .filter((provider) => provider.models.length > 0)
 
-        const unknown = publicModels!.options.filter((id) => !known.includes(id))
+        const unknown = publicModelOptions.filter((id) => !known.includes(id))
         if (unknown.length > 0) {
           filtered.push({
             id: 'custom',
@@ -208,14 +209,10 @@ export function SettingsDialog({ open, onOpenChange, selectedModel, onModelChang
 
   // If backend allowlist arrives and the saved model isn't supported, clamp to backend default.
   useEffect(() => {
-    if (!allowlist || modelProviders.length === 0) return
-    if (allowlist.has(tempModel)) return
-    const next =
-      (publicModels?.default && allowlist.has(publicModels.default) && publicModels.default) ||
-      modelProviders[0]!.models[0]!.id
+    const next = resolveModelSelection(tempModel, publicModels, selectedModel)
+    if (next === tempModel) return
     setTempModel(next)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowlistKey])
+  }, [publicModels, selectedModel, tempModel])
 
   useEffect(() => {
     setTempLanguage(language)

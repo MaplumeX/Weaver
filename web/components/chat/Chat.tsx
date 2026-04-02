@@ -16,10 +16,12 @@ import { Button } from '@/components/ui/button'
 import { Discover } from '@/components/views/Discover'
 import { Library } from '@/components/views/Library'
 import { useChatHistory } from '@/hooks/useChatHistory'
+import { usePublicModels } from '@/hooks/usePublicModels'
 import { useChatStream } from '@/hooks/useChatStream'
 import { DEFAULT_MODEL, STORAGE_KEYS } from '@/lib/constants'
 import { filesToImageAttachments } from '@/lib/file-utils'
 import { getInterruptInputPlaceholder } from '@/lib/interrupt-review'
+import { resolveModelSelection } from '@/lib/model-selection'
 import { cn } from '@/lib/utils'
 import { Message } from '@/types/chat'
 
@@ -40,11 +42,13 @@ export function Chat() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [attachments, setAttachments] = useState<File[]>([])
+  const [hasHydratedModel, setHasHydratedModel] = useState(false)
 
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const lastAtBottom = useRef<boolean | null>(null)
   const openingSessionId = useRef<string | null>(null)
   const suppressAutosaveRef = useRef(false)
+  const { models: publicModels } = usePublicModels()
 
   const {
     history,
@@ -99,11 +103,19 @@ export function Chat() {
     if (savedModel) {
       setSelectedModel(savedModel)
     }
+    setHasHydratedModel(true)
   }, [])
 
   useEffect(() => {
+    if (!hasHydratedModel) return
     localStorage.setItem(STORAGE_KEYS.MODEL, selectedModel)
-  }, [selectedModel])
+  }, [hasHydratedModel, selectedModel])
+
+  useEffect(() => {
+    const nextModel = resolveModelSelection(selectedModel, publicModels)
+    if (nextModel === selectedModel) return
+    setSelectedModel(nextModel)
+  }, [publicModels, selectedModel])
 
   useEffect(() => {
     const sessionId = activeSessionId || threadId
@@ -284,6 +296,7 @@ export function Chat() {
 
     const imagePayloads = await filesToImageAttachments(attachments)
     const trimmedInput = input.trim()
+    const effectiveModel = resolveModelSelection(selectedModel, publicModels)
     const isInterruptReply =
       pendingInterrupt?.kind === 'clarify_question' || pendingInterrupt?.kind === 'scope_review'
 
@@ -302,6 +315,9 @@ export function Chat() {
     setMessages(newHistory)
     setInput('')
     setAttachments([])
+    if (effectiveModel !== selectedModel) {
+      setSelectedModel(effectiveModel)
+    }
 
     const sessionId = activeSessionId || threadId
     if (sessionId) {
@@ -318,22 +334,23 @@ export function Chat() {
     }
 
     if (pendingInterrupt?.kind === 'clarify_question') {
-      await resumeInterrupt('answer_clarification', trimmedInput)
+      await resumeInterrupt('answer_clarification', trimmedInput, effectiveModel)
       return
     }
 
     if (pendingInterrupt?.kind === 'scope_review') {
       setScopeRevisionMode(false)
-      await resumeInterrupt('revise_scope', trimmedInput)
+      await resumeInterrupt('revise_scope', trimmedInput, effectiveModel)
       return
     }
 
-    await processChat(newHistory, imagePayloads)
+    await processChat(newHistory, imagePayloads, effectiveModel)
   }
 
   const handleEditMessage = async (id: string, newContent: string) => {
     const index = messages.findIndex((message) => message.id === id)
     if (index === -1) return
+    const effectiveModel = resolveModelSelection(selectedModel, publicModels)
 
     const previousMessages = messages.slice(0, index)
     const updatedMessage: Message = {
@@ -359,7 +376,10 @@ export function Chat() {
     }
 
     if (updatedMessage.role === 'user') {
-      await processChat(newHistory, updatedMessage.attachments)
+      if (effectiveModel !== selectedModel) {
+        setSelectedModel(effectiveModel)
+      }
+      await processChat(newHistory, updatedMessage.attachments, effectiveModel)
     }
   }
 

@@ -1030,6 +1030,118 @@ class PublicConfigResponse(BaseModel):
     models: PublicConfigModels
 
 
+def _normalize_model_name(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
+
+
+def _is_openai_family_model(name: str) -> bool:
+    lowered = name.lower()
+    return "gpt" in lowered or lowered.startswith("o1") or lowered.startswith("o3")
+
+
+def _is_anthropic_family_model(name: str) -> bool:
+    return "claude" in name.lower()
+
+
+def _is_deepseek_family_model(name: str) -> bool:
+    return "deepseek" in name.lower()
+
+
+def _is_qwen_family_model(name: str) -> bool:
+    return "qwen" in name.lower()
+
+
+def _is_glm_family_model(name: str) -> bool:
+    lowered = name.lower()
+    return lowered.startswith("glm") or "glm" in lowered
+
+
+def _public_model_options() -> List[str]:
+    """
+    A conservative allowlist for the frontend model dropdown and request validation.
+
+    Goal: avoid offering or accepting models that are unlikely to work with the
+    configured provider/gateway (e.g. selecting GPT-4o when OPENAI_BASE_URL
+    points to DeepSeek).
+    """
+
+    primary = _normalize_model_name(settings.primary_model)
+    reasoning = _normalize_model_name(settings.reasoning_model)
+    base_url = _normalize_model_name(settings.openai_base_url).lower()
+    opts: list[str] = []
+    seen: set[str] = set()
+
+    def _add(name: str) -> None:
+        normalized = _normalize_model_name(name)
+        if not normalized:
+            return
+        key = normalized.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        opts.append(normalized)
+
+    # Always allow the configured primary model.
+    _add(primary)
+
+    # Provider-aware suggestions.
+    if _is_deepseek_family_model(primary) or "deepseek" in base_url:
+        _add("deepseek-chat")
+        _add("deepseek-reasoner")
+        if _is_deepseek_family_model(reasoning):
+            _add(reasoning)
+    elif _is_anthropic_family_model(primary):
+        if (settings.anthropic_api_key or "").strip():
+            _add("claude-sonnet-4-5-20250514")
+            _add("claude-opus-4-20250514")
+            _add("claude-sonnet-4-20250514")
+        if _is_anthropic_family_model(reasoning):
+            _add(reasoning)
+    elif _is_openai_family_model(primary):
+        if (settings.openai_api_key or "").strip():
+            _add("gpt-5")
+            _add("gpt-4.1")
+            _add("gpt-4o")
+            _add("o1-mini")
+            if _is_openai_family_model(reasoning):
+                _add(reasoning)
+    elif _is_qwen_family_model(primary) or "dashscope" in base_url or "aliyuncs" in base_url:
+        _add("qwen-plus")
+        _add("qwen3-vl-flash")
+        if _is_qwen_family_model(reasoning):
+            _add(reasoning)
+    elif _is_glm_family_model(primary) or "bigmodel" in base_url or "zhipu" in base_url:
+        _add("glm-4.6")
+        _add("glm-4.6v")
+        if _is_glm_family_model(reasoning):
+            _add(reasoning)
+
+    # Include task-specific overrides if they are explicitly configured.
+    for attr in ("planner_model", "researcher_model", "writer_model", "evaluator_model", "critic_model"):
+        _add(_normalize_model_name(getattr(settings, attr, "")))
+
+    return opts
+
+
+def _resolve_requested_model(requested_model: Optional[str]) -> str:
+    model = _normalize_model_name(requested_model) or _normalize_model_name(settings.primary_model)
+    if not model:
+        raise HTTPException(status_code=500, detail="No primary model is configured")
+
+    supported_models = _public_model_options()
+    if supported_models:
+        allowlist = {name.lower() for name in supported_models}
+        if model.lower() not in allowlist:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported model '{model}'. Supported models: {', '.join(supported_models)}",
+            )
+
+    return model
+
+
 class SandboxBrowserConfigured(BaseModel):
     e2b_api_key: bool
     sandbox_template_browser: bool
@@ -2840,7 +2952,7 @@ async def chat_sse(request: Request, payload: ChatRequest):
     principal_id = (getattr(request.state, "principal_id", "") or "").strip()
     user_id = principal_id if internal_key and principal_id else (payload.user_id or settings.memory_user_id)
     mode_info = _normalize_search_mode(payload.search_mode)
-    model = (payload.model or settings.primary_model).strip()
+    model = _resolve_requested_model(payload.model)
     thread_id = f"thread_{uuid.uuid4().hex}"
     set_thread_owner(thread_id, getattr(request.state, "principal_id", "") or "anonymous")
 
@@ -2941,7 +3053,7 @@ async def chat(request: Request, payload: ChatRequest):
         principal_id = (getattr(request.state, "principal_id", "") or "").strip()
         user_id = principal_id if internal_key and principal_id else (payload.user_id or settings.memory_user_id)
         mode_info = _normalize_search_mode(payload.search_mode)
-        model = (payload.model or settings.primary_model).strip()
+        model = _resolve_requested_model(payload.model)
         agent_id = (payload.agent_id or "default").strip() or "default"
         agent_profile = get_agent_profile(agent_id) or get_agent_profile("default")
 
@@ -3067,6 +3179,8 @@ async def chat(request: Request, payload: ChatRequest):
                 timestamp=datetime.now().isoformat(),
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             f"鉁?Chat error | Thread: {thread_id or 'N/A'} | "
@@ -3085,7 +3199,7 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
     if not checkpointer:
         raise HTTPException(status_code=400, detail="Interrupts require a checkpointer")
 
-    model = (payload.model or settings.primary_model).strip()
+    model = _resolve_requested_model(payload.model)
     agent_id = (payload.agent_id or "default").strip() or "default"
     agent_profile = get_agent_profile(agent_id) or get_agent_profile("default")
     # Fast path: avoid invoking the graph when no checkpoint exists for this thread.
@@ -3598,93 +3712,6 @@ async def public_config():
     This endpoint is intentionally safe to expose: it must not include API keys,
     tokens, raw MCP server configs, or any user data.
     """
-
-    def _public_model_options() -> List[str]:
-        """
-        A conservative allowlist for the frontend model dropdown.
-
-        Goal: avoid offering models that are unlikely to work with the configured
-        provider/gateway (e.g. selecting GPT-4o when OPENAI_BASE_URL points to DeepSeek).
-        """
-
-        def _norm(value: Any) -> str:
-            if not isinstance(value, str):
-                return ""
-            return value.strip()
-
-        def _is_openai_family(name: str) -> bool:
-            lowered = name.lower()
-            return "gpt" in lowered or lowered.startswith("o1") or lowered.startswith("o3")
-
-        def _is_anthropic_family(name: str) -> bool:
-            return "claude" in name.lower()
-
-        def _is_deepseek_family(name: str) -> bool:
-            return "deepseek" in name.lower()
-
-        def _is_qwen_family(name: str) -> bool:
-            return "qwen" in name.lower()
-
-        def _is_glm_family(name: str) -> bool:
-            lowered = name.lower()
-            return lowered.startswith("glm") or "glm" in lowered
-
-        primary = _norm(settings.primary_model)
-        reasoning = _norm(settings.reasoning_model)
-        base_url = _norm(settings.openai_base_url).lower()
-        opts: list[str] = []
-        seen: set[str] = set()
-
-        def _add(name: str) -> None:
-            name = _norm(name)
-            if not name:
-                return
-            key = name.lower()
-            if key in seen:
-                return
-            seen.add(key)
-            opts.append(name)
-
-        # Always allow the configured primary model.
-        _add(primary)
-
-        # Provider-aware suggestions.
-        if _is_deepseek_family(primary) or "deepseek" in base_url:
-            _add("deepseek-chat")
-            _add("deepseek-reasoner")
-            if _is_deepseek_family(reasoning):
-                _add(reasoning)
-        elif _is_anthropic_family(primary):
-            if (settings.anthropic_api_key or "").strip():
-                _add("claude-sonnet-4-5-20250514")
-                _add("claude-opus-4-20250514")
-                _add("claude-sonnet-4-20250514")
-            if _is_anthropic_family(reasoning):
-                _add(reasoning)
-        elif _is_openai_family(primary):
-            if (settings.openai_api_key or "").strip():
-                _add("gpt-5")
-                _add("gpt-4.1")
-                _add("gpt-4o")
-                _add("o1-mini")
-                if _is_openai_family(reasoning):
-                    _add(reasoning)
-        elif _is_qwen_family(primary) or "dashscope" in base_url or "aliyuncs" in base_url:
-            _add("qwen-plus")
-            _add("qwen3-vl-flash")
-            if _is_qwen_family(reasoning):
-                _add(reasoning)
-        elif _is_glm_family(primary) or "bigmodel" in base_url or "zhipu" in base_url:
-            _add("glm-4.6")
-            _add("glm-4.6v")
-            if _is_glm_family(reasoning):
-                _add(reasoning)
-
-        # Include task-specific overrides if they are explicitly configured.
-        for attr in ("planner_model", "researcher_model", "writer_model", "evaluator_model", "critic_model"):
-            _add(_norm(getattr(settings, attr, "")))
-
-        return opts
 
     return {
         "version": app.version,
@@ -5249,7 +5276,7 @@ async def research_sse(request: Request, payload: ResearchRequest):
     principal_id = (getattr(request.state, "principal_id", "") or "").strip()
     user_id = principal_id if internal_key and principal_id else (payload.user_id or settings.memory_user_id)
     mode_info = _normalize_search_mode(payload.search_mode)
-    model = (payload.model or settings.primary_model).strip()
+    model = _resolve_requested_model(payload.model)
     thread_id = f"thread_{uuid.uuid4().hex}"
     set_thread_owner(thread_id, principal_id or "anonymous")
 
