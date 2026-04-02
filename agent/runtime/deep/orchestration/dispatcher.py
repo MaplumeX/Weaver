@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.runtime.deep.multi_agent import support
-from agent.runtime.deep.multi_agent.schema import BranchBrief, ResearchTask
+import agent.runtime.deep.support.runtime_support as support
+from agent.runtime.deep.schema import BranchBrief, ResearchTask
 
 
 def _coerce_list(value: Any) -> list[str]:

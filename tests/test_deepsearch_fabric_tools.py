@@ -3,13 +3,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.runtime.deep.multi_agent.schema import (
+from agent.runtime.deep.schema import (
     BranchSynthesis,
     ResearchTask,
     VerificationResult,
 )
-from agent.runtime.deep.multi_agent.store import ArtifactStore, ResearchTaskQueue
-from agent.runtime.deep.multi_agent.tool_agents import (
+from agent.runtime.deep.store import ArtifactStore, ResearchTaskQueue
+from agent.runtime.deep.support.tool_agents import (
     DeepResearchToolAgentSession,
     build_deep_research_fabric_tools,
 )

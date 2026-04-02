@@ -2,8 +2,7 @@
 Public API surface for `agent.core`.
 
 This module is intentionally **lazy** to avoid circular import chains. Importing
-submodules like `agent.core.search_cache` should not pull in the whole graph /
-workflow stack.
+submodules like `agent.core.search_cache` should not pull in runtime orchestration.
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ __all__ = [
 _SYMBOL_TO_MODULE: Dict[str, str] = {
     # Graph/state
     "create_research_graph": "agent.runtime.graph",
-    "create_checkpointer": "agent.core.graph",
+    "create_checkpointer": "agent.runtime.graph",
     "AgentState": "agent.core.state",
     "QueryState": "agent.core.state",
     "ResearchPlan": "agent.core.state",

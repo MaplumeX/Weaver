@@ -5,6 +5,7 @@ Keep this list small and stable; everything else should be imported from the
 specific submodules (agent.runtime.*, agent.contracts.*, agent.prompts.*, etc.).
 """
 
+from agent.builders import build_agent_tools, build_tool_agent, build_writer_agent
 from agent.contracts.research import (
     ClaimStatus,
     ClaimVerifier,
@@ -30,6 +31,7 @@ from agent.core import (
 from agent.core.message_utils import summarize_messages
 from agent.prompts import (
     PromptManager,
+    get_deep_agent_prompt,
     get_agent_prompt,
     get_deep_research_prompt,
     get_default_agent_prompt,
@@ -38,20 +40,14 @@ from agent.prompts import (
     set_prompt_manager,
 )
 from agent.runtime.deep import (
+    run_deepsearch,
     run_deepsearch_auto,
     run_multi_agent_deepsearch,
     run_deepsearch_runtime,
 )
 from agent.runtime.graph import create_research_graph
 from agent.runtime.nodes import initialize_enhanced_tools
-from agent.core.graph import create_checkpointer
-from agent.workflows import (
-    build_agent_tools,
-    build_tool_agent,
-    build_writer_agent,
-    get_deep_agent_prompt,
-    run_deepsearch,
-)
+from agent.runtime.graph import create_checkpointer
 
 __all__ = [
     # Core graph/state
@@ -79,7 +75,7 @@ __all__ = [
     "PromptManager",
     "get_prompt_manager",
     "set_prompt_manager",
-    # Workflows & tools
+    # Runtime/builders/tools
     "get_deep_agent_prompt",
     "run_deepsearch",
     "run_multi_agent_deepsearch",

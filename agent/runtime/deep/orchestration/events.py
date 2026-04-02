@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 from agent.contracts.events import ToolEventType, get_emitter_sync
-from agent.runtime.deep.multi_agent.schema import AgentRole, ResearchTask
+from agent.runtime.deep.schema import AgentRole, ResearchTask
 
 logger = logging.getLogger(__name__)
 

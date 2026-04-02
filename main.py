@@ -1901,25 +1901,17 @@ def _restore_thread_stream_context(thread_id: str) -> Dict[str, Any]:
 
 def _mode_info_from_session_state(state: Dict[str, Any]) -> Dict[str, Any]:
     route = str(state.get("route") or "").strip().lower()
-    deep_runtime = state.get("deep_runtime") or {}
-    deepsearch_engine = normalize_deepsearch_engine(state.get("deepsearch_engine"))
-    if not deepsearch_engine and isinstance(deep_runtime, dict):
-        deepsearch_engine = normalize_deepsearch_engine(deep_runtime.get("engine"))
+    deep_runtime = state.get("deep_runtime")
+    if not isinstance(deep_runtime, dict):
+        deep_runtime = {}
+    deepsearch_engine = normalize_deepsearch_engine(deep_runtime.get("engine"))
 
     has_deep_runtime = any(
-        isinstance(state.get(key), dict) and bool(state.get(key))
-        for key in ("deepsearch_runtime_state", "deepsearch_task_queue", "deepsearch_artifact_store")
+        isinstance(deep_runtime.get(key), dict) and bool(deep_runtime.get(key))
+        for key in ("runtime_state", "task_queue", "artifact_store")
+    ) or (
+        isinstance(deep_runtime.get("agent_runs"), list) and bool(deep_runtime.get("agent_runs"))
     )
-    if not has_deep_runtime and isinstance(deep_runtime, dict):
-        has_deep_runtime = any(
-            isinstance(deep_runtime.get(key), dict) and bool(deep_runtime.get(key))
-            for key in ("runtime_state", "task_queue", "artifact_store")
-        )
-    if not has_deep_runtime:
-        has_deep_runtime = any(
-            isinstance(state.get(key), list) and bool(state.get(key))
-            for key in ("deepsearch_agent_runs",)
-        )
 
     use_deep = route == "deep" or has_deep_runtime
     use_agent = route in {"agent", "deep"} or use_deep
@@ -1996,7 +1988,6 @@ def _build_initial_agent_state(
         "is_complete": False,
         "errors": [],
         "sub_agent_contexts": {},
-        "deepsearch_engine": deepsearch_engine,
         "deep_runtime": {
             "engine": deepsearch_engine,
             "task_queue": {},
@@ -2004,10 +1995,6 @@ def _build_initial_agent_state(
             "runtime_state": {},
             "agent_runs": [],
         },
-        "deepsearch_task_queue": {},
-        "deepsearch_artifact_store": {},
-        "deepsearch_runtime_state": {},
-        "deepsearch_agent_runs": [],
         "cancel_token_id": thread_id,
         "is_cancelled": False,
     }
@@ -2907,9 +2894,6 @@ async def chat(request: Request, payload: ChatRequest):
                 "is_complete": False,
                 "errors": [],
                 "sub_agent_contexts": {},
-                "deepsearch_engine": str(
-                    mode_info.get("deepsearch_engine") or SUPPORTED_DEEPSEARCH_ENGINE
-                ),
                 "deep_runtime": {
                     "engine": str(
                         mode_info.get("deepsearch_engine")
@@ -2920,10 +2904,6 @@ async def chat(request: Request, payload: ChatRequest):
                     "runtime_state": {},
                     "agent_runs": [],
                 },
-                "deepsearch_task_queue": {},
-                "deepsearch_artifact_store": {},
-                "deepsearch_runtime_state": {},
-                "deepsearch_agent_runs": [],
             }
 
             messages: list[Any] = []

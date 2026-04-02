@@ -25,7 +25,7 @@ from typing import Any, AsyncGenerator, Dict
 
 from agent.core.processor_config import AgentProcessorConfig
 from agent.parsers.xml_parser import XMLToolParser
-from agent.workflows.response_handler import ResponseHandler
+from agent.interaction.response_handler import ResponseHandler
 from tools.core.base import ToolResult
 
 # ====================  Mock Tools ====================

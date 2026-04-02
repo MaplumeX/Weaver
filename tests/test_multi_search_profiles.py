@@ -1,4 +1,4 @@
-from agent.workflows.domain_router import ResearchDomain, build_provider_profile
+from agent.research.domain_router import ResearchDomain, build_provider_profile
 from tools.search.multi_search import (
     MultiSearchOrchestrator,
     SearchProvider,

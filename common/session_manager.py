@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from agent.runtime.deep.public_artifacts import build_public_deepsearch_artifacts_from_state
+from agent.runtime.deep.artifacts.public_artifacts import build_public_deepsearch_artifacts_from_state
 from agent.runtime.deep.state import resolve_deep_runtime_mode
 
 logger = logging.getLogger(__name__)

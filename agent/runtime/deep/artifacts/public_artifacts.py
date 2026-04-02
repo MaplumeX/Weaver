@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent.runtime.deep.state import read_deep_runtime_snapshot, resolve_deep_runtime_mode
-from agent.workflows.source_url_utils import canonicalize_source_url, compact_unique_sources
+from agent.research.source_url_utils import canonicalize_source_url, compact_unique_sources
 
 
 def _sorted_tasks(task_queue: dict[str, Any]) -> list[dict[str, Any]]:

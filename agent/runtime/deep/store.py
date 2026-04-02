@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from dataclasses import asdict
 from typing import Any
 
-from agent.runtime.deep.multi_agent.schema import (
+from agent.runtime.deep.schema import (
     BranchBrief,
     BranchSynthesis,
     CoordinationRequest,

@@ -6,7 +6,7 @@ import copy
 from typing import Annotated, Any, TypedDict
 
 from agent.core.context import ResearchWorkerContext
-from agent.runtime.deep.multi_agent.schema import (
+from agent.runtime.deep.schema import (
     AgentRunRecord,
     BranchSynthesis,
     CoordinationRequest,
@@ -22,7 +22,7 @@ from agent.runtime.deep.multi_agent.schema import (
     _now_iso,
 )
 from agent.runtime.deep.services.knowledge_gap import GapAnalysisResult
-from agent.runtime.deep.multi_agent import support
+import agent.runtime.deep.support.runtime_support as support
 
 
 def reduce_worker_payloads(

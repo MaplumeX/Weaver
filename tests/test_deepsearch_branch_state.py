@@ -1,6 +1,6 @@
 from agent.core.context import ResearchWorkerContext
-from agent.runtime.deep.multi_agent.graph import _restore_worker_result
-from agent.runtime.deep.multi_agent.schema import (
+from agent.runtime.deep.orchestration.graph import _restore_worker_result
+from agent.runtime.deep.schema import (
     BranchBrief,
     BranchSynthesis,
     EvidenceCard,
@@ -13,7 +13,7 @@ from agent.runtime.deep.multi_agent.schema import (
     VerificationResult,
     WorkerExecutionResult,
 )
-from agent.runtime.deep.multi_agent.store import ArtifactStore, ResearchTaskQueue
+from agent.runtime.deep.store import ArtifactStore, ResearchTaskQueue
 
 
 def test_branch_task_and_artifacts_are_checkpoint_safe():

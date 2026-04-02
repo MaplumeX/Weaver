@@ -9,7 +9,7 @@ from typing import Any
 from langgraph.errors import GraphBubbleUp
 
 from agent.runtime.deep.config import ensure_supported_runtime_inputs
-from agent.runtime.deep.multi_agent.runtime import (
+from agent.runtime.deep.orchestration.runtime import (
     run_deepsearch_runtime as _run_deepsearch_runtime,
 )
 

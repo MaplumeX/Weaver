@@ -1,4 +1,4 @@
-from agent.workflows.parsing_utils import parse_list_output
+from agent.research.parsing_utils import parse_list_output
 
 
 def test_parse_list_output_parses_simple_python_list():

@@ -328,7 +328,7 @@ def visualize_urls(
     try:
         # Avoid importing heavy deps unless the feature is enabled + has thread_id.
         try:
-            from agent.workflows.source_url_utils import canonicalize_source_url
+            from agent.research.source_url_utils import canonicalize_source_url
             from tools.sandbox.sandbox_browser_tools import (
                 SbBrowserNavigateTool,
                 SbBrowserScrollTool,

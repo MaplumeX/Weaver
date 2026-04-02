@@ -14,8 +14,8 @@ from langchain_openai import ChatOpenAI
 from openai import BadRequestError
 
 from agent.core.llm_factory import create_chat_model
-from agent.workflows.domain_router import ResearchDomain, build_provider_profile
-from agent.workflows.parsing_utils import format_search_results, parse_list_output
+from agent.research.domain_router import ResearchDomain, build_provider_profile
+from agent.research.parsing_utils import format_search_results, parse_list_output
 from common.cancellation import check_cancellation as _check_cancel_token
 from common.config import settings
 from prompts.templates.deepsearch import (

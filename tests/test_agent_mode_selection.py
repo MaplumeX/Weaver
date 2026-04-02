@@ -9,7 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import agent.compat.nodes as nodes
+import agent.runtime.nodes.answer as nodes
+import agent.runtime.nodes._shared as shared_nodes
 
 
 def test_agent_node_delegates_simple_verification_query_to_fast_search(monkeypatch):
@@ -103,7 +104,7 @@ def test_fast_agent_path_preserves_seeded_system_messages(monkeypatch):
             return SimpleNamespace(content="Paris")
 
     monkeypatch.setattr(
-        nodes,
+        shared_nodes,
         "_run_fast_agent_search",
         lambda _query, _config: (
             "tavily_search",
@@ -111,10 +112,10 @@ def test_fast_agent_path_preserves_seeded_system_messages(monkeypatch):
         ),
         raising=False,
     )
-    monkeypatch.setattr(nodes, "_chat_model", lambda _model, temperature=0.2: FakeLLM())
-    monkeypatch.setattr(nodes, "_model_for_task", lambda *_args, **_kwargs: "deepseek-chat")
+    monkeypatch.setattr(shared_nodes, "_chat_model", lambda _model, temperature=0.2: FakeLLM())
+    monkeypatch.setattr(shared_nodes, "_model_for_task", lambda *_args, **_kwargs: "deepseek-chat")
 
-    result = nodes._answer_simple_agent_query(
+    result = shared_nodes._answer_simple_agent_query(
         {
             "input": "Use current web search to verify: What is the capital of France? Reply with exactly Paris.",
             "messages": [

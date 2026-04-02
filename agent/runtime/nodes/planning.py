@@ -36,9 +36,6 @@ settings = _shared.settings
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.compat.nodes")
-    if compat is not None:
-        return compat
     return sys.modules[__name__]
 
 
@@ -63,7 +60,7 @@ def perform_parallel_search(
         try:
             import threading
 
-            from agent.workflows.browser_visualizer import show_browser_status_page
+            from agent.research.browser_visualizer import show_browser_status_page
 
             threading.Thread(
                 target=lambda: show_browser_status_page(
@@ -84,7 +81,7 @@ def perform_parallel_search(
             try:
                 import threading
 
-                from agent.workflows.browser_visualizer import visualize_urls_from_results
+                from agent.research.browser_visualizer import visualize_urls_from_results
 
                 threading.Thread(
                     target=lambda rs=cached_results: visualize_urls_from_results(
@@ -129,7 +126,7 @@ def perform_parallel_search(
             try:
                 import threading
 
-                from agent.workflows.browser_visualizer import visualize_urls_from_results
+                from agent.research.browser_visualizer import visualize_urls_from_results
 
                 threading.Thread(
                     target=lambda rs=results: visualize_urls_from_results(
@@ -408,7 +405,7 @@ def compressor_node(
     """
     Compressor node: Extracts and structures key facts from research.
     """
-    from agent.workflows.compressor import ResearchCompressor
+    from agent.research.compressor import ResearchCompressor
 
     deps = _resolve_deps(_deps)
     logger.info("Executing compressor node")
@@ -435,7 +432,7 @@ def compressor_node(
         )
 
         if existing_knowledge and existing_knowledge.get("facts"):
-            from agent.workflows.compressor import CompressedKnowledge, ExtractedFact
+            from agent.research.compressor import CompressedKnowledge, ExtractedFact
 
             existing = CompressedKnowledge(
                 topic=existing_knowledge.get("topic", topic),

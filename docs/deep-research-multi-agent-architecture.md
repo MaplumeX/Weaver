@@ -1,8 +1,8 @@
 # Weaver Deep Research Multi-Agent 架构分析
 
-基于当前仓库实现的静态分析，时间点为 2026-04-01。
+基于当前仓库实现的静态分析，时间点为 2026-04-02。
 
-> 当前仓库中，Deep Research 已只保留 `multi_agent` runtime。legacy tree/linear runtime、selector 和 `agent.workflows.deepsearch_*` compatibility facade 已移除。
+> 当前仓库中，Deep Research 已只保留 `multi_agent` runtime。legacy tree/linear runtime、selector 和旧的 workflow compatibility facade 已移除。
 
 本文聚焦当前 Deep Research 的唯一受支持实现，而不是整个仓库或所有 Agent 模式。
 
@@ -15,25 +15,28 @@
 
 - 入口与图级编排：
   - `main.py`
-  - `agent/core/graph.py`
-  - `agent/workflows/nodes.py`
+  - `agent/runtime/graph.py`
+  - `agent/runtime/nodes/deepsearch.py`
   - `agent/runtime/deep/entrypoints.py`
 - Multi-agent 运行时内核：
-  - `agent/runtime/deep/multi_agent/graph.py`
-  - `agent/runtime/deep/multi_agent/runtime.py`
-  - `agent/runtime/deep/public_artifacts.py`
+  - `agent/runtime/deep/orchestration/graph.py`
+  - `agent/runtime/deep/orchestration/runtime.py`
+  - `agent/runtime/deep/artifacts/public_artifacts.py`
+  - `agent/runtime/deep/schema.py`
+  - `agent/runtime/deep/store.py`
+  - `agent/runtime/deep/support/*`
   - `agent/core/context.py`
   - `agent/core/state.py`
 - 角色代理实现：
-  - `agent/workflows/agents/supervisor.py`
-  - `agent/workflows/agents/researcher.py`
-  - `agent/workflows/agents/reporter.py`
-  - `agent/workflows/agents/scope.py`
-  - `agent/workflows/agents/clarify.py`
+  - `agent/runtime/deep/roles/supervisor.py`
+  - `agent/runtime/deep/roles/researcher.py`
+  - `agent/runtime/deep/roles/reporter.py`
+  - `agent/runtime/deep/roles/scope.py`
+  - `agent/runtime/deep/roles/clarify.py`
 - 支撑能力：
-  - `agent/workflows/knowledge_gap.py`
-  - `agent/workflows/domain_router.py`
-  - `agent/core/events.py`
+  - `agent/runtime/deep/services/knowledge_gap.py`
+  - `agent/research/domain_router.py`
+  - `agent/contracts/events.py`
 - 前端与规格契约：
   - `web/hooks/useChatStream.ts`
   - `openspec/changes/remove-legacy-deep-research/specs/**/*.md`
@@ -80,10 +83,10 @@ flowchart LR
 | 模块 | 角色 | 主要职责 |
 | --- | --- | --- |
 | `main.py` | 入口壳 | 归一化 Deep Research 输入、构建初始状态、翻译流式事件 |
-| `agent/workflows/nodes.py` | Deep Research 节点壳 | 发 `research_node_start`、简单问题短路、委托 `run_deepsearch_auto()` |
+| `agent/runtime/nodes/deepsearch.py` | Deep Research 节点壳 | 发 `research_node_start`、简单问题短路、委托 `run_deepsearch_auto()` |
 | `agent/runtime/deep/entrypoints.py` | 稳定入口 | 校验旧输入已废弃，并把请求交给唯一受支持的 runtime |
-| `agent/runtime/deep/multi_agent/graph.py` | 运行时内核 | 管预算、任务队列、产物仓、worker 并发、agent run 记录、最终结果回填 |
-| `agent/runtime/deep/public_artifacts.py` | 公开契约适配层 | 从内部 `task_queue` / `artifact_store` / `final_report` 生成公开 `deepsearch_artifacts` |
+| `agent/runtime/deep/orchestration/graph.py` | 运行时内核 | 管预算、任务队列、产物仓、worker 并发、agent run 记录、最终结果回填 |
+| `agent/runtime/deep/artifacts/public_artifacts.py` | 公开契约适配层 | 从内部 `task_queue` / `artifact_store` / `final_report` 生成公开 `deepsearch_artifacts` |
 | `common/session_manager.py` | Session 消费方 | 读取公开 artifacts 视图，不再二次拼装 legacy 风格结果 |
 | `web/hooks/useChatStream.ts` | 前端事件消费 | 直接基于 `supervisor` / `researcher` / `verifier` / `reporter` 渲染进度 |
 
@@ -113,5 +116,5 @@ flowchart LR
 ## 7. 工程结论
 
 - `事实`：当前 Deep Research 已不存在运行时级别的双轨实现。
-- `事实`：外围模块应通过 `agent.runtime.deep` 或 `agent.runtime.deep.multi_agent` 的公开入口访问能力，不应依赖 `agent.workflows.*` 内部路径。
-- `推断`：后续演进重点应放在 `multi_agent` runtime 内部角色、预算和 artifacts 契约上，而不是继续维护兼容 facade。
+- `事实`：外围模块应通过 `agent.runtime.deep`、`agent.runtime.deep.orchestration`、`agent.api` 或 `agent` facade 的公开入口访问能力，而不是依赖 builders / research / runtime 的内部文件路径。
+- `推断`：后续演进重点应放在 `orchestration`、`roles`、`services`、`artifacts`、`support` 这几个已显式 ownership 的子域上，而不是继续维护兼容 facade。

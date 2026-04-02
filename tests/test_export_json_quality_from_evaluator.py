@@ -4,8 +4,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import main
-import agent.compat.nodes as nodes
-from agent.workflows.quality_assessor import QualityReport
+import agent.runtime.nodes.review as nodes
+from agent.research.quality_assessor import QualityReport
 
 
 class _FakeEvalLLM:
@@ -45,7 +45,7 @@ async def test_export_json_includes_citation_coverage_after_evaluator_persists_s
             )
 
     monkeypatch.setattr(nodes, "_chat_model", lambda *args, **kwargs: _FakeEvalLLM())
-    monkeypatch.setattr("agent.workflows.quality_assessor.QualityAssessor", FakeAssessor)
+    monkeypatch.setattr("agent.research.quality_assessor.QualityAssessor", FakeAssessor)
 
     state = {
         "input": "Summarize AI chip market trends",

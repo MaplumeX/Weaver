@@ -2,7 +2,8 @@
 Public shared contracts for code outside the agent runtime internals.
 
 External callers should prefer these modules over importing from
-`agent.workflows.*` or `agent.core.*` implementation files directly.
+`agent.runtime.*`, `agent.builders.*`, `agent.interaction.*`, or
+`agent.research.*` implementation files directly.
 """
 
 from agent.contracts.events import (

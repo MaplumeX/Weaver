@@ -1,4 +1,4 @@
-import agent.compat.nodes as nodes
+import agent.runtime.nodes.deepsearch as nodes
 from agent.runtime.deep.roles.coordinator import CoordinatorAction, ResearchCoordinator
 from agent.runtime.deep.roles.supervisor import ResearchSupervisor, SupervisorAction
 

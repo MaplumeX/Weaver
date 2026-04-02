@@ -14,10 +14,10 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 import agent.runtime.nodes._shared as _shared
-import agent.workflows.agent_factory as _agent_factory
-import agent.workflows.agent_tools as _agent_tools
-import agent.workflows.stuck_middleware as _stuck_middleware
-from agent.workflows.browser_context_helper import build_browser_context_hint
+import agent.builders.agent_factory as _agent_factory
+import agent.builders.agent_tools as _agent_tools
+import agent.builders.stuck_middleware as _stuck_middleware
+from agent.interaction.browser_context_helper import build_browser_context_hint
 
 ENHANCED_TOOLS_AVAILABLE = _shared.ENHANCED_TOOLS_AVAILABLE
 _answer_simple_agent_query = _shared._answer_simple_agent_query
@@ -41,9 +41,6 @@ inject_stuck_hint = _stuck_middleware.inject_stuck_hint
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.compat.nodes")
-    if compat is not None:
-        return compat
     return sys.modules[__name__]
 
 
@@ -311,7 +308,7 @@ def writer_node(
         compressed_knowledge = state.get("compressed_knowledge", {})
         if compressed_knowledge and getattr(settings, "enable_report_charts", True):
             try:
-                from agent.workflows.viz_planner import VizPlanner, embed_charts_in_report
+                from agent.research.viz_planner import VizPlanner, embed_charts_in_report
 
                 viz_llm = deps._chat_model(deps._model_for_task("writing", config), temperature=0.3)
                 viz_planner = VizPlanner(viz_llm, config)

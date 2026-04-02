@@ -25,7 +25,7 @@ from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
 from agent.core.processor_config import AgentProcessorConfig
 from agent.parsers.xml_parser import XMLToolCall, XMLToolParser
-from agent.workflows.continuation import (
+from agent.interaction.continuation import (
     ContinuationDecider,
     ContinuationHandler,
     ContinuationState,

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-import agent.compat.nodes as nodes
-from agent.workflows.quality_assessor import QualityReport
+import agent.runtime.nodes.review as nodes
+from agent.research.quality_assessor import QualityReport
 
 
 class _FakeEvalLLM:
@@ -59,7 +59,7 @@ def test_claim_verifier_gate_forces_revise_when_contradictions_found(monkeypatch
             )
 
     monkeypatch.setattr(nodes, "_chat_model", lambda *args, **kwargs: _FakeEvalLLM())
-    monkeypatch.setattr("agent.workflows.quality_assessor.QualityAssessor", FakeAssessor)
+    monkeypatch.setattr("agent.research.quality_assessor.QualityAssessor", FakeAssessor)
     monkeypatch.setattr(nodes.settings, "claim_verifier_gate_max_contradicted", 0, raising=False)
     monkeypatch.setattr(nodes.settings, "claim_verifier_gate_max_unsupported", 0, raising=False)
 
@@ -86,7 +86,7 @@ def test_claim_verifier_gate_allows_pass_when_threshold_permits(monkeypatch):
             )
 
     monkeypatch.setattr(nodes, "_chat_model", lambda *args, **kwargs: _FakeEvalLLM())
-    monkeypatch.setattr("agent.workflows.quality_assessor.QualityAssessor", FakeAssessor)
+    monkeypatch.setattr("agent.research.quality_assessor.QualityAssessor", FakeAssessor)
     monkeypatch.setattr(nodes.settings, "claim_verifier_gate_max_contradicted", 2, raising=False)
     monkeypatch.setattr(nodes.settings, "claim_verifier_gate_max_unsupported", 2, raising=False)
 

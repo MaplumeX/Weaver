@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from agent.workflows.query_strategy import (
+from agent.research.query_strategy import (
     analyze_query_coverage,
     backfill_diverse_queries,
     is_time_sensitive_topic,

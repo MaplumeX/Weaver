@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-import agent.compat.nodes as nodes
-from agent.workflows.quality_assessor import QualityReport
+import agent.runtime.nodes.review as nodes
+from agent.research.quality_assessor import QualityReport
 
 
 class _FakeEvalLLM:
@@ -40,7 +40,7 @@ def test_evaluator_persists_citation_coverage_into_deepsearch_artifacts(monkeypa
             )
 
     monkeypatch.setattr(nodes, "_chat_model", lambda *args, **kwargs: _FakeEvalLLM())
-    monkeypatch.setattr("agent.workflows.quality_assessor.QualityAssessor", FakeAssessor)
+    monkeypatch.setattr("agent.research.quality_assessor.QualityAssessor", FakeAssessor)
 
     state = {
         "input": "Summarize AI chip market trends",

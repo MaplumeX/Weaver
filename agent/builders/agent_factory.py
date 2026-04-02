@@ -18,7 +18,7 @@ from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 
 from common.config import settings
-from agent.workflows.provider_safe_middleware import ProviderSafeToolSelectorMiddleware
+from agent.builders.provider_safe_middleware import ProviderSafeToolSelectorMiddleware
 from tools.code.code_executor import execute_python_code
 from tools.core.registry import get_registered_tools
 

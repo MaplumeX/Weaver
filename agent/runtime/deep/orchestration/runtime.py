@@ -4,7 +4,7 @@ Public entrypoints for the LangGraph-backed multi-agent Deep Research runtime.
 
 from __future__ import annotations
 
-from agent.runtime.deep.multi_agent.graph import (
+from agent.runtime.deep.orchestration.graph import (
     GapAnalysisResult,
     MultiAgentDeepSearchRuntime,
     create_multi_agent_deepsearch_graph,

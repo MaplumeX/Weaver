@@ -25,10 +25,11 @@ from agent.core.context import (
 )
 from agent.core.state import build_deep_runtime_snapshot
 from agent.runtime.deep.config import resolve_max_searches, resolve_parallel_workers
-from agent.runtime.deep.state import build_legacy_deepsearch_fields, read_deep_runtime_snapshot
-from agent.runtime.deep.multi_agent import dispatcher, events, support
-from agent.runtime.deep.public_artifacts import build_public_deepsearch_artifacts
-from agent.runtime.deep.multi_agent.schema import (
+from agent.runtime.deep.state import read_deep_runtime_snapshot
+import agent.runtime.deep.orchestration.dispatcher as dispatcher
+import agent.runtime.deep.orchestration.events as events
+from agent.runtime.deep.artifacts.public_artifacts import build_public_deepsearch_artifacts
+from agent.runtime.deep.schema import (
     AgentRunRecord,
     BranchBrief,
     BranchSynthesis,
@@ -50,12 +51,13 @@ from agent.runtime.deep.multi_agent.schema import (
     WorkerScopeSnapshot,
     _now_iso,
 )
-from agent.runtime.deep.multi_agent.store import ArtifactStore, ResearchTaskQueue
-from agent.runtime.deep.multi_agent.tool_agents import (
+from agent.runtime.deep.store import ArtifactStore, ResearchTaskQueue
+from agent.runtime.deep.support.tool_agents import (
     DeepResearchToolAgentSession,
     run_bounded_tool_agent,
 )
-from agent.runtime.deep.multi_agent.graph_helpers import (
+import agent.runtime.deep.support.runtime_support as support
+from agent.runtime.deep.support.graph_helpers import (
     MultiAgentGraphState,
     build_clarify_transcript as _build_clarify_transcript,
     build_scope_draft as _build_scope_draft,
@@ -111,6 +113,7 @@ class _RuntimeView:
     current_node_id: str
 
     def __post_init__(self) -> None:
+        self.runtime_state.setdefault("engine", "multi_agent")
         self.runtime_state.setdefault("role_counters", _derive_role_counters(self.agent_runs))
         self.runtime_state.setdefault("searches_used", 0)
         self.runtime_state.setdefault("tokens_used", 0)
@@ -3518,14 +3521,6 @@ class MultiAgentDeepSearchRuntime:
             "errors": view.shared_state.get("errors", []),
             "sub_agent_contexts": view.shared_state.get("sub_agent_contexts", {}),
         }
-        result.update(
-            build_legacy_deepsearch_fields(
-                deep_runtime_snapshot,
-                mode="multi_agent",
-                tokens_used=view.tokens_used,
-                elapsed_seconds=elapsed,
-            )
-        )
         return view.snapshot_patch(final_result=result, next_step="completed")
 
     def build_graph(self, *, checkpointer: Any = None, interrupt_before: Any = None):

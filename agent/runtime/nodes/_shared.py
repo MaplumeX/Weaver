@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 from agent.core.middleware import retry_call
 from agent.core.state import AgentState, QueryState
 from agent.runtime.deep.shared import _auto_mode_prefers_linear
-from agent.workflows.source_url_utils import compact_unique_sources
+from agent.research.source_url_utils import compact_unique_sources
 from common.cancellation import check_cancellation as _check_cancellation
 from common.config import settings
 from tools import execute_python_code, tavily_search
@@ -375,9 +375,6 @@ def _run_fast_agent_search(
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.compat.nodes")
-    if compat is not None:
-        return compat
     return sys.modules[__name__]
 
 

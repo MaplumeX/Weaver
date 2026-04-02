@@ -25,9 +25,6 @@ settings = _shared.settings
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.compat.nodes")
-    if compat is not None:
-        return compat
     return sys.modules[__name__]
 
 
@@ -83,7 +80,7 @@ def route_node(
 
     if getattr(settings, "domain_routing_enabled", False) and route in ("deep", "web"):
         try:
-            from agent.workflows.domain_router import DomainClassifier
+            from agent.research.domain_router import DomainClassifier
 
             domain_llm = deps._chat_model(deps._model_for_task("routing", config), temperature=0.3)
             classifier = DomainClassifier(domain_llm, config)

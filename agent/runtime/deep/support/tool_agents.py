@@ -12,8 +12,8 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool, tool
 
-from agent.runtime.deep.multi_agent import support
-from agent.runtime.deep.multi_agent.schema import (
+import agent.runtime.deep.support.runtime_support as support
+from agent.runtime.deep.schema import (
     BranchSynthesis,
     CoordinationRequest,
     EvidenceCard,
@@ -26,7 +26,7 @@ from agent.runtime.deep.multi_agent.schema import (
     SourceCandidate,
     VerificationResult,
 )
-from agent.workflows.agent_factory import build_deep_research_tool_agent
+from agent.builders.agent_factory import build_deep_research_tool_agent
 from agent.contracts.claim_verifier import ClaimStatus
 
 

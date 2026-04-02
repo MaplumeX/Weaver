@@ -1,6 +1,6 @@
 import pytest
 
-from agent.workflows import deepsearch
+from agent.runtime.deep import legacy as deepsearch
 
 
 def test_search_query_prefers_multi_search(monkeypatch):

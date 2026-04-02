@@ -36,9 +36,6 @@ direct_answer_node = _answer_nodes.direct_answer_node
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.compat.nodes")
-    if compat is not None:
-        return compat
     return sys.modules[__name__]
 
 

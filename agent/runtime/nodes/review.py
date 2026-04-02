@@ -32,9 +32,6 @@ get_emitter_sync = _events.get_emitter_sync
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
-    compat = sys.modules.get("agent.compat.nodes")
-    if compat is not None:
-        return compat
     return sys.modules[__name__]
 
 
@@ -452,7 +449,7 @@ Provide specific, actionable feedback and search queries to address gaps.""",
         citation_coverage_score = float(dimensions.get("accuracy", 0.0))
 
         try:
-            from agent.workflows.quality_assessor import QualityAssessor
+            from agent.research.quality_assessor import QualityAssessor
 
             quality_llm = deps._chat_model(deps._model_for_task("evaluation", config), temperature=0)
             assessor = QualityAssessor(quality_llm, config)

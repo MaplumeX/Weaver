@@ -1,4 +1,4 @@
-from agent.workflows.evidence_passages import split_into_passages
+from agent.research.evidence_passages import split_into_passages
 
 
 def test_split_into_passages_includes_heading_for_markdown():

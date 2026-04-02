@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import agent.compat.nodes as nodes
+import agent.runtime.nodes.review as nodes
 
 
 def test_human_review_node_enforces_exact_reply_contract():

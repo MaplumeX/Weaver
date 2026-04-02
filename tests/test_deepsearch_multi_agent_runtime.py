@@ -2,10 +2,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 import pytest
 
-import agent.runtime.deep.multi_agent.graph as multi_agent_graph
-import agent.runtime.deep.multi_agent.graph as multi_agent_runtime
+import agent.runtime.deep.orchestration.graph as multi_agent_graph
+import agent.runtime.deep.orchestration.graph as multi_agent_runtime
+from agent.runtime.deep.orchestration import run_multi_agent_deepsearch
 from agent.runtime.deep.roles.supervisor import SupervisorAction, SupervisorDecision
-from agent.runtime.deep.multi_agent import run_multi_agent_deepsearch
 
 
 class _DummyEmitter:
@@ -276,12 +276,12 @@ def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatc
         },
     )
 
-    queue_stats = result["deepsearch_task_queue"]["stats"]
-    artifact_store = result["deepsearch_artifact_store"]
+    queue_stats = result["deep_runtime"]["task_queue"]["stats"]
+    artifact_store = result["deep_runtime"]["artifact_store"]
     event_types = [name for name, _ in emitter.emitted]
-    agent_roles = {run["role"] for run in result["deepsearch_agent_runs"]}
+    agent_roles = {run["role"] for run in result["deep_runtime"]["agent_runs"]}
 
-    assert result["deepsearch_engine"] == "multi_agent"
+    assert result["deep_runtime"]["engine"] == "multi_agent"
     assert result["deep_runtime"]["engine"] == "multi_agent"
     assert result["deep_runtime"]["task_queue"]["stats"]["completed"] == queue_stats["completed"]
     assert queue_stats["completed"] == 2
@@ -296,9 +296,9 @@ def test_run_multi_agent_deepsearch_merges_artifacts_and_emits_events(monkeypatc
     assert len(artifact_store["submissions"]) >= 4
     assert len(artifact_store["supervisor_decisions"]) >= 2
     assert len(artifact_store["report_section_drafts"]) == 2
-    assert result["deepsearch_runtime_state"]["engine"] == "multi_agent"
-    assert result["deepsearch_runtime_state"]["last_verification_summary"]["verified_branches"] == 2
-    assert result["deepsearch_runtime_state"]["supervisor_phase"] == "loop_decision"
+    assert result["deep_runtime"]["runtime_state"]["engine"] == "multi_agent"
+    assert result["deep_runtime"]["runtime_state"]["last_verification_summary"]["verified_branches"] == 2
+    assert result["deep_runtime"]["runtime_state"]["supervisor_phase"] == "loop_decision"
     assert {"clarify", "scope", "supervisor", "researcher", "verifier", "reporter"} <= agent_roles
     assert "research_agent_start" in event_types
     assert "research_task_update" in event_types
@@ -390,9 +390,9 @@ def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
     resumed = graph.invoke(Command(resume={"continue": True}), resume_config)
     final_result = resumed["final_result"]
 
-    assert final_result["deepsearch_runtime_state"]["graph_run_id"] == interrupt_payload["graph_run_id"]
-    assert final_result["deepsearch_task_queue"]["stats"]["completed"] == 2
-    assert final_result["deepsearch_runtime_state"]["last_verification_summary"]["verified_branches"] == 2
+    assert final_result["deep_runtime"]["runtime_state"]["graph_run_id"] == interrupt_payload["graph_run_id"]
+    assert final_result["deep_runtime"]["task_queue"]["stats"]["completed"] == 2
+    assert final_result["deep_runtime"]["runtime_state"]["last_verification_summary"]["verified_branches"] == 2
 
 
 def test_multi_agent_events_include_resume_flag_when_configured(monkeypatch):
@@ -461,7 +461,7 @@ def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch
         },
     )
 
-    tasks = result["deepsearch_task_queue"]["tasks"]
+    tasks = result["deep_runtime"]["task_queue"]["tasks"]
     assert len(tasks) == 1
     assert tasks[0]["status"] == "completed"
     assert tasks[0]["attempts"] == 2
@@ -529,12 +529,12 @@ def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
 
     resumed = graph.invoke(Command(resume={"action": "approve_scope"}), config)
     final_result = resumed["final_result"]
-    runtime_state = final_result["deepsearch_runtime_state"]
+    runtime_state = final_result["deep_runtime"]["runtime_state"]
 
     assert runtime_state["scope_revision_count"] == 1
     assert runtime_state["approved_scope_draft"]["version"] == 2
     assert runtime_state["approved_scope_draft"]["status"] == "approved"
-    assert final_result["deepsearch_task_queue"]["stats"]["completed"] == 1
+    assert final_result["deep_runtime"]["task_queue"]["stats"]["completed"] == 1
 
     decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
     assert "scope_revision_requested" in decision_types
@@ -634,11 +634,11 @@ def test_multi_agent_runtime_uses_tool_agent_paths_when_enabled(monkeypatch):
         },
     )
 
-    assert result["deepsearch_artifact_store"]["final_report"]["executive_summary"] == "tool-agent summary"
+    assert result["deep_runtime"]["artifact_store"]["final_report"]["executive_summary"] == "tool-agent summary"
     assert {role for role, _task_id in bounded_roles} >= {"researcher", "verifier", "reporter"}
     assert any(
         item["submission_kind"] == "report_bundle"
-        for item in result["deepsearch_artifact_store"]["submissions"]
+        for item in result["deep_runtime"]["artifact_store"]["submissions"]
     )
 
 
@@ -666,9 +666,9 @@ def test_multi_agent_dispatch_stops_when_search_budget_is_exhausted(monkeypatch)
         },
     )
 
-    assert result["deepsearch_runtime_state"]["budget_stop_reason"] == "search_budget_exceeded"
-    assert result["deepsearch_task_queue"]["stats"]["completed"] == 1
-    assert result["deepsearch_task_queue"]["stats"]["ready"] == 1
+    assert result["deep_runtime"]["runtime_state"]["budget_stop_reason"] == "search_budget_exceeded"
+    assert result["deep_runtime"]["task_queue"]["stats"]["completed"] == 1
+    assert result["deep_runtime"]["task_queue"]["stats"]["ready"] == 1
     decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
     assert "dispatch" in decision_types
     assert "budget_stop" in decision_types
@@ -699,9 +699,9 @@ def test_multi_agent_runtime_honors_max_epochs_even_if_supervisor_wants_dispatch
         },
     )
 
-    assert result["deepsearch_runtime_state"]["current_iteration"] == 1
-    assert result["deepsearch_task_queue"]["stats"]["completed"] == 1
-    assert result["deepsearch_task_queue"]["stats"]["ready"] == 1
+    assert result["deep_runtime"]["runtime_state"]["current_iteration"] == 1
+    assert result["deep_runtime"]["task_queue"]["stats"]["completed"] == 1
+    assert result["deep_runtime"]["task_queue"]["stats"]["ready"] == 1
     decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
     assert "research" in decision_types
     assert "report" in decision_types

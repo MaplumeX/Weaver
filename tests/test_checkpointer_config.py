@@ -3,7 +3,7 @@ import sys
 
 from psycopg.rows import dict_row
 
-from agent.core import graph
+from agent.runtime import graph
 
 
 def test_create_checkpointer_uses_langgraph_postgres_connection_settings(monkeypatch):

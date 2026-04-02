@@ -23,7 +23,7 @@ import json
 from typing import Any, Dict, List
 
 from agent.core.processor_config import AgentProcessorConfig
-from agent.workflows.response_handler import ResponseHandler
+from agent.interaction.response_handler import ResponseHandler
 from tools.core.base import ToolResult
 
 # ==================== Mock Tools ====================

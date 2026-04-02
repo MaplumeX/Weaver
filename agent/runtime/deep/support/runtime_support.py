@@ -11,7 +11,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from agent.contracts.search_cache import get_search_cache
-from agent.workflows.domain_router import ResearchDomain, build_provider_profile
+from agent.research.domain_router import ResearchDomain, build_provider_profile
 from common.config import settings
 from tools import tavily_search
 from tools.search.multi_search import SearchStrategy, multi_search
