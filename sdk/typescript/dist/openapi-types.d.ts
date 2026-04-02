@@ -2194,20 +2194,11 @@ export interface components {
         /** SearchMode */
         SearchMode: {
             /**
-             * Useagent
-             * @default false
+             * Mode
+             * @description Public chat mode. Only `agent` and `deep` are supported.
+             * @default agent
              */
-            useAgent: boolean;
-            /**
-             * Usedeepsearch
-             * @default false
-             */
-            useDeepSearch: boolean;
-            /**
-             * Usewebsearch
-             * @default false
-             */
-            useWebSearch: boolean;
+            mode: "agent" | "deep";
         };
         /** SearchProviderSnapshot */
         SearchProviderSnapshot: {

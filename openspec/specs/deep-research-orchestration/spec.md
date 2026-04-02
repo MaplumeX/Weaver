@@ -1,15 +1,18 @@
 ## Purpose
 定义 Deep Research 收敛到单一 `multi_agent` 运行时后的入口约束与编排行为。
-
 ## Requirements
-
 ### Requirement: Deep Research engine selection
-系统 MUST 将 Deep Research 固定到 `multi_agent` runtime，并移除 `legacy` engine、tree/linear 选择以及任何运行时回退分支。
+系统 MUST 将需要真正深入研究的 `deep` 请求固定到 `multi_agent` runtime，并在进入 runtime 前允许执行一次显式 preflight 判断；若该判断认定请求属于简单问题，则系统 MUST 将其转交 `agent` 模式处理，而 MUST NOT 路由到 `direct`、`web` 或任何 legacy engine/tree-linear 分支。
 
 #### Scenario: Deep research enters the only supported runtime
-- **WHEN** 请求被路由到 `deep` 模式
+- **WHEN** 请求被路由到 `deep` 模式且 preflight 判断该请求需要真实的深度研究
 - **THEN** 系统 MUST 直接启动 LangGraph 管理的 `multi_agent` Deep Research 子图
 - **THEN** 系统 MUST 保持现有 Deep Research 入口、取消语义和最终报告输出契约稳定
+
+#### Scenario: Simple deep request is downgraded to agent
+- **WHEN** 请求被路由到 `deep` 模式且 preflight 判断该请求可由简单路径满足
+- **THEN** 系统 MUST 将该请求转交 `agent` 执行路径处理
+- **THEN** 系统 MUST NOT 调用 `direct_answer_node`、`web` 专用路径或任何 legacy deep runtime
 
 #### Scenario: Obsolete legacy runtime inputs are rejected
 - **WHEN** 调用方仍传入 `legacy` engine、`deepsearch_mode` 或其他旧 tree/linear 选择输入
@@ -82,3 +85,4 @@
 - **WHEN** 调用方在 scope review 或其他 checkpoint 之后继续执行 Deep Research
 - **THEN** 系统 MUST 支持通过可观察的继续执行路径暴露恢复后的 supervisor、research、verify 和 report 阶段进度
 - **THEN** 调用方 MUST 不需要等待隐藏的后台完成或重新发起全新研究请求，才能看到恢复后的执行过程
+

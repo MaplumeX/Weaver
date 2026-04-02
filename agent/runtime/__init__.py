@@ -15,7 +15,6 @@ __all__ = [
     "create_research_graph",
     "coordinator_node",
     "deepsearch_node",
-    "direct_answer_node",
     "evaluator_node",
     "handle_cancellation",
     "hitl_draft_review_node",
@@ -32,7 +31,6 @@ __all__ = [
     "run_deepsearch_auto",
     "run_deepsearch_runtime",
     "run_multi_agent_deepsearch",
-    "web_search_plan_node",
     "writer_node",
 ]
 
@@ -44,7 +42,6 @@ _SYMBOL_TO_MODULE: Dict[str, str] = {
     "create_research_graph": "agent.runtime.graph",
     "coordinator_node": "agent.runtime.nodes",
     "deepsearch_node": "agent.runtime.nodes",
-    "direct_answer_node": "agent.runtime.nodes",
     "evaluator_node": "agent.runtime.nodes",
     "handle_cancellation": "agent.runtime.nodes",
     "hitl_draft_review_node": "agent.runtime.nodes",
@@ -61,7 +58,6 @@ _SYMBOL_TO_MODULE: Dict[str, str] = {
     "run_deepsearch_auto": "agent.runtime.deep",
     "run_deepsearch_runtime": "agent.runtime.deep",
     "run_multi_agent_deepsearch": "agent.runtime.deep",
-    "web_search_plan_node": "agent.runtime.nodes",
     "writer_node": "agent.runtime.nodes",
 }
 

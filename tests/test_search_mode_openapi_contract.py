@@ -29,3 +29,12 @@ def test_search_mode_is_contractually_an_object_not_a_string():
             s.get("type") == "object" and bool(s.get("additionalProperties")) for s in anyof
         ), (name, schema)
 
+
+def test_search_mode_schema_only_exposes_mode_field():
+    spec = build_openapi_spec()
+    schemas = (spec.get("components") or {}).get("schemas") or {}
+    search_mode = schemas.get("SearchMode") or {}
+    props = search_mode.get("properties") or {}
+
+    assert set(props) == {"mode"}
+    assert props["mode"].get("enum") == ["agent", "deep"]

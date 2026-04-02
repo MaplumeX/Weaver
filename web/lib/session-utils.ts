@@ -1,4 +1,5 @@
 import { normalizeInterruptReview } from '@/lib/interrupt-review'
+import { ChatMode, normalizeChatMode } from '@/lib/chat-mode'
 import { Artifact, ChatSession, Message } from '@/types/chat'
 
 function toTextContent(value: unknown): string {
@@ -45,12 +46,8 @@ export function createConversationId(): string {
   return `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-export function deriveSearchModeFromRoute(route?: string | null): string {
-  const normalized = String(route || '').trim().toLowerCase()
-  if (normalized === 'deep') return 'deep'
-  if (normalized === 'agent') return 'agent'
-  if (normalized === 'web') return 'web'
-  return ''
+export function deriveSearchModeFromRoute(route?: string | null): ChatMode {
+  return normalizeChatMode(route)
 }
 
 export function getDefaultSessionTitle(messages: Message[]): string {

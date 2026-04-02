@@ -1,4 +1,5 @@
 import type { InterruptReview } from '@/lib/interrupt-review'
+import type { ChatMode } from '@/lib/chat-mode'
 
 export interface ToolInvocation {
   toolName: string
@@ -68,8 +69,8 @@ export interface ChatSession {
   summary?: string
   threadId?: string | null
   status?: string
-  route?: string
-  searchMode?: string
+  route?: ChatMode
+  searchMode?: ChatMode
   canResume?: boolean
   source?: ChatSessionSource
 }
@@ -96,8 +97,8 @@ export interface SessionSnapshot {
   artifacts: Artifact[]
   pendingInterrupt?: InterruptReview | null
   currentStatus?: string
-  route?: string
-  searchMode?: string
+  route?: ChatMode
+  searchMode?: ChatMode
   status?: string
   canResume?: boolean
   updatedAt: number

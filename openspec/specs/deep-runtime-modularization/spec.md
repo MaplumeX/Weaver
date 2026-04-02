@@ -35,20 +35,20 @@ TBD - created by archiving change modularize-agent-runtime. Update Purpose after
 - **THEN** 当前 runtime MUST NOT 继续从 `agent.workflows.*` 或 `agent.compat.*` 引入这些 runtime-owned 或 runtime-required 实现
 
 ### Requirement: Deep runtime state is nested and mode-scoped
-系统 MUST 将 deep runtime 私有运行时状态收敛到嵌套且 mode-scoped 的结构中，并在完成本次 hard-cut 迁移后删除顶层 flattened legacy deep fields，而不是继续把它们保留为长期兼容状态面。
+系统 MUST 将 deep runtime 私有运行时状态收敛到嵌套且 mode-scoped 的结构中，并在完成本次 hard-cut 模式收口后删除 direct/web 历史模式节点、导出和兼容状态面；任何仍被 `agent` 或 `deep` 复用的共享能力 MUST 迁移到显式 shared 或正确 owning module，而不是继续借由已删除模式实现存活。
 
 #### Scenario: Recording multi-agent runtime data
 - **WHEN** multi-agent runtime 需要记录 task queue、artifact store、runtime bookkeeping 或 agent runs
 - **THEN** 系统 MUST 将这些数据放入明确的 `deep_runtime` 状态块
 - **THEN** 任何新增 deep-only 状态 MUST NOT 再写入顶层 `AgentState`
 
-#### Scenario: Preserving non-deep modes
-- **WHEN** `direct`、`web` 或 `agent` 模式执行
-- **THEN** 这些模式 MUST 不依赖 deep runtime 私有字段才能正常工作
-- **THEN** deep runtime 状态收口 MUST 不改变非 deep 模式的调用语义
+#### Scenario: Preserving agent mode
+- **WHEN** `agent` 模式执行
+- **THEN** 该模式 MUST 不依赖 deep runtime 私有字段才能正常工作
+- **THEN** deep runtime 状态收口 MUST 不改变 `agent` 模式的调用语义
 
-#### Scenario: Removing flattened legacy fields
-- **WHEN** 历史顶层 `deepsearch_*` 字段仅为兼容旧逻辑存在
-- **THEN** 系统 MUST 将调用方迁移到嵌套 `deep_runtime` 结构
-- **THEN** 系统 MUST 删除这些顶层镜像字段，而不是继续保留双轨读写
+#### Scenario: Removing deleted mode scaffolding
+- **WHEN** 系统删除 `direct` 与 `web` 历史模式节点和兼容导出
+- **THEN** 任何仍被 `agent` 或 `deep` 复用的 helper MUST 先迁移到显式 shared 或新 owning module
+- **THEN** 系统 MUST NOT 仅为保留旧模式结构而继续保留 `direct`/`web` 专属节点、re-export 或兼容状态字段
 

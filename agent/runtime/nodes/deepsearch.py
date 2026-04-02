@@ -30,7 +30,7 @@ settings = _shared.settings
 ToolEventType = _events.ToolEventType
 get_emitter_sync = _events.get_emitter_sync
 run_deepsearch_auto = _deep_runtime.run_deepsearch_auto
-direct_answer_node = _answer_nodes.direct_answer_node
+agent_node = _answer_nodes.agent_node
 
 
 def _resolve_deps(explicit_deps: Any = None) -> Any:
@@ -160,8 +160,10 @@ def deepsearch_node(
     try:
         input_text = str(state.get("input", "") or "").strip()
         if input_text and deps._auto_mode_prefers_linear(input_text):
-            logger.info("[deepsearch_node] Delegating simple factual deep query to direct answer node")
-            return deps.direct_answer_node(state, config)
+            logger.info("[deepsearch_node] Delegating simple factual deep query to agent node")
+            delegated_state = dict(state)
+            delegated_state["route"] = "agent"
+            return deps.agent_node(delegated_state, config)
 
         token_id = state.get("cancel_token_id")
         if token_id:

@@ -44,33 +44,6 @@ def _resolve_deps(explicit_deps: Any = None) -> Any:
     return sys.modules[__name__]
 
 
-def direct_answer_node(
-    state: Dict[str, Any],
-    config: RunnableConfig,
-    *,
-    _deps: Any = None,
-) -> Dict[str, Any]:
-    """Direct answer without research."""
-    deps = _resolve_deps(_deps)
-    logger.info("Executing direct answer node")
-    t0 = time.time()
-    llm = deps._chat_model(deps._model_for_task("writing", config), temperature=0.7)
-    messages = [
-        SystemMessage(content="You are a helpful assistant. Answer succinctly and accurately."),
-        HumanMessage(content=deps._build_user_content(state["input"], state.get("images"))),
-    ]
-    response = llm.invoke(messages, config=config)
-    deps._log_usage(response, "direct_answer")
-    logger.info(f"[timing] direct_answer {(time.time() - t0):.3f}s")
-    content = response.content if hasattr(response, "content") else str(response)
-    return {
-        "draft_report": content,
-        "final_report": content,
-        "messages": [AIMessage(content=content)],
-        "is_complete": False,
-    }
-
-
 def agent_node(
     state: Dict[str, Any],
     config: RunnableConfig,
@@ -242,8 +215,7 @@ def writer_node(
 
         route = str(state.get("route") or "").strip().lower()
         model = deps._model_for_task("writing", config)
-        use_tools = route != "web"
-        agent, writer_tools = deps.build_writer_agent(model) if use_tools else (None, [])
+        agent, writer_tools = deps.build_writer_agent(model)
         t0 = time.time()
         code_results: List[Dict[str, Any]] = []
 
@@ -291,7 +263,7 @@ def writer_node(
                 )
             )
 
-        if use_tools and agent is not None:
+        if agent is not None:
             response = agent.invoke({"messages": messages}, config=config)
         else:
             llm = deps._chat_model(model, temperature=0.7)
@@ -346,4 +318,4 @@ def writer_node(
         }
 
 
-__all__ = ["agent_node", "direct_answer_node", "writer_node"]
+__all__ = ["agent_node", "writer_node"]

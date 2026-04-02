@@ -80,8 +80,9 @@ test('buildPendingInterrupt restores scope review and binds it to the last assis
 test('deriveSearchModeFromRoute maps backend route names to frontend mode keys', () => {
   assert.equal(deriveSearchModeFromRoute('deep'), 'deep')
   assert.equal(deriveSearchModeFromRoute('agent'), 'agent')
-  assert.equal(deriveSearchModeFromRoute('web'), 'web')
-  assert.equal(deriveSearchModeFromRoute('direct'), '')
+  assert.equal(deriveSearchModeFromRoute('web'), 'agent')
+  assert.equal(deriveSearchModeFromRoute('direct'), 'agent')
+  assert.equal(deriveSearchModeFromRoute('ultra'), 'deep')
 })
 
 test('replaceSessionPreservingOrder updates an existing session without moving it', () => {

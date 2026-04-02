@@ -35,11 +35,8 @@ export const translations = {
 
     // Search modes
     agent: 'Agent',
+    deep: 'Deep Research',
     deepsearch: 'Deep Search',
-    direct: 'Direct',
-    ultra: 'Deep Research',
-    mcp: 'MCP',
-    web: 'Web',
 
     // Empty state
     emptyStateTitle: 'Weaver AI',
@@ -68,8 +65,6 @@ export const translations = {
     switchToDeepSearch: 'Switch to Deep Search',
     agentMode: 'Agent Mode',
     switchToAgent: 'Switch to Agent',
-    webMode: 'Web Mode',
-    switchToWebSearch: 'Switch to Web Search',
     clearChat: 'Clear Chat',
     resetConversation: 'Reset conversation',
 
@@ -142,11 +137,8 @@ export const translations = {
 
     // Search modes
     agent: '智能体',
+    deep: '深度研究',
     deepsearch: '深度搜索',
-    direct: '直答',
-    ultra: '深度研究',
-    mcp: 'MCP',
-    web: '网络',
 
     // Empty state
     emptyStateTitle: 'Weaver AI',
@@ -175,8 +167,6 @@ export const translations = {
     switchToDeepSearch: '切换到深度搜索',
     agentMode: '智能体模式',
     switchToAgent: '切换到智能体',
-    webMode: '网络模式',
-    switchToWebSearch: '切换到网络搜索',
     clearChat: '清除聊天',
     resetConversation: '重置对话',
 
@@ -249,11 +239,8 @@ export const translations = {
 
     // Search modes
     agent: 'エージェント',
+    deep: 'ディープリサーチ',
     deepsearch: 'ディープサーチ',
-    direct: 'ダイレクト',
-    ultra: 'ディープリサーチ',
-    mcp: 'MCP',
-    web: 'ウェブ',
 
     // Empty state
     emptyStateTitle: 'Weaver AI',
@@ -282,8 +269,6 @@ export const translations = {
     switchToDeepSearch: 'ディープサーチに切り替え',
     agentMode: 'エージェントモード',
     switchToAgent: 'エージェントに切り替え',
-    webMode: 'ウェブモード',
-    switchToWebSearch: 'ウェブ検索に切り替え',
     clearChat: 'チャットをクリア',
     resetConversation: '会話をリセット',
 
@@ -344,11 +329,8 @@ export const translations = {
 
     // Search modes
     agent: '에이전트',
+    deep: '딥 리서치',
     deepsearch: '딥 서치',
-    direct: '직답',
-    ultra: '딥 리서치',
-    mcp: 'MCP',
-    web: '웹',
 
     // Empty state
     emptyStateTitle: 'Weaver AI',
@@ -377,8 +359,6 @@ export const translations = {
     switchToDeepSearch: '딥 서치로 전환',
     agentMode: '에이전트 모드',
     switchToAgent: '에이전트로 전환',
-    webMode: '웹 모드',
-    switchToWebSearch: '웹 검색으로 전환',
     clearChat: '채팅 지우기',
     resetConversation: '대화 초기화',
 

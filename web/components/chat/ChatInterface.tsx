@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MessageItem } from './MessageItem'
-import { SearchModeSelector, SearchMode } from './SearchModeSelector'
+import { SearchModeSelector } from './SearchModeSelector'
 import { Send, Loader2, Sparkles } from 'lucide-react'
 import { getApiBaseUrl } from '@/lib/api'
+import { ChatMode, createSearchModePayload, DEFAULT_CHAT_MODE } from '@/lib/chat-mode'
 import { createLegacyChatStreamState, consumeLegacyChatStreamChunk } from '@/lib/chatStreamProtocol'
 
 interface Message {
@@ -26,11 +27,7 @@ export function ChatInterface({ selectedModel }: ChatInterfaceProps) {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [currentStatus, setCurrentStatus] = useState<string>('')
-  const [searchMode, setSearchMode] = useState<SearchMode>({
-    useWebSearch: false,
-    useAgent: false,
-    useDeepSearch: false,
-  })
+  const [searchMode, setSearchMode] = useState<ChatMode>(DEFAULT_CHAT_MODE)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom
@@ -66,7 +63,7 @@ export function ChatInterface({ selectedModel }: ChatInterfaceProps) {
             messages: [{ role: 'user', content: userMessage.content }],
             stream: true,
             model: selectedModel,
-            search_mode: searchMode,
+            search_mode: createSearchModePayload(searchMode),
           }),
         }
       )
@@ -233,25 +230,17 @@ export function ChatInterface({ selectedModel }: ChatInterfaceProps) {
             <SearchModeSelector mode={searchMode} onChange={setSearchMode} />
 
             {/* Active Modes Display */}
-            {(searchMode.useWebSearch || searchMode.useAgent || searchMode.useDeepSearch) && (
-              <div className="flex gap-2 text-xs">
-                {searchMode.useWebSearch && (
-                  <span className="rounded-full bg-blue-500/10 px-2 py-1 text-blue-600">
-                    网络搜索
-                  </span>
-                )}
-                {searchMode.useAgent && (
-                  <span className="rounded-full bg-purple-500/10 px-2 py-1 text-purple-600">
-                    Agent
-                  </span>
-                )}
-                {searchMode.useDeepSearch && (
-                  <span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-600">
-                    深度搜索
-                  </span>
-                )}
-              </div>
-            )}
+            <div className="flex gap-2 text-xs">
+              <span
+                className={
+                  searchMode === 'deep'
+                    ? 'rounded-full bg-amber-500/10 px-2 py-1 text-amber-600'
+                    : 'rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-600'
+                }
+              >
+                {searchMode === 'deep' ? 'Deep Research' : 'Agent'}
+              </span>
+            </div>
           </div>
 
           {/* Input Form */}

@@ -66,7 +66,7 @@ Anthropic（Claude）：
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 搜索（Deep/Web 模式常用）
+### 搜索（Deep 模式必需；Agent 需要联网检索时也会用到）
 
 ```bash
 TAVILY_API_KEY=tvly-...

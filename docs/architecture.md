@@ -26,13 +26,13 @@ graph TB
 
     subgraph "Agent 编排层 Agent Orchestration"
         Router{智能路由器}
-        Router --> |direct| DirectNode[直接回答]
-        Router --> |web| WebNode[网页搜索]
-        Router --> |agent| AgentNode[工具调用]
+        Router --> |agent| AgentNode[Agent 路径]
         Router --> |deep| DeepNode[深度研究]
+        Router --> |clarify| ClarifyNode[澄清门控]
 
         AgentNode --> ToolRegistry[工具注册表]
         DeepNode --> MultiEpoch[多轮研究引擎]
+        ClarifyNode --> MultiEpoch
     end
 
     subgraph "工具层 Tool Ecosystem"
@@ -68,7 +68,7 @@ graph TB
     FastAPI --> Router
 
     AgentNode -.-> LLM
-    WebNode -.-> TavilyAPI
+    AgentNode -.-> TavilyAPI
     DeepNode -.-> TavilyAPI
 
     Sandbox -.-> E2B
@@ -94,22 +94,16 @@ graph TB
 graph LR
     A[用户查询] --> B{智能路由}
 
-    B -->|直接模式| C[LLM 直接回答]
-    B -->|搜索模式| D[搜索计划]
-    B -->|工具模式| E[Agent 节点]
-    B -->|深度模式| F[深度研究]
+    B -->|Agent 模式（默认）| E[Agent 节点]
+    B -->|Deep 模式| F[深度研究]
+    B -->|低置信度| C[澄清问题]
 
-    D --> D1[并行搜索]
-    D1 --> D2[内容聚合]
-    D2 --> D3[报告生成]
-    D3 --> D4{质量评估}
-    D4 -->|通过| G[返回结果]
-    D4 -->|需优化| D
+    C --> G[返回给用户确认]
 
-    E --> E1[工具选择]
+    E --> E1[工具选择 / 联网检索]
     E1 --> E2[工具执行]
     E2 --> E3[结果处理]
-    E3 --> G
+    E3 --> H[返回结果]
 
     F --> F1[查询分解]
     F1 --> F2[并行研究]
@@ -117,10 +111,8 @@ graph LR
     F3 --> F4{继续研究?}
     F4 -->|是| F1
     F4 -->|否| F5[综合报告]
-    F5 --> G
-
-    C --> G
+    F5 --> H
 
     style B fill:#7B68EE,stroke:#4B0082,stroke-width:3px,color:#fff
-    style G fill:#51CF66,stroke:#2F9E44,stroke-width:2px,color:#fff
+    style H fill:#51CF66,stroke:#2F9E44,stroke-width:2px,color:#fff
 ```

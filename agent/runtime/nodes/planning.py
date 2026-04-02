@@ -89,7 +89,7 @@ def perform_parallel_search(
                         config=config,
                         results=rs if isinstance(rs, list) else [],
                         max_urls=1,
-                        reason="web_plan:search:cached",
+                        reason="research_plan:search:cached",
                     ),
                     daemon=True,
                 ).start()
@@ -134,7 +134,7 @@ def perform_parallel_search(
                         config=config,
                         results=rs if isinstance(rs, list) else [],
                         max_urls=1,
-                        reason="web_plan:search",
+                        reason="research_plan:search",
                     ),
                     daemon=True,
                 ).start()
@@ -258,7 +258,7 @@ def planner_node(
             "current_step": 0,
             "errors": [f"Planning error: {str(e)}"],
             "messages": [
-                AIMessage(content=f"Using fallback plan: direct search for '{state['input']}'")
+                AIMessage(content=f"Using fallback plan: search for '{state['input']}'")
             ],
         }
 
@@ -381,21 +381,6 @@ Return ONLY a JSON object:
     }
 
 
-def web_search_plan_node(
-    state: Dict[str, Any],
-    config: RunnableConfig,
-    *,
-    _deps: Any = None,
-) -> Dict[str, Any]:
-    """Simple plan for web search only mode."""
-    logger.info("Executing web search plan node")
-    return {
-        "research_plan": [state["input"]],
-        "current_step": 0,
-        "messages": [AIMessage(content=f"Web search plan: direct search for '{state['input']}'")],
-    }
-
-
 def compressor_node(
     state: Dict[str, Any],
     config: RunnableConfig,
@@ -466,5 +451,4 @@ __all__ = [
     "perform_parallel_search",
     "planner_node",
     "refine_plan_node",
-    "web_search_plan_node",
 ]

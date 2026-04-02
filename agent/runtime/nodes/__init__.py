@@ -2,7 +2,7 @@
 Split runtime node entrypoints grouped by responsibility.
 """
 
-from agent.runtime.nodes.answer import agent_node, direct_answer_node, writer_node
+from agent.runtime.nodes.answer import agent_node, writer_node
 from agent.runtime.nodes.common import (
     check_cancellation,
     handle_cancellation,
@@ -15,7 +15,6 @@ from agent.runtime.nodes.planning import (
     perform_parallel_search,
     planner_node,
     refine_plan_node,
-    web_search_plan_node,
 )
 from agent.runtime.nodes.review import (
     evaluator_node,
@@ -34,7 +33,6 @@ __all__ = [
     "compressor_node",
     "coordinator_node",
     "deepsearch_node",
-    "direct_answer_node",
     "evaluator_node",
     "handle_cancellation",
     "hitl_draft_review_node",
@@ -48,6 +46,5 @@ __all__ = [
     "refine_plan_node",
     "revise_report_node",
     "route_node",
-    "web_search_plan_node",
     "writer_node",
 ]

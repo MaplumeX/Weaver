@@ -18,6 +18,7 @@ import { Library } from '@/components/views/Library'
 import { useChatHistory } from '@/hooks/useChatHistory'
 import { usePublicModels } from '@/hooks/usePublicModels'
 import { useChatStream } from '@/hooks/useChatStream'
+import { ChatMode, DEFAULT_CHAT_MODE } from '@/lib/chat-mode'
 import { DEFAULT_MODEL, STORAGE_KEYS } from '@/lib/constants'
 import { filesToImageAttachments } from '@/lib/file-utils'
 import { getInterruptInputPlaceholder } from '@/lib/interrupt-review'
@@ -32,7 +33,7 @@ export function Chat() {
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL)
-  const [searchMode, setSearchMode] = useState('')
+  const [searchMode, setSearchMode] = useState<ChatMode>(DEFAULT_CHAT_MODE)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [showMobileArtifacts, setShowMobileArtifacts] = useState(false)
   const [isArtifactsOpen, setIsArtifactsOpen] = useState(true)
@@ -131,7 +132,7 @@ export function Chat() {
       pendingInterrupt,
       threadId: threadId || sessionId,
       currentStatus,
-      route: searchMode || 'direct',
+      route: searchMode,
       searchMode,
       status: pendingInterrupt ? 'interrupted' : undefined,
       canResume: Boolean(pendingInterrupt),
@@ -164,7 +165,7 @@ export function Chat() {
     setMessages([])
     setThreadId(null)
     setScopeRevisionMode(false)
-    setSearchMode('')
+    setSearchMode(DEFAULT_CHAT_MODE)
   }, [
     setArtifacts,
     setCurrentStatus,
@@ -197,7 +198,7 @@ export function Chat() {
         setPendingInterrupt(snapshot.pendingInterrupt || null)
         setCurrentStatus(snapshot.currentStatus || '')
         setThreadId(snapshot.threadId || null)
-        setSearchMode(snapshot.searchMode || '')
+        setSearchMode(snapshot.searchMode || DEFAULT_CHAT_MODE)
         setInput('')
         setAttachments([])
         setScopeRevisionMode(false)
@@ -241,7 +242,7 @@ export function Chat() {
         pendingInterrupt,
         threadId: threadId || sessionId,
         currentStatus,
-        route: searchMode || 'direct',
+        route: searchMode,
         searchMode,
         status: pendingInterrupt ? 'interrupted' : undefined,
         canResume: Boolean(pendingInterrupt),
@@ -326,7 +327,7 @@ export function Chat() {
         pendingInterrupt,
         threadId: threadId || sessionId,
         currentStatus,
-        route: searchMode || 'direct',
+        route: searchMode,
         searchMode,
         status: pendingInterrupt ? 'interrupted' : undefined,
         canResume: Boolean(pendingInterrupt),
@@ -368,7 +369,7 @@ export function Chat() {
         pendingInterrupt,
         threadId: threadId || sessionId,
         currentStatus,
-        route: searchMode || 'direct',
+        route: searchMode,
         searchMode,
         status: pendingInterrupt ? 'interrupted' : undefined,
         canResume: Boolean(pendingInterrupt),
@@ -383,7 +384,7 @@ export function Chat() {
     }
   }
 
-  const handleStarterClick = (text: string, mode: string) => {
+  const handleStarterClick = (text: string, mode: ChatMode) => {
     setInput(text)
     setSearchMode(mode)
   }

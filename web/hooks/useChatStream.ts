@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { Message, Artifact, ToolInvocation, ImageAttachment, RunMetrics, MessageSource } from '@/types/chat'
 import { getApiBaseUrl } from '@/lib/api'
+import { ChatMode, createSearchModePayload } from '@/lib/chat-mode'
 import { createLegacyChatStreamState, consumeLegacyChatStreamChunk } from '@/lib/chatStreamProtocol'
 import { appendProcessEvent, createStreamingAssistantMessage } from '@/lib/chat-stream-state'
 import {
@@ -11,7 +12,7 @@ import {
 
 interface UseChatStreamProps {
   selectedModel: string
-  searchMode: string
+  searchMode: ChatMode
 }
 
 type ToolLifecycleEventType = 'tool' | 'tool_start' | 'tool_result' | 'tool_error'
@@ -514,7 +515,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             messages: messageHistory.map(m => ({ role: m.role, content: m.content })),
             stream: true,
             model: requestModel,
-            search_mode: searchMode,
+            search_mode: createSearchModePayload(searchMode),
             images: (images || []).map(img => ({
               name: img.name,
               mime: img.mime,
@@ -574,7 +575,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
             payload: resumePayload,
             stream: true,
             model: requestModel,
-            search_mode: searchMode,
+            search_mode: createSearchModePayload(searchMode),
           }),
           signal: abortControllerRef.current.signal,
         }

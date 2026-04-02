@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import (
     FastAPI,
@@ -38,7 +38,7 @@ from prometheus_client import (
     Gauge,
     generate_latest,
 )
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from psycopg.rows import dict_row
 from starlette.concurrency import run_in_threadpool
 
@@ -829,76 +829,115 @@ class Message(BaseModel):
     content: str
 
 
+SearchModeLiteral = Literal["agent", "deep"]
+_PUBLIC_SEARCH_MODE_OPTIONS = ("agent", "deep")
+_LEGACY_AGENT_SESSION_MODES = {
+    "",
+    "agent",
+    "clarify",
+    "direct",
+    "mcp",
+    "search",
+    "tavily",
+    "web",
+}
+_LEGACY_DEEP_SESSION_MODES = {"deep", "deep_agent", "deep-agent", "ultra"}
+_REMOVED_PUBLIC_SEARCH_MODES = {
+    "clarify",
+    "deep_agent",
+    "deep-agent",
+    "direct",
+    "mcp",
+    "search",
+    "tavily",
+    "ultra",
+    "web",
+}
+_LEGACY_PUBLIC_SEARCH_MODE_FIELDS = {
+    "deepsearchEngine",
+    "deepsearch_engine",
+    "useAgent",
+    "useDeepPrompt",
+    "useDeepSearch",
+    "useWebSearch",
+    "use_agent",
+    "use_deep",
+    "use_deep_prompt",
+    "use_web",
+}
+
+
+def _search_mode_object_hint() -> str:
+    return 'Use `{"mode":"agent"}` or `{"mode":"deep"}`.'
+
+
+def _migrate_stored_chat_mode(value: Any) -> SearchModeLiteral:
+    normalized = str(value or "").strip().lower()
+    if normalized in _LEGACY_DEEP_SESSION_MODES:
+        return "deep"
+    return "agent"
+
+
 class SearchMode(BaseModel):
-    useWebSearch: bool = False
-    useAgent: bool = False
-    useDeepSearch: bool = False
-    deepsearchEngine: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+    mode: SearchModeLiteral = Field(
+        default="agent",
+        description="Public chat mode. Only `agent` and `deep` are supported.",
+    )
 
 
 def _coerce_search_mode_input(value: Any) -> SearchMode | None:
-    """
-    Coerce legacy search_mode inputs into the structured SearchMode contract.
-
-    We keep the runtime tolerant (strings / dicts) while exposing a strict OpenAPI
-    schema (SearchMode object) for frontend/backend alignment.
-    """
     if value is None:
         return None
 
     if isinstance(value, SearchMode):
         return value
 
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"", "direct"}:
-            return SearchMode()
-        if lowered in {"web", "search", "tavily"}:
-            return SearchMode(useWebSearch=True)
-        if lowered in {"mcp"}:
-            # Frontend UX label: "MCP" is implemented as tool-calling agent mode.
-            return SearchMode(useAgent=True)
-        if lowered in {"agent"}:
-            return SearchMode(useAgent=True)
-        if lowered in {"deep", "deep_agent", "deep-agent", "ultra"}:
-            return SearchMode(useAgent=True, useDeepSearch=True)
-        # Unknown string → treat as direct.
-        return SearchMode()
-
-    if isinstance(value, dict):
-        if "deepsearchMode" in value or "deepsearch_mode" in value:
+    if not isinstance(value, dict):
+        lowered = str(value).strip().lower()
+        if lowered in _REMOVED_PUBLIC_SEARCH_MODES:
             raise ValueError(
-                "Deep Research mode selection (`deepsearch_mode`) was removed on 2026-04-01. "
-                "Remove tree/linear/auto overrides and use the default `multi_agent` runtime."
+                f'Chat mode `{lowered}` was removed on 2026-04-02. {_search_mode_object_hint()}'
             )
-        use_web = bool(value.get("useWebSearch", value.get("use_web", False)))
-        use_agent = bool(value.get("useAgent", value.get("use_agent", False)))
-        use_deep = bool(value.get("useDeepSearch", value.get("use_deep", False)))
-        deepsearch_engine = normalize_deepsearch_engine(
-            value.get("deepsearchEngine", value.get("deepsearch_engine"))
+        raise ValueError(
+            f"`search_mode` must be an object with a single `mode` field. {_search_mode_object_hint()}"
         )
 
-        # If booleans were not provided but a mode string exists, derive flags from it.
-        if not (use_web or use_agent or use_deep) and isinstance(value.get("mode"), str):
-            mode_lower = value["mode"].strip().lower()
-            if mode_lower == "web":
-                use_web = True
-            elif mode_lower in {"agent", "deep"}:
-                use_agent = True
-                use_deep = mode_lower == "deep"
-
-        # Deep requires agent.
-        if use_deep and not use_agent:
-            use_deep = False
-
-        return SearchMode(
-            useWebSearch=use_web,
-            useAgent=use_agent,
-            useDeepSearch=use_deep,
-            deepsearchEngine=deepsearch_engine,
+    if "deepsearchMode" in value or "deepsearch_mode" in value:
+        raise ValueError(
+            "Deep Research mode selection (`deepsearch_mode`) was removed on 2026-04-01. "
+            "Remove tree/linear/auto overrides and use the default `multi_agent` runtime."
         )
 
-    return None
+    legacy_fields = sorted(key for key in value if key in _LEGACY_PUBLIC_SEARCH_MODE_FIELDS)
+    if legacy_fields:
+        raise ValueError(
+            f"`search_mode` no longer accepts legacy fields: {', '.join(legacy_fields)}. "
+            f"{_search_mode_object_hint()}"
+        )
+
+    unexpected_fields = sorted(key for key in value if key != "mode")
+    if unexpected_fields:
+        raise ValueError(
+            f"`search_mode` only accepts the `mode` field. Unexpected fields: {', '.join(unexpected_fields)}."
+        )
+
+    raw_mode = value.get("mode")
+    if not isinstance(raw_mode, str) or not raw_mode.strip():
+        raise ValueError(f"`search_mode.mode` is required. {_search_mode_object_hint()}")
+
+    mode = raw_mode.strip().lower()
+    if mode in _REMOVED_PUBLIC_SEARCH_MODES:
+        raise ValueError(
+            f'Chat mode `{mode}` was removed on 2026-04-02. {_search_mode_object_hint()}'
+        )
+    if mode not in _PUBLIC_SEARCH_MODE_OPTIONS:
+        raise ValueError(
+            f"`search_mode.mode` must be one of {', '.join(_PUBLIC_SEARCH_MODE_OPTIONS)}."
+        )
+
+    return SearchMode(mode=mode)
 
 
 class ProviderCircuitSnapshot(BaseModel):
@@ -1991,83 +2030,43 @@ def _build_langchain_tool_stream_payload(
     return payload
 
 
-def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | str | None) -> Dict[str, Any]:
+def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | None) -> Dict[str, Any]:
+    mode: SearchModeLiteral = "agent"
+
     if isinstance(search_mode, SearchMode):
-        use_web = search_mode.useWebSearch
-        use_agent = search_mode.useAgent
-        use_deep = search_mode.useDeepSearch
-        use_deep_prompt = use_deep
-        deepsearch_engine = normalize_deepsearch_engine(search_mode.deepsearchEngine)
+        mode = search_mode.mode
     elif isinstance(search_mode, dict):
         if "deepsearchMode" in search_mode or "deepsearch_mode" in search_mode:
             raise ValueError(
                 "Deep Research mode selection (`deepsearch_mode`) was removed on 2026-04-01. "
                 "Remove tree/linear/auto overrides and use the default `multi_agent` runtime."
             )
-        # Support both camelCase (frontend payload) and snake_case (already-normalized)
-        use_web = bool(search_mode.get("useWebSearch", search_mode.get("use_web", False)))
-        use_agent = bool(search_mode.get("useAgent", search_mode.get("use_agent", False)))
-        use_deep = bool(search_mode.get("useDeepSearch", search_mode.get("use_deep", False)))
-        use_deep_prompt = bool(
-            search_mode.get("useDeepPrompt", search_mode.get("use_deep_prompt", use_deep))
-        )
-        deepsearch_engine = normalize_deepsearch_engine(
-            search_mode.get("deepsearchEngine", search_mode.get("deepsearch_engine"))
-        )
-
-        # If booleans were not provided but a mode string exists, derive flags from it
-        if not (use_web or use_agent or use_deep) and isinstance(search_mode.get("mode"), str):
-            mode_lower = search_mode["mode"].strip().lower()
-            if mode_lower == "web":
-                use_web = True
-            elif mode_lower in {"agent", "deep"}:
-                use_agent = True
-                use_deep = mode_lower == "deep"
-                use_deep_prompt = use_deep
-    elif isinstance(search_mode, str):
-        lowered = search_mode.lower().strip()
-
-        # UX labels
-        if lowered in {"direct", ""}:
-            use_web = False
-            use_agent = False
-            use_deep = False
-            use_deep_prompt = False
+        raw_mode = search_mode.get("mode")
+        if isinstance(raw_mode, str) and raw_mode.strip():
+            lowered = raw_mode.strip().lower()
+            if lowered in _REMOVED_PUBLIC_SEARCH_MODES:
+                raise ValueError(
+                    f'Chat mode `{lowered}` was removed on 2026-04-02. {_search_mode_object_hint()}'
+                )
+            if lowered not in _PUBLIC_SEARCH_MODE_OPTIONS:
+                raise ValueError(
+                    f"`search_mode.mode` must be one of {', '.join(_PUBLIC_SEARCH_MODE_OPTIONS)}."
+                )
+            mode = lowered
+        elif bool(search_mode.get("use_deep")):
+            mode = "deep"
         else:
-            use_web = lowered in {"web", "search", "tavily"}
-            use_agent = lowered in {"agent", "mcp", "deep", "deep_agent", "deep-agent", "ultra"}
-            use_deep = lowered in {"deep", "deep_agent", "deep-agent", "ultra"}
-            use_deep_prompt = use_deep
-        deepsearch_engine = None
-    else:
-        use_web = False
-        use_agent = False
-        use_deep = False
-        use_deep_prompt = False
-        deepsearch_engine = None
+            mode = "agent"
 
-    if use_deep and not use_agent:
-        use_deep = False
-        use_deep_prompt = False
-
-    if use_deep:
-        deepsearch_engine = supported_engine_for_mode(True)
-    else:
-        deepsearch_engine = None
-
-    if use_agent:
-        mode = "deep" if use_deep else "agent"
-    elif use_web:
-        mode = "web"
-    else:
-        mode = "direct"
+    use_deep = mode == "deep"
+    deepsearch_engine = supported_engine_for_mode(use_deep)
 
     return {
-        "use_web": use_web,
-        "use_agent": use_agent,
+        "use_web": False,
+        "use_agent": True,
         "use_deep": use_deep,
         "mode": mode,
-        "use_deep_prompt": use_deep_prompt,
+        "use_deep_prompt": use_deep,
         "deepsearch_engine": deepsearch_engine,
     }
 
@@ -2133,15 +2132,14 @@ def _mode_info_from_session_state(state: Dict[str, Any]) -> Dict[str, Any]:
         isinstance(deep_runtime.get("agent_runs"), list) and bool(deep_runtime.get("agent_runs"))
     )
 
-    use_deep = route == "deep" or has_deep_runtime
-    use_agent = route in {"agent", "deep"} or use_deep
-    use_web = route == "web"
+    mode = "deep" if has_deep_runtime or _migrate_stored_chat_mode(route) == "deep" else "agent"
+    use_deep = mode == "deep"
 
     return {
-        "use_web": use_web,
-        "use_agent": use_agent,
+        "use_web": False,
+        "use_agent": True,
         "use_deep": use_deep,
-        "mode": "deep" if use_deep else ("agent" if use_agent else ("web" if use_web else "direct")),
+        "mode": mode,
         "use_deep_prompt": use_deep,
         "deepsearch_engine": supported_engine_for_mode(use_deep) or deepsearch_engine,
     }
@@ -2201,7 +2199,7 @@ def _build_initial_agent_state(
         "draft_report": "",
         "evaluation": "",
         "verdict": "",
-        "route": mode_info.get("mode", "direct"),
+        "route": mode_info.get("mode", "agent"),
         "revision_count": 0,
         "max_revisions": settings.max_revisions,
         "tool_call_count": 0,
@@ -2900,7 +2898,7 @@ async def stream_resumed_agent_events(
     thread_id: str,
     resume_payload: Any,
     model: str | None = None,
-    search_mode: SearchMode | Dict[str, Any] | str | None = None,
+    search_mode: SearchMode | Dict[str, Any] | None = None,
     agent_id: str | None = None,
 ):
     restored = await _restore_thread_stream_context(thread_id)
@@ -3108,7 +3106,7 @@ async def chat(request: Request, payload: ChatRequest):
                 "draft_report": "",
                 "evaluation": "",
                 "verdict": "",
-                "route": mode_info.get("mode", "direct"),
+                "route": mode_info.get("mode", "agent"),
                 "revision_count": 0,
                 "max_revisions": settings.max_revisions,
                 "is_complete": False,
@@ -3164,7 +3162,7 @@ async def chat(request: Request, payload: ChatRequest):
             }
             thread_id = thread_id or f"thread_{uuid.uuid4().hex}"
             metrics = metrics_registry.start(
-                thread_id, model=model, route=mode_info.get("mode", "direct")
+                thread_id, model=model, route=mode_info.get("mode", "agent")
             )
             result = await research_graph.ainvoke(initial_state, config=config)
             final_report = result.get("final_report", "No response generated")
@@ -3678,6 +3676,7 @@ async def get_run_metrics(thread_id: str, request: Request):
     if not metrics:
         raise HTTPException(status_code=404, detail="Run not found")
     payload = metrics.to_dict()
+    payload["route"] = _migrate_stored_chat_mode(payload.get("route"))
     return RunMetricsResponse(
         **payload,
         evidence_summary=await _build_run_evidence_summary(thread_id),
@@ -4336,9 +4335,15 @@ async def list_sessions(
             user_filter = (getattr(request.state, "principal_id", "") or "").strip() or "internal"
         sessions = await manager.alist_sessions(limit=limit, status_filter=status, user_id_filter=user_filter)
 
+        session_payloads = []
+        for session in sessions:
+            payload = session.to_dict()
+            payload["route"] = _migrate_stored_chat_mode(payload.get("route"))
+            session_payloads.append(payload)
+
         return {
-            "count": len(sessions),
-            "sessions": [s.to_dict() for s in sessions],
+            "count": len(session_payloads),
+            "sessions": session_payloads,
         }
 
     except Exception as e:
@@ -4373,7 +4378,9 @@ async def get_session(thread_id: str, request: Request):
         if not session:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
-        return session.to_dict()
+        payload = session.to_dict()
+        payload["route"] = _migrate_stored_chat_mode(payload.get("route"))
+        return payload
 
     except HTTPException:
         raise
@@ -4406,7 +4413,11 @@ async def get_session_state(thread_id: str, request: Request):
             if isinstance(owner, str) and owner.strip() and owner.strip() != principal_id:
                 raise HTTPException(status_code=403, detail="Forbidden")
 
-        return state.to_dict()
+        payload = state.to_dict()
+        state_payload = payload.get("state")
+        if isinstance(state_payload, dict):
+            state_payload["route"] = _mode_info_from_session_state(state_payload).get("mode", "agent")
+        return payload
 
     except HTTPException:
         raise

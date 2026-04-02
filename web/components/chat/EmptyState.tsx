@@ -4,12 +4,13 @@ import React from 'react'
 import { Button } from '@/components/ui/button'
 import { ArrowRight, Sparkles, TrendingUp, Code2, BookOpen } from 'lucide-react'
 import { useI18n } from '@/lib/i18n/i18n-context'
+import { ChatMode } from '@/lib/chat-mode'
 import { cn } from '@/lib/utils'
 
 interface EmptyStateProps {
-  selectedMode: string
-  onModeSelect: (mode: string) => void
-  onStarterClick?: (text: string, mode: string) => void
+  selectedMode: ChatMode
+  onModeSelect: (mode: ChatMode) => void
+  onStarterClick?: (text: string, mode: ChatMode) => void
 }
 
 export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: EmptyStateProps) {
@@ -19,23 +20,23 @@ export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: Empty
     {
       icon: TrendingUp,
       text: t('starterAnalyze'),
-      mode: "ultra"
+      mode: 'deep' as ChatMode,
     },
     {
       icon: Code2,
       text: t('starterWrite'),
-      mode: "agent"
+      mode: 'agent' as ChatMode,
     },
     {
       icon: BookOpen,
       text: t('starterSummarize'),
-      mode: "web"
+      mode: 'agent' as ChatMode,
     },
     {
       icon: Sparkles,
       text: t('starterPlan'),
-      mode: "direct"
-    }
+      mode: 'deep' as ChatMode,
+    },
   ]
 
   return (
@@ -67,9 +68,10 @@ export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: Empty
           <button
             key={i}
             onClick={() => {
-                if (onStarterClick) {
-                    onStarterClick(starter.text, starter.mode)
-                }
+              onModeSelect(starter.mode)
+              if (onStarterClick) {
+                onStarterClick(starter.text, starter.mode)
+              }
             }}
             className="group flex items-start gap-4 p-4 rounded-xl border bg-card/50 hover:bg-card hover:shadow-md hover:border-primary/20 transition-all duration-300 text-left"
           >
@@ -81,8 +83,8 @@ export function EmptyState({ selectedMode, onModeSelect, onStarterClick }: Empty
                     {starter.text}
                 </p>
                 <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider font-semibold opacity-0 group-hover:opacity-100 transition-opacity translate-y-2 group-hover:translate-y-0">
-                    <span>{t('useMode')} {starter.mode} {t('mode')}</span>
-                    <ArrowRight className="h-3 w-3" />
+                  <span>{t('useMode')} {starter.mode === 'deep' ? t('deep') : t('agent')} {t('mode')}</span>
+                  <ArrowRight className="h-3 w-3" />
                 </div>
             </div>
           </button>

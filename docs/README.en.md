@@ -286,26 +286,22 @@ weaver/
 graph TD
     A[User Query] --> B[Smart Router]
     B --> C{Route Decision}
-    C -->|direct| D[Direct Answer]
-    C -->|web| E[Web Search Plan]
     C -->|agent| F[Tool Agent]
-    C -->|deep| G[Deep Search]
+    C -->|deep| G[Deep Research]
     C -->|clarify| H[Clarify Node]
 
-    E --> I[Parallel Search]
-    I --> J[Writer Node]
-    J --> K[Evaluator]
-    K -->|pass| L[Complete]
-    K -->|revise| M[Refine Plan]
-    M --> I
+    F --> I[Tool / Search Execution]
+    I --> L[Complete]
 
+    H --> N[Multi-Epoch Research]
     G --> N[Multi-Epoch Research]
     N --> O[Query Generation]
     O --> P[Parallel Search]
     P --> Q[Summarization]
     Q --> R{More Epochs?}
     R -->|yes| O
-    R -->|no| L
+    R -->|no| S[Final Report]
+    S --> L
 
     F --> S[Tool Execution]
     S --> L
@@ -479,7 +475,7 @@ Start a new chat session with streaming response.
   ],
   "stream": true,
   "model": "gpt-4o",
-  "search_mode": "deep",  // direct|web|agent|deep
+  "search_mode": { "mode": "deep" },  // agent|deep
   "agent_id": "default",
   "user_id": "user_123",
   "images": [

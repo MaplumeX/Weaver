@@ -6,7 +6,7 @@ Weaver 的目标是做一个“可迁移、可扩展、面向开发者”的 AI 
 
 ## 已有能力（概览）
 
-- 智能路由：direct / web / agent / deep
+- 智能路由：公开模式收敛为 `agent` / `deep`，默认 `agent`
 - Deep Research：多轮研究 + 引用证据展示
 - 工具生态：代码执行 / 浏览器自动化 / 文件与文档生成等
 - OpenAPI 合约对齐：后端 → 前端 types 自动生成（防漂移）

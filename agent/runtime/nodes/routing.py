@@ -60,7 +60,7 @@ def route_node(
         override_mode=override_mode if override_mode else None,
     )
 
-    route = result.get("route", "direct")
+    route = result.get("route", "agent")
     confidence = result.get("routing_confidence", 1.0)
 
     if not override_mode and confidence < confidence_threshold:
@@ -78,7 +78,7 @@ def route_node(
 
     result["max_revisions"] = max_revisions
 
-    if getattr(settings, "domain_routing_enabled", False) and route in ("deep", "web"):
+    if getattr(settings, "domain_routing_enabled", False) and route == "deep":
         try:
             from agent.research.domain_router import DomainClassifier
 

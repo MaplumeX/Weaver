@@ -6,11 +6,8 @@ export const STORAGE_KEYS = {
 }
 
 export const SEARCH_MODES = {
-  DIRECT: 'direct',
-  WEB: 'web',
   AGENT: 'agent',
   DEEP: 'deep',
-  ULTRA: 'ultra',
 }
 
 export const DEFAULT_MODEL = 'deepseek-chat'

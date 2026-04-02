@@ -12,7 +12,6 @@ from agent.runtime.nodes import (
     compressor_node,
     coordinator_node,
     deepsearch_node,
-    direct_answer_node,
     evaluator_node,
     human_review_node,
     initiate_research,
@@ -24,7 +23,6 @@ from agent.runtime.nodes import (
     refine_plan_node,
     revise_report_node,
     route_node,
-    web_search_plan_node,
     writer_node,
 )
 
@@ -56,11 +54,9 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
 
     # Add nodes
     workflow.add_node("router", route_node)
-    workflow.add_node("direct_answer", direct_answer_node)
     workflow.add_node("agent", agent_node)
     workflow.add_node("clarify", clarify_node)
     workflow.add_node("planner", planner_node)
-    workflow.add_node("web_plan", web_search_plan_node)
     workflow.add_node("refine_plan", refine_plan_node)
     workflow.add_node("hitl_plan_review", hitl_plan_review_node)
     workflow.add_node("perform_parallel_search", perform_parallel_search)
@@ -81,7 +77,7 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     workflow.set_entry_point("router")
 
     def route_decision(state: AgentState) -> str:
-        route = state.get("route", "direct")
+        route = state.get("route", "agent")
         logger.info(f"[route_decision] state['route'] = '{route}'")
 
         if route == "deep":
@@ -93,17 +89,14 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
         if route == "agent":
             logger.info("[route_decision] → Routing to 'agent' node")
             return "agent"
-        if route == "web":
-            logger.info("[route_decision] → Routing to 'web_plan' node")
-            return "web_plan"
-        if route == "direct":
-            logger.info("[route_decision] → Routing to 'direct_answer' node")
-            return "direct_answer"
+        if route == "clarify":
+            logger.info("[route_decision] → Routing to 'clarify' node")
+            return "clarify"
 
-        logger.info("[route_decision] → Routing to 'clarify' node (default)")
-        return "clarify"
+        logger.info("[route_decision] → Routing to 'agent' node (default)")
+        return "agent"
 
-    route_targets = ["direct_answer", "agent", "web_plan", "clarify", "deepsearch"]
+    route_targets = ["agent", "clarify", "deepsearch"]
     if use_hierarchical:
         route_targets.append("coordinator")
 
@@ -139,9 +132,6 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     # Planning path (agent + deep)
     workflow.add_edge("planner", "hitl_plan_review")
     workflow.add_edge("refine_plan", "hitl_plan_review")
-
-    # Web search only path
-    workflow.add_edge("web_plan", "hitl_plan_review")
 
     # Plan review (optional HITL) then dispatch searches
     workflow.add_conditional_edges(
@@ -220,8 +210,6 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     # Reviser rewrites the report and goes back to evaluator
     workflow.add_edge("reviser", "evaluator")
 
-    # Direct answer path
-    workflow.add_edge("direct_answer", "human_review")
     workflow.add_edge("agent", "human_review")
 
     # Final edge

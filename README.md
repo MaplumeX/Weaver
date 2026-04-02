@@ -26,7 +26,7 @@
 
 ## 你能用 Weaver 做什么
 
-- **智能路由**：自动选择 direct / web / agent / deep（四种策略）
+- **智能路由**：公开模式只保留 `agent` / `deep`，默认使用 `agent`
 - **Deep Research**：并行检索 + 多轮迭代 + 引用证据（UI 可点击核对）
 - **工具生态**：沙箱代码执行、浏览器自动化、文件/文档生成、桌面控制（可选）
 - **可扩展**：支持 MCP（Model Context Protocol）桥接第三方工具
@@ -43,12 +43,11 @@
 graph TB
   UI[Next.js Web UI] -->|SSE| API[FastAPI]
   API --> Router{Router}
-  Router --> Direct[Direct]
-  Router --> Web[Web Search]
-  Router --> Agent[Agent Tools]
+  Router --> Agent[Agent]
   Router --> Deep[Deep Research]
   Agent --> Tools[Tool Registry]
-  Deep --> Tools
+  Deep --> Research[Research Pipeline]
+  Research --> Tools
   Tools --> E2B[E2B Sandbox]
   Tools --> Browser[Browser Automation]
   Tools --> MCP[MCP Bridge]

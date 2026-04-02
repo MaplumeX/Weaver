@@ -102,7 +102,7 @@ class AgentState(TypedDict):
     ended_at: str
 
     # ============ Routing ============
-    # Routing decision: direct, agent, web, deep, clarify
+    # Routing decision: agent, deep, clarify
     route: str
     # Routing reasoning (from smart router)
     routing_reasoning: str

@@ -2,8 +2,9 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Send, Globe, Bot, Paperclip, X, Mic, MicOff, ChevronDown, Check, Trash2, File as FileIcon, Image as ImageIcon, Bug, BookOpen, PenTool, TestTube, Plug, Rocket, MessageSquare } from 'lucide-react'
+import { Send, Bot, Paperclip, X, Mic, MicOff, Trash2, File as FileIcon, Bug, BookOpen, PenTool, TestTube, Rocket } from 'lucide-react'
 import { useI18n } from '@/lib/i18n/i18n-context'
+import { ChatMode, DEFAULT_CHAT_MODE } from '@/lib/chat-mode'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { createFilePreview } from '@/lib/file-utils'
@@ -18,8 +19,8 @@ interface ChatInputProps {
   onSubmit: (e: React.FormEvent) => void
   isLoading: boolean
   onStop: () => void
-  searchMode: string
-  setSearchMode: (mode: string) => void
+  searchMode: ChatMode
+  setSearchMode: (mode: ChatMode) => void
 }
 
 interface AttachmentPreview {
@@ -45,9 +46,7 @@ export function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isFocused, setIsFocused] = useState(false)
   const [showCommandMenu, setShowCommandMenu] = useState(false)
-  const [isMcpOpen, setIsMcpOpen] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
-  const [selectedMcp, setSelectedMcp] = useState('filesystem') // Default MCP
   const [previews, setPreviews] = useState<AttachmentPreview[]>([])
 
   // Manage Previews
@@ -280,8 +279,7 @@ export function ChatInput({
   }
 
   const handleCommandSelect = (cmd: string) => {
-      if (cmd === 'direct') setSearchMode('')
-      else if (['agent','ultra','web','deep','deep_agent'].includes(cmd)) setSearchMode(cmd)
+      if (cmd === 'agent' || cmd === 'deep') setSearchMode(cmd)
       if (cmd === 'clear') window.location.reload()
 
       if (cmd === 'fix') setInput('Please fix the following code:\n\n')
@@ -301,27 +299,17 @@ export function ChatInput({
     }
     if (e.key === 'Escape') {
         setShowCommandMenu(false)
-        setIsMcpOpen(false)
     }
   }
 
-  const mcpOptions = [
-      { id: 'filesystem', label: t('filesystem') },
-      { id: 'github', label: t('github') },
-      { id: 'brave', label: t('braveSearch') },
-      { id: 'memory', label: t('memory') }
-  ]
-
   const modes = [
-    { id: 'web', label: t('web'), icon: Globe, color: "text-blue-500", bg: "bg-blue-500/10", border: "border-blue-500/20" },
-    { id: 'agent', label: t('agent'), icon: Bot, color: "text-purple-500", bg: "bg-purple-500/10", border: "border-purple-500/20" },
-    { id: 'ultra', label: t('ultra'), icon: Rocket, color: "text-indigo-500", bg: "bg-indigo-500/10", border: "border-indigo-500/20" },
+    { id: 'agent' as ChatMode, label: t('agent'), icon: Bot, color: "text-emerald-600", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
+    { id: 'deep' as ChatMode, label: t('deep'), icon: Rocket, color: "text-amber-600", bg: "bg-amber-500/10", border: "border-amber-500/20" },
   ]
 
   const commands = [
-      { id: 'agent', label: 'Agent Mode', icon: Bot, desc: 'Plan & web search' },
-      { id: 'ultra', label: 'Deep Research', icon: Rocket, desc: 'Deep research (agent + deep search)' },
-      { id: 'web', label: 'Web Mode', icon: Globe, desc: 'Web search only' },
+      { id: 'agent', label: 'Agent Mode', icon: Bot, desc: '默认执行路径，支持工具与搜索' },
+      { id: 'deep', label: 'Deep Research', icon: Rocket, desc: '显式进入深度研究流程' },
       { id: 'fix', label: 'Fix Code', icon: Bug, desc: 'Debug & Fix' },
       { id: 'explain', label: 'Explain', icon: BookOpen, desc: 'Explain concept' },
       { id: 'refactor', label: 'Refactor', icon: PenTool, desc: 'Optimize code' },
@@ -354,7 +342,7 @@ export function ChatInput({
         )}
 
         {/* Mode Tabs */}
-        <div className="flex items-center gap-1 self-start ml-1 mb-1">
+	       <div className="flex items-center gap-1 self-start ml-1 mb-1">
            {modes.map((mode) => {
              const isActive = searchMode === mode.id
              return (
@@ -362,13 +350,9 @@ export function ChatInput({
                  key={mode.id}
                  type="button"
                  onClick={() => {
-                     // 再次点击已选中的模式则取消选中，回到默认直答
-                     if (isActive) {
-                         setSearchMode('')
-                     } else {
-                         setSearchMode(mode.id)
-                     }
-                     setIsMcpOpen(false)
+                   if (!isActive) {
+                     setSearchMode(mode.id)
+                   }
                  }}
                  className={cn(
                    "relative flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-300 border",
@@ -382,57 +366,7 @@ export function ChatInput({
                </button>
              )
            })}
-
-           {/* MCP Dropdown */}
-           <div className="relative">
-               <button
-                 onClick={() => {
-                     // 再次点击已选中的 MCP 则取消选中，回到默认直答
-                     if (searchMode === 'mcp') {
-                         setSearchMode('')
-                         setIsMcpOpen(false)
-                     } else {
-                         setSearchMode('mcp')
-                         setIsMcpOpen(!isMcpOpen)
-                     }
-                 }}
-                 className={cn(
-                   "relative flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-300 border",
-                   searchMode === 'mcp'
-                     ? "bg-pink-500/10 text-foreground border-pink-500/20 shadow-sm"
-                     : "text-muted-foreground border-transparent hover:bg-muted/50"
-                 )}
-               >
-                 <Plug className={cn("h-3.5 w-3.5 transition-colors", searchMode === 'mcp' ? "text-pink-500" : "text-muted-foreground")} />
-                 {searchMode === 'mcp' ? (mcpOptions.find(o => o.id === selectedMcp)?.label || 'MCP') : 'MCP'}
-                 <ChevronDown className="h-3 w-3 opacity-50" />
-               </button>
-
-               {isMcpOpen && (
-                   <div className="absolute bottom-full left-0 mb-2 w-40 bg-popover border rounded-xl shadow-lg animate-in fade-in zoom-in-95 z-50 overflow-hidden">
-                       <div className="p-1">
-                           {mcpOptions.map(opt => (
-                               <button
-                                   key={opt.id}
-                                   onClick={() => {
-                                       setSelectedMcp(opt.id)
-                                       setSearchMode('mcp')
-                                       setIsMcpOpen(false)
-                                   }}
-                                   className={cn(
-                                       "flex w-full items-center justify-between rounded-lg px-2 py-2 text-xs transition-colors hover:bg-muted",
-                                       selectedMcp === opt.id && searchMode === 'mcp' && "bg-muted font-medium text-pink-500"
-                                   )}
-                               >
-                                   {opt.label}
-                                   {selectedMcp === opt.id && searchMode === 'mcp' && <Check className="h-3 w-3" />}
-                               </button>
-                           ))}
-                       </div>
-                   </div>
-               )}
-           </div>
-        </div>
+	        </div>
 
         {/* Input Container */}
         <div 
@@ -512,8 +446,8 @@ export function ChatInput({
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                placeholder={placeholder || (searchMode === 'mcp' ? `${mcpOptions.find(o => o.id === selectedMcp)?.label || 'MCP'}...` : t('askAnything'))}
+	                onBlur={() => setIsFocused(false)}
+	                placeholder={placeholder || t('askAnything')}
                 disabled={isLoading}
                 rows={1}
                 className={cn(

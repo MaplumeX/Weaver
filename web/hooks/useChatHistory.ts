@@ -21,6 +21,7 @@ import {
   replaceSessionPreservingOrder,
   sortChatSessions,
 } from '@/lib/session-utils'
+import { ChatMode, DEFAULT_CHAT_MODE, normalizeChatMode } from '@/lib/chat-mode'
 import { StorageService } from '@/lib/storage-service'
 import { Artifact, ChatSession, Message, SessionSnapshot } from '@/types/chat'
 
@@ -31,8 +32,8 @@ interface SaveToHistoryOptions {
   pendingInterrupt?: SessionSnapshot['pendingInterrupt']
   threadId?: string | null
   currentStatus?: string
-  route?: string
-  searchMode?: string
+  route?: ChatMode
+  searchMode?: ChatMode
   status?: string
   canResume?: boolean
   title?: string
@@ -60,6 +61,14 @@ function normalizeSession(session: Partial<ChatSession>): ChatSession {
           ? 'remote'
           : 'legacy-local'
 
+  const normalizedMode = normalizeChatMode(
+    typeof session.searchMode === 'string'
+      ? session.searchMode
+      : typeof session.route === 'string'
+        ? session.route
+        : DEFAULT_CHAT_MODE,
+  )
+
   return {
     id: rawId || rawThreadId || createConversationId(),
     title: String(session.title || 'New Conversation'),
@@ -71,11 +80,8 @@ function normalizeSession(session: Partial<ChatSession>): ChatSession {
     summary: typeof session.summary === 'string' ? session.summary : '',
     threadId: rawThreadId || (rawId.startsWith('thread_') ? rawId : null),
     status: typeof session.status === 'string' ? session.status : '',
-    route: typeof session.route === 'string' ? session.route : '',
-    searchMode:
-      typeof session.searchMode === 'string'
-        ? session.searchMode
-        : deriveSearchModeFromRoute(typeof session.route === 'string' ? session.route : ''),
+    route: normalizedMode,
+    searchMode: normalizedMode,
     canResume: Boolean(session.canResume),
     source: inferredSource,
   }
@@ -114,11 +120,10 @@ function readSnapshot(sessionId: string, fallback?: Partial<ChatSession>): Sessi
       artifacts: Array.isArray(stored.artifacts) ? stored.artifacts : [],
       pendingInterrupt: stored.pendingInterrupt || null,
       currentStatus: String(stored.currentStatus || ''),
-      route: String(stored.route || fallback?.route || ''),
-      searchMode:
-        typeof stored.searchMode === 'string'
-          ? stored.searchMode
-          : deriveSearchModeFromRoute(String(stored.route || fallback?.route || '')),
+      route: normalizeChatMode(String(stored.route || stored.searchMode || fallback?.route || '')),
+      searchMode: normalizeChatMode(
+        String(stored.searchMode || stored.route || fallback?.searchMode || fallback?.route || ''),
+      ),
       status: String(stored.status || fallback?.status || ''),
       canResume:
         typeof stored.canResume === 'boolean'
@@ -140,8 +145,10 @@ function readSnapshot(sessionId: string, fallback?: Partial<ChatSession>): Sessi
     artifacts: [],
     pendingInterrupt: null,
     currentStatus: '',
-    route: String(fallback?.route || ''),
-    searchMode: deriveSearchModeFromRoute(String(fallback?.route || '')),
+    route: normalizeChatMode(String(fallback?.route || fallback?.searchMode || DEFAULT_CHAT_MODE)),
+    searchMode: normalizeChatMode(
+      String(fallback?.searchMode || fallback?.route || DEFAULT_CHAT_MODE),
+    ),
     status: String(fallback?.status || ''),
     canResume: Boolean(fallback?.canResume),
     updatedAt: Number(fallback?.updatedAt || now),
@@ -171,8 +178,8 @@ function buildSessionFromRemote(remote: RemoteSessionInfo, cached?: ChatSession 
     title: cached?.title || String(remote.topic || snapshotTitle || 'New Conversation'),
     summary: cached?.summary || snapshotSummary || String(remote.topic || ''),
     status: String(remote.status || ''),
-    route: String(remote.route || ''),
-    searchMode: cached?.searchMode || deriveSearchModeFromRoute(remote.route),
+    route: normalizeChatMode(String(remote.route || cached?.route || cached?.searchMode || '')),
+    searchMode: normalizeChatMode(String(cached?.searchMode || remote.route || cached?.route || '')),
     canResume:
       typeof cached?.canResume === 'boolean'
         ? cached.canResume
@@ -252,11 +259,10 @@ export function useChatHistory() {
         title,
         summary,
         status: options.status ?? existing?.status ?? '',
-        route: options.route ?? existing?.route ?? '',
-        searchMode:
-          options.searchMode ??
-          existing?.searchMode ??
-          deriveSearchModeFromRoute(options.route ?? existing?.route),
+        route: normalizeChatMode(options.route ?? existing?.route ?? DEFAULT_CHAT_MODE),
+        searchMode: normalizeChatMode(
+          options.searchMode ?? options.route ?? existing?.searchMode ?? existing?.route ?? DEFAULT_CHAT_MODE,
+        ),
         canResume:
           typeof options.canResume === 'boolean'
             ? options.canResume
@@ -280,12 +286,18 @@ export function useChatHistory() {
           typeof options.currentStatus === 'undefined'
             ? previousSnapshot?.currentStatus || ''
             : options.currentStatus,
-        route: options.route ?? previousSnapshot?.route ?? nextSession.route ?? '',
-        searchMode:
+        route: normalizeChatMode(
+          options.route ?? options.searchMode ?? previousSnapshot?.route ?? nextSession.route ?? DEFAULT_CHAT_MODE,
+        ),
+        searchMode: normalizeChatMode(
           options.searchMode ??
-          previousSnapshot?.searchMode ??
-          nextSession.searchMode ??
-          deriveSearchModeFromRoute(options.route ?? nextSession.route),
+            options.route ??
+            previousSnapshot?.searchMode ??
+            previousSnapshot?.route ??
+            nextSession.searchMode ??
+            nextSession.route ??
+            DEFAULT_CHAT_MODE,
+        ),
         status: options.status ?? previousSnapshot?.status ?? nextSession.status ?? '',
         canResume:
           typeof options.canResume === 'boolean'
@@ -331,8 +343,8 @@ export function useChatHistory() {
             artifacts: [],
             pendingInterrupt: null,
             currentStatus: '',
-            route: '',
-            searchMode: '',
+            route: DEFAULT_CHAT_MODE,
+            searchMode: DEFAULT_CHAT_MODE,
             status: '',
             canResume: false,
             updatedAt: Date.now(),
@@ -350,11 +362,11 @@ export function useChatHistory() {
             snapshot.artifacts = buildArtifactsFromSessionState(statePayload.state, sessionId)
           }
 
-          const route = String(statePayload.state.route || info?.route || snapshot.route || '').trim()
-          if (route) {
-            snapshot.route = route
-            snapshot.searchMode = deriveSearchModeFromRoute(route)
-          }
+          const route = normalizeChatMode(
+            String(statePayload.state.route || info?.route || snapshot.route || snapshot.searchMode || ''),
+          )
+          snapshot.route = route
+          snapshot.searchMode = route
         }
 
         if (interruptStatus?.is_interrupted) {
@@ -372,12 +384,10 @@ export function useChatHistory() {
 
         if (info) {
           snapshot.status = String(info.status || snapshot.status || '')
-          if (!snapshot.route) {
-            snapshot.route = String(info.route || '').trim()
-          }
-          if (!snapshot.searchMode) {
-            snapshot.searchMode = deriveSearchModeFromRoute(snapshot.route)
-          }
+          snapshot.route = normalizeChatMode(String(info.route || snapshot.route || snapshot.searchMode || ''))
+          snapshot.searchMode = normalizeChatMode(
+            String(snapshot.searchMode || snapshot.route || info.route || ''),
+          )
           snapshot.createdAt = toTimestamp(info.created_at, snapshot.createdAt)
           snapshot.updatedAt = toTimestamp(info.updated_at, snapshot.updatedAt)
         }
