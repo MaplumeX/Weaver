@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import json
 import logging
-import psycopg
 import re
 import threading
 import time
@@ -16,6 +15,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
+import psycopg
 from fastapi import (
     FastAPI,
     File,
@@ -38,8 +38,8 @@ from prometheus_client import (
     Gauge,
     generate_latest,
 )
-from pydantic import BaseModel, ConfigDict, Field, field_validator
 from psycopg.rows import dict_row
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from agent import (
@@ -77,6 +77,13 @@ from common.cancellation import TaskStatus, cancellation_manager
 from common.chat_stream_translate import translate_legacy_line_to_sse
 from common.checkpoint_ops import aget_checkpoint_tuple
 from common.config import settings
+from common.langsmith import (
+    build_langsmith_metadata,
+    build_langsmith_run_name,
+    build_langsmith_tags,
+    is_langsmith_enabled,
+    with_langsmith_context,
+)
 from common.logger import get_logger, setup_logging
 from common.metrics import metrics_registry
 from common.proxy_env import normalize_socks_proxy_env
@@ -645,6 +652,17 @@ async def startup_event():
     logger.info(f"Checkpointer: {'Enabled' if checkpointer else 'Disabled'}")
     logger.info(f"Store backend: {settings.memory_store_backend.lower().strip()}")
     logger.info(f"Store status: {_store_status}")
+    logger.info(
+        "LangSmith tracing: %s",
+        "Enabled"
+        if is_langsmith_enabled(
+            tracing=settings.langsmith_tracing,
+            api_key=settings.langsmith_api_key,
+        )
+        else "Disabled",
+    )
+    if settings.langsmith_tracing and not settings.langsmith_api_key.strip():
+        logger.warning("LangSmith tracing is enabled but LANGSMITH_API_KEY is empty")
 
     # Initialize MCP tools
     global mcp_loaded_tools, mcp_servers_config
@@ -2068,6 +2086,7 @@ def _build_agent_graph_config(
     agent_profile: Optional[AgentProfile],
     user_id: Optional[str],
     resumed_from_checkpoint: bool = False,
+    stream: Optional[bool] = None,
 ) -> Dict[str, Any]:
     configurable: Dict[str, Any] = {
         "thread_id": thread_id,
@@ -2082,7 +2101,28 @@ def _build_agent_graph_config(
     }
     if resumed_from_checkpoint:
         configurable["resumed_from_checkpoint"] = True
-    return {"configurable": configurable, "recursion_limit": 50}
+    mode = str(mode_info.get("mode") or "agent").strip() or "agent"
+    agent_id = (getattr(agent_profile, "id", "") or "").strip()
+    return with_langsmith_context(
+        {"configurable": configurable, "recursion_limit": 50},
+        run_name=build_langsmith_run_name(surface="chat", mode=mode),
+        tags=build_langsmith_tags(
+            surface="chat",
+            mode=mode,
+            stream=stream,
+            resumed_from_checkpoint=resumed_from_checkpoint,
+        ),
+        metadata=build_langsmith_metadata(
+            thread_id=thread_id,
+            user_id=configurable["user_id"],
+            model=model,
+            surface="chat",
+            mode=mode,
+            agent_id=agent_id or "default",
+            app_env=settings.app_env,
+            resumed_from_checkpoint=resumed_from_checkpoint,
+        ),
+    )
 
 
 def _build_initial_agent_state(
@@ -2733,6 +2773,19 @@ async def support_chat(request: Request, payload: SupportChatRequest):
             "user_id": user_id,
         }
         config = {"configurable": {"thread_id": user_id or "support_default"}}
+        config = with_langsmith_context(
+            config,
+            run_name=build_langsmith_run_name(surface="support", mode="support"),
+            tags=build_langsmith_tags(surface="support", mode="support", stream=False),
+            metadata=build_langsmith_metadata(
+                thread_id=user_id or "support_default",
+                user_id=state["user_id"],
+                model=settings.primary_model,
+                surface="support",
+                mode="support",
+                app_env=settings.app_env,
+            ),
+        )
         # Inject stored memories if present
         store_memories = _store_search(payload.message, user_id=state["user_id"])
         if store_memories:
@@ -2786,6 +2839,7 @@ async def stream_agent_events(
         mode_info=mode_info,
         agent_profile=agent_profile,
         user_id=user_id,
+        stream=True,
     )
     initial_state = _build_initial_agent_state(
         input_text=input_text,
@@ -2838,6 +2892,7 @@ async def stream_resumed_agent_events(
             or get_agent_profile("default"),
             user_id=user_id,
             resumed_from_checkpoint=True,
+            stream=True,
         ),
         user_id=user_id,
         execution_input=Command(resume=resume_payload),
@@ -3005,75 +3060,24 @@ async def chat(request: Request, payload: ChatRequest):
             )
         else:
             # Non-streaming response (fallback)
-            initial_state: AgentState = {
-                "input": last_message,
-                "images": _normalize_images_payload(payload.images),
-                "needs_clarification": False,
-                "tool_approved": False,
-                "pending_tool_calls": [],
-                "user_id": user_id,
-                "messages": [],
-                "research_plan": [],
-                "current_step": 0,
-                "scraped_content": [],
-                "code_results": [],
-                "final_report": "",
-                "draft_report": "",
-                "evaluation": "",
-                "verdict": "",
-                "route": mode_info.get("mode", "agent"),
-                "revision_count": 0,
-                "max_revisions": settings.max_revisions,
-                "is_complete": False,
-                "errors": [],
-                "sub_agent_contexts": {},
-                "deep_runtime": {
-                    "engine": (
-                        SUPPORTED_DEEP_RESEARCH_RUNTIME if mode_info.get("mode") == "deep" else ""
-                    ),
-                    "task_queue": {},
-                    "artifact_store": {},
-                    "runtime_state": {},
-                    "agent_runs": [],
-                },
-            }
-
-            messages: list[Any] = []
-            if mode_info.get("mode") == "agent" and agent_profile and agent_profile.system_prompt:
-                messages.append(SystemMessage(content=agent_profile.system_prompt))
-            if mode_info.get("mode") == "deep":
-                messages.append(SystemMessage(content=get_deep_agent_prompt()))
-
-            store_memories = _store_search(last_message, user_id=user_id)
-            if store_memories:
-                store_text = "\n".join(f"- {m}" for m in store_memories)
-                messages.append(SystemMessage(content=f"Stored memories:\n{store_text}"))
-
-            mem_entries = fetch_memories(query=last_message, user_id=user_id)
-            if mem_entries:
-                memory_text = "\n".join(f"- {m}" for m in mem_entries)
-                messages.append(SystemMessage(content=f"Relevant past knowledge:\n{memory_text}"))
-
-            if messages:
-                initial_state["messages"] = messages
-
-            config = {
-                "configurable": {
-                    "thread_id": "default",
-                    "model": model,
-                    "search_mode": mode_info,
-                    "agent_profile": agent_profile.model_dump(mode="json")
-                    if agent_profile
-                    else None,
-                    "user_id": user_id,
-                    "allow_interrupts": bool(checkpointer),
-                    "tool_approval": settings.tool_approval or False,
-                    "human_review": settings.human_review or False,
-                    "max_revisions": settings.max_revisions,
-                },
-                "recursion_limit": 50,
-            }
             thread_id = thread_id or f"thread_{uuid.uuid4().hex}"
+            set_thread_owner(thread_id, principal_id or "anonymous")
+            initial_state = _build_initial_agent_state(
+                input_text=last_message,
+                thread_id=thread_id,
+                mode_info=mode_info,
+                images=_normalize_images_payload(payload.images),
+                user_id=user_id,
+                agent_profile=agent_profile,
+            )
+            config = _build_agent_graph_config(
+                thread_id=thread_id,
+                model=model,
+                mode_info=mode_info,
+                agent_profile=agent_profile,
+                user_id=user_id,
+                stream=False,
+            )
             metrics = metrics_registry.start(
                 thread_id, model=model, route=mode_info.get("mode", "agent")
             )
@@ -3137,6 +3141,7 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
         agent_profile=agent_profile,
         user_id=user_id,
         resumed_from_checkpoint=True,
+        stream=payload.stream,
     )
 
     try:

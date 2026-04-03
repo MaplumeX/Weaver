@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from common.langsmith import sync_langsmith_env
 from common.proxy_env import normalize_socks_proxy_env
 
 try:
@@ -267,6 +268,11 @@ class Settings(BaseSettings):
     enable_tracing: bool = False  # Enable LLM call tracing
     trace_buffer_size: int = 1000  # Max traces to keep in memory
     otlp_endpoint: str = ""  # Optional OTLP exporter endpoint
+    langsmith_tracing: bool = False  # Enable LangSmith tracing for LangChain/LangGraph
+    langsmith_api_key: str = ""
+    langsmith_project: str = "weaver"
+    langsmith_endpoint: str = ""
+    langsmith_workspace_id: str = ""
 
     # Model Config
     primary_model: str = "deepseek-chat"
@@ -729,3 +735,10 @@ except Exception:
 
 settings = Settings()
 apply_app_config_overrides(settings)
+sync_langsmith_env(
+    tracing=settings.langsmith_tracing,
+    api_key=settings.langsmith_api_key,
+    project=settings.langsmith_project,
+    endpoint=settings.langsmith_endpoint,
+    workspace_id=settings.langsmith_workspace_id,
+)

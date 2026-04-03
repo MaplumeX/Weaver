@@ -5,7 +5,6 @@ Generates embeddings using OpenAI API or compatible endpoints.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +27,9 @@ class Embedder:
     def __init__(
         self,
         model: str = "text-embedding-3-small",
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        dimensions: Optional[int] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        dimensions: int | None = None,
     ):
         """
         Initialize the embedder.
@@ -47,6 +46,7 @@ class Embedder:
             )
 
         from common.config import settings
+        from common.langsmith import wrap_openai_client
 
         self.model = model
         self.dimensions = dimensions
@@ -57,9 +57,9 @@ class Embedder:
         if base_url or settings.openai_base_url:
             client_kwargs["base_url"] = base_url or settings.openai_base_url
 
-        self.client = OpenAI(**client_kwargs)
+        self.client = wrap_openai_client(OpenAI(**client_kwargs))
 
-    def embed(self, texts: List[str]) -> List[List[float]]:
+    def embed(self, texts: list[str]) -> list[list[float]]:
         """
         Generate embeddings for a list of texts.
 
@@ -96,7 +96,7 @@ class Embedder:
 
         return all_embeddings
 
-    def embed_single(self, text: str) -> List[float]:
+    def embed_single(self, text: str) -> list[float]:
         """
         Generate embedding for a single text.
 
@@ -109,7 +109,7 @@ class Embedder:
         embeddings = self.embed([text])
         return embeddings[0] if embeddings else []
 
-    def embed_query(self, query: str) -> List[float]:
+    def embed_query(self, query: str) -> list[float]:
         """
         Embed a search query.
 
@@ -124,7 +124,7 @@ class Embedder:
         """
         return self.embed_single(query)
 
-    def embed_documents(self, documents: List[str]) -> List[List[float]]:
+    def embed_documents(self, documents: list[str]) -> list[list[float]]:
         """
         Embed a list of documents.
 
