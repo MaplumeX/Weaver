@@ -186,6 +186,29 @@ class _FakeVerifier:
         )
 
 
+class _GapingVerifier:
+    def __init__(self, _llm, _config=None):
+        pass
+
+    def analyze(self, topic, executed_queries, collected_knowledge):
+        return multi_agent_runtime.GapAnalysisResult.from_dict(
+            {
+                "overall_coverage": 0.32,
+                "confidence": 0.64,
+                "gaps": [
+                    {
+                        "aspect": f"{topic} acceptance criteria",
+                        "importance": "high",
+                        "reason": "critical evidence is still missing",
+                    }
+                ],
+                "suggested_queries": [f"{topic} follow-up evidence"],
+                "covered_aspects": [],
+                "analysis": "coverage is still incomplete",
+            }
+        )
+
+
 class _FakeReporter:
     def __init__(self, _llm, _config=None):
         pass
@@ -273,6 +296,11 @@ class _FlakyResearchAgent(_FakeResearchAgent):
         if not results:
             return f"{topic} -> no results yet"
         return super().summarize_findings(topic, results, existing_summary=existing_summary)
+
+
+class _IncompleteResearchAgent(_FakeResearchAgent):
+    def summarize_findings(self, topic, results, existing_summary=""):
+        return f"{topic} -> partial notes only"
 
 
 @pytest.fixture(autouse=True)
@@ -808,6 +836,89 @@ def test_multi_agent_runtime_honors_max_epochs_even_if_supervisor_wants_dispatch
     decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
     assert "research" in decision_types
     assert "report" in decision_types
+
+
+def test_multi_agent_runtime_stops_when_replan_produces_no_new_tasks(monkeypatch):
+    emitter = _DummyEmitter()
+
+    class _ReplanWithoutTasksSupervisor(_SingleTaskSupervisor):
+        def decide_next_action(self, **kwargs):
+            if int(kwargs.get("ready_task_count") or 0) > 0:
+                return SupervisorDecision(
+                    action=SupervisorAction.DISPATCH,
+                    reasoning="dispatch ready branches",
+                    request_ids=list(kwargs.get("request_ids") or []),
+                )
+            return SupervisorDecision(
+                action=SupervisorAction.REPLAN,
+                reasoning="coverage still incomplete, replan instead",
+                request_ids=list(kwargs.get("request_ids") or []),
+            )
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _ReplanWithoutTasksSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _IncompleteResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _GapingVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    result = run_multi_agent_deep_research(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+            {
+                "configurable": {
+                    "thread_id": "thread_replan_empty",
+                    "deep_research_query_num": 1,
+                    "deep_research_max_epochs": 3,
+                }
+            },
+        )
+
+    runtime_state = result["deep_runtime"]["runtime_state"]
+    assert runtime_state["terminal_status"] == "blocked"
+    assert "重规划未生成新的 branch 研究任务" in runtime_state["terminal_reason"]
+    assert "Deep Research 未能完成" in result["final_report"]
+    assert result["deep_runtime"]["artifact_store"]["final_report"] is None
+
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    assert "coverage_gap_detected" in decision_types or "verification_retry_requested" in decision_types
+    assert "stop" in decision_types
+
+
+def test_multi_agent_runtime_stops_when_outline_is_blocked_after_report_decision(monkeypatch):
+    emitter = _DummyEmitter()
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _IncompleteResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _GapingVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    result = run_multi_agent_deep_research(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_outline_blocked_report",
+                "deep_research_query_num": 1,
+                "deep_research_max_epochs": 1,
+                "deep_research_parallel_workers": 1,
+            }
+        },
+    )
+
+    runtime_state = result["deep_runtime"]["runtime_state"]
+    assert runtime_state["terminal_status"] == "blocked"
+    assert "outline 仍存在阻塞性缺口" in runtime_state["terminal_reason"]
+    assert "Deep Research 未能完成" in result["final_report"]
+    assert result["deep_runtime"]["artifact_store"]["outline"]["is_ready"] is False
+
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    assert "report" in decision_types
+    assert "outline_gap_detected" in decision_types
 
 
 def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):

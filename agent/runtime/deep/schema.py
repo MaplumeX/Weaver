@@ -89,6 +89,8 @@ class GraphScopeSnapshot(TypedDict, total=False):
     task_queue_stats: dict[str, Any]
     artifact_counts: dict[str, Any]
     final_status: str
+    terminal_status: str
+    terminal_reason: str
 
 
 class BranchScopeSnapshot(TypedDict, total=False):

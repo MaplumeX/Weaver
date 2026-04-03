@@ -120,6 +120,18 @@ def _dedupe_texts(values: list[Any] | None) -> list[str]:
     return deduped
 
 
+def _append_shared_error(shared_state: dict[str, Any], message: str) -> None:
+    reason = str(message or "").strip()
+    if not reason:
+        return
+    existing = shared_state.get("errors")
+    if not isinstance(existing, list):
+        existing = []
+        shared_state["errors"] = existing
+    if reason not in existing:
+        existing.append(reason)
+
+
 def _coverage_dimensions_from_brief(brief: ResearchBriefArtifact | dict[str, Any] | None) -> list[str]:
     if not brief:
         return []
@@ -570,6 +582,8 @@ class _RuntimeView:
         self.runtime_state.setdefault("pending_scope_feedback", "")
         self.runtime_state.setdefault("current_scope_draft", {})
         self.runtime_state.setdefault("approved_scope_draft", {})
+        self.runtime_state.setdefault("terminal_status", "")
+        self.runtime_state.setdefault("terminal_reason", "")
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.owner, name)
@@ -606,6 +620,22 @@ class _RuntimeView:
     @budget_stop_reason.setter
     def budget_stop_reason(self, value: str | None) -> None:
         self.runtime_state["budget_stop_reason"] = str(value or "")
+
+    @property
+    def terminal_status(self) -> str:
+        return str(self.runtime_state.get("terminal_status") or "").strip()
+
+    @property
+    def terminal_reason(self) -> str:
+        return str(self.runtime_state.get("terminal_reason") or "").strip()
+
+    def set_terminal_state(self, *, status: str, reason: str) -> None:
+        normalized_status = str(status or "").strip()
+        normalized_reason = str(reason or "").strip()
+        self.runtime_state["terminal_status"] = normalized_status
+        self.runtime_state["terminal_reason"] = normalized_reason
+        if normalized_reason:
+            _append_shared_error(self.shared_state, normalized_reason)
 
     def next_agent_id(self, role: str) -> str:
         counters = self.runtime_state.setdefault("role_counters", {})
@@ -751,7 +781,12 @@ class _RuntimeView:
                 "report_section_drafts": len(self.artifact_store.section_drafts()),
                 "has_final_report": self.artifact_store.final_report() is not None,
             },
-            "final_status": "completed" if self.artifact_store.final_report() else "running",
+            "final_status": (
+                self.terminal_status
+                or ("completed" if self.artifact_store.final_report() else "running")
+            ),
+            "terminal_status": self.terminal_status,
+            "terminal_reason": self.terminal_reason,
         }
         branch_scopes = [
             {
@@ -880,6 +915,8 @@ class _RuntimeView:
             "pending_scope_feedback": str(self.runtime_state.get("pending_scope_feedback") or ""),
             "current_scope_draft": copy.deepcopy(self.runtime_state.get("current_scope_draft", {})),
             "approved_scope_draft": copy.deepcopy(self.runtime_state.get("approved_scope_draft", {})),
+            "terminal_status": self.terminal_status,
+            "terminal_reason": self.terminal_reason,
             "scope_summary": self._scope_summary(),
         }
 
@@ -2094,6 +2131,70 @@ class MultiAgentDeepResearchRuntime:
                 context_id=context_id,
                 branch_id=view.root_branch_id,
             )
+            if not tasks:
+                terminal_reason = (
+                    "结构化验证仍存在缺口，但重规划未生成新的 branch 研究任务，Deep Research 在当前约束下无法继续收敛"
+                    if planning_mode == "replan"
+                    else "research brief 已就绪，但未生成任何可执行的 branch 研究任务"
+                )
+                view.set_terminal_state(status="blocked", reason=terminal_reason)
+                decision_type = "stop"
+                view._emit_decision(
+                    decision_type=decision_type,
+                    reason=terminal_reason,
+                    iteration=view.current_iteration or None,
+                    attempt=view.graph_attempt,
+                )
+                decision_artifact = view.record_supervisor_decision(
+                    phase=phase,
+                    decision_type=decision_type,
+                    summary=terminal_reason,
+                    next_step="finalize",
+                    planning_mode="",
+                    request_ids=list(view.runtime_state.get("supervisor_request_ids") or []),
+                    metadata={
+                        "scope_id": approved_scope.get("id"),
+                        "scope_version": approved_scope.get("version"),
+                        "research_brief_id": research_brief.id,
+                        "task_count": 0,
+                    },
+                )
+                view.sync_task_ledger(
+                    reason="supervisor 未生成新的 branch 任务，保留当前 ledger 供终态诊断",
+                    created_by="supervisor",
+                )
+                view.sync_progress_ledger(
+                    phase=phase,
+                    reason=terminal_reason,
+                    created_by="supervisor",
+                    decision={
+                        "id": decision_artifact.id,
+                        "decision_type": decision_type,
+                        "reasoning": terminal_reason,
+                        "task_ids": [],
+                    },
+                    outline_status=str(view.runtime_state.get("outline_status") or "pending"),
+                    stop_reason=terminal_reason,
+                )
+                view.runtime_state["supervisor_request_ids"] = []
+                view.finish_agent_run(
+                    record,
+                    status="completed",
+                    summary=terminal_reason,
+                    iteration=view.current_iteration or None,
+                    branch_id=view.root_branch_id,
+                )
+                return view.snapshot_patch(
+                    next_step="finalize",
+                    planning_mode="",
+                    latest_decision={
+                        "id": decision_artifact.id,
+                        "decision_type": decision_type,
+                        "reasoning": terminal_reason,
+                        "next_step": "finalize",
+                        "planning_mode": "",
+                    },
+                )
             if tasks:
                 input_ids = [
                     research_brief.id,
@@ -2268,6 +2369,12 @@ class MultiAgentDeepResearchRuntime:
         if not payloads:
             return "verify"
         return [Send("researcher", {"worker_task": payload}) for payload in payloads]
+
+    def _route_after_supervisor_plan(self, graph_state: MultiAgentGraphState) -> str:
+        next_step = str(graph_state.get("next_step") or "dispatch").strip().lower()
+        if next_step in {"scope_review", "research_brief", "dispatch", "finalize"}:
+            return next_step
+        return "dispatch"
 
     def _try_researcher_tool_agent(
         self,
@@ -4085,6 +4192,7 @@ class MultiAgentDeepResearchRuntime:
                 if outline_artifact and outline_artifact.is_ready and not outline_artifact.blocking_gaps
                 else "outline_gate"
             )
+            terminal_reason: str | None = None
             planning_mode = ""
             metadata: dict[str, Any] = {}
             if decision.action == SupervisorAction.RETRY_BRANCH:
@@ -4108,7 +4216,17 @@ class MultiAgentDeepResearchRuntime:
                             attempt=retried_task.attempts,
                             reason="verification_follow_up",
                         )
-                next_step = "dispatch" if ready_for_retry else "outline_gate"
+                if ready_for_retry:
+                    next_step = "dispatch"
+                elif gap_result and gap_result.gaps and not view.budget_stop_reason:
+                    next_step = "supervisor_plan"
+                    planning_mode = "replan"
+                    metadata["retry_fallback"] = "replan"
+                else:
+                    next_step = "finalize"
+                    terminal_reason = (
+                        "branch 验证要求补证据，但所有候选任务都已达到重试上限，且当前没有可继续执行的研究分支"
+                    )
                 latest_decision["retry_task_ids"] = [task.id for task in ready_for_retry]
                 metadata["retry_task_ids"] = latest_decision["retry_task_ids"]
             elif decision.action == SupervisorAction.PLAN:
@@ -4136,6 +4254,16 @@ class MultiAgentDeepResearchRuntime:
                     else "outline_gate"
                 )
 
+            outline_ready = bool(
+                outline_artifact and outline_artifact.is_ready and not outline_artifact.blocking_gaps
+            )
+            outline_blocked = bool(outline_artifact and not outline_ready)
+            if decision.action in {SupervisorAction.REPORT, SupervisorAction.STOP} and outline_blocked:
+                next_step = "finalize"
+                terminal_reason = (
+                    f"{decision.reasoning}；outline 仍存在阻塞性缺口，无法生成最终报告"
+                )
+
             for request in open_requests:
                 resolved_status = "accepted" if request.id in decision.request_ids else request.status
                 updated = view.artifact_store.update_coordination_request_status(
@@ -4155,6 +4283,10 @@ class MultiAgentDeepResearchRuntime:
                         stage="loop_decision",
                         extra={"request_type": updated.request_type},
                     )
+
+            if terminal_reason:
+                metadata["terminal_reason"] = terminal_reason
+                view.set_terminal_state(status="blocked", reason=terminal_reason)
 
             decision_artifact = view.record_supervisor_decision(
                 phase="loop_decision",
@@ -4184,8 +4316,13 @@ class MultiAgentDeepResearchRuntime:
                     "next_step": next_step,
                 },
                 verification_summary=verification_summary,
-                outline_status="ready" if outline_artifact and outline_artifact.is_ready else "pending",
-                stop_reason=decision.reasoning if decision.action == SupervisorAction.STOP else None,
+                outline_status=(
+                    "blocked"
+                    if terminal_reason or outline_blocked
+                    else ("ready" if outline_ready else "pending")
+                ),
+                stop_reason=terminal_reason
+                or (decision.reasoning if decision.action == SupervisorAction.STOP else None),
             )
             view.finish_agent_run(
                 record,
@@ -4216,7 +4353,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _route_after_supervisor_decide(self, graph_state: MultiAgentGraphState) -> str:
         next_step = str(graph_state.get("next_step") or "report").strip().lower()
-        if next_step in {"supervisor_plan", "dispatch", "outline_gate", "report"}:
+        if next_step in {"supervisor_plan", "dispatch", "outline_gate", "report", "finalize"}:
             return next_step
         return "outline_gate"
 
@@ -4520,6 +4657,12 @@ class MultiAgentDeepResearchRuntime:
         final_artifact = view.artifact_store.final_report()
         report_text = final_artifact.report_markdown if final_artifact else ""
         executive_summary = final_artifact.executive_summary if final_artifact else ""
+        terminal_status = view.terminal_status
+        terminal_reason = view.terminal_reason
+        if not report_text and terminal_reason:
+            report_text = f"Deep Research 未能完成：{terminal_reason}"
+        if not executive_summary and terminal_status == "blocked":
+            executive_summary = "Deep Research 已停止"
         evidence_cards = view.artifact_store.evidence_cards()
         quality_summary = view._quality_summary(gap_result)
         sources = support._compact_sources(
@@ -4580,6 +4723,8 @@ class MultiAgentDeepResearchRuntime:
             "messages": messages,
             "is_complete": False,
             "budget_stop_reason": view.budget_stop_reason,
+            "terminal_status": terminal_status,
+            "terminal_reason": terminal_reason,
             "errors": view.shared_state.get("errors", []),
             "sub_agent_contexts": view.shared_state.get("sub_agent_contexts", {}),
         }
@@ -4632,7 +4777,11 @@ class MultiAgentDeepResearchRuntime:
             ["scope", "research_brief"],
         )
         workflow.add_edge("research_brief", "supervisor_plan")
-        workflow.add_edge("supervisor_plan", "dispatch")
+        workflow.add_conditional_edges(
+            "supervisor_plan",
+            self._route_after_supervisor_plan,
+            ["scope_review", "research_brief", "dispatch", "finalize"],
+        )
         workflow.add_conditional_edges(
             "dispatch",
             self._route_after_dispatch,
@@ -4644,14 +4793,15 @@ class MultiAgentDeepResearchRuntime:
         workflow.add_conditional_edges(
             "supervisor_decide",
             self._route_after_supervisor_decide,
-            ["supervisor_plan", "dispatch", "outline_gate", "report"],
+            ["supervisor_plan", "dispatch", "outline_gate", "report", "finalize"],
         )
         workflow.add_conditional_edges(
             "outline_gate",
             lambda graph_state: str(graph_state.get("next_step") or "report").strip().lower()
-            if str(graph_state.get("next_step") or "report").strip().lower() in {"supervisor_decide", "report"}
+            if str(graph_state.get("next_step") or "report").strip().lower()
+            in {"supervisor_decide", "report", "finalize"}
             else "report",
-            ["supervisor_decide", "report"],
+            ["supervisor_decide", "report", "finalize"],
         )
         workflow.add_edge("report", "finalize")
         workflow.add_edge("finalize", END)

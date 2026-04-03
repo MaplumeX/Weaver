@@ -246,7 +246,9 @@ def build_public_deep_research_artifacts(
     claims = _normalize_claims(store_snapshot, passages_by_id)
     merged_quality = _merge_quality_summary(quality_summary, claims)
     query_coverage_score = merged_quality.get("query_coverage_score")
-    final_report = store_snapshot.get("final_report", {}) if isinstance(store_snapshot, dict) else {}
+    final_report = store_snapshot.get("final_report") if isinstance(store_snapshot, dict) else {}
+    if not isinstance(final_report, dict):
+        final_report = {}
     freshness_summary = merged_quality.get("freshness_summary")
     if not isinstance(freshness_summary, dict):
         freshness_summary = {}
