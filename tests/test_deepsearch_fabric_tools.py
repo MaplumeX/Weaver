@@ -203,3 +203,34 @@ def test_fabric_search_rejects_budget_exhaustion():
 
     with pytest.raises(RuntimeError, match="search_budget_exceeded"):
         tools["fabric_search"].invoke({"query": "AI chips", "max_results": 1})
+
+
+def test_verifier_submission_requires_contract_addressable_ids():
+    runtime = _FakeRuntime()
+    task = _make_task()
+    session = DeepResearchToolAgentSession(
+        runtime=runtime,
+        role="verifier",
+        topic="AI chips",
+        graph_run_id="graph-1",
+        branch_id=task.branch_id,
+        task=task,
+        allowed_capabilities={"search", "read", "extract"},
+    )
+
+    with pytest.raises(ValueError, match="claim_check submissions must include claim_ids"):
+        session.submit_verification_bundle(
+            validation_stage="claim_check",
+            outcome="passed",
+            summary="claim_check passed",
+            recommended_action="report",
+        )
+
+    with pytest.raises(ValueError, match="coverage_check submissions must include obligation_ids"):
+        session.submit_verification_bundle(
+            validation_stage="coverage_check",
+            outcome="passed",
+            summary="coverage_check passed",
+            recommended_action="report",
+            claim_ids=["claim-1"],
+        )

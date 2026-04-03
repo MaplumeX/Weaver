@@ -213,20 +213,53 @@ class _FakeReporter:
     def __init__(self, _llm, _config=None):
         pass
 
-    def generate_report(self, topic, findings, sources):
-        lines = "\n".join(f"- {source}" for source in sources)
-        return f"# {topic}\n\n" + "\n".join(findings) + f"\n\n参考来源\n{lines}"
+    def generate_report(self, topic_or_context, findings=None, sources=None):
+        if hasattr(topic_or_context, "topic"):
+            topic = topic_or_context.topic
+            sections = []
+            for section in topic_or_context.sections:
+                section_body = section.summary
+                if section.findings:
+                    section_body = f"{section_body}\n\n- " + "\n- ".join(section.findings)
+                sections.append(f"## {section.title}\n\n{section_body}")
+            return f"# {topic}\n\n" + "\n\n".join(sections)
+        topic = topic_or_context
+        lines = "\n".join(f"- {source}" for source in sources or [])
+        return f"# {topic}\n\n" + "\n".join(findings or []) + f"\n\n参考来源\n{lines}"
+
+    def normalize_report(self, report, sources, title=None):
+        urls = []
+        for source in sources or []:
+            if hasattr(source, "url") and source.url:
+                urls.append(source.url)
+        normalized = report
+        if title and not report.lstrip().startswith("#"):
+            normalized = f"# {title}\n\n{report}"
+        if urls:
+            normalized = normalized.rstrip() + "\n\n## 来源\n\n" + "\n".join(
+                f"[{index}] {url}" for index, url in enumerate(urls, 1)
+            )
+        return normalized, urls
 
     def generate_executive_summary(self, report, topic):
         return f"{topic} executive summary"
 
 
 class _StrictReporter(_FakeReporter):
-    def generate_report(self, topic, findings, sources):
+    def generate_report(self, topic_or_context, findings=None, sources=None):
+        topic = topic_or_context.topic if hasattr(topic_or_context, "topic") else topic_or_context
         raise AssertionError(f"reporter fallback should not run for {topic}")
 
     def generate_executive_summary(self, report, topic):
         raise AssertionError(f"reporter fallback should not run for {topic}")
+
+
+class _ContextCheckingReporter(_FakeReporter):
+    def generate_report(self, topic_or_context, findings=None, sources=None):
+        assert hasattr(topic_or_context, "sections")
+        assert topic_or_context.sections
+        assert topic_or_context.sources
+        return super().generate_report(topic_or_context, findings=findings, sources=sources)
 
 
 class _SingleTaskSupervisor(_FakeSupervisor):
@@ -301,6 +334,11 @@ class _FlakyResearchAgent(_FakeResearchAgent):
 class _IncompleteResearchAgent(_FakeResearchAgent):
     def summarize_findings(self, topic, results, existing_summary=""):
         return f"{topic} -> partial notes only"
+
+
+class _CompleteCriteriaResearchAgent(_FakeResearchAgent):
+    def summarize_findings(self, topic, results, existing_summary=""):
+        return f"Explain the current state of {topic} aspect 1"
 
 
 @pytest.fixture(autouse=True)
@@ -788,11 +826,19 @@ def test_multi_agent_runtime_uses_tool_agent_paths_when_enabled(monkeypatch):
             validation_stage = "claim_check"
             if session.task and session.task.stage == "coverage_check":
                 validation_stage = "coverage_check"
+            claim_ids = [item.id for item in session.claim_units]
+            obligation_ids = [
+                str(item.get("id") or "").strip()
+                for item in session.related_artifacts.get("coverage_obligations", [])
+                if isinstance(item, dict) and str(item.get("id") or "").strip()
+            ]
             session.submit_verification_bundle(
                 validation_stage=validation_stage,
                 outcome="passed",
                 summary=f"{validation_stage} passed",
                 recommended_action="report",
+                claim_ids=claim_ids if validation_stage == "claim_check" else None,
+                obligation_ids=obligation_ids if validation_stage == "coverage_check" else None,
             )
         elif session.role == "reporter":
             session.submit_report_bundle(
@@ -824,11 +870,54 @@ def test_multi_agent_runtime_uses_tool_agent_paths_when_enabled(monkeypatch):
     )
 
     assert result["deep_runtime"]["artifact_store"]["final_report"]["executive_summary"] == "tool-agent summary"
+    assert "## 来源" in result["deep_runtime"]["artifact_store"]["final_report"]["report_markdown"]
     assert {role for role, _task_id in bounded_roles} >= {"researcher", "verifier", "reporter"}
     assert any(
         item["submission_kind"] == "report_bundle"
         for item in result["deep_runtime"]["artifact_store"]["submissions"]
     )
+
+
+def test_multi_agent_runtime_allows_advisory_gaps_without_blocking_report(monkeypatch):
+    emitter = _DummyEmitter()
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _CompleteCriteriaResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _GapingVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _ContextCheckingReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    result = run_multi_agent_deep_research(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_advisory_gaps_non_blocking",
+                "deep_research_query_num": 1,
+                "deep_research_max_epochs": 1,
+                "deep_research_parallel_workers": 1,
+            }
+        },
+    )
+
+    artifact_store = result["deep_runtime"]["artifact_store"]
+    runtime_state = result["deep_runtime"]["runtime_state"]
+
+    assert result["is_complete"] is True
+    assert artifact_store["outline"]["is_ready"] is True
+    assert artifact_store["missing_evidence_list"]["items"] == []
+    assert len(artifact_store["knowledge_gaps"]) == 1
+    assert artifact_store["knowledge_gaps"][0]["advisory"] is True
+    assert runtime_state["last_verification_summary"]["blocking_verification_debt_count"] == 0
+    assert runtime_state["last_verification_summary"]["advisory_gap_count"] == 1
+    assert "## 来源" in artifact_store["final_report"]["report_markdown"]
+    assert "[1]" in artifact_store["final_report"]["report_markdown"]
+
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    assert "verification_passed" in decision_types
+    assert "report" in decision_types
 
 
 def test_multi_agent_dispatch_stops_when_search_budget_is_exhausted(monkeypatch):

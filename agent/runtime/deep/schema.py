@@ -716,6 +716,7 @@ class KnowledgeGap:
     branch_id: str | None = None
     suggested_queries: list[str] = field(default_factory=list)
     related_task_ids: list[str] = field(default_factory=list)
+    advisory: bool = True
     status: ArtifactStatus = "created"
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)

@@ -86,6 +86,12 @@
 - **THEN** 它 MUST 通过结构化 findings、issues 或受限 request 把控制权交回 `supervisor`
 - **THEN** 它 MUST NOT 直接绕过 graph 创建新的 task topology
 
+#### Scenario: Verifier tool-agent submits contract-addressable verdicts
+- **WHEN** bounded verifier tool-agent 提交 claim 或 coverage 裁决
+- **THEN** 它 MUST 在提交中显式引用相关的 `claim_ids`、`obligation_ids`、`consistency_result_ids` 或 `issue_ids`
+- **THEN** 若它声称某个 coverage 检查通过，系统 MUST 能追溯该通过结论对应了哪些 obligations 与哪些证据引用
+- **THEN** 系统 MUST NOT 接受一个未绑定具体 contracts 的 blanket `passed` 裁决并据此把整条 branch 的 obligations 一次性改写为 satisfied
+
 ### Requirement: Supervisor owns revision routing decisions
 系统 MUST 让 `supervisor` 成为唯一可以决定 patch existing branch、spawn follow-up branch、spawn counterevidence branch 或 bounded stop 的控制平面角色。
 

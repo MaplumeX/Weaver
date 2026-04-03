@@ -1,6 +1,5 @@
-## Purpose
-定义 Deep Research 中由结构化 verification issues 驱动的 branch 修订闭环、修订简报和 lineage 追踪契约。
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Verification issues reopen bounded branch revision loops
 系统 MUST 让结构化 verification issues 重新打开受控 branch revision loop，而不是把所有验证失败折叠为泛化的重试或全局 replan。
 
@@ -36,16 +35,3 @@
 - **WHEN** 某个 `CoverageObligation` 被判定为 `partially_satisfied` 且不存在与之关联的 blocking contradiction 或 unresolved claim debt
 - **THEN** 系统 MUST 默认将由此派生的 follow-up 视为 non-blocking revision work
 - **THEN** 只有在 `supervisor` 明确升级该风险时，它才 MAY 阻断最终报告
-
-### Requirement: Revision lineage is preserved end-to-end
-系统 MUST 保留 branch revision 的 lineage，使任务、artifact、事件和最终报告都能追踪问题如何被修复、替代或保留。
-
-#### Scenario: Branch is revised in place
-- **WHEN** 同一 `branch_id` 在后续轮次中进入修订
-- **THEN** 系统 MUST 为新的 revision task 保留与原 branch 的 lineage 关联
-- **THEN** 客户端和测试 MUST 能看到该修订解决了哪些 issue，以及仍有哪些 issue 未解决
-
-#### Scenario: Follow-up work resolves prior issues
-- **WHEN** 某个 follow-up 或 counterevidence branch 成功解决上游 issue
-- **THEN** 系统 MUST 记录 issue resolution 与 source branch / target branch 之间的关联
-- **THEN** `supervisor` 与 `reporter` MUST 能判断最终被采纳的是原结论、修订结论还是保留争议的并行结论

@@ -86,6 +86,97 @@ def _criterion_is_covered(summary: str, criterion: str) -> bool:
     return matches >= max(1, min(2, len(tokens)))
 
 
+def _normalize_ids(values: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        normalized.append(item)
+    return normalized
+
+
+def _related_contract_ids(session: "DeepResearchToolAgentSession", artifact_key: str) -> set[str]:
+    if artifact_key == "claim_ids":
+        values = [item.id for item in session.claim_units if item.id]
+        if not values and session.branch_synthesis:
+            values = [item for item in session.branch_synthesis.claim_ids if item]
+        if not values:
+            values = [
+                str(item.get("id") or "").strip()
+                for item in session.related_artifacts.get("claim_units", [])
+                if isinstance(item, dict)
+            ]
+        return {item for item in values if item}
+    field_map = {
+        "obligation_ids": "coverage_obligations",
+        "consistency_result_ids": "consistency_results",
+        "issue_ids": "revision_issues",
+    }
+    artifact_name = field_map.get(artifact_key, "")
+    if not artifact_name:
+        return set()
+    return {
+        str(item.get("id") or "").strip()
+        for item in session.related_artifacts.get(artifact_name, [])
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    }
+
+
+def _validate_verifier_contract_submission(
+    session: "DeepResearchToolAgentSession",
+    *,
+    validation_stage: str,
+    claim_ids: list[str] | None,
+    obligation_ids: list[str] | None,
+    consistency_result_ids: list[str] | None,
+    issue_ids: list[str] | None,
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    normalized_claim_ids = _normalize_ids(claim_ids)
+    normalized_obligation_ids = _normalize_ids(obligation_ids)
+    normalized_consistency_ids = _normalize_ids(consistency_result_ids)
+    normalized_issue_ids = _normalize_ids(issue_ids)
+
+    stage_requirements = {
+        "claim_check": ("claim_ids", normalized_claim_ids),
+        "coverage_check": ("obligation_ids", normalized_obligation_ids),
+        "consistency_check": ("consistency_result_ids", normalized_consistency_ids),
+    }
+    required = stage_requirements.get(str(validation_stage or "").strip())
+    if required is not None and not required[1]:
+        raise ValueError(f"{validation_stage} submissions must include {required[0]}")
+
+    if not any(
+        (
+            normalized_claim_ids,
+            normalized_obligation_ids,
+            normalized_consistency_ids,
+            normalized_issue_ids,
+        )
+    ):
+        raise ValueError("verifier submissions must reference claim_ids, obligation_ids, consistency_result_ids, or issue_ids")
+
+    for field_name, values in (
+        ("claim_ids", normalized_claim_ids),
+        ("obligation_ids", normalized_obligation_ids),
+        ("consistency_result_ids", normalized_consistency_ids),
+        ("issue_ids", normalized_issue_ids),
+    ):
+        known_ids = _related_contract_ids(session, field_name)
+        if known_ids and not set(values).issubset(known_ids):
+            unknown_ids = sorted(set(values) - known_ids)
+            raise ValueError(f"{field_name} contains unknown ids: {unknown_ids}")
+
+    return (
+        normalized_claim_ids,
+        normalized_obligation_ids,
+        normalized_consistency_ids,
+        normalized_issue_ids,
+    )
+
+
 @dataclass
 class DeepResearchToolAgentSession:
     runtime: Any
@@ -333,6 +424,19 @@ class DeepResearchToolAgentSession:
         consistency_result_ids: list[str] | None = None,
         issue_ids: list[str] | None = None,
     ) -> tuple[VerificationResult, ResearchSubmission]:
+        (
+            normalized_claim_ids,
+            normalized_obligation_ids,
+            normalized_consistency_ids,
+            normalized_issue_ids,
+        ) = _validate_verifier_contract_submission(
+            self,
+            validation_stage=validation_stage,
+            claim_ids=claim_ids,
+            obligation_ids=obligation_ids,
+            consistency_result_ids=consistency_result_ids,
+            issue_ids=issue_ids,
+        )
         verification = VerificationResult(
             id=support._new_id("verification"),
             task_id=self.task.id if self.task else "",
@@ -346,7 +450,14 @@ class DeepResearchToolAgentSession:
             evidence_passage_ids=list(evidence_passage_ids or []),
             gap_ids=list(gap_ids or []),
             created_by=self.role,
-            metadata={"graph_run_id": self.graph_run_id, "attempt": self.attempt},
+            metadata={
+                "graph_run_id": self.graph_run_id,
+                "attempt": self.attempt,
+                "claim_ids": normalized_claim_ids,
+                "obligation_ids": normalized_obligation_ids,
+                "consistency_result_ids": normalized_consistency_ids,
+                "issue_ids": normalized_issue_ids,
+            },
         )
         submission = ResearchSubmission(
             id=support._new_id("submission"),
@@ -360,10 +471,10 @@ class DeepResearchToolAgentSession:
             validation_stage=validation_stage,
             artifact_ids=[verification.id],
             request_ids=list(request_ids or []),
-            claim_ids=list(claim_ids or []),
-            obligation_ids=list(obligation_ids or []),
-            consistency_result_ids=list(consistency_result_ids or []),
-            issue_ids=list(issue_ids or []),
+            claim_ids=normalized_claim_ids,
+            obligation_ids=normalized_obligation_ids,
+            consistency_result_ids=normalized_consistency_ids,
+            issue_ids=normalized_issue_ids,
             metadata={"recommended_action": recommended_action},
         )
         self.verification_results.append(verification)
@@ -701,7 +812,7 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
             consistency_result_ids: list[str] | None = None,
             issue_ids: list[str] | None = None,
         ) -> dict[str, Any]:
-            """Submit a structured verification bundle for the current branch."""
+            """Submit a structured verification bundle for the current branch using stage-addressable contracts."""
             request_ids: list[str] = []
             if recommended_action in {
                 "retry_branch",

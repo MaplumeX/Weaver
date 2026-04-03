@@ -10,6 +10,10 @@ Key Features:
 2. Targeted query generation for missing information
 3. Coverage tracking per sub-topic
 4. Confidence scoring for knowledge completeness
+
+This service is advisory only inside the Deep Research runtime.
+It produces planning hints and quality notes. It is not an
+authoritative verification gate.
 """
 
 import json
@@ -29,7 +33,7 @@ GAP_ANALYSIS_PROMPT = """
 你是一名研究质量分析专家，擅长识别知识盲区和信息缺口。
 
 # 任务
-分析以下研究主题和已收集的信息，识别仍然存在的知识缺口。
+分析以下研究主题和已收集的信息，识别仍然存在的知识缺口，并输出后续研究规划提示。
 
 # 研究主题
 {topic}
@@ -57,7 +61,7 @@ GAP_ANALYSIS_PROMPT = """
 - `gaps`: 数组，每项包含 `aspect`、`importance`、`reason`
 - `suggested_queries`: 数组，列出针对缺口的后续查询
 - `covered_aspects`: 数组，列出已覆盖的重要方面
-- `analysis`: 字符串，说明整体分析判断
+- `analysis`: 字符串，说明整体分析判断和建议的补强方向
 
 # 注意
 - overall_coverage: 0-1，表示主题覆盖程度
@@ -66,20 +70,22 @@ GAP_ANALYSIS_PROMPT = """
 - suggested_queries 应该具体、可操作
 - 上面的字段说明不是默认值或示例值，所有数值都必须根据本次输入重新计算
 - 不要复用占位词、固定分数或固定置信度
+- 这些输出只用于 planning / quality hints，不是权威验证裁决
 """
 
 
 @dataclass
 class KnowledgeGap:
-    """A identified knowledge gap."""
+    """An advisory research gap."""
     aspect: str
     importance: str  # high, medium, low
     reason: str
+    advisory: bool = True
 
 
 @dataclass
 class GapAnalysisResult:
-    """Result of knowledge gap analysis."""
+    """Advisory planning result from heuristic gap analysis."""
     overall_coverage: float
     confidence: float
     gaps: List[KnowledgeGap]
@@ -97,6 +103,7 @@ class GapAnalysisResult:
                     aspect=g.get("aspect", ""),
                     importance=g.get("importance", "medium"),
                     reason=g.get("reason", ""),
+                    advisory=bool(g.get("advisory", True)),
                 ))
 
         coverage = float(data.get("overall_coverage", 0.5))
@@ -115,7 +122,15 @@ class GapAnalysisResult:
         return {
             "overall_coverage": self.overall_coverage,
             "confidence": self.confidence,
-            "gaps": [{"aspect": g.aspect, "importance": g.importance, "reason": g.reason} for g in self.gaps],
+            "gaps": [
+                {
+                    "aspect": g.aspect,
+                    "importance": g.importance,
+                    "reason": g.reason,
+                    "advisory": g.advisory,
+                }
+                for g in self.gaps
+            ],
             "suggested_queries": self.suggested_queries,
             "covered_aspects": self.covered_aspects,
             "analysis": self.analysis,
@@ -125,7 +140,7 @@ class GapAnalysisResult:
 
 class KnowledgeGapAnalyzer:
     """
-    Analyzes research findings to identify knowledge gaps.
+    Analyzes research findings to identify advisory knowledge gaps.
 
     Implements the IterDRAG pattern:
     1. Decomposition: Break down topic into aspects
@@ -266,7 +281,7 @@ class KnowledgeGapAnalyzer:
 
     def is_research_sufficient(self, result: GapAnalysisResult = None) -> bool:
         """
-        Check if research is sufficient based on latest analysis.
+        Check if research looks sufficient from an advisory planning perspective.
 
         Returns:
             True if coverage meets threshold and no high-priority gaps

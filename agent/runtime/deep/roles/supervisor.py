@@ -299,14 +299,29 @@ class ResearchSupervisor:
             blocker_labels.append("处理矛盾证据")
 
         missing_items = missing_evidence_list.get("items", []) if isinstance(missing_evidence_list, dict) else []
-        if missing_items:
+        blocking_missing_items = [
+            item
+            for item in missing_items
+            if isinstance(item, dict) and bool(item.get("blocking", True))
+        ]
+        if blocking_missing_items:
             blocker_labels.append("补齐缺失证据")
 
         coverage_rows = coverage_matrix.get("rows", []) if isinstance(coverage_matrix, dict) else []
         uncovered_dimensions = [
             str(item.get("dimension") or item.get("label") or "").strip()
             for item in coverage_rows
-            if isinstance(item, dict) and str(item.get("status") or "").strip().lower() not in {"covered", "passed"}
+            if (
+                isinstance(item, dict)
+                and str(item.get("status") or "").strip().lower() not in {"covered", "passed"}
+                and (
+                    bool(item.get("blocking"))
+                    or (
+                        "blocking" not in item
+                        and str(item.get("status") or "").strip().lower() in {"gap", "unresolved"}
+                    )
+                )
+            )
         ]
         blocker_labels.extend(item for item in uncovered_dimensions if item)
 

@@ -28,8 +28,9 @@
 - **THEN** `supervisor` MUST 只在权威 `research brief` 就绪后，才将 branch 级任务写入可调度队列并分配唯一任务标识
 
 #### Scenario: Supervisor replans from verifier or outline feedback
-- **WHEN** `verifier` 产出了新的 coverage 缺口、矛盾记录、缺失证据列表或 `outline gate` 产出了 `outline_gap` 请求且预算仍允许继续研究
-- **THEN** `supervisor` MUST 基于当前 brief、ledger 和验证结果决定是否触发 replan
+- **WHEN** `verifier` 产出了新的 blocking revision issues、未解决的 obligation debt、矛盾记录、缺失证据列表或 `outline gate` 产出了 `outline_gap` 请求且预算仍允许继续研究
+- **THEN** `supervisor` MUST 基于当前 brief、ledger 和权威 verification 结果决定是否触发 replan
+- **THEN** 系统 MAY 使用 advisory gap hints 辅助决定后续搜索方向，但 MUST NOT 仅凭 advisory gaps 把流程判定为仍不可报告
 - **THEN** 系统 MUST 只将被 `supervisor` 批准的新 branch 任务加入任务队列
 
 #### Scenario: Supervisor owns orchestration decisions directly
@@ -104,6 +105,14 @@
 - **THEN** 系统 MUST 记录结构化 `outline_gap` request 并把控制权交回 `supervisor`
 - **THEN** `supervisor` MUST 决定补充研究、重排现有任务，或停止继续推进报告生成
 
+### Requirement: Advisory gap planning is non-gating
+系统 MAY 在 Deep Research runtime 中保留 heuristic gap planning，但该能力 MUST 作为非权威的 planning pass 存在，而不是 verification gate 的一部分。
+
+#### Scenario: Verify stage emits planning hints
+- **WHEN** verify 或其后置质量分析阶段识别到可补强的研究方向
+- **THEN** 系统 MAY 记录 advisory `suggested_queries` 或 equivalent planning hints
+- **THEN** 这些 hints MUST NOT 单独阻止流程进入 `outline_gate` 或 `report`
+
 ### Requirement: Verification is a structured multi-pass pipeline
 系统 MUST 将 `verify` 实现为结构化多阶段流水线，至少覆盖 claim grounding、coverage obligation evaluation、cross-branch consistency evaluation 和 revision issue aggregation。
 
@@ -111,6 +120,7 @@
 - **WHEN** 一个或多个 branch bundle 被 graph merge 接收后进入 `verify`
 - **THEN** 系统 MUST 运行结构化的 grounding、coverage、consistency 和 issue aggregation 阶段，或与之等价的 graph-controlled 子阶段
 - **THEN** `supervisor` 接收到的输入 MUST 不只是 summary 文本、gap 数量或粗粒度 pass/fail 状态
+- **THEN** 若系统运行了额外的 heuristic gap planning，该 planning pass MUST 只产出 advisory hints，而 MUST NOT 替代上述权威阶段
 
 #### Scenario: Verify stage remains checkpoint-safe
 - **WHEN** 验证流水线在 checkpoint 之后恢复执行
@@ -129,3 +139,8 @@
 - **WHEN** `outline gate` 启动时仍存在未解决的 blocking verification issues
 - **THEN** 系统 MUST 将这些 issues 视为阻塞性结构前提问题或等价阻塞状态
 - **THEN** `outline gate` MUST 不将其静默忽略并直接生成可写作的最终 outline
+
+#### Scenario: Outline gate receives advisory gaps only
+- **WHEN** `outline gate` 看到的剩余缺口仅来自 heuristic planning、弱覆盖建议或其他未映射到正式 issue 的 advisory signal
+- **THEN** 它 MUST NOT 将这些信号直接视为 blocking verification debt
+- **THEN** 系统 MAY 将这些信号传递给 `supervisor` 或 UI 作为补强建议，但 MUST 允许流程继续进入最终报告

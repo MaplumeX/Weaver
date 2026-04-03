@@ -126,6 +126,40 @@ def _match_text(text: str, target: str) -> bool:
     return matches >= _required_match_count(len(target_tokens))
 
 
+def _claim_evidence_urls(claim: ClaimUnit, grounding: ClaimGroundingResult | None) -> list[str]:
+    return _dedupe_texts(
+        list(grounding.evidence_urls if grounding else [])
+        + list(claim.citation_urls)
+    )
+
+
+def _claim_evidence_passage_ids(claim: ClaimUnit, grounding: ClaimGroundingResult | None) -> list[str]:
+    return _dedupe_texts(
+        list(grounding.evidence_passage_ids if grounding else [])
+        + list(claim.evidence_passage_ids)
+    )
+
+
+def _supported_grounded_claims(
+    *,
+    claims: list[ClaimUnit],
+    grounding_by_claim: dict[str, ClaimGroundingResult],
+    target: str,
+) -> list[tuple[ClaimUnit, ClaimGroundingResult]]:
+    matches: list[tuple[ClaimUnit, ClaimGroundingResult]] = []
+    for claim in claims:
+        grounding = grounding_by_claim.get(claim.id)
+        if grounding is None or grounding.status != "grounded":
+            continue
+        evidence_urls = _claim_evidence_urls(claim, grounding)
+        evidence_passage_ids = _claim_evidence_passage_ids(claim, grounding)
+        if not evidence_urls and not evidence_passage_ids:
+            continue
+        if _match_text(claim.claim, target):
+            matches.append((claim, grounding))
+    return matches
+
+
 def latest_branch_syntheses(
     syntheses: list[BranchSynthesis],
     briefs: list[BranchBrief] | None = None,
@@ -305,47 +339,65 @@ def evaluate_obligations(
         for claim in claim_units
         if grounding_by_claim.get(claim.id) and grounding_by_claim[claim.id].status == "grounded"
     ]
-    all_claim_text = "\n".join(item.claim for item in grounded_claims)
-    synthesis_text = "\n".join([synthesis.summary, *synthesis.findings, all_claim_text])
 
     results: list[CoverageEvaluationResult] = []
     for obligation in obligations:
-        criteria = obligation.completion_criteria or [obligation.target]
-        covered = [criterion for criterion in criteria if _match_text(synthesis_text, criterion)]
+        criteria = _dedupe_texts(obligation.completion_criteria or [obligation.target])
+        covered: list[str] = []
+        supported_claim_ids: list[str] = []
+        evidence_urls: list[str] = []
+        evidence_passage_ids: list[str] = []
+        criterion_claim_map: dict[str, list[str]] = {}
+
+        for criterion in criteria:
+            matches = _supported_grounded_claims(
+                claims=grounded_claims,
+                grounding_by_claim=grounding_by_claim,
+                target=criterion,
+            )
+            if not matches:
+                continue
+            covered.append(criterion)
+            claim_ids = [claim.id for claim, _grounding in matches]
+            criterion_claim_map[criterion] = claim_ids
+            supported_claim_ids.extend(claim_ids)
+            for claim, grounding in matches:
+                evidence_urls.extend(_claim_evidence_urls(claim, grounding))
+                evidence_passage_ids.extend(_claim_evidence_passage_ids(claim, grounding))
+
+        target_matches = _supported_grounded_claims(
+            claims=grounded_claims,
+            grounding_by_claim=grounding_by_claim,
+            target=obligation.target,
+        )
+        if not covered and target_matches:
+            supported_claim_ids.extend([claim.id for claim, _grounding in target_matches])
+            for claim, grounding in target_matches:
+                evidence_urls.extend(_claim_evidence_urls(claim, grounding))
+                evidence_passage_ids.extend(_claim_evidence_passage_ids(claim, grounding))
+
+        covered = _dedupe_texts(covered)
+        supported_claim_ids = _dedupe_texts(supported_claim_ids)
+        evidence_urls = _dedupe_texts(evidence_urls)
+        evidence_passage_ids = _dedupe_texts(evidence_passage_ids)
+        missing_criteria = [criterion for criterion in criteria if criterion not in covered]
+
         status = "unsatisfied"
         if covered and len(covered) == len(criteria):
             status = "satisfied"
-        elif covered:
+        elif covered or target_matches:
             status = "partially_satisfied"
-        elif grounded_claims and _match_text(all_claim_text, obligation.target):
-            status = "partially_satisfied"
-        summary = (
-            f"obligation satisfied: {obligation.target}"
-            if status == "satisfied"
-            else (
-                f"obligation partially satisfied: {obligation.target}"
-                if status == "partially_satisfied"
-                else f"obligation not yet satisfied: {obligation.target}"
+
+        if status == "satisfied":
+            summary = f"obligation satisfied with grounded claim coverage: {obligation.target}"
+        elif status == "partially_satisfied":
+            summary = (
+                f"obligation partially satisfied; grounded evidence covers "
+                f"{len(covered)}/{len(criteria)} criteria: {obligation.target}"
             )
-        )
-        evidence_urls = list(
-            dict.fromkeys(
-                url
-                for claim in grounded_claims
-                if _match_text(claim.claim, obligation.target)
-                for url in claim.citation_urls
-                if url
-            )
-        ) or list(synthesis.citation_urls)
-        evidence_passage_ids = list(
-            dict.fromkeys(
-                passage_id
-                for claim in grounded_claims
-                if _match_text(claim.claim, obligation.target)
-                for passage_id in claim.evidence_passage_ids
-                if passage_id
-            )
-        ) or list(synthesis.evidence_passage_ids)
+        else:
+            summary = f"obligation not yet satisfied by grounded evidence: {obligation.target}"
+
         results.append(
             CoverageEvaluationResult(
                 id=support._new_id("coverage_eval"),
@@ -359,8 +411,13 @@ def evaluate_obligations(
                 created_by=created_by,
                 metadata={
                     "covered_criteria": covered,
-                    "missing_criteria": [criterion for criterion in criteria if criterion not in covered],
+                    "missing_criteria": missing_criteria,
                     "target": obligation.target,
+                    "supported_claim_ids": supported_claim_ids,
+                    "criterion_claim_map": criterion_claim_map,
+                    "target_claim_ids": [claim.id for claim, _grounding in target_matches],
+                    "used_grounded_claims_only": True,
+                    "used_synthesis_summary_as_authority": False,
                 },
             )
         )
@@ -487,7 +544,7 @@ def aggregate_revision_issues(
                 branch_id=task.branch_id,
                 issue_type="coverage_obligation",
                 summary=result.summary,
-                severity="high" if blocking else "medium",
+                severity="high" if blocking else "low",
                 blocking=blocking,
                 recommended_action="patch_branch" if blocking else "spawn_follow_up_branch",
                 obligation_ids=[result.obligation_id],
@@ -541,73 +598,66 @@ def build_gap_result(
     results_by_obligation = {item.obligation_id: item for item in coverage_results}
     satisfied = 0.0
     covered_aspects: list[str] = []
-    gaps: list[AnalyzerKnowledgeGap] = []
+    authoritative_gaps: list[AnalyzerKnowledgeGap] = []
+    advisory_gaps: list[AnalyzerKnowledgeGap] = []
     suggested_queries = _dedupe_texts(list(fallback_queries or []))
+    blocking_gap_count = 0
     for obligation in obligations:
         result = results_by_obligation.get(obligation.id)
         if result is None:
-            gaps.append(
+            authoritative_gaps.append(
                 AnalyzerKnowledgeGap(
                     aspect=obligation.target,
                     importance="high",
                     reason="obligation has not been evaluated",
+                    advisory=False,
                 )
             )
             suggested_queries.append(obligation.target)
+            blocking_gap_count += 1
             continue
         if result.status == "satisfied":
             satisfied += 1.0
             covered_aspects.append(obligation.target)
         elif result.status == "partially_satisfied":
             satisfied += 0.5
-            gaps.append(
+            authoritative_gaps.append(
                 AnalyzerKnowledgeGap(
                     aspect=obligation.target,
                     importance="medium",
                     reason=result.summary,
+                    advisory=False,
                 )
             )
             suggested_queries.append(obligation.target)
         else:
-            gaps.append(
+            authoritative_gaps.append(
                 AnalyzerKnowledgeGap(
                     aspect=obligation.target,
                     importance="high",
                     reason=result.summary,
+                    advisory=False,
                 )
             )
             suggested_queries.append(obligation.target)
+            blocking_gap_count += 1
     total = len(obligations)
     overall_coverage = satisfied / total if total else 1.0
     confidence = 1.0 if total else 0.8
     if fallback_result is not None:
-        overall_coverage = min(
-            overall_coverage,
-            max(0.0, min(1.0, float(fallback_result.overall_coverage))),
-        )
-        confidence = min(
+        confidence = max(
             confidence,
             max(0.0, min(1.0, float(fallback_result.confidence))),
         )
         covered_aspects = _dedupe_texts(covered_aspects + list(fallback_result.covered_aspects))
         suggested_queries = _dedupe_texts(suggested_queries + list(fallback_result.suggested_queries))
-        seen_gap_keys = {
-            (str(gap.aspect or "").strip().lower(), str(gap.reason or "").strip().lower())
-            for gap in gaps
-        }
         for gap in fallback_result.gaps:
-            key = (
-                str(gap.aspect or "").strip().lower(),
-                str(gap.reason or "").strip().lower(),
-            )
-            if key in seen_gap_keys:
-                continue
-            seen_gap_keys.add(key)
-            gaps.append(
+            advisory_gaps.append(
                 AnalyzerKnowledgeGap(
                     aspect=gap.aspect,
                     importance=gap.importance,
                     reason=gap.reason,
+                    advisory=True,
                 )
             )
         if not fallback_analysis:
@@ -620,16 +670,26 @@ def build_gap_result(
                 if obligations
                 else "coverage evaluated from fallback verifier and branch contracts"
             ),
+            (
+                f"blocking verification debt={blocking_gap_count}"
+                if blocking_gap_count
+                else "no blocking verification debt detected"
+            ),
+            (
+                f"advisory research gaps={len(advisory_gaps)}"
+                if advisory_gaps
+                else ""
+            ),
         ]
     )
     return GapAnalysisResult(
         overall_coverage=overall_coverage,
         confidence=confidence,
-        gaps=gaps,
+        gaps=advisory_gaps,
         suggested_queries=_dedupe_texts(suggested_queries),
         covered_aspects=_dedupe_texts(covered_aspects),
         analysis="；".join(analysis_parts),
-        is_sufficient=overall_coverage >= 0.8 and not any(g.importance == "high" for g in gaps),
+        is_sufficient=blocking_gap_count == 0,
     )
 
 

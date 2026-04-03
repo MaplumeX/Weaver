@@ -1,6 +1,20 @@
-## Purpose
-定义 Deep Research 中 claim-addressable verification contracts、coverage obligations、consistency checks 和 revision issues 的权威契约。
-## Requirements
+## ADDED Requirements
+
+### Requirement: Heuristic gap analysis is advisory only
+系统 MUST 将 topic-level 或 heuristic gap analysis 视为 research planning 的辅助信号，而不是 Deep Research verification 的权威裁决来源。
+
+#### Scenario: Gap planner runs after a verification pass
+- **WHEN** 系统在 branch merge 后运行启发式 gap analysis
+- **THEN** 它 MAY 生成 `suggested_queries`、coverage hints 或 quality notes
+- **THEN** 这些输出 MUST NOT 在没有映射到结构化 claim、obligation、consistency finding 或 revision issue 的前提下直接降低 authoritative verification verdict
+
+#### Scenario: Advisory gap conflicts with satisfied obligations
+- **WHEN** 某个 heuristic gap 提示仍声称研究“coverage incomplete”，但相关 `CoverageObligation` 已被结构化 verifier 判定为 `satisfied`
+- **THEN** 系统 MUST 保留已满足的 obligation verdict 作为权威结果
+- **THEN** heuristic gap MUST 仅作为后续搜索建议保留，而 MUST NOT 重新打开 blocking verification debt
+
+## MODIFIED Requirements
+
 ### Requirement: Verification contracts are explicit and claim-addressable
 系统 MUST 将 branch 级验证输入与输出表示为结构化 verification contracts，而不是只依赖自由文本 summary 作为权威检查对象。
 
@@ -29,19 +43,6 @@
 - **THEN** 结果 MUST 能表达 `satisfied`、`partially_satisfied`、`unsatisfied` 或 `unresolved` 状态，以及对应的证据引用或缺失标准
 - **THEN** 系统 MUST 基于 grounded claims、evidence passages、citations 和 completion criteria 做出该判定，而 MUST NOT 仅依赖 topic overlap、summary 关键词或通用 topic checklist
 
-### Requirement: Heuristic gap analysis is advisory only
-系统 MUST 将 topic-level 或 heuristic gap analysis 视为 research planning 的辅助信号，而不是 Deep Research verification 的权威裁决来源。
-
-#### Scenario: Gap planner runs after a verification pass
-- **WHEN** 系统在 branch merge 后运行启发式 gap analysis
-- **THEN** 它 MAY 生成 `suggested_queries`、coverage hints 或 quality notes
-- **THEN** 这些输出 MUST NOT 在没有映射到结构化 claim、obligation、consistency finding 或 revision issue 的前提下直接降低 authoritative verification verdict
-
-#### Scenario: Advisory gap conflicts with satisfied obligations
-- **WHEN** 某个 heuristic gap 提示仍声称研究“coverage incomplete”，但相关 `CoverageObligation` 已被结构化 verifier 判定为 `satisfied`
-- **THEN** 系统 MUST 保留已满足的 obligation verdict 作为权威结果
-- **THEN** heuristic gap MUST 仅作为后续搜索建议保留，而 MUST NOT 重新打开 blocking verification debt
-
 ### Requirement: Verification findings are evidence-backed and issue-oriented
 系统 MUST 将验证失败、未决与矛盾结果表示为结构化 findings 与 revision issues，使 `supervisor` 可直接据此决策。
 
@@ -55,16 +56,3 @@
 - **THEN** 系统 MUST 生成结构化 finding 与对应 revision issue
 - **THEN** `supervisor` MUST 能在不重新解析自然语言摘要的情况下知道缺失的 obligation、建议补证据方向和影响范围
 - **THEN** issue 的 blocking 语义 MUST 由 obligation status 与明确的 severity 决定，而 MUST NOT 因为存在未映射到 contract 的 heuristic gap 就自动升级为 blocking
-
-### Requirement: Cross-branch consistency is checked before final reporting
-系统 MUST 在最终进入 outline/report 之前执行 cross-branch consistency evaluation，并把 branch 之间的冲突显式沉淀为结构化结果。
-
-#### Scenario: Multiple branches make overlapping claims
-- **WHEN** 两个或更多 branch 对同一研究问题、比较维度或结论范围提交了可比较的 claims
-- **THEN** 系统 MUST 执行一致性检查并生成结构化 `ConsistencyResult`
-- **THEN** 若发现冲突，系统 MUST 将其记录为 blocking revision issue 或等价阻塞状态
-
-#### Scenario: Reporter waits for consistency resolution
-- **WHEN** 当前研究仍存在未解决的 blocking consistency findings
-- **THEN** 系统 MUST 阻止这些 findings 被直接提升为最终报告事实依据
-- **THEN** `reporter` MUST 只消费已解决、被 `supervisor` 接受，或被明确标记为可保留争议的结果

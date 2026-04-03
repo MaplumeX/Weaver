@@ -378,6 +378,26 @@ def _normalize_revision_briefs(artifact_store: dict[str, Any]) -> list[dict[str,
     return items
 
 
+def _normalize_knowledge_gaps(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
+    gaps = artifact_store.get("knowledge_gaps", []) if isinstance(artifact_store, dict) else []
+    items: list[dict[str, Any]] = []
+    for gap in gaps if isinstance(gaps, list) else []:
+        if not isinstance(gap, dict):
+            continue
+        items.append(
+            {
+                "id": gap.get("id"),
+                "branch_id": gap.get("branch_id"),
+                "aspect": str(gap.get("aspect") or "").strip(),
+                "importance": str(gap.get("importance") or "").strip(),
+                "reason": str(gap.get("reason") or "").strip(),
+                "suggested_queries": list(gap.get("suggested_queries") or []),
+                "advisory": bool(gap.get("advisory", True)),
+            }
+        )
+    return items
+
+
 def _merge_quality_summary(
     quality_summary: dict[str, Any] | None,
     claims: list[dict[str, Any]],
@@ -417,6 +437,7 @@ def build_public_deep_research_artifacts(
     consistency_results = _normalize_consistency_results(store_snapshot)
     revision_issues = _normalize_revision_issues(store_snapshot)
     revision_briefs = _normalize_revision_briefs(store_snapshot)
+    knowledge_gaps = _normalize_knowledge_gaps(store_snapshot)
     merged_quality = _merge_quality_summary(quality_summary, claims)
     query_coverage_score = merged_quality.get("query_coverage_score")
     final_report = store_snapshot.get("final_report") if isinstance(store_snapshot, dict) else {}
@@ -446,6 +467,7 @@ def build_public_deep_research_artifacts(
         "consistency_results": consistency_results,
         "revision_issues": revision_issues,
         "revision_briefs": revision_briefs,
+        "knowledge_gaps": knowledge_gaps,
         "research_brief": (
             dict(store_snapshot.get("research_brief"))
             if isinstance(store_snapshot.get("research_brief"), dict)
