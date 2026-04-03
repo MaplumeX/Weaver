@@ -338,6 +338,7 @@ def test_run_multi_agent_deep_research_merges_artifacts_and_emits_events(monkeyp
 
     assert result["deep_runtime"]["engine"] == "multi_agent"
     assert result["deep_runtime"]["engine"] == "multi_agent"
+    assert result["is_complete"] is True
     assert result["deep_runtime"]["task_queue"]["stats"]["completed"] == queue_stats["completed"]
     assert queue_stats["completed"] == 2
     assert len(artifact_store["branch_briefs"]) >= 3
@@ -505,6 +506,61 @@ def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
     assert final_result["deep_runtime"]["runtime_state"]["graph_run_id"] == interrupt_payload["graph_run_id"]
     assert final_result["deep_runtime"]["task_queue"]["stats"]["completed"] == 2
     assert final_result["deep_runtime"]["runtime_state"]["last_verification_summary"]["verified_branches"] == 2
+
+
+def test_multi_agent_completed_snapshot_resumes_via_finalize_without_replanning(monkeypatch):
+    emitter = _DummyEmitter()
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    config = {
+        "configurable": {
+            "thread_id": "thread_resume_completed",
+            "deep_research_query_num": 1,
+        }
+    }
+    initial_result = run_multi_agent_deep_research(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        config,
+    )
+
+    class _FailingSupervisor:
+        def __init__(self, _llm, _config=None):
+            pass
+
+        def create_plan(self, *args, **kwargs):
+            raise AssertionError("completed snapshot should not re-enter supervisor_plan")
+
+        def refine_plan(self, *args, **kwargs):
+            raise AssertionError("completed snapshot should not re-enter supervisor_plan")
+
+        def decide_next_action(self, **kwargs):
+            raise AssertionError("completed snapshot should not re-enter supervisor_decide")
+
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FailingSupervisor)
+
+    resumed_runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {
+            "input": "AI chips",
+            "sub_agent_contexts": {},
+            "deep_runtime": initial_result["deep_runtime"],
+        },
+        config,
+    )
+    resumed = resumed_runtime.build_graph().invoke(resumed_runtime.build_initial_graph_state(), config)
+    final_result = resumed["final_result"]
+
+    assert final_result["is_complete"] is True
+    assert final_result["final_report"] == initial_result["final_report"]
+    assert final_result["deep_runtime"]["task_queue"]["stats"]["completed"] == 1
+    assert final_result["deep_runtime"]["runtime_state"]["next_step"] == "completed"
 
 
 def test_multi_agent_events_include_resume_flag_when_configured(monkeypatch):

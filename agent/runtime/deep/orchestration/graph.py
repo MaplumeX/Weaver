@@ -1505,6 +1505,8 @@ class MultiAgentDeepResearchRuntime:
         runtime_state_snapshot: dict[str, Any],
     ) -> str:
         existing = str(runtime_state_snapshot.get("next_step") or "").strip()
+        if existing == "completed":
+            return "finalize"
         if existing:
             return existing
         if artifact_store_snapshot.get("final_report"):
@@ -4721,7 +4723,7 @@ class MultiAgentDeepResearchRuntime:
             "deep_research_artifacts": deep_research_artifacts,
             "research_topology": view._research_topology_snapshot(),
             "messages": messages,
-            "is_complete": False,
+            "is_complete": True,
             "budget_stop_reason": view.budget_stop_reason,
             "terminal_status": terminal_status,
             "terminal_reason": terminal_reason,
