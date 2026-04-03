@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from typing import Annotated, Any, TypedDict
 
 from agent.core.context import ResearchWorkerContext
@@ -23,6 +24,65 @@ from agent.runtime.deep.schema import (
 )
 from agent.runtime.deep.services.knowledge_gap import GapAnalysisResult
 import agent.runtime.deep.support.runtime_support as support
+
+
+_COVERAGE_STOPWORDS = {
+    "the",
+    "and",
+    "that",
+    "this",
+    "with",
+    "from",
+    "into",
+    "were",
+    "was",
+    "are",
+    "for",
+    "has",
+    "have",
+    "had",
+    "will",
+    "about",
+    "explain",
+    "describe",
+    "summarize",
+    "analyze",
+    "说明",
+    "解释",
+    "总结",
+    "分析",
+    "介绍",
+}
+
+
+def _coverage_tokens(text: str) -> list[str]:
+    normalized = str(text or "").strip().lower()
+    if not normalized:
+        return []
+
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", normalized):
+        if len(token) <= 1 or token in _COVERAGE_STOPWORDS:
+            continue
+        if token not in seen:
+            seen.add(token)
+            tokens.append(token)
+
+    for chunk in re.findall(r"[\u4e00-\u9fff]+", normalized):
+        if len(chunk) == 1:
+            if chunk not in _COVERAGE_STOPWORDS and chunk not in seen:
+                seen.add(chunk)
+                tokens.append(chunk)
+            continue
+        for index in range(len(chunk) - 1):
+            token = chunk[index:index + 2]
+            if token in _COVERAGE_STOPWORDS or token in seen:
+                continue
+            seen.add(token)
+            tokens.append(token)
+
+    return tokens
 
 
 def reduce_worker_payloads(
@@ -195,11 +255,15 @@ def criterion_is_covered(summary: str, criterion: str) -> bool:
     summary_text = str(summary or "").strip().lower()
     if not criterion_text or not summary_text:
         return False
-    tokens = [token for token in criterion_text.replace("，", " ").replace(",", " ").split() if len(token) > 1]
+    if criterion_text in summary_text:
+        return True
+    tokens = _coverage_tokens(criterion_text)
     if not tokens:
         return criterion_text in summary_text
-    matches = sum(1 for token in tokens if token in summary_text)
-    return matches >= max(1, min(2, len(tokens)))
+    summary_tokens = set(_coverage_tokens(summary_text))
+    matches = sum(1 for token in tokens if token in summary_tokens or token in summary_text)
+    required_matches = 1 if len(tokens) <= 2 else 2
+    return matches >= required_matches
 
 
 def scope_draft_from_payload(payload: dict[str, Any] | None) -> ScopeDraft | None:

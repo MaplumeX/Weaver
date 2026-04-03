@@ -74,6 +74,25 @@ _STOPWORDS = {
 }
 
 
+def _split_sentences(text: str) -> List[str]:
+    if not text:
+        return []
+    return [
+        part.strip()
+        for part in re.split(r"(?<=[。！？])|(?<=[.!?])\s+|\n+", text)
+        if part and part.strip()
+    ]
+
+
+def _contains_marker(text: str, marker: str) -> bool:
+    lower = (text or "").lower()
+    if not lower:
+        return False
+    if re.search(r"[a-z]", marker):
+        return re.search(rf"(?<![a-z]){re.escape(marker.lower())}(?![a-z])", lower) is not None
+    return marker in lower
+
+
 class ClaimStatus(str, Enum):
     VERIFIED = "verified"
     CONTRADICTED = "contradicted"
@@ -101,14 +120,16 @@ class ClaimVerifier:
         if not report:
             return []
 
-        candidates = re.split(r"(?<=[。！？.!?])\s+|\n+", report)
+        candidates = _split_sentences(report)
         claims: List[str] = []
+        fallback_claims: List[str] = []
         seen: Set[str] = set()
 
         for sentence in candidates:
             text = sentence.strip()
             if len(text) < 20:
                 continue
+            fallback_claims.append(text)
             lower = text.lower()
             has_signal = any(marker in lower for marker in _CLAIM_MARKERS) or bool(
                 re.search(r"\d{2,4}|\d+%|\d+\.\d+", text)
@@ -123,7 +144,20 @@ class ClaimVerifier:
             if len(claims) >= max_claims:
                 break
 
-        return claims
+        if claims:
+            return claims
+
+        deduped_fallbacks: List[str] = []
+        seen_fallbacks: Set[str] = set()
+        for text in fallback_claims:
+            key = text.lower()
+            if key in seen_fallbacks:
+                continue
+            seen_fallbacks.add(key)
+            deduped_fallbacks.append(text)
+            if len(deduped_fallbacks) >= max_claims:
+                break
+        return deduped_fallbacks
 
     def verify_report(
         self,
@@ -266,13 +300,11 @@ class ClaimVerifier:
         return {t for t in tokens if len(t) > 1 and t not in _STOPWORDS}
 
     def _has_negation(self, text: str) -> bool:
-        lower = (text or "").lower()
-        return any(marker in lower for marker in _NEGATION_MARKERS)
+        return any(_contains_marker(text, marker) for marker in _NEGATION_MARKERS)
 
     def _trend_direction(self, text: str) -> int:
-        lower = (text or "").lower()
-        up = any(marker in lower for marker in _UP_MARKERS)
-        down = any(marker in lower for marker in _DOWN_MARKERS)
+        up = any(_contains_marker(text, marker) for marker in _UP_MARKERS)
+        down = any(_contains_marker(text, marker) for marker in _DOWN_MARKERS)
         if up and not down:
             return 1
         if down and not up:
