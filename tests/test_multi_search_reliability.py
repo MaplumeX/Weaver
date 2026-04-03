@@ -1,7 +1,10 @@
 import concurrent.futures
+import warnings
 
+import tools.search.multi_search as multi_search_module
 from agent.core.search_cache import clear_search_cache
 from tools.search.multi_search import (
+    DuckDuckGoProvider,
     MultiSearchOrchestrator,
     SearchProvider,
     SearchResult,
@@ -224,3 +227,88 @@ def test_orchestrator_parallel_search_timeout_is_handled(monkeypatch):
     clear_search_cache()
     results = orchestrator.search(query="test parallel timeout", max_results=5)
     assert isinstance(results, list)
+
+
+def test_duckduckgo_provider_prefers_ddgs_module(monkeypatch):
+    calls = []
+
+    class FakeDDGS:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def text(self, query, max_results=10):
+            calls.append((query, max_results))
+            return [
+                {
+                    "title": "Result",
+                    "href": "example.com/result",
+                    "body": "snippet",
+                }
+            ]
+
+    monkeypatch.setattr(multi_search_module, "_resolve_ddgs_module_name", lambda: "ddgs")
+    monkeypatch.setattr(multi_search_module, "_load_ddgs_class", lambda: (FakeDDGS, "ddgs"))
+
+    provider = DuckDuckGoProvider()
+
+    assert provider.is_available() is True
+    results = provider.search("agent memory", max_results=4)
+
+    assert calls == [("agent memory", 4)]
+    assert len(results) == 1
+    assert results[0].url == "https://example.com/result"
+    assert results[0].provider == "duckduckgo"
+
+
+def test_duckduckgo_provider_supports_legacy_module_without_runtime_warning(monkeypatch):
+    warning_message = (
+        "This package (`duckduckgo_search`) has been renamed to `ddgs`! "
+        "Use `pip install ddgs` instead."
+    )
+
+    class LegacyDDGS:
+        def __init__(self):
+            warnings.warn(warning_message, RuntimeWarning, stacklevel=2)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def text(self, query, max_results=10):
+            return [
+                {
+                    "title": "Legacy Result",
+                    "href": "legacy.example.com/result",
+                    "body": "snippet",
+                }
+            ]
+
+    monkeypatch.setattr(
+        multi_search_module,
+        "_resolve_ddgs_module_name",
+        lambda: "duckduckgo_search",
+    )
+    monkeypatch.setattr(
+        multi_search_module,
+        "_load_ddgs_class",
+        lambda: (LegacyDDGS, "duckduckgo_search"),
+    )
+    monkeypatch.setattr(
+        multi_search_module,
+        "_legacy_ddg_package_warning_logged",
+        False,
+    )
+
+    provider = DuckDuckGoProvider()
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        results = provider.search("legacy package", max_results=2)
+
+    assert len(results) == 1
+    assert not [item for item in captured if warning_message in str(item.message)]

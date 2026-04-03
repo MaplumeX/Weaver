@@ -13,11 +13,13 @@ Key Features:
 
 import copy
 import hashlib
+import importlib
 import importlib.util
 import logging
 import math
 import re
 import time
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -32,6 +34,13 @@ from tools.search.reliability import ProviderReliabilityManager, ReliabilityPoli
 
 logger = logging.getLogger(__name__)
 
+_DDGS_MODULE_NAMES = ("ddgs", "duckduckgo_search")
+_LEGACY_DDG_WARNING_PATTERN = (
+    r"This package \(`duckduckgo_search`\) has been renamed to `ddgs`! "
+    r"Use `pip install ddgs` instead\."
+)
+_legacy_ddg_package_warning_logged = False
+
 _TRACKING_QUERY_KEYS = {
     "fbclid",
     "gclid",
@@ -42,6 +51,31 @@ _TRACKING_QUERY_KEYS = {
     "ref_src",
     "source",
 }
+
+
+def _resolve_ddgs_module_name() -> Optional[str]:
+    for module_name in _DDGS_MODULE_NAMES:
+        if importlib.util.find_spec(module_name) is not None:
+            return module_name
+    return None
+
+
+def _load_ddgs_class() -> tuple[Any, Optional[str]]:
+    module_name = _resolve_ddgs_module_name()
+    if not module_name:
+        return None, None
+
+    module = importlib.import_module(module_name)
+    return getattr(module, "DDGS", None), module_name
+
+
+def _log_legacy_ddg_package_once(module_name: Optional[str]) -> None:
+    global _legacy_ddg_package_warning_logged
+    if module_name != "duckduckgo_search" or _legacy_ddg_package_warning_logged:
+        return
+
+    logger.warning("[DuckDuckGoProvider] Using legacy duckduckgo_search package; prefer ddgs")
+    _legacy_ddg_package_warning_logged = True
 
 
 def _canonicalize_result_url(raw_url: str) -> str:
@@ -250,19 +284,35 @@ class DuckDuckGoProvider(SearchProvider):
         super().__init__("duckduckgo")
 
     def is_available(self) -> bool:
-        return importlib.util.find_spec("duckduckgo_search") is not None
+        return _resolve_ddgs_module_name() is not None
 
     def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
         try:
-            from duckduckgo_search import DDGS
+            DDGS, module_name = _load_ddgs_class()
         except ImportError:
-            logger.warning("[DuckDuckGoProvider] duckduckgo_search not installed")
+            logger.warning("[DuckDuckGoProvider] ddgs not installed")
+            return []
+
+        if DDGS is None:
+            logger.warning("[DuckDuckGoProvider] DDGS class unavailable")
             return []
 
         start_time = time.time()
         try:
-            with DDGS() as ddgs:
-                raw_results = list(ddgs.text(query, max_results=max_results))
+            _log_legacy_ddg_package_once(module_name)
+
+            if module_name == "duckduckgo_search":
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=_LEGACY_DDG_WARNING_PATTERN,
+                        category=RuntimeWarning,
+                    )
+                    with DDGS() as ddgs:
+                        raw_results = list(ddgs.text(query, max_results=max_results))
+            else:
+                with DDGS() as ddgs:
+                    raw_results = list(ddgs.text(query, max_results=max_results))
 
             results = []
             for r in raw_results:
