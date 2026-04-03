@@ -32,9 +32,11 @@ import agent.runtime.deep.orchestration.events as events
 from agent.runtime.deep.artifacts.public_artifacts import build_public_deep_research_artifacts
 from agent.runtime.deep.schema import (
     AgentRunRecord,
+    AnswerUnit,
     BranchBrief,
     BranchRevisionBrief,
     BranchSynthesis,
+    BranchValidationSummary,
     ClaimGroundingResult,
     ClaimUnit,
     ConsistencyResult,
@@ -77,7 +79,6 @@ from agent.runtime.deep.support.graph_helpers import (
     build_clarify_transcript as _build_clarify_transcript,
     build_scope_draft as _build_scope_draft,
     coerce_string_list as _coerce_string_list,
-    criterion_is_covered as _criterion_is_covered,
     derive_branch_queries as _derive_branch_queries,
     derive_role_counters as _derive_role_counters,
     extract_interrupt_text as _extract_interrupt_text,
@@ -109,8 +110,9 @@ from agent.runtime.deep.services.knowledge_gap import GapAnalysisResult
 from agent.runtime.deep.services.knowledge_gap import KnowledgeGapAnalyzer
 from agent.runtime.deep.services.verification import (
     aggregate_revision_issues,
+    build_branch_validation_summary,
     build_gap_result,
-    derive_claim_units,
+    derive_answer_units,
     derive_coverage_obligations,
     evaluate_consistency,
     evaluate_obligations,
@@ -241,6 +243,130 @@ def _match_outline_section_syntheses(
         ):
             matched.append(synthesis)
     return matched
+
+
+def _latest_branch_validation_summaries(
+    summaries: list[BranchValidationSummary],
+    briefs: list[BranchBrief] | None = None,
+) -> list[BranchValidationSummary]:
+    summary_by_id = {
+        summary.id: summary
+        for summary in summaries
+        if isinstance(summary.id, str) and summary.id
+    }
+    brief_by_branch = {
+        brief.id: brief
+        for brief in briefs or []
+        if isinstance(brief.id, str) and brief.id
+    }
+    by_branch: dict[str, BranchValidationSummary] = {}
+
+    for brief in briefs or []:
+        branch_id = str(brief.id or "").strip()
+        if not branch_id:
+            continue
+        latest_id = str(brief.latest_verification_id or "").strip()
+        summary = summary_by_id.get(latest_id)
+        if summary is not None and summary.branch_id == branch_id:
+            by_branch[branch_id] = summary
+
+    for summary in sorted(summaries, key=lambda item: (item.created_at, item.id)):
+        branch_id = str(summary.branch_id or "").strip()
+        if not branch_id or branch_id in by_branch:
+            continue
+        brief = brief_by_branch.get(branch_id)
+        if brief and brief.latest_task_id and summary.task_id != brief.latest_task_id:
+            continue
+        by_branch[branch_id] = summary
+
+    if by_branch:
+        return list(by_branch.values())
+
+    latest: dict[str, BranchValidationSummary] = {}
+    for summary in sorted(summaries, key=lambda item: (item.created_at, item.id)):
+        branch_id = str(summary.branch_id or summary.task_id or "").strip()
+        if branch_id:
+            latest[branch_id] = summary
+    return list(latest.values())
+
+
+def _verifier_shadow_compare_enabled() -> bool:
+    return bool(getattr(settings, "deep_research_verifier_shadow_compare", True))
+
+def _verified_branch_syntheses_for_reporting(
+    view: "_RuntimeView",
+) -> tuple[list[BranchSynthesis], list[BranchValidationSummary]]:
+    branch_validation_summaries = _latest_branch_validation_summaries(
+        view.artifact_store.branch_validation_summaries(),
+        view.artifact_store.branch_briefs(),
+    )
+    validation_summary_by_task = {
+        item.task_id: item for item in branch_validation_summaries if item.task_id
+    }
+    latest_syntheses = latest_branch_syntheses(
+        view.artifact_store.branch_syntheses(),
+        view.artifact_store.branch_briefs(),
+    )
+    verified_syntheses = [
+        synthesis
+        for synthesis in latest_syntheses
+        if validation_summary_by_task.get(synthesis.task_id)
+        and validation_summary_by_task[synthesis.task_id].ready_for_report
+        and not validation_summary_by_task[synthesis.task_id].blocking
+    ]
+    return verified_syntheses, branch_validation_summaries
+
+
+def _build_verifier_shadow_compare(
+    *,
+    syntheses: list[BranchSynthesis],
+    claim_results_by_task: dict[str, VerificationResult],
+    coverage_results_by_task: dict[str, VerificationResult],
+    branch_validation_summaries: list[BranchValidationSummary],
+    revision_issues: list[RevisionIssue],
+) -> dict[str, Any]:
+    blocking_issue_branch_ids = {
+        issue.branch_id
+        for issue in revision_issues
+        if issue.blocking and issue.status in {"open", "accepted"} and issue.branch_id
+    }
+    legacy_ready_task_ids = [
+        synthesis.task_id
+        for synthesis in syntheses
+        if claim_results_by_task.get(synthesis.task_id)
+        and coverage_results_by_task.get(synthesis.task_id)
+        and claim_results_by_task[synthesis.task_id].outcome == "passed"
+        and coverage_results_by_task[synthesis.task_id].outcome == "passed"
+        and synthesis.branch_id not in blocking_issue_branch_ids
+    ]
+    legacy_blocking_task_ids = [
+        synthesis.task_id
+        for synthesis in syntheses
+        if synthesis.task_id not in set(legacy_ready_task_ids)
+    ]
+    canonical_ready_task_ids = [
+        item.task_id
+        for item in branch_validation_summaries
+        if item.ready_for_report and not item.blocking
+    ]
+    canonical_blocking_task_ids = [
+        item.task_id
+        for item in branch_validation_summaries
+        if not item.ready_for_report
+    ]
+    return {
+        "enabled": True,
+        "legacy_ready_task_ids": legacy_ready_task_ids,
+        "legacy_blocking_task_ids": legacy_blocking_task_ids,
+        "canonical_ready_task_ids": canonical_ready_task_ids,
+        "canonical_blocking_task_ids": canonical_blocking_task_ids,
+        "legacy_only_blocking_task_ids": [
+            task_id for task_id in legacy_blocking_task_ids if task_id not in set(canonical_blocking_task_ids)
+        ],
+        "canonical_only_blocking_task_ids": [
+            task_id for task_id in canonical_blocking_task_ids if task_id not in set(legacy_blocking_task_ids)
+        ],
+    }
 
 
 def _build_report_context(
@@ -847,10 +973,8 @@ def _build_outline_artifact(
     view: "_RuntimeView",
     research_brief: ResearchBriefArtifact | None,
     verified_syntheses: list[BranchSynthesis],
+    branch_validation_summaries: list[BranchValidationSummary],
     coverage_matrix: CoverageMatrixArtifact | None,
-    contradiction_registry: ContradictionRegistryArtifact | None,
-    missing_evidence_list: MissingEvidenceListArtifact | None,
-    revision_issues: list[RevisionIssue] | None = None,
 ) -> OutlineArtifact:
     sections: list[dict[str, Any]] = []
     coverage_rows = coverage_matrix.rows if coverage_matrix else []
@@ -892,47 +1016,30 @@ def _build_outline_artifact(
             )
 
     blocking_gaps: list[dict[str, Any]] = []
-    for row in coverage_rows:
-        if str(row.get("status") or "").strip().lower() == "covered" or not bool(row.get("blocking")):
+    for summary in branch_validation_summaries:
+        if summary.ready_for_report and not summary.blocking:
             continue
         blocking_gaps.append(
             {
-                "dimension": row.get("dimension"),
-                "status": row.get("status"),
-                "artifact_ids": list(row.get("artifact_ids") or []),
-                "gap_ids": list(row.get("gap_ids") or []),
-                "issue_ids": list(row.get("blocking_issue_ids") or row.get("issue_ids") or []),
+                "dimension": summary.summary or summary.branch_id or "validation_debt",
+                "status": "branch_validation_debt",
+                "artifact_ids": _dedupe_texts([summary.id, summary.synthesis_id or ""]),
+                "issue_ids": list(summary.blocking_issue_ids),
+                "answer_unit_ids": _dedupe_texts(
+                    list(summary.unsupported_answer_unit_ids)
+                    + list(summary.contradicted_answer_unit_ids)
+                ),
+                "obligation_ids": list(summary.unsatisfied_obligation_ids),
+                "consistency_result_ids": list(summary.consistency_result_ids),
             }
         )
-    if contradiction_registry:
-        for item in contradiction_registry.entries:
-            blocking_gaps.append(
-                {
-                    "dimension": item.get("claim") or "contradiction",
-                    "status": "contradiction",
-                    "artifact_ids": [item.get("verification_id")] if item.get("verification_id") else [],
-                }
-            )
-    if missing_evidence_list:
-        for item in missing_evidence_list.items[:8]:
-            if not bool(item.get("blocking", True)):
-                continue
-            blocking_gaps.append(
-                {
-                    "dimension": item.get("aspect") or item.get("kind") or "missing_evidence",
-                    "status": "missing_evidence",
-                    "artifact_ids": [item.get("artifact_id")] if item.get("artifact_id") else [],
-                }
-            )
-    for issue in revision_issues or []:
-        if issue.status not in {"open", "accepted"} or not issue.blocking:
-            continue
+    if not sections:
         blocking_gaps.append(
             {
-                "dimension": issue.summary,
-                "status": issue.issue_type,
-                "artifact_ids": [issue.id],
-                "issue_ids": [issue.id],
+                "dimension": research_brief.research_goal if research_brief else "final_report",
+                "status": "outline_structure_gap",
+                "artifact_ids": [],
+                "issue_ids": [],
             }
         )
 
@@ -2946,12 +3053,18 @@ class MultiAgentDeepResearchRuntime:
             return None
         if not session.submissions or session.branch_synthesis is None:
             return None
-        claim_units = derive_claim_units(
+        answer_units = derive_answer_units(
             claim_verifier=self.claim_verifier,
             task=task,
             synthesis=session.branch_synthesis,
             created_by=record.agent_id,
+            existing_answer_units=session.answer_units,
+            existing_claim_units=session.claim_units,
         )
+        claim_units = [item.to_claim_unit() for item in answer_units]
+        session.answer_units = answer_units
+        session.claim_units = claim_units
+        session.branch_synthesis.answer_unit_ids = [item.id for item in answer_units]
         session.branch_synthesis.claim_ids = [item.id for item in claim_units]
         session.branch_synthesis.revision_brief_id = task.revision_brief_id
         session.branch_synthesis.metadata.setdefault("addressed_issue_ids", list(task.target_issue_ids))
@@ -3012,6 +3125,7 @@ class MultiAgentDeepResearchRuntime:
             task_stage="submit",
             result_status=session.submissions[-1].result_status,
             agent_run=record,
+            answer_units=answer_units,
             claim_units=claim_units,
             resolved_issue_ids=list(session.submissions[-1].resolved_issue_ids),
         )
@@ -3034,6 +3148,9 @@ class MultiAgentDeepResearchRuntime:
         related_artifacts = view.artifact_store.get_related_artifacts(task.id, branch_id=synthesis.branch_id)
         if claim_units is not None:
             related_artifacts["claim_units"] = [item.to_dict() for item in claim_units]
+            related_artifacts["answer_units"] = [
+                item.to_dict() for item in view.artifact_store.answer_units(task_id=task.id)
+            ] or [AnswerUnit.from_claim_unit(item).to_dict() for item in claim_units]
         if obligations is not None:
             related_artifacts["coverage_obligations"] = [item.to_dict() for item in obligations]
         session_task = copy.deepcopy(task)
@@ -3053,6 +3170,11 @@ class MultiAgentDeepResearchRuntime:
             related_artifacts=related_artifacts,
         )
         session.branch_synthesis = copy.deepcopy(synthesis)
+        session.answer_units = [
+            AnswerUnit(**item)
+            for item in related_artifacts.get("answer_units", [])
+            if isinstance(item, dict)
+        ]
         session.claim_units = [copy.deepcopy(item) for item in (claim_units or [])]
         session.source_candidates = [
             SourceCandidate(**item)
@@ -3080,12 +3202,13 @@ class MultiAgentDeepResearchRuntime:
             "Work only inside the active branch and only use the provided tools.\n"
             "Inspect the current task and related artifacts first.\n"
             "Use fabric_get_verification_contracts to inspect structured claims, obligations and issues first.\n"
-            "Use fabric_challenge_summary for claim checks, fabric_compare_coverage for coverage checks, "
+            "Use fabric_list_answer_units, fabric_get_obligations, fabric_get_evidence_passages, "
+            "fabric_validate_unit and fabric_validate_obligation for authoritative validation, "
             "and search/read/extract only when you need extra evidence.\n"
             "If you need to request follow-up work, only use registered request types: "
             "retry_branch, need_counterevidence, contradiction_found, blocked_by_tooling.\n"
             "Always finish by calling fabric_submit_verification_bundle.\n"
-            "Claim checks MUST submit claim_ids.\n"
+            "Claim checks MUST submit answer_unit_ids.\n"
             "Coverage checks MUST submit obligation_ids.\n"
             "Consistency checks MUST submit consistency_result_ids.\n"
             "If you reference an existing issue, include issue_ids.\n"
@@ -3099,6 +3222,7 @@ class MultiAgentDeepResearchRuntime:
             f"Acceptance criteria: {task.acceptance_criteria}\n"
             f"Branch summary: {synthesis.summary}\n"
             f"Citation URLs: {synthesis.citation_urls}\n"
+            f"Answer unit ids: {synthesis.answer_unit_ids}\n"
             f"Claim ids: {synthesis.claim_ids}\n"
             f"Revision brief id: {task.revision_brief_id or 'n/a'}\n"
             f"Target issue ids: {task.target_issue_ids}\n"
@@ -3334,6 +3458,13 @@ class MultiAgentDeepResearchRuntime:
             related_artifacts={
                 "outline": outline_artifact.to_dict(),
                 "branch_syntheses": [item.to_dict() for item in verified_syntheses],
+                "branch_validation_summaries": [
+                    item.to_dict()
+                    for item in _latest_branch_validation_summaries(
+                        view.artifact_store.branch_validation_summaries(),
+                        view.artifact_store.branch_briefs(),
+                    )
+                ],
                 "verification_results": [
                     item.to_dict()
                     for item in view.artifact_store.verification_results()
@@ -3629,12 +3760,14 @@ class MultiAgentDeepResearchRuntime:
                     "addressed_issue_ids": list(task.target_issue_ids),
                 },
             )
-            claim_units = derive_claim_units(
+            answer_units = derive_answer_units(
                 claim_verifier=self.claim_verifier,
                 task=task,
                 synthesis=branch_synthesis,
                 created_by=record.agent_id,
             )
+            claim_units = [item.to_claim_unit() for item in answer_units]
+            branch_synthesis.answer_unit_ids = [item.id for item in answer_units]
             branch_synthesis.claim_ids = [item.id for item in claim_units]
 
             section_draft = ReportSectionDraft(
@@ -3726,6 +3859,7 @@ class MultiAgentDeepResearchRuntime:
                 task_stage=current_stage,
                 result_status="completed",
                 agent_run=record,
+                answer_units=answer_units,
                 claim_units=claim_units,
             )
         except Exception as exc:
@@ -3792,6 +3926,7 @@ class MultiAgentDeepResearchRuntime:
                 result_status="failed",
                 agent_run=record,
                 error=str(exc),
+                answer_units=[],
                 claim_units=[],
             )
 
@@ -3928,6 +4063,27 @@ class MultiAgentDeepResearchRuntime:
                         task_kind=result.task.task_kind,
                         stage="extract",
                         attempt=result.task.attempts,
+                    )
+
+            if result.answer_units:
+                view.artifact_store.add_answer_units(result.answer_units)
+                for answer_unit in result.answer_units:
+                    view._emit_artifact_update(
+                        artifact_id=answer_unit.id,
+                        artifact_type="answer_unit",
+                        status=answer_unit.status,
+                        task_id=answer_unit.task_id,
+                        branch_id=answer_unit.branch_id,
+                        agent_id=answer_unit.created_by,
+                        summary=answer_unit.text[:180],
+                        task_kind=result.task.task_kind,
+                        stage="synthesize",
+                        attempt=result.task.attempts,
+                        extra={
+                            "unit_type": answer_unit.unit_type,
+                            "obligation_ids": list(answer_unit.obligation_ids),
+                            "supporting_passage_ids": list(answer_unit.supporting_passage_ids),
+                        },
                     )
 
             if result.claim_units:
@@ -4259,6 +4415,7 @@ class MultiAgentDeepResearchRuntime:
             stage="grounding_check",
             validation_stage="claim_check",
         )
+        answer_units_to_persist: list[AnswerUnit] = []
         claim_units_to_persist: list[ClaimUnit] = []
         grounding_artifacts: list[ClaimGroundingResult] = []
         claim_results: list[VerificationResult] = []
@@ -4275,17 +4432,24 @@ class MultiAgentDeepResearchRuntime:
                     status=task.status,
                     attempt=task.attempts,
                 )
+                existing_answer_units = view.artifact_store.answer_units(task_id=task.id)
                 existing_claim_units = view.artifact_store.claim_units(task_id=task.id)
-                claim_units = derive_claim_units(
+                answer_units = derive_answer_units(
                     claim_verifier=self.claim_verifier,
                     task=task,
                     synthesis=synthesis,
                     created_by=claim_record.agent_id,
+                    existing_answer_units=existing_answer_units,
                     existing_claim_units=existing_claim_units,
+                )
+                claim_units = [item.to_claim_unit() for item in answer_units]
+                answer_units_to_persist.extend(
+                    [item for item in answer_units if item.id not in {existing.id for existing in existing_answer_units}]
                 )
                 claim_units_to_persist.extend(
                     [item for item in claim_units if item.id not in {existing.id for existing in existing_claim_units}]
                 )
+                synthesis.answer_unit_ids = [item.id for item in answer_units]
                 synthesis.claim_ids = [item.id for item in claim_units]
                 synthesis.revision_brief_id = synthesis.revision_brief_id or task.revision_brief_id
                 view.artifact_store.add_branch_synthesis(synthesis)
@@ -4319,6 +4483,21 @@ class MultiAgentDeepResearchRuntime:
                     for passage in view.artifact_store.evidence_passages(branch_id=synthesis.branch_id)
                     if not synthesis.evidence_passage_ids or passage.id in synthesis.evidence_passage_ids
                 ]
+                for answer_unit in answer_units:
+                    _emit_contract_artifact(
+                        artifact_id=answer_unit.id,
+                        artifact_type="answer_unit",
+                        status=answer_unit.status,
+                        task_id=answer_unit.task_id,
+                        branch_id=answer_unit.branch_id,
+                        summary=answer_unit.text,
+                        stage="grounding_check",
+                        extra={
+                            "unit_type": answer_unit.unit_type,
+                            "obligation_ids": list(answer_unit.obligation_ids),
+                            "supporting_passage_ids": list(answer_unit.supporting_passage_ids),
+                        },
+                    )
                 for claim_unit in claim_units:
                     _emit_contract_artifact(
                         artifact_id=claim_unit.id,
@@ -4336,6 +4515,7 @@ class MultiAgentDeepResearchRuntime:
                 claim_groundings = ground_claim_units(
                     claim_verifier=self.claim_verifier,
                     claim_units=claim_units,
+                    answer_units=answer_units,
                     passages=[
                         {
                             "id": passage.id,
@@ -4458,18 +4638,21 @@ class MultiAgentDeepResearchRuntime:
                         [passage_id for result in claim_groundings for passage_id in result.evidence_passage_ids]
                     ),
                     metadata={
+                        "answer_unit_ids": [item.id for item in answer_units],
                         "claim_ids": [item.id for item in claim_units],
                         "grounding_result_ids": [item.id for item in claim_groundings],
                         "claims": [
                             {
+                                "answer_unit_id": answer_unit.id,
                                 "claim_id": claim_unit.id,
-                                "claim": claim_unit.claim,
+                                "claim": answer_unit.text,
+                                "unit_type": answer_unit.unit_type,
                                 "status": result.status,
                                 "evidence_urls": list(result.evidence_urls),
                                 "evidence_passage_ids": list(result.evidence_passage_ids),
                                 "notes": result.summary,
                             }
-                            for claim_unit, result in zip(claim_units, claim_groundings, strict=False)
+                            for answer_unit, claim_unit, result in zip(answer_units, claim_units, claim_groundings, strict=False)
                         ],
                         "branch_summary": synthesis.summary[:240],
                     },
@@ -4497,6 +4680,8 @@ class MultiAgentDeepResearchRuntime:
                 )
             if claim_units_to_persist:
                 view.artifact_store.add_claim_units(claim_units_to_persist)
+            if answer_units_to_persist:
+                view.artifact_store.add_answer_units(answer_units_to_persist)
             if grounding_artifacts:
                 view.artifact_store.add_claim_grounding_results(grounding_artifacts)
             if claim_results:
@@ -4587,10 +4772,10 @@ class MultiAgentDeepResearchRuntime:
             coverage_evaluations: list[CoverageEvaluationResult] = []
             consistency_artifacts: list[ConsistencyResult] = []
             revision_issues: list[RevisionIssue] = []
+            branch_validation_summaries: list[BranchValidationSummary] = []
             coverage_results: list[VerificationResult] = []
+            coverage_results_by_task: dict[str, VerificationResult] = {}
             verification_submissions: list[ResearchSubmission] = []
-            verified_task_ids: list[str] = []
-            retry_task_ids: list[str] = []
 
             for synthesis in syntheses:
                 task = task_map.get(synthesis.task_id)
@@ -4642,6 +4827,7 @@ class MultiAgentDeepResearchRuntime:
                             "source": obligation.source,
                         },
                     )
+                branch_answer_units = view.artifact_store.answer_units(task_id=task.id)
                 branch_claim_units = view.artifact_store.claim_units(task_id=task.id)
                 branch_groundings = view.artifact_store.claim_grounding_results(task_id=task.id)
                 claim_result = claim_outcomes_by_task.get(task.id)
@@ -4679,6 +4865,7 @@ class MultiAgentDeepResearchRuntime:
                     obligations=obligations,
                     claim_units=branch_claim_units,
                     grounding_results=branch_groundings,
+                    answer_units=branch_answer_units,
                     created_by=coverage_record.agent_id,
                 )
                 tool_coverage_result = (
@@ -4756,12 +4943,10 @@ class MultiAgentDeepResearchRuntime:
                     outcome = "passed"
                     recommended_action = "report"
                     summary = "coverage evaluation 通过，保留 non-blocking follow-up obligations"
-                    verified_task_ids.append(task.id)
                 else:
                     outcome = "passed"
                     recommended_action = "report"
                     summary = "coverage evaluation 通过"
-                    verified_task_ids.append(task.id)
                 result = VerificationResult(
                     id=support._new_id("verification"),
                     task_id=task.id,
@@ -4784,6 +4969,7 @@ class MultiAgentDeepResearchRuntime:
                     },
                 )
                 coverage_results.append(result)
+                coverage_results_by_task[task.id] = result
                 verification_submissions.append(
                     ResearchSubmission(
                         id=support._new_id("submission"),
@@ -4809,6 +4995,11 @@ class MultiAgentDeepResearchRuntime:
             if coverage_evaluations:
                 view.artifact_store.add_coverage_evaluation_results(coverage_evaluations)
 
+            current_answer_units = [
+                item
+                for synthesis in syntheses
+                for item in view.artifact_store.answer_units(task_id=synthesis.task_id)
+            ]
             current_claim_units = [
                 item
                 for synthesis in syntheses
@@ -4823,12 +5014,16 @@ class MultiAgentDeepResearchRuntime:
                 task = task_map.get(synthesis.task_id)
                 if task is None:
                     continue
+                branch_answer_units = view.artifact_store.answer_units(task_id=task.id)
+                branch_claim_units = view.artifact_store.claim_units(task_id=task.id)
                 branch_consistency = evaluate_consistency(
                     claim_verifier=self.claim_verifier,
-                    claim_units=view.artifact_store.claim_units(task_id=task.id),
+                    claim_units=branch_claim_units,
                     grounding_results=view.artifact_store.claim_grounding_results(task_id=task.id),
                     all_claim_units=current_claim_units,
                     all_grounding_results=current_groundings,
+                    answer_units=branch_answer_units,
+                    all_answer_units=current_answer_units,
                     created_by=coverage_record.agent_id,
                 )
                 consistency_artifacts.extend(branch_consistency)
@@ -4855,40 +5050,75 @@ class MultiAgentDeepResearchRuntime:
                 for synthesis in syntheses
                 for item in view.artifact_store.coverage_obligations(task_id=synthesis.task_id)
             ]
-            issues_by_task: dict[str, list[RevisionIssue]] = defaultdict(list)
             for synthesis in syntheses:
                 task = task_map.get(synthesis.task_id)
                 if task is None:
                     continue
+                branch_answer_units = view.artifact_store.answer_units(task_id=task.id)
+                branch_obligations = view.artifact_store.coverage_obligations(task_id=task.id)
+                branch_groundings = view.artifact_store.claim_grounding_results(task_id=task.id)
+                branch_coverage_results = view.artifact_store.coverage_evaluation_results(task_id=task.id)
+                branch_consistency_results = [
+                    item
+                    for item in consistency_artifacts
+                    if item.task_id == task.id or item.branch_id == task.branch_id
+                ]
                 branch_issues = aggregate_revision_issues(
                     task=task,
                     claim_units=view.artifact_store.claim_units(task_id=task.id),
-                    obligations=view.artifact_store.coverage_obligations(task_id=task.id),
-                    grounding_results=view.artifact_store.claim_grounding_results(task_id=task.id),
-                    coverage_results=view.artifact_store.coverage_evaluation_results(task_id=task.id),
-                    consistency_results=[
-                        item
-                        for item in consistency_artifacts
-                        if item.task_id == task.id or item.branch_id == task.branch_id
-                    ],
+                    obligations=branch_obligations,
+                    grounding_results=branch_groundings,
+                    coverage_results=branch_coverage_results,
+                    consistency_results=branch_consistency_results,
+                    answer_units=branch_answer_units,
                     created_by=coverage_record.agent_id,
                 )
                 revision_issues.extend(branch_issues)
-                issues_by_task[task.id].extend(branch_issues)
+
+                branch_validation_summaries.append(
+                    build_branch_validation_summary(
+                        task=task,
+                        synthesis=synthesis,
+                        answer_units=branch_answer_units,
+                        obligations=branch_obligations,
+                        grounding_results=branch_groundings,
+                        coverage_results=branch_coverage_results,
+                        consistency_results=branch_consistency_results,
+                        revision_issues=branch_issues,
+                        advisory_notes=[
+                            issue.summary
+                            for issue in branch_issues
+                            if issue.status in {"open", "accepted"} and not issue.blocking
+                        ],
+                        created_by=coverage_record.agent_id,
+                    )
+                )
 
             _resolve_stale_issues(revision_issues)
             if revision_issues:
                 view.artifact_store.add_revision_issues(revision_issues)
                 for issue in revision_issues:
                     _emit_issue_status(issue)
-
-            retry_task_ids = list(
-                dict.fromkeys(
-                    issue.task_id
-                    for issue in revision_issues
-                    if issue.blocking and issue.status in {"open", "accepted"} and issue.task_id
-                )
-            )
+            if branch_validation_summaries:
+                view.artifact_store.add_branch_validation_summaries(branch_validation_summaries)
+                for summary in branch_validation_summaries:
+                    _emit_contract_artifact(
+                        artifact_id=summary.id,
+                        artifact_type="branch_validation_summary",
+                        status=summary.status,
+                        task_id=summary.task_id,
+                        branch_id=summary.branch_id,
+                        summary=summary.summary,
+                        stage="issue_aggregation",
+                        extra={
+                            "ready_for_report": summary.ready_for_report,
+                            "blocking": summary.blocking,
+                            "answer_unit_ids": list(summary.answer_unit_ids),
+                            "obligation_ids": list(summary.obligation_ids),
+                            "issue_ids": list(summary.issue_ids),
+                            "blocking_issue_ids": list(summary.blocking_issue_ids),
+                        },
+                    )
 
             gap_result = build_gap_result(
                 obligations=all_obligations,
@@ -5039,6 +5269,16 @@ class MultiAgentDeepResearchRuntime:
             quality_summary = view._quality_summary(gap_result)
             view._emit(events.ToolEventType.QUALITY_UPDATE, quality_summary)
 
+            verified_task_ids = [
+                item.task_id
+                for item in branch_validation_summaries
+                if item.ready_for_report and not item.blocking
+            ]
+            retry_task_ids = [
+                item.task_id
+                for item in branch_validation_summaries
+                if not item.ready_for_report
+            ]
             follow_up_branch_count = len(
                 {
                     issue.branch_id
@@ -5053,16 +5293,33 @@ class MultiAgentDeepResearchRuntime:
                     if issue.recommended_action == "spawn_counterevidence_branch" and issue.branch_id
                 }
             )
-            blocking_issue_ids = [
-                issue.id
-                for issue in revision_issues
-                if issue.blocking and issue.status in {"open", "accepted"}
-            ]
+            branch_validation_summary_by_task = {
+                item.task_id: item for item in branch_validation_summaries if item.task_id
+            }
+            blocking_issue_ids = _dedupe_texts(
+                [
+                    issue_id
+                    for item in branch_validation_summaries
+                    for issue_id in item.blocking_issue_ids
+                ]
+            )
             non_blocking_issue_ids = [
                 issue.id
                 for issue in revision_issues
                 if not issue.blocking and issue.status in {"open", "accepted"}
             ]
+            blocking_verification_debt_ids = _dedupe_texts(
+                [
+                    debt_id
+                    for item in branch_validation_summaries
+                    for debt_id in (
+                        list(item.blocking_issue_ids)
+                        + list(item.unsatisfied_obligation_ids)
+                        + list(item.contradicted_answer_unit_ids)
+                        + list(item.consistency_result_ids)
+                    )
+                ]
+            )
             verification_summary = {
                 "verified_branches": len(
                     {
@@ -5082,29 +5339,48 @@ class MultiAgentDeepResearchRuntime:
                 "retry_task_ids": list(dict.fromkeys(retry_task_ids)),
                 "failed_branches": len(
                     {
-                        issue.branch_id
-                        for issue in revision_issues
-                        if issue.issue_type == "claim_grounding"
-                        and issue.status in {"open", "accepted"}
-                        and issue.branch_id
+                        item.branch_id
+                        for item in branch_validation_summaries
+                        if item.branch_id
+                        and (
+                            item.contradicted_answer_unit_ids
+                            or item.consistency_result_ids
+                        )
                     }
                 ),
                 "follow_up_branches": follow_up_branch_count,
                 "counterevidence_branches": counterevidence_branch_count,
-                "coverage_gap_count": len(gap_artifacts),
+                "coverage_gap_count": len(
+                    {
+                        obligation_id
+                        for item in branch_validation_summaries
+                        for obligation_id in item.unsatisfied_obligation_ids
+                    }
+                ),
                 "advisory_gap_count": len(gap_artifacts),
                 "coverage_matrix_id": coverage_matrix_artifact.id,
                 "contradiction_registry_id": contradiction_registry_artifact.id,
                 "missing_evidence_list_id": missing_evidence_artifact.id,
                 "contradiction_count": len(contradiction_registry_artifact.entries),
                 "missing_evidence_count": len(missing_evidence_artifact.items),
-                "blocking_verification_debt_count": len(blocking_issue_ids),
+                "blocking_verification_debt_count": len(blocking_verification_debt_ids),
                 "replan_hints": list(gap_result.suggested_queries),
                 "advisory_replan_hints": list(gap_result.suggested_queries),
                 "request_ids": [request.id for request in verification_requests],
                 "open_issue_ids": [issue.id for issue in revision_issues if issue.status in {"open", "accepted"}],
                 "blocking_issue_ids": blocking_issue_ids,
                 "non_blocking_issue_ids": non_blocking_issue_ids,
+                "branch_validation_summary_ids": [item.id for item in branch_validation_summaries],
+                "ready_for_report_branch_ids": [
+                    item.branch_id
+                    for item in branch_validation_summaries
+                    if item.ready_for_report and item.branch_id
+                ],
+                "blocking_branch_ids": [
+                    item.branch_id
+                    for item in branch_validation_summaries
+                    if (item.blocking or not item.ready_for_report) and item.branch_id
+                ],
                 "issue_statuses": summarize_issue_statuses(view.artifact_store.revision_issues()),
                 "revision_lineage": summarize_revision_lineage(
                     revision_briefs=view.artifact_store.revision_briefs(),
@@ -5112,6 +5388,14 @@ class MultiAgentDeepResearchRuntime:
                 ),
                 "revision_issue_count": len(revision_issues),
             }
+            if _verifier_shadow_compare_enabled():
+                verification_summary["shadow_compare"] = _build_verifier_shadow_compare(
+                    syntheses=syntheses,
+                    claim_results_by_task=claim_outcomes_by_task,
+                    coverage_results_by_task=coverage_results_by_task,
+                    branch_validation_summaries=branch_validation_summaries,
+                    revision_issues=revision_issues,
+                )
             for synthesis in syntheses:
                 task = task_map.get(synthesis.task_id)
                 if task is None or not synthesis.branch_id:
@@ -5119,11 +5403,19 @@ class MultiAgentDeepResearchRuntime:
                 branch_brief = view.artifact_store.get_brief(synthesis.branch_id)
                 if branch_brief is None:
                     continue
+                branch_summary = branch_validation_summary_by_task.get(task.id)
                 branch_issues = view.artifact_store.revision_issues(branch_id=synthesis.branch_id)
+                branch_brief.answer_unit_ids = (
+                    list(branch_summary.answer_unit_ids)
+                    if branch_summary is not None
+                    else [item.id for item in view.artifact_store.answer_units(task_id=task.id)]
+                )
                 branch_brief.claim_ids = [item.id for item in view.artifact_store.claim_units(task_id=task.id)]
-                branch_brief.obligation_ids = [
-                    item.id for item in view.artifact_store.coverage_obligations(task_id=task.id)
-                ]
+                branch_brief.obligation_ids = (
+                    list(branch_summary.obligation_ids)
+                    if branch_summary is not None
+                    else [item.id for item in view.artifact_store.coverage_obligations(task_id=task.id)]
+                )
                 branch_brief.open_issue_ids = [
                     issue.id
                     for issue in branch_issues
@@ -5136,18 +5428,12 @@ class MultiAgentDeepResearchRuntime:
                 ]
                 branch_brief.verification_status = (
                     "passed"
-                    if not any(issue.blocking and issue.status in {"open", "accepted"} for issue in branch_issues)
+                    if branch_summary is not None and branch_summary.ready_for_report and not branch_summary.blocking
                     else "needs_follow_up"
                 )
-                branch_brief.current_stage = "consistency_check" if consistency_artifacts else "coverage_evaluation"
-                branch_brief.latest_verification_id = next(
-                    (
-                        result.id
-                        for result in reversed(coverage_results)
-                        if result.branch_id == synthesis.branch_id
-                    ),
-                    branch_brief.latest_verification_id,
-                )
+                branch_brief.current_stage = "validation_summary"
+                if branch_summary is not None:
+                    branch_brief.latest_verification_id = branch_summary.id
                 view.artifact_store.put_brief(branch_brief)
             view.runtime_state["supervisor_request_ids"] = [
                 request.id
@@ -5171,21 +5457,6 @@ class MultiAgentDeepResearchRuntime:
                     extra={
                         "retry_task_ids": verification_summary["retry_task_ids"],
                         "blocking_issue_ids": verification_summary["blocking_issue_ids"],
-                    },
-                )
-            elif verification_summary["contradiction_count"] or verification_summary["missing_evidence_count"]:
-                view._emit_decision(
-                    decision_type="coverage_gap_detected",
-                    reason="结构化验证 artifacts 指出仍存在 coverage / contradiction / evidence 缺口",
-                    iteration=view.current_iteration,
-                    gap_count=verification_summary["blocking_verification_debt_count"],
-                    attempt=view.graph_attempt,
-                    validation_stage="coverage_check",
-                    extra={
-                        "suggested_queries": gap_result.suggested_queries,
-                        "contradiction_count": verification_summary["contradiction_count"],
-                        "missing_evidence_count": verification_summary["missing_evidence_count"],
-                        "advisory_gap_count": len(gap_artifacts),
                     },
                 )
             else:
@@ -5868,45 +6139,15 @@ class MultiAgentDeepResearchRuntime:
             attempt=view.graph_attempt,
         )
         try:
-            claim_results = {
-                result.task_id: result
-                for result in view.artifact_store.verification_results(validation_stage="claim_check")
-            }
-            coverage_results = {
-                result.task_id: result
-                for result in view.artifact_store.verification_results(validation_stage="coverage_check")
-            }
-            latest_syntheses = latest_branch_syntheses(
-                view.artifact_store.branch_syntheses(),
-                view.artifact_store.branch_briefs(),
-            )
-            blocking_issue_branch_ids = {
-                issue.branch_id
-                for issue in view.artifact_store.revision_issues()
-                if issue.blocking and issue.status in {"open", "accepted"} and issue.branch_id
-            }
-            verified_syntheses = [
-                synthesis
-                for synthesis in latest_syntheses
-                if claim_results.get(synthesis.task_id)
-                and coverage_results.get(synthesis.task_id)
-                and claim_results[synthesis.task_id].outcome == "passed"
-                and coverage_results[synthesis.task_id].outcome == "passed"
-                and synthesis.branch_id not in blocking_issue_branch_ids
-            ]
+            verified_syntheses, branch_validation_summaries = _verified_branch_syntheses_for_reporting(view)
             research_brief = view.artifact_store.research_brief()
             coverage_matrix = view.artifact_store.coverage_matrix()
-            contradiction_registry = view.artifact_store.contradiction_registry()
-            missing_evidence_list = view.artifact_store.missing_evidence_list()
-            revision_issues = view.artifact_store.revision_issues()
             outline_artifact = _build_outline_artifact(
                 view=view,
                 research_brief=research_brief,
                 verified_syntheses=verified_syntheses,
+                branch_validation_summaries=branch_validation_summaries,
                 coverage_matrix=coverage_matrix,
-                contradiction_registry=contradiction_registry,
-                missing_evidence_list=missing_evidence_list,
-                revision_issues=revision_issues,
             )
             view.artifact_store.set_outline(outline_artifact)
             view.runtime_state["outline_id"] = outline_artifact.id
@@ -6044,32 +6285,7 @@ class MultiAgentDeepResearchRuntime:
             attempt=view.graph_attempt,
         )
         try:
-            coverage_results = {
-                result.task_id: result
-                for result in view.artifact_store.verification_results(validation_stage="coverage_check")
-            }
-            claim_results = {
-                result.task_id: result
-                for result in view.artifact_store.verification_results(validation_stage="claim_check")
-            }
-            latest_syntheses = latest_branch_syntheses(
-                view.artifact_store.branch_syntheses(),
-                view.artifact_store.branch_briefs(),
-            )
-            blocking_issue_branch_ids = {
-                issue.branch_id
-                for issue in view.artifact_store.revision_issues()
-                if issue.blocking and issue.status in {"open", "accepted"} and issue.branch_id
-            }
-            verified_syntheses = [
-                synthesis
-                for synthesis in latest_syntheses
-                if claim_results.get(synthesis.task_id)
-                and coverage_results.get(synthesis.task_id)
-                and claim_results[synthesis.task_id].outcome == "passed"
-                and coverage_results[synthesis.task_id].outcome == "passed"
-                and synthesis.branch_id not in blocking_issue_branch_ids
-            ]
+            verified_syntheses, _branch_validation_summaries = _verified_branch_syntheses_for_reporting(view)
             source_catalog = _build_report_source_catalog(view)
             report_context = _build_report_context(
                 topic=self.topic,

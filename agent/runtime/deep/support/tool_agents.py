@@ -5,7 +5,6 @@ Bounded tool-agent helpers for Deep Research multi-agent runtime.
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -14,6 +13,7 @@ from langchain_core.tools import BaseTool, tool
 
 import agent.runtime.deep.support.runtime_support as support
 from agent.runtime.deep.schema import (
+    AnswerUnit,
     BranchSynthesis,
     ClaimUnit,
     CoordinationRequest,
@@ -28,9 +28,13 @@ from agent.runtime.deep.schema import (
     VerificationResult,
     validate_coordination_request_type,
 )
-from agent.runtime.deep.services.verification import derive_claim_units
+from agent.runtime.deep.services.verification import (
+    derive_answer_units,
+    evaluate_obligations,
+    ground_claim_units,
+    latest_branch_syntheses,
+)
 from agent.builders.agent_factory import build_deep_research_tool_agent
-from agent.contracts.claim_verifier import ClaimStatus
 
 
 def _extract_json_object(content: str) -> dict[str, Any]:
@@ -74,18 +78,6 @@ def _split_findings(summary: str) -> list[str]:
     return [text[:300]]
 
 
-def _criterion_is_covered(summary: str, criterion: str) -> bool:
-    criterion_text = str(criterion or "").strip().lower()
-    summary_text = str(summary or "").strip().lower()
-    if not criterion_text or not summary_text:
-        return False
-    tokens = [token for token in re.split(r"[\s,，]+", criterion_text) if len(token) > 1]
-    if not tokens:
-        return criterion_text in summary_text
-    matches = sum(1 for token in tokens if token in summary_text)
-    return matches >= max(1, min(2, len(tokens)))
-
-
 def _normalize_ids(values: list[str] | None) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
@@ -99,6 +91,19 @@ def _normalize_ids(values: list[str] | None) -> list[str]:
 
 
 def _related_contract_ids(session: "DeepResearchToolAgentSession", artifact_key: str) -> set[str]:
+    if artifact_key == "answer_unit_ids":
+        values = [item.id for item in session.answer_units if item.id]
+        if not values and session.branch_synthesis:
+            values = [item for item in session.branch_synthesis.answer_unit_ids if item]
+        if not values:
+            values = [
+                str(item.get("id") or "").strip()
+                for item in session.related_artifacts.get("answer_units", [])
+                if isinstance(item, dict)
+            ]
+        if not values:
+            values = [item.id for item in session.claim_units if item.id]
+        return {item for item in values if item}
     if artifact_key == "claim_ids":
         values = [item.id for item in session.claim_units if item.id]
         if not values and session.branch_synthesis:
@@ -129,18 +134,24 @@ def _validate_verifier_contract_submission(
     session: "DeepResearchToolAgentSession",
     *,
     validation_stage: str,
+    answer_unit_ids: list[str] | None,
     claim_ids: list[str] | None,
     obligation_ids: list[str] | None,
     consistency_result_ids: list[str] | None,
     issue_ids: list[str] | None,
-) -> tuple[list[str], list[str], list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
+    normalized_answer_unit_ids = _normalize_ids(answer_unit_ids)
     normalized_claim_ids = _normalize_ids(claim_ids)
     normalized_obligation_ids = _normalize_ids(obligation_ids)
     normalized_consistency_ids = _normalize_ids(consistency_result_ids)
     normalized_issue_ids = _normalize_ids(issue_ids)
+    if not normalized_answer_unit_ids and normalized_claim_ids:
+        normalized_answer_unit_ids = list(normalized_claim_ids)
+    if not normalized_claim_ids and normalized_answer_unit_ids:
+        normalized_claim_ids = list(normalized_answer_unit_ids)
 
     stage_requirements = {
-        "claim_check": ("claim_ids", normalized_claim_ids),
+        "claim_check": ("answer_unit_ids", normalized_answer_unit_ids),
         "coverage_check": ("obligation_ids", normalized_obligation_ids),
         "consistency_check": ("consistency_result_ids", normalized_consistency_ids),
     }
@@ -150,15 +161,17 @@ def _validate_verifier_contract_submission(
 
     if not any(
         (
+            normalized_answer_unit_ids,
             normalized_claim_ids,
             normalized_obligation_ids,
             normalized_consistency_ids,
             normalized_issue_ids,
         )
     ):
-        raise ValueError("verifier submissions must reference claim_ids, obligation_ids, consistency_result_ids, or issue_ids")
+        raise ValueError("verifier submissions must reference answer_unit_ids, claim_ids, obligation_ids, consistency_result_ids, or issue_ids")
 
     for field_name, values in (
+        ("answer_unit_ids", normalized_answer_unit_ids),
         ("claim_ids", normalized_claim_ids),
         ("obligation_ids", normalized_obligation_ids),
         ("consistency_result_ids", normalized_consistency_ids),
@@ -170,6 +183,7 @@ def _validate_verifier_contract_submission(
             raise ValueError(f"{field_name} contains unknown ids: {unknown_ids}")
 
     return (
+        normalized_answer_unit_ids,
         normalized_claim_ids,
         normalized_obligation_ids,
         normalized_consistency_ids,
@@ -197,6 +211,7 @@ class DeepResearchToolAgentSession:
     evidence_cards: list[EvidenceCard] = field(default_factory=list)
     branch_synthesis: BranchSynthesis | None = None
     section_draft: ReportSectionDraft | None = None
+    answer_units: list[AnswerUnit] = field(default_factory=list)
     claim_units: list[ClaimUnit] = field(default_factory=list)
     verification_results: list[VerificationResult] = field(default_factory=list)
     coordination_requests: list[CoordinationRequest] = field(default_factory=list)
@@ -341,6 +356,7 @@ class DeepResearchToolAgentSession:
         *,
         summary: str,
         findings: list[str] | None = None,
+        answer_units: list[dict[str, Any]] | None = None,
         result_status: str = "completed",
         resolved_issue_ids: list[str] | None = None,
     ) -> ResearchSubmission:
@@ -363,14 +379,23 @@ class DeepResearchToolAgentSession:
                 created_by=self.role,
                 metadata={"graph_run_id": self.graph_run_id, "attempt": self.attempt},
             )
-        self.claim_units = derive_claim_units(
-            claim_verifier=self.runtime.claim_verifier,
-            task=self.task,
-            synthesis=self.branch_synthesis,
-            created_by=self.role,
-            existing_claim_units=self.claim_units,
-        ) if self.task and self.branch_synthesis else []
+        if self.task and self.branch_synthesis:
+            if answer_units:
+                self.branch_synthesis.metadata["answer_units"] = list(answer_units)
+            self.answer_units = derive_answer_units(
+                claim_verifier=self.runtime.claim_verifier,
+                task=self.task,
+                synthesis=self.branch_synthesis,
+                created_by=self.role,
+                existing_answer_units=self.answer_units,
+                existing_claim_units=self.claim_units,
+            )
+            self.claim_units = [item.to_claim_unit() for item in self.answer_units]
+        else:
+            self.answer_units = []
+            self.claim_units = []
         if self.branch_synthesis:
+            self.branch_synthesis.answer_unit_ids = [item.id for item in self.answer_units]
             self.branch_synthesis.claim_ids = [item.id for item in self.claim_units]
             self.branch_synthesis.metadata.setdefault("addressed_issue_ids", list(self.task.target_issue_ids if self.task else []))
         if not self.section_draft:
@@ -397,10 +422,12 @@ class DeepResearchToolAgentSession:
                 *[item.id for item in self.fetched_documents],
                 *[item.id for item in self.evidence_passages],
                 *[item.id for item in self.evidence_cards],
+                *[item.id for item in self.answer_units],
                 *[item.id for item in self.claim_units],
                 self.branch_synthesis.id,
                 self.section_draft.id,
             ],
+            answer_unit_ids=[item.id for item in self.answer_units],
             claim_ids=[item.id for item in self.claim_units],
             resolved_issue_ids=list(resolved_issue_ids or []),
             metadata={"graph_run_id": self.graph_run_id, "attempt": self.attempt},
@@ -419,12 +446,14 @@ class DeepResearchToolAgentSession:
         evidence_urls: list[str] | None = None,
         evidence_passage_ids: list[str] | None = None,
         request_ids: list[str] | None = None,
+        answer_unit_ids: list[str] | None = None,
         claim_ids: list[str] | None = None,
         obligation_ids: list[str] | None = None,
         consistency_result_ids: list[str] | None = None,
         issue_ids: list[str] | None = None,
     ) -> tuple[VerificationResult, ResearchSubmission]:
         (
+            normalized_answer_unit_ids,
             normalized_claim_ids,
             normalized_obligation_ids,
             normalized_consistency_ids,
@@ -432,6 +461,7 @@ class DeepResearchToolAgentSession:
         ) = _validate_verifier_contract_submission(
             self,
             validation_stage=validation_stage,
+            answer_unit_ids=answer_unit_ids,
             claim_ids=claim_ids,
             obligation_ids=obligation_ids,
             consistency_result_ids=consistency_result_ids,
@@ -453,6 +483,7 @@ class DeepResearchToolAgentSession:
             metadata={
                 "graph_run_id": self.graph_run_id,
                 "attempt": self.attempt,
+                "answer_unit_ids": normalized_answer_unit_ids,
                 "claim_ids": normalized_claim_ids,
                 "obligation_ids": normalized_obligation_ids,
                 "consistency_result_ids": normalized_consistency_ids,
@@ -471,6 +502,7 @@ class DeepResearchToolAgentSession:
             validation_stage=validation_stage,
             artifact_ids=[verification.id],
             request_ids=list(request_ids or []),
+            answer_unit_ids=normalized_answer_unit_ids,
             claim_ids=normalized_claim_ids,
             obligation_ids=normalized_obligation_ids,
             consistency_result_ids=normalized_consistency_ids,
@@ -732,6 +764,7 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
         def fabric_submit_research_bundle(
             summary: str,
             findings: list[str] | None = None,
+            answer_units: list[dict[str, Any]] | None = None,
             result_status: str = "completed",
             resolved_issue_ids: list[str] | None = None,
         ) -> dict[str, Any]:
@@ -739,12 +772,14 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
             submission = session.submit_research_bundle(
                 summary=summary,
                 findings=list(findings or []),
+                answer_units=list(answer_units or []),
                 result_status=result_status,
                 resolved_issue_ids=list(resolved_issue_ids or []),
             )
             return {
                 "submission_id": submission.id,
                 "branch_synthesis_id": session.branch_synthesis.id if session.branch_synthesis else "",
+                "answer_unit_ids": [item.id for item in session.answer_units],
                 "claim_ids": [item.id for item in session.claim_units],
                 "result_status": submission.result_status,
             }
@@ -753,40 +788,198 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
 
     if session.role == "verifier":
         @tool
-        def fabric_challenge_summary(summary: str) -> dict[str, Any]:
-            """Challenge a branch summary against current evidence passages and return contradiction or support signals."""
-            passages = [
+        def fabric_list_answer_units() -> list[dict[str, Any]]:
+            """Return the current branch answer units as the authoritative unit-level validation targets."""
+            if session.answer_units:
+                return [item.to_dict() for item in session.answer_units]
+            related = session.related_artifacts.get("answer_units", [])
+            if isinstance(related, list) and related:
+                return [item for item in related if isinstance(item, dict)]
+            return [
                 {
-                    "url": passage.url,
-                    "text": passage.text,
-                    "quote": passage.quote,
-                    "snippet_hash": passage.snippet_hash,
-                    "heading_path": passage.heading_path,
+                    "id": item.id,
+                    "task_id": item.task_id,
+                    "branch_id": item.branch_id,
+                    "text": item.claim,
+                    "unit_type": str(item.metadata.get("unit_type") or "claim"),
+                    "obligation_ids": list(item.metadata.get("obligation_ids") or []),
+                    "supporting_passage_ids": list(item.evidence_passage_ids),
                 }
-                for passage in session.evidence_passages
-            ] or session.related_artifacts.get("evidence_passages", [])
-            claim_checks = session.runtime.claim_verifier.verify_report(summary, [], passages=passages)
+                for item in session.claim_units
+            ]
+
+        @tool
+        def fabric_get_obligations() -> list[dict[str, Any]]:
+            """Return the current branch coverage obligations for unit-to-obligation validation."""
+            related = session.related_artifacts.get("coverage_obligations", [])
+            return [item for item in related if isinstance(item, dict)] if isinstance(related, list) else []
+
+        @tool
+        def fabric_get_evidence_passages() -> list[dict[str, Any]]:
+            """Return admissible evidence passages available to the current verifier session."""
+            if session.evidence_passages:
+                return [item.to_dict() for item in session.evidence_passages]
+            related = session.related_artifacts.get("evidence_passages", [])
+            return [item for item in related if isinstance(item, dict)] if isinstance(related, list) else []
+
+        @tool
+        def fabric_validate_unit(answer_unit_id: str) -> dict[str, Any]:
+            """Validate a single answer unit against admissible evidence passages."""
+            unit_id = str(answer_unit_id or "").strip()
+            answer_unit = next((item for item in session.answer_units if item.id == unit_id), None)
+            if answer_unit is None:
+                related = (
+                    [item.to_dict() for item in session.answer_units]
+                    if session.answer_units
+                    else [
+                        item for item in session.related_artifacts.get("answer_units", [])
+                        if isinstance(item, dict)
+                    ]
+                )
+                payload = next(
+                    (
+                        item
+                        for item in related
+                        if isinstance(item, dict) and str(item.get("id") or "").strip() == unit_id
+                    ),
+                    None,
+                )
+                if payload is None:
+                    raise RuntimeError(f"unknown answer unit id: {unit_id}")
+                answer_unit = AnswerUnit(
+                    id=unit_id,
+                    task_id=str(payload.get("task_id") or session.task.id if session.task else ""),
+                    branch_id=payload.get("branch_id") or session.branch_id,
+                    text=str(payload.get("text") or payload.get("claim") or "").strip(),
+                    unit_type=str(payload.get("unit_type") or "claim"),
+                    provenance=dict(payload.get("provenance") or {}),
+                    supporting_passage_ids=_normalize_ids(
+                        list(payload.get("supporting_passage_ids") or payload.get("evidence_passage_ids") or [])
+                    ),
+                    citation_urls=_normalize_ids(list(payload.get("citation_urls") or [])),
+                    obligation_ids=_normalize_ids(list(payload.get("obligation_ids") or [])),
+                    dependent_answer_unit_ids=_normalize_ids(list(payload.get("dependent_answer_unit_ids") or [])),
+                    required=bool(payload.get("required", True)),
+                    metadata=dict(payload.get("metadata") or {}),
+                )
+            results = ground_claim_units(
+                claim_verifier=session.runtime.claim_verifier,
+                claim_units=[],
+                answer_units=[answer_unit],
+                passages=(
+                    [item.to_dict() for item in session.evidence_passages]
+                    if session.evidence_passages
+                    else [
+                        item for item in session.related_artifacts.get("evidence_passages", [])
+                        if isinstance(item, dict)
+                    ]
+                ),
+                created_by=session.role,
+            )
+            result = results[0]
             return {
-                "claims": [
-                    {
-                        "claim": check.claim,
-                        "status": check.status.value,
-                        "evidence_urls": check.evidence_urls,
-                        "notes": check.notes,
-                    }
-                    for check in claim_checks
-                ],
-                "has_contradiction": any(check.status == ClaimStatus.CONTRADICTED for check in claim_checks),
-                "has_unsupported": any(check.status == ClaimStatus.UNSUPPORTED for check in claim_checks),
+                "answer_unit_id": answer_unit.id,
+                "status": result.status,
+                "summary": result.summary,
+                "evidence_urls": list(result.evidence_urls),
+                "evidence_passage_ids": list(result.evidence_passage_ids),
             }
 
         @tool
-        def fabric_compare_coverage(summary: str, criteria: list[str]) -> dict[str, Any]:
-            """Compare a branch summary against acceptance criteria and return missing criteria."""
-            missing = [criterion for criterion in (criteria or []) if not _criterion_is_covered(summary, criterion)]
+        def fabric_validate_obligation(obligation_id: str) -> dict[str, Any]:
+            """Validate a single obligation using mapped, grounded answer units."""
+            from agent.runtime.deep.schema import CoverageObligation
+
+            normalized_obligation_id = str(obligation_id or "").strip()
+            obligation_payload = next(
+                (
+                    item
+                    for item in (
+                        [
+                            item
+                            for item in session.related_artifacts.get("coverage_obligations", [])
+                            if isinstance(item, dict)
+                        ]
+                    )
+                    if str(item.get("id") or "").strip() == normalized_obligation_id
+                ),
+                None,
+            )
+            if obligation_payload is None:
+                raise RuntimeError(f"unknown obligation id: {obligation_id}")
+            resolved = next(
+                (
+                    item
+                    for item in session.runtime.artifact_store.coverage_obligations(task_id=session.task.id)
+                    if item.id == normalized_obligation_id
+                ),
+                None,
+            )
+            if resolved is None:
+                resolved = CoverageObligation(**obligation_payload)
+            units = session.answer_units or [
+                AnswerUnit(
+                    id=str(item.get("id") or "").strip(),
+                    task_id=str(item.get("task_id") or session.task.id if session.task else ""),
+                    branch_id=item.get("branch_id") or session.branch_id,
+                    text=str(item.get("text") or item.get("claim") or "").strip(),
+                    unit_type=str(item.get("unit_type") or "claim"),
+                    provenance=dict(item.get("provenance") or {}),
+                    supporting_passage_ids=_normalize_ids(
+                        list(item.get("supporting_passage_ids") or item.get("evidence_passage_ids") or [])
+                    ),
+                    citation_urls=_normalize_ids(list(item.get("citation_urls") or [])),
+                    obligation_ids=_normalize_ids(list(item.get("obligation_ids") or [])),
+                    dependent_answer_unit_ids=_normalize_ids(list(item.get("dependent_answer_unit_ids") or [])),
+                    required=bool(item.get("required", True)),
+                    metadata=dict(item.get("metadata") or {}),
+                )
+                for item in (
+                    [item.to_dict() for item in session.answer_units]
+                    if session.answer_units
+                    else [
+                        item for item in session.related_artifacts.get("answer_units", [])
+                        if isinstance(item, dict)
+                    ]
+                )
+                if isinstance(item, dict)
+            ]
+            groundings = ground_claim_units(
+                claim_verifier=session.runtime.claim_verifier,
+                claim_units=[],
+                answer_units=units,
+                passages=(
+                    [item.to_dict() for item in session.evidence_passages]
+                    if session.evidence_passages
+                    else [
+                        item for item in session.related_artifacts.get("evidence_passages", [])
+                        if isinstance(item, dict)
+                    ]
+                ),
+                created_by=session.role,
+            )
+            result = evaluate_obligations(
+                task=session.task,
+                synthesis=session.branch_synthesis or BranchSynthesis(
+                    id="",
+                    task_id=session.task.id if session.task else "",
+                    branch_id=session.branch_id,
+                    objective=session.task.objective if session.task else session.topic,
+                    summary=session.branch_synthesis.summary if session.branch_synthesis else "",
+                ),
+                obligations=[resolved],
+                claim_units=[item.to_claim_unit() for item in units],
+                answer_units=units,
+                grounding_results=groundings,
+                created_by=session.role,
+            )[0]
             return {
-                "missing_criteria": missing,
-                "covered": not missing,
+                "obligation_id": resolved.id,
+                "status": result.status,
+                "summary": result.summary,
+                "evidence_urls": list(result.evidence_urls),
+                "evidence_passage_ids": list(result.evidence_passage_ids),
+                "supported_answer_unit_ids": list(result.metadata.get("supported_answer_unit_ids", [])),
             }
 
         @tool
@@ -807,6 +1000,7 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
             recommended_action: str,
             gap_ids: list[str] | None = None,
             evidence_urls: list[str] | None = None,
+            answer_unit_ids: list[str] | None = None,
             claim_ids: list[str] | None = None,
             obligation_ids: list[str] | None = None,
             consistency_result_ids: list[str] | None = None,
@@ -838,6 +1032,7 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
                 evidence_urls=list(evidence_urls or []),
                 evidence_passage_ids=[item.id for item in session.evidence_passages],
                 request_ids=request_ids,
+                answer_unit_ids=list(answer_unit_ids or []),
                 claim_ids=list(claim_ids or []),
                 obligation_ids=list(obligation_ids or []),
                 consistency_result_ids=list(consistency_result_ids or []),
@@ -851,8 +1046,11 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
 
         base_tools.extend(
             [
-                fabric_challenge_summary,
-                fabric_compare_coverage,
+                fabric_list_answer_units,
+                fabric_get_obligations,
+                fabric_get_evidence_passages,
+                fabric_validate_unit,
+                fabric_validate_obligation,
                 fabric_analyze_coverage,
                 fabric_submit_verification_bundle,
             ]
@@ -861,30 +1059,28 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
     if session.role == "reporter":
         @tool
         def fabric_get_verified_branch_summaries() -> list[dict[str, Any]]:
-            """Return only branch syntheses that have passed both claim and coverage verification."""
-            coverage_results = {
-                result.task_id: result
-                for result in session.runtime.artifact_store.verification_results(validation_stage="coverage_check")
-            }
-            claim_results = {
-                result.task_id: result
-                for result in session.runtime.artifact_store.verification_results(validation_stage="claim_check")
-            }
-            blocking_issue_branch_ids = {
-                issue.branch_id
-                for issue in session.runtime.artifact_store.revision_issues()
-                if issue.blocking and issue.status in {"open", "accepted"} and issue.branch_id
-            }
+            """Return only branch syntheses that are ready for report per canonical branch validation summaries."""
+            latest_syntheses = latest_branch_syntheses(
+                session.runtime.artifact_store.branch_syntheses(),
+                session.runtime.artifact_store.branch_briefs(),
+            )
+            validation_summary_by_task: dict[str, dict[str, Any]] = {}
+            for summary in sorted(
+                session.runtime.artifact_store.branch_validation_summaries(),
+                key=lambda item: (item.created_at, item.id),
+            ):
+                if summary.task_id:
+                    validation_summary_by_task[summary.task_id] = summary.to_dict()
             items: list[dict[str, Any]] = []
-            for synthesis in session.runtime.artifact_store.branch_syntheses():
-                if (
-                    claim_results.get(synthesis.task_id)
-                    and coverage_results.get(synthesis.task_id)
-                    and claim_results[synthesis.task_id].outcome == "passed"
-                    and coverage_results[synthesis.task_id].outcome == "passed"
-                    and synthesis.branch_id not in blocking_issue_branch_ids
-                ):
-                    items.append(synthesis.to_dict())
+            for synthesis in latest_syntheses:
+                summary = validation_summary_by_task.get(synthesis.task_id)
+                if not summary or not summary.get("ready_for_report") or summary.get("blocking"):
+                    continue
+                payload = synthesis.to_dict()
+                payload["branch_validation_summary"] = summary
+                payload["answer_unit_ids"] = list(summary.get("answer_unit_ids") or [])
+                payload["issue_ids"] = list(summary.get("issue_ids") or [])
+                items.append(payload)
             return items
 
         @tool
@@ -957,6 +1153,15 @@ def materialize_session_from_text(session: DeepResearchToolAgentSession, text: s
                 gap_ids=list(payload.get("gap_ids") or []),
                 evidence_urls=list(payload.get("evidence_urls") or []),
                 evidence_passage_ids=[item.id for item in session.evidence_passages],
+                answer_unit_ids=(
+                    [item.id for item in session.answer_units]
+                    if validation_stage == "claim_check"
+                    else None
+                ),
+                claim_ids=list(payload.get("claim_ids") or []),
+                obligation_ids=list(payload.get("obligation_ids") or []),
+                consistency_result_ids=list(payload.get("consistency_result_ids") or []),
+                issue_ids=list(payload.get("issue_ids") or []),
             )
     elif session.role == "reporter" and session.final_report is None:
         report_markdown = str(payload.get("report_markdown") or "").strip()

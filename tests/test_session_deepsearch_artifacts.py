@@ -184,3 +184,84 @@ def test_session_manager_extracts_artifacts_from_nested_deep_runtime():
     artifacts = session_state.deep_research_artifacts
     assert artifacts["mode"] == "multi_agent"
     assert artifacts["queries"] == ["q1"]
+
+
+def test_session_manager_public_artifacts_expose_answer_units_and_branch_validation_summaries():
+    state = {
+        "route": "deep",
+        "deep_runtime": {
+            "engine": "multi_agent",
+            "task_queue": {"tasks": []},
+            "artifact_store": {
+                "evidence_passages": [
+                    {
+                        "id": "passage_1",
+                        "task_id": "task_1",
+                        "branch_id": "branch_1",
+                        "document_id": "doc_1",
+                        "url": "https://example.com/report?utm_source=test",
+                        "text": "AI chips demand increased in 2024.",
+                        "quote": "AI chips demand increased in 2024.",
+                        "heading_path": ["Highlights"],
+                        "admissible": True,
+                    }
+                ],
+                "answer_units": [
+                    {
+                        "id": "answer_1",
+                        "task_id": "task_1",
+                        "branch_id": "branch_1",
+                        "text": "AI chips demand increased in 2024.",
+                        "unit_type": "claim",
+                        "required": True,
+                        "obligation_ids": ["obligation_1"],
+                        "supporting_passage_ids": ["passage_1"],
+                        "provenance": {"source": "researcher"},
+                    }
+                ],
+                "claim_grounding_results": [
+                    {
+                        "id": "grounding_1",
+                        "task_id": "task_1",
+                        "branch_id": "branch_1",
+                        "claim_id": "answer_1",
+                        "status": "grounded",
+                        "summary": "grounded",
+                        "evidence_urls": ["https://example.com/report"],
+                        "evidence_passage_ids": ["passage_1"],
+                    }
+                ],
+                "branch_validation_summaries": [
+                    {
+                        "id": "branch_validation_1",
+                        "task_id": "task_1",
+                        "branch_id": "branch_1",
+                        "answer_unit_ids": ["answer_1"],
+                        "supported_answer_unit_ids": ["answer_1"],
+                        "obligation_ids": ["obligation_1"],
+                        "satisfied_obligation_ids": ["obligation_1"],
+                        "ready_for_report": True,
+                        "blocking": False,
+                        "summary": "supported=1/1; no blocking validation debt",
+                        "created_at": "2026-04-03T00:00:00Z",
+                    }
+                ],
+                "final_report": {"report_markdown": ""},
+            },
+            "runtime_state": {},
+            "agent_runs": [],
+        },
+    }
+
+    checkpointer = SimpleNamespace(get_tuple=lambda config: _fake_checkpoint_tuple(state))
+    manager = SessionManager(checkpointer)
+
+    session_state = manager.get_session_state("thread-answer-units")
+    assert session_state is not None
+    artifacts = session_state.deep_research_artifacts
+
+    assert artifacts["answer_units"][0]["id"] == "answer_1"
+    assert artifacts["branch_validation_summaries"][0]["id"] == "branch_validation_1"
+    assert artifacts["claims"][0]["claim_id"] == "answer_1"
+    assert artifacts["claims"][0]["status"] == "verified"
+    assert artifacts["passages"][0]["authoritative"] is True

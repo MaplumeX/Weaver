@@ -9,6 +9,7 @@ from typing import Annotated, Any, TypedDict
 from agent.core.context import ResearchWorkerContext
 from agent.runtime.deep.schema import (
     AgentRunRecord,
+    AnswerUnit,
     BranchSynthesis,
     ClaimUnit,
     CoordinationRequest,
@@ -149,6 +150,7 @@ def restore_worker_result(payload: dict[str, Any]) -> WorkerExecutionResult:
     synthesis_payload = payload.get("branch_synthesis")
     branch_synthesis = BranchSynthesis(**synthesis_payload) if isinstance(synthesis_payload, dict) else None
     evidence_cards = [EvidenceCard(**item) for item in payload.get("evidence_cards", [])]
+    answer_units = [AnswerUnit(**item) for item in payload.get("answer_units", [])]
     claim_units = [ClaimUnit(**item) for item in payload.get("claim_units", [])]
     section_payload = payload.get("section_draft")
     section_draft = ReportSectionDraft(**section_payload) if isinstance(section_payload, dict) else None
@@ -180,6 +182,7 @@ def restore_worker_result(payload: dict[str, Any]) -> WorkerExecutionResult:
         result_status=str(payload.get("result_status") or "completed"),
         agent_run=agent_run,
         error=str(payload.get("error") or ""),
+        answer_units=answer_units,
         claim_units=claim_units,
         resolved_issue_ids=list(payload.get("resolved_issue_ids", [])),
     )
@@ -252,22 +255,6 @@ def derive_branch_queries(task: ResearchTask, limit: int = 3) -> list[str]:
         if len(deduped) >= limit:
             break
     return deduped
-
-
-def criterion_is_covered(summary: str, criterion: str) -> bool:
-    criterion_text = str(criterion or "").strip().lower()
-    summary_text = str(summary or "").strip().lower()
-    if not criterion_text or not summary_text:
-        return False
-    if criterion_text in summary_text:
-        return True
-    tokens = _coverage_tokens(criterion_text)
-    if not tokens:
-        return criterion_text in summary_text
-    summary_tokens = set(_coverage_tokens(summary_text))
-    matches = sum(1 for token in tokens if token in summary_tokens or token in summary_text)
-    required_matches = 1 if len(tokens) <= 2 else 2
-    return matches >= required_matches
 
 
 def scope_draft_from_payload(payload: dict[str, Any] | None) -> ScopeDraft | None:
@@ -422,7 +409,6 @@ __all__ = [
     "build_clarify_transcript",
     "build_scope_draft",
     "coerce_string_list",
-    "criterion_is_covered",
     "derive_branch_queries",
     "derive_role_counters",
     "extract_interrupt_text",

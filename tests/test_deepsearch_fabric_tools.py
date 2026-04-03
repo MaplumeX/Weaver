@@ -3,10 +3,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from agent.contracts.claim_verifier import ClaimVerifier
 from agent.runtime.deep.schema import (
+    AnswerUnit,
     BranchSynthesis,
+    BranchValidationSummary,
+    CoverageObligation,
+    EvidencePassage,
     ResearchTask,
-    VerificationResult,
 )
 from agent.runtime.deep.store import ArtifactStore, ResearchTaskQueue
 from agent.runtime.deep.support.tool_agents import (
@@ -131,42 +135,32 @@ def test_reporter_fabric_tool_returns_only_fully_verified_branch_summaries():
     )
     runtime.artifact_store.add_branch_synthesis(passed)
     runtime.artifact_store.add_branch_synthesis(failed)
-    runtime.artifact_store.add_verification_results(
+    runtime.artifact_store.add_branch_validation_summaries(
         [
-            VerificationResult(
-                id="claim-1",
+            BranchValidationSummary(
+                id="branch-validation-1",
                 task_id="task-1",
                 branch_id="branch-1",
                 synthesis_id="synth-1",
-                validation_stage="claim_check",
-                outcome="passed",
+                answer_unit_ids=["answer-1"],
+                supported_answer_unit_ids=["answer-1"],
+                obligation_ids=["obligation-1"],
+                satisfied_obligation_ids=["obligation-1"],
+                ready_for_report=True,
+                blocking=False,
                 summary="ok",
             ),
-            VerificationResult(
-                id="coverage-1",
-                task_id="task-1",
-                branch_id="branch-1",
-                synthesis_id="synth-1",
-                validation_stage="coverage_check",
-                outcome="passed",
-                summary="ok",
-            ),
-            VerificationResult(
-                id="claim-2",
+            BranchValidationSummary(
+                id="branch-validation-2",
                 task_id="task-2",
                 branch_id="branch-2",
                 synthesis_id="synth-2",
-                validation_stage="claim_check",
-                outcome="passed",
-                summary="ok",
-            ),
-            VerificationResult(
-                id="coverage-2",
-                task_id="task-2",
-                branch_id="branch-2",
-                synthesis_id="synth-2",
-                validation_stage="coverage_check",
-                outcome="failed",
+                answer_unit_ids=["answer-2"],
+                unsupported_answer_unit_ids=["answer-2"],
+                obligation_ids=["obligation-2"],
+                unsatisfied_obligation_ids=["obligation-2"],
+                blocking=True,
+                ready_for_report=False,
                 summary="not ok",
             ),
         ]
@@ -183,6 +177,7 @@ def test_reporter_fabric_tool_returns_only_fully_verified_branch_summaries():
     verified = tools["fabric_get_verified_branch_summaries"].invoke({})
 
     assert [item["task_id"] for item in verified] == ["task-1"]
+    assert verified[0]["branch_validation_summary"]["id"] == "branch-validation-1"
 
 
 def test_fabric_search_rejects_budget_exhaustion():
@@ -218,7 +213,7 @@ def test_verifier_submission_requires_contract_addressable_ids():
         allowed_capabilities={"search", "read", "extract"},
     )
 
-    with pytest.raises(ValueError, match="claim_check submissions must include claim_ids"):
+    with pytest.raises(ValueError, match="claim_check submissions must include answer_unit_ids"):
         session.submit_verification_bundle(
             validation_stage="claim_check",
             outcome="passed",
@@ -234,3 +229,120 @@ def test_verifier_submission_requires_contract_addressable_ids():
             recommended_action="report",
             claim_ids=["claim-1"],
         )
+
+
+def test_verifier_submission_does_not_broadcast_to_unreferenced_answer_units():
+    runtime = _FakeRuntime()
+    task = _make_task()
+    session = DeepResearchToolAgentSession(
+        runtime=runtime,
+        role="verifier",
+        topic="AI chips",
+        graph_run_id="graph-1",
+        branch_id=task.branch_id,
+        task=task,
+        allowed_capabilities={"search", "read", "extract"},
+    )
+    session.answer_units = [
+        AnswerUnit(
+            id="answer-1",
+            task_id=task.id,
+            branch_id=task.branch_id,
+            text="Answer unit 1",
+            obligation_ids=["obligation-1"],
+        ),
+        AnswerUnit(
+            id="answer-2",
+            task_id=task.id,
+            branch_id=task.branch_id,
+            text="Answer unit 2",
+            obligation_ids=["obligation-1"],
+        ),
+    ]
+    session.claim_units = [item.to_claim_unit() for item in session.answer_units]
+
+    verification, submission = session.submit_verification_bundle(
+        validation_stage="claim_check",
+        outcome="passed",
+        summary="validated a single answer unit",
+        recommended_action="report",
+        answer_unit_ids=["answer-1"],
+    )
+
+    assert verification.metadata["answer_unit_ids"] == ["answer-1"]
+    assert verification.metadata["claim_ids"] == ["answer-1"]
+    assert submission.answer_unit_ids == ["answer-1"]
+    assert submission.claim_ids == ["answer-1"]
+
+
+def test_verifier_fabric_validate_obligation_returns_mapped_answer_units_only():
+    runtime = _FakeRuntime()
+    runtime.claim_verifier = ClaimVerifier()
+    task = _make_task()
+    obligation = CoverageObligation(
+        id="obligation-1",
+        task_id=task.id,
+        branch_id=task.branch_id,
+        source="task.acceptance_criteria",
+        target=task.acceptance_criteria[0],
+        completion_criteria=[task.acceptance_criteria[0]],
+    )
+    runtime.artifact_store.add_coverage_obligations([obligation])
+    session = DeepResearchToolAgentSession(
+        runtime=runtime,
+        role="verifier",
+        topic="AI chips",
+        graph_run_id="graph-1",
+        branch_id=task.branch_id,
+        task=task,
+        allowed_capabilities={"search", "read", "extract"},
+        related_artifacts={"coverage_obligations": [obligation.to_dict()]},
+    )
+    session.answer_units = [
+        AnswerUnit(
+            id="answer-1",
+            task_id=task.id,
+            branch_id=task.branch_id,
+            text=task.acceptance_criteria[0],
+            obligation_ids=[obligation.id],
+            supporting_passage_ids=["passage-1"],
+        ),
+        AnswerUnit(
+            id="answer-2",
+            task_id=task.id,
+            branch_id=task.branch_id,
+            text="Unrelated follow-up note",
+            obligation_ids=["obligation-2"],
+            supporting_passage_ids=["passage-2"],
+        ),
+    ]
+    session.evidence_passages = [
+        EvidencePassage(
+            id="passage-1",
+            task_id=task.id,
+            branch_id=task.branch_id,
+            document_id="doc-1",
+            url="https://example.com/covered",
+            text=task.acceptance_criteria[0],
+            quote=task.acceptance_criteria[0],
+            source_title="Covered",
+            heading_path=["Covered"],
+        ),
+        EvidencePassage(
+            id="passage-2",
+            task_id=task.id,
+            branch_id=task.branch_id,
+            document_id="doc-2",
+            url="https://example.com/other",
+            text="Unrelated follow-up note",
+            quote="Unrelated follow-up note",
+            source_title="Other",
+            heading_path=["Other"],
+        ),
+    ]
+    tools = _tool_map(session)
+
+    result = tools["fabric_validate_obligation"].invoke({"obligation_id": obligation.id})
+
+    assert result["status"] == "satisfied"
+    assert result["supported_answer_unit_ids"] == ["answer-1"]

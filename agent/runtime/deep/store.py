@@ -11,9 +11,11 @@ from dataclasses import asdict
 from typing import Any
 
 from agent.runtime.deep.schema import (
+    AnswerUnit,
     BranchBrief,
     BranchRevisionBrief,
     BranchSynthesis,
+    BranchValidationSummary,
     ClaimGroundingResult,
     ClaimUnit,
     ConsistencyResult,
@@ -51,6 +53,14 @@ def _restore_items(items: Iterable[dict[str, Any]], cls: type[Any]) -> dict[str,
             continue
         restored[item["id"]] = cls(**item)
     return restored
+
+
+def _claim_to_answer_unit(claim_unit: ClaimUnit) -> AnswerUnit:
+    return AnswerUnit.from_claim_unit(claim_unit)
+
+
+def _answer_to_claim_unit(answer_unit: AnswerUnit) -> ClaimUnit:
+    return answer_unit.to_claim_unit()
 
 
 class ResearchTaskQueue:
@@ -201,6 +211,7 @@ class ArtifactStore:
         self._missing_evidence_list: MissingEvidenceListArtifact | None = None
         self._outline: OutlineArtifact | None = None
         self._briefs: dict[str, BranchBrief] = {}
+        self._answer_units: dict[str, AnswerUnit] = {}
         self._claim_units: dict[str, ClaimUnit] = {}
         self._coverage_obligations: dict[str, CoverageObligation] = {}
         self._claim_grounding_results: dict[str, ClaimGroundingResult] = {}
@@ -213,6 +224,7 @@ class ArtifactStore:
         self._evidence_passages: dict[str, EvidencePassage] = {}
         self._evidence_cards: dict[str, EvidenceCard] = {}
         self._branch_syntheses: dict[str, BranchSynthesis] = {}
+        self._branch_validation_summaries: dict[str, BranchValidationSummary] = {}
         self._verification_results: dict[str, VerificationResult] = {}
         self._coordination_requests: dict[str, CoordinationRequest] = {}
         self._submissions: dict[str, ResearchSubmission] = {}
@@ -258,7 +270,18 @@ class ArtifactStore:
             outline = snapshot.get("outline")
             self._outline = OutlineArtifact(**outline) if isinstance(outline, dict) else None
             self._briefs = _restore_items(snapshot.get("branch_briefs", []), BranchBrief)
+            self._answer_units = _restore_items(snapshot.get("answer_units", []), AnswerUnit)
             self._claim_units = _restore_items(snapshot.get("claim_units", []), ClaimUnit)
+            if not self._answer_units and self._claim_units:
+                self._answer_units = {
+                    claim_id: _claim_to_answer_unit(item)
+                    for claim_id, item in self._claim_units.items()
+                }
+            if not self._claim_units and self._answer_units:
+                self._claim_units = {
+                    answer_id: _answer_to_claim_unit(item)
+                    for answer_id, item in self._answer_units.items()
+                }
             self._coverage_obligations = _restore_items(
                 snapshot.get("coverage_obligations", []),
                 CoverageObligation,
@@ -296,6 +319,10 @@ class ArtifactStore:
             self._branch_syntheses = _restore_items(
                 snapshot.get("branch_syntheses", []),
                 BranchSynthesis,
+            )
+            self._branch_validation_summaries = _restore_items(
+                snapshot.get("branch_validation_summaries", []),
+                BranchValidationSummary,
             )
             self._verification_results = _restore_items(
                 snapshot.get("verification_results", []),
@@ -389,6 +416,27 @@ class ArtifactStore:
             brief.updated_at = _now_iso()
             self._briefs[brief.id] = brief
 
+    def add_answer_units(self, answer_units: list[AnswerUnit]) -> None:
+        with self._lock:
+            for item in answer_units:
+                item.updated_at = _now_iso()
+                self._answer_units[item.id] = item
+                self._claim_units[item.id] = item.to_claim_unit()
+
+    def answer_units(
+        self,
+        *,
+        branch_id: str | None = None,
+        task_id: str | None = None,
+    ) -> list[AnswerUnit]:
+        with self._lock:
+            items = list(self._answer_units.values())
+            if branch_id:
+                items = [item for item in items if item.branch_id == branch_id]
+            if task_id:
+                items = [item for item in items if item.task_id == task_id]
+            return [copy.deepcopy(item) for item in items]
+
     def get_brief(self, branch_id: str) -> BranchBrief | None:
         with self._lock:
             brief = self._briefs.get(branch_id)
@@ -399,6 +447,7 @@ class ArtifactStore:
             for item in claim_units:
                 item.updated_at = _now_iso()
                 self._claim_units[item.id] = item
+                self._answer_units[item.id] = _claim_to_answer_unit(item)
 
     def claim_units(
         self,
@@ -580,6 +629,26 @@ class ArtifactStore:
             synthesis.updated_at = _now_iso()
             self._branch_syntheses[synthesis.id] = synthesis
 
+    def add_branch_validation_summaries(self, items: list[BranchValidationSummary]) -> None:
+        with self._lock:
+            for item in items:
+                item.updated_at = _now_iso()
+                self._branch_validation_summaries[item.id] = item
+
+    def branch_validation_summaries(
+        self,
+        *,
+        branch_id: str | None = None,
+        task_id: str | None = None,
+    ) -> list[BranchValidationSummary]:
+        with self._lock:
+            items = list(self._branch_validation_summaries.values())
+            if branch_id:
+                items = [item for item in items if item.branch_id == branch_id]
+            if task_id:
+                items = [item for item in items if item.task_id == task_id]
+            return [copy.deepcopy(item) for item in items]
+
     def add_verification_results(self, verification_results: list[VerificationResult]) -> None:
         with self._lock:
             for result in verification_results:
@@ -671,6 +740,11 @@ class ArtifactStore:
                 for item in self._claim_units.values()
                 if item.task_id == task_id or (branch_id and item.branch_id == branch_id)
             ]
+            answer_units = [
+                asdict(item)
+                for item in self._answer_units.values()
+                if item.task_id == task_id or (branch_id and item.branch_id == branch_id)
+            ]
             obligations = [
                 asdict(item)
                 for item in self._coverage_obligations.values()
@@ -706,6 +780,11 @@ class ArtifactStore:
                 for synthesis in self._branch_syntheses.values()
                 if synthesis.task_id == task_id or (branch_id and synthesis.branch_id == branch_id)
             ]
+            branch_validation_summaries = [
+                asdict(summary)
+                for summary in self._branch_validation_summaries.values()
+                if summary.task_id == task_id or (branch_id and summary.branch_id == branch_id)
+            ]
             verification_results = [
                 asdict(result)
                 for result in self._verification_results.values()
@@ -734,6 +813,7 @@ class ArtifactStore:
                 asdict(self._missing_evidence_list) if self._missing_evidence_list else {}
             ),
             "outline": asdict(self._outline) if self._outline else {},
+            "answer_units": answer_units,
             "claim_units": claim_units,
             "coverage_obligations": obligations,
             "claim_grounding_results": grounding_results,
@@ -747,6 +827,7 @@ class ArtifactStore:
             "evidence_cards": evidence,
             "section_drafts": sections,
             "branch_syntheses": syntheses,
+            "branch_validation_summaries": branch_validation_summaries,
             "verification_results": verification_results,
             "coordination_requests": coordination_requests,
             "submissions": submissions,
@@ -865,6 +946,13 @@ class ArtifactStore:
                     asdict(brief)
                     for brief in sorted(self._briefs.values(), key=lambda item: (item.created_at, item.id))
                 ],
+                "answer_units": [
+                    asdict(item)
+                    for item in sorted(
+                        self._answer_units.values(),
+                        key=lambda item: (item.task_id, item.created_at, item.id),
+                    )
+                ],
                 "claim_units": [
                     asdict(item)
                     for item in sorted(
@@ -946,6 +1034,13 @@ class ArtifactStore:
                     asdict(synthesis)
                     for synthesis in sorted(
                         self._branch_syntheses.values(),
+                        key=lambda item: (item.task_id, item.created_at, item.id),
+                    )
+                ],
+                "branch_validation_summaries": [
+                    asdict(summary)
+                    for summary in sorted(
+                        self._branch_validation_summaries.values(),
                         key=lambda item: (item.task_id, item.created_at, item.id),
                     )
                 ],

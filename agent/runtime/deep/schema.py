@@ -162,6 +162,7 @@ class BranchBrief:
     latest_revision_brief_id: str | None = None
     current_stage: str = "planned"
     verification_status: str = "pending"
+    answer_unit_ids: list[str] = field(default_factory=list)
     claim_ids: list[str] = field(default_factory=list)
     obligation_ids: list[str] = field(default_factory=list)
     open_issue_ids: list[str] = field(default_factory=list)
@@ -313,6 +314,10 @@ class EvidencePassage:
     source_title: str = ""
     snippet_hash: str = ""
     heading_path: list[str] = field(default_factory=list)
+    locator: dict[str, Any] = field(default_factory=dict)
+    source_published_date: str | None = None
+    passage_kind: str = "stable_passage"
+    admissible: bool = True
     status: ArtifactStatus = "created"
     created_by: str = ""
     created_at: str = field(default_factory=_now_iso)
@@ -340,6 +345,73 @@ class ClaimUnit:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass
+class AnswerUnit:
+    id: str
+    task_id: str
+    branch_id: str | None
+    text: str
+    unit_type: str = "claim"
+    provenance: dict[str, Any] = field(default_factory=dict)
+    supporting_passage_ids: list[str] = field(default_factory=list)
+    citation_urls: list[str] = field(default_factory=list)
+    obligation_ids: list[str] = field(default_factory=list)
+    dependent_answer_unit_ids: list[str] = field(default_factory=list)
+    required: bool = True
+    status: ArtifactStatus = "created"
+    created_by: str = ""
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def to_claim_unit(self) -> ClaimUnit:
+        return ClaimUnit(
+            id=self.id,
+            task_id=self.task_id,
+            branch_id=self.branch_id,
+            claim=self.text,
+            claim_provenance=dict(self.provenance),
+            evidence_passage_ids=list(self.supporting_passage_ids),
+            citation_urls=list(self.citation_urls),
+            status=self.status,
+            created_by=self.created_by,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            metadata={
+                **dict(self.metadata),
+                "unit_type": self.unit_type,
+                "obligation_ids": list(self.obligation_ids),
+                "dependent_answer_unit_ids": list(self.dependent_answer_unit_ids),
+                "required": self.required,
+            },
+        )
+
+    @classmethod
+    def from_claim_unit(cls, claim_unit: ClaimUnit) -> "AnswerUnit":
+        metadata = dict(claim_unit.metadata or {})
+        return cls(
+            id=claim_unit.id,
+            task_id=claim_unit.task_id,
+            branch_id=claim_unit.branch_id,
+            text=claim_unit.claim,
+            unit_type=str(metadata.get("unit_type") or "claim"),
+            provenance=dict(claim_unit.claim_provenance or {}),
+            supporting_passage_ids=list(claim_unit.evidence_passage_ids),
+            citation_urls=list(claim_unit.citation_urls),
+            obligation_ids=list(metadata.get("obligation_ids") or []),
+            dependent_answer_unit_ids=list(metadata.get("dependent_answer_unit_ids") or []),
+            required=bool(metadata.get("required", True)),
+            status=claim_unit.status,
+            created_by=claim_unit.created_by,
+            created_at=claim_unit.created_at,
+            updated_at=claim_unit.updated_at,
+            metadata=metadata,
+        )
 
 
 @dataclass
@@ -482,6 +554,7 @@ class BranchSynthesis:
     evidence_passage_ids: list[str] = field(default_factory=list)
     source_document_ids: list[str] = field(default_factory=list)
     citation_urls: list[str] = field(default_factory=list)
+    answer_unit_ids: list[str] = field(default_factory=list)
     claim_ids: list[str] = field(default_factory=list)
     resolved_issue_ids: list[str] = field(default_factory=list)
     revision_brief_id: str | None = None
@@ -508,6 +581,38 @@ class VerificationResult:
     evidence_urls: list[str] = field(default_factory=list)
     evidence_passage_ids: list[str] = field(default_factory=list)
     gap_ids: list[str] = field(default_factory=list)
+    status: ArtifactStatus = "completed"
+    created_by: str = "verifier"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BranchValidationSummary:
+    id: str
+    task_id: str
+    branch_id: str | None
+    synthesis_id: str | None = None
+    answer_unit_ids: list[str] = field(default_factory=list)
+    obligation_ids: list[str] = field(default_factory=list)
+    consistency_result_ids: list[str] = field(default_factory=list)
+    issue_ids: list[str] = field(default_factory=list)
+    blocking_issue_ids: list[str] = field(default_factory=list)
+    supported_answer_unit_ids: list[str] = field(default_factory=list)
+    partially_supported_answer_unit_ids: list[str] = field(default_factory=list)
+    unsupported_answer_unit_ids: list[str] = field(default_factory=list)
+    contradicted_answer_unit_ids: list[str] = field(default_factory=list)
+    satisfied_obligation_ids: list[str] = field(default_factory=list)
+    partially_satisfied_obligation_ids: list[str] = field(default_factory=list)
+    unsatisfied_obligation_ids: list[str] = field(default_factory=list)
+    blocking: bool = False
+    ready_for_report: bool = False
+    advisory_notes: list[str] = field(default_factory=list)
+    summary: str = ""
     status: ArtifactStatus = "completed"
     created_by: str = "verifier"
     created_at: str = field(default_factory=_now_iso)
@@ -670,6 +775,7 @@ class ResearchSubmission:
     validation_stage: str = ""
     artifact_ids: list[str] = field(default_factory=list)
     request_ids: list[str] = field(default_factory=list)
+    answer_unit_ids: list[str] = field(default_factory=list)
     claim_ids: list[str] = field(default_factory=list)
     obligation_ids: list[str] = field(default_factory=list)
     consistency_result_ids: list[str] = field(default_factory=list)
@@ -828,6 +934,7 @@ class WorkerExecutionResult:
     result_status: str = "completed"
     agent_run: AgentRunRecord | None = None
     error: str = ""
+    answer_units: list[AnswerUnit] = field(default_factory=list)
     claim_units: list[ClaimUnit] = field(default_factory=list)
     resolved_issue_ids: list[str] = field(default_factory=list)
 
@@ -851,6 +958,7 @@ class WorkerExecutionResult:
             "result_status": self.result_status,
             "agent_run": self.agent_run.to_dict() if self.agent_run else None,
             "error": self.error,
+            "answer_units": [item.to_dict() for item in self.answer_units],
             "claim_units": [item.to_dict() for item in self.claim_units],
             "resolved_issue_ids": list(self.resolved_issue_ids),
         }
@@ -860,10 +968,12 @@ __all__ = [
     "AgentRole",
     "AgentRunRecord",
     "ArtifactStatus",
+    "AnswerUnit",
     "BranchBrief",
     "BranchRevisionBrief",
     "BranchScopeSnapshot",
     "BranchSynthesis",
+    "BranchValidationSummary",
     "ClaimGroundingResult",
     "ClaimUnit",
     "ConsistencyResult",

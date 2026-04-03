@@ -1,6 +1,5 @@
-## Purpose
-定义 Deep Research 中 unit-addressable verification contracts、coverage obligations、consistency checks 和 revision issues 的权威契约。
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Verification contracts are explicit and claim-addressable
 系统 MUST 将 branch 级验证输入与输出表示为结构化、unit-addressable verification contracts，而不是只依赖自由文本 summary 作为权威检查对象。
 
@@ -39,7 +38,7 @@
 - **THEN** 这些输出 MUST NOT 在没有映射到 `AnswerUnit`、`CoverageObligation`、`ConsistencyResult` 或正式 revision issue 的前提下直接创建 blocking debt
 
 #### Scenario: Advisory gap conflicts with satisfied obligations
-- **WHEN** 某个 heuristic gap 提示仍声称研究“coverage incomplete”，但相关 `CoverageObligation` 已被结构化 verifier 判定为 `satisfied`
+- **WHEN** 某个 heuristic gap 仍声称研究 coverage 不完整，但相关 `CoverageObligation` 已被结构化 verifier 判定为 `satisfied`
 - **THEN** 系统 MUST 保留已满足的 obligation verdict 作为权威结果
 - **THEN** heuristic gap MUST 只作为后续搜索建议保留，而 MUST NOT 重新打开 blocking validation debt
 
@@ -70,6 +69,8 @@
 - **WHEN** 当前研究仍存在未解决的 blocking consistency findings
 - **THEN** 系统 MUST 阻止这些 findings 被直接提升为最终报告事实依据
 - **THEN** `reporter` MUST 只消费已解决、被 `supervisor` 接受，或被明确标记为可保留争议的结果
+
+## ADDED Requirements
 
 ### Requirement: Authoritative evidence is passage-based and admissible
 系统 MUST 将权威验证证据限制为稳定、可追溯的 `EvidencePassage`，而不是搜索结果 snippet 或自由文本摘要。

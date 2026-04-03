@@ -1,5 +1,8 @@
+from agent.contracts.claim_verifier import ClaimVerifier
 from agent.runtime.deep.schema import (
+    AnswerUnit,
     BranchSynthesis,
+    BranchValidationSummary,
     ClaimGroundingResult,
     ClaimUnit,
     CoverageEvaluationResult,
@@ -9,8 +12,10 @@ from agent.runtime.deep.schema import (
 from agent.runtime.deep.services.knowledge_gap import GapAnalysisResult
 from agent.runtime.deep.services.verification import (
     aggregate_revision_issues,
+    build_branch_validation_summary,
     build_gap_result,
     evaluate_obligations,
+    ground_claim_units,
 )
 
 
@@ -211,3 +216,193 @@ def test_aggregate_revision_issues_keeps_partially_satisfied_obligation_non_bloc
     assert len(issues) == 1
     assert issues[0].blocking is False
     assert issues[0].recommended_action == "spawn_follow_up_branch"
+
+
+def test_evaluate_obligations_prefers_answer_unit_mapping_contract():
+    criterion = "Explain the current state of AI chips aspect 1"
+    task = ResearchTask(
+        id="task_1",
+        goal="AI chips",
+        query="AI chips aspect 1",
+        priority=1,
+        objective=criterion,
+        acceptance_criteria=[criterion],
+        branch_id="branch_1",
+    )
+    synthesis = BranchSynthesis(
+        id="synthesis_1",
+        task_id=task.id,
+        branch_id=task.branch_id,
+        objective=criterion,
+        summary="Short summary only",
+    )
+    obligation = CoverageObligation(
+        id="obligation_1",
+        task_id=task.id,
+        branch_id=task.branch_id,
+        source="task.acceptance_criteria",
+        target=criterion,
+        completion_criteria=[criterion],
+    )
+    answer_unit = AnswerUnit(
+        id="answer_1",
+        task_id=task.id,
+        branch_id=task.branch_id,
+        text="Supply-constrained accelerators dominate the current AI chips market.",
+        unit_type="claim",
+        obligation_ids=[obligation.id],
+        supporting_passage_ids=["passage-1"],
+    )
+    grounding = ClaimGroundingResult(
+        id="grounding_1",
+        task_id=task.id,
+        branch_id=task.branch_id,
+        claim_id=answer_unit.id,
+        status="grounded",
+        summary="grounded with filing evidence",
+        evidence_urls=["https://example.com/ai-chips"],
+        evidence_passage_ids=["passage-1"],
+    )
+
+    results = evaluate_obligations(
+        task=task,
+        synthesis=synthesis,
+        obligations=[obligation],
+        claim_units=[],
+        grounding_results=[grounding],
+        answer_units=[answer_unit],
+    )
+
+    assert len(results) == 1
+    assert results[0].status == "satisfied"
+    assert results[0].metadata["used_obligation_mapping"] is True
+    assert results[0].metadata["supported_answer_unit_ids"] == [answer_unit.id]
+
+
+def test_build_branch_validation_summary_is_canonical_report_gate():
+    task = ResearchTask(
+        id="task_1",
+        goal="AI chips",
+        query="AI chips aspect 1",
+        priority=1,
+        objective="Explain the current state of AI chips aspect 1",
+        branch_id="branch_1",
+    )
+    synthesis = BranchSynthesis(
+        id="synthesis_1",
+        task_id=task.id,
+        branch_id=task.branch_id,
+        objective=task.objective,
+        summary="AI chips aspect 1 is grounded.",
+    )
+    obligation = CoverageObligation(
+        id="obligation_1",
+        task_id=task.id,
+        branch_id=task.branch_id,
+        source="task.acceptance_criteria",
+        target=task.objective,
+        completion_criteria=[task.objective],
+    )
+    answer_unit = AnswerUnit(
+        id="answer_1",
+        task_id=task.id,
+        branch_id=task.branch_id,
+        text="AI chips aspect 1 is grounded.",
+        unit_type="claim",
+        obligation_ids=[obligation.id],
+        supporting_passage_ids=["passage-1"],
+    )
+    grounding = ClaimGroundingResult(
+        id="grounding_1",
+        task_id=task.id,
+        branch_id=task.branch_id,
+        claim_id=answer_unit.id,
+        status="grounded",
+        summary="grounded",
+        evidence_urls=["https://example.com/ai-chips"],
+        evidence_passage_ids=["passage-1"],
+    )
+    coverage = CoverageEvaluationResult(
+        id="coverage_1",
+        task_id=task.id,
+        branch_id=task.branch_id,
+        obligation_id=obligation.id,
+        status="satisfied",
+        summary="covered",
+        evidence_urls=["https://example.com/ai-chips"],
+        evidence_passage_ids=["passage-1"],
+    )
+
+    summary = build_branch_validation_summary(
+        task=task,
+        synthesis=synthesis,
+        answer_units=[answer_unit],
+        obligations=[obligation],
+        grounding_results=[grounding],
+        coverage_results=[coverage],
+        consistency_results=[],
+        revision_issues=[],
+    )
+
+    assert isinstance(summary, BranchValidationSummary)
+    assert summary.ready_for_report is True
+    assert summary.blocking is False
+    assert summary.supported_answer_unit_ids == [answer_unit.id]
+    assert summary.satisfied_obligation_ids == [obligation.id]
+
+
+def test_ground_claim_units_supports_composite_conclusions_from_dependencies():
+    verifier = ClaimVerifier()
+    answer_units = [
+        AnswerUnit(
+            id="answer_atomic_1",
+            task_id="task_1",
+            branch_id="branch_1",
+            text="Cloud demand increased in 2024.",
+            unit_type="trend",
+            supporting_passage_ids=["passage_1"],
+        ),
+        AnswerUnit(
+            id="answer_atomic_2",
+            task_id="task_1",
+            branch_id="branch_1",
+            text="Supply constraints persisted through 2024.",
+            unit_type="claim",
+            supporting_passage_ids=["passage_2"],
+        ),
+        AnswerUnit(
+            id="answer_composite_1",
+            task_id="task_1",
+            branch_id="branch_1",
+            text="AI chips demand stayed strong while supply remained constrained in 2024.",
+            unit_type="composite_conclusion",
+            dependent_answer_unit_ids=["answer_atomic_1", "answer_atomic_2"],
+        ),
+    ]
+
+    results = ground_claim_units(
+        claim_verifier=verifier,
+        claim_units=[],
+        answer_units=answer_units,
+        passages=[
+            {
+                "id": "passage_1",
+                "url": "https://example.com/demand",
+                "text": "Cloud demand increased in 2024.",
+                "quote": "Cloud demand increased in 2024.",
+                "heading_path": ["Demand"],
+            },
+            {
+                "id": "passage_2",
+                "url": "https://example.com/supply",
+                "text": "Supply constraints persisted through 2024.",
+                "quote": "Supply constraints persisted through 2024.",
+                "heading_path": ["Supply"],
+            },
+        ],
+    )
+
+    by_claim_id = {item.claim_id: item for item in results}
+    assert by_claim_id["answer_atomic_1"].status == "grounded"
+    assert by_claim_id["answer_atomic_2"].status == "grounded"
+    assert by_claim_id["answer_composite_1"].status == "grounded"

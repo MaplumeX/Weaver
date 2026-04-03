@@ -385,7 +385,9 @@ def test_run_multi_agent_deep_research_merges_artifacts_and_emits_events(monkeyp
     assert len(artifact_store["evidence_passages"]) == 2
     assert len(artifact_store["evidence_cards"]) == 2
     assert len(artifact_store["branch_syntheses"]) == 2
+    assert len(artifact_store["answer_units"]) >= 2
     assert len(artifact_store["verification_results"]) == 4
+    assert len(artifact_store["branch_validation_summaries"]) == 2
     assert artifact_store["research_brief"]["scope_id"]
     assert len(artifact_store["task_ledger"]["entries"]) == 2
     assert artifact_store["progress_ledger"]["outline_status"] == "ready"
@@ -398,6 +400,9 @@ def test_run_multi_agent_deep_research_merges_artifacts_and_emits_events(monkeyp
     assert len(artifact_store["report_section_drafts"]) == 2
     assert result["deep_runtime"]["runtime_state"]["engine"] == "multi_agent"
     assert result["deep_runtime"]["runtime_state"]["last_verification_summary"]["verified_branches"] == 2
+    assert len(
+        result["deep_runtime"]["runtime_state"]["last_verification_summary"]["branch_validation_summary_ids"]
+    ) == 2
     assert result["deep_runtime"]["runtime_state"]["supervisor_phase"] == "loop_decision"
     assert result["deep_runtime"]["runtime_state"]["research_brief_id"]
     assert result["deep_runtime"]["runtime_state"]["outline_status"] == "ready"
@@ -420,10 +425,6 @@ def test_run_multi_agent_deep_research_merges_artifacts_and_emits_events(monkeyp
         and update.get("validation_stage") == "coverage_check"
         for update in artifact_updates
     )
-    assert any(update.get("artifact_type") == "research_brief" for update in artifact_updates)
-    assert any(update.get("artifact_type") == "outline" for update in artifact_updates)
-
-
 def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
@@ -1027,11 +1028,10 @@ def test_multi_agent_runtime_stops_when_replan_produces_no_new_tasks(monkeypatch
     assert result["deep_runtime"]["artifact_store"]["final_report"] is None
 
     decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
-    assert "coverage_gap_detected" in decision_types or "verification_retry_requested" in decision_types
     assert "stop" in decision_types
 
 
-def test_multi_agent_runtime_stops_when_outline_is_blocked_after_report_decision(monkeypatch):
+def test_multi_agent_runtime_allows_advisory_outline_progress_after_report_decision(monkeypatch):
     emitter = _DummyEmitter()
 
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
@@ -1056,14 +1056,13 @@ def test_multi_agent_runtime_stops_when_outline_is_blocked_after_report_decision
     )
 
     runtime_state = result["deep_runtime"]["runtime_state"]
-    assert runtime_state["terminal_status"] == "blocked"
-    assert "outline 仍存在阻塞性缺口" in runtime_state["terminal_reason"]
-    assert "Deep Research 未能完成" in result["final_report"]
-    assert result["deep_runtime"]["artifact_store"]["outline"]["is_ready"] is False
+    assert runtime_state["terminal_status"] == ""
+    assert result["deep_runtime"]["artifact_store"]["outline"]["is_ready"] is True
+    assert result["deep_runtime"]["artifact_store"]["final_report"] is not None
 
     decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
     assert "report" in decision_types
-    assert "outline_gap_detected" in decision_types
+    assert "outline_ready" in decision_types
 
 
 def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):

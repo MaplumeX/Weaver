@@ -93,6 +93,27 @@ def _contains_marker(text: str, marker: str) -> bool:
     return marker in lower
 
 
+def _token_fragments(text: str) -> Set[str]:
+    normalized = (text or "").lower()
+    fragments: Set[str] = set()
+    for token in re.findall(r"[a-z]+(?:'[a-z]+)?|\d+(?:\.\d+)?|[\u4e00-\u9fff]+", normalized):
+        if re.fullmatch(r"[\u4e00-\u9fff]+", token):
+            if len(token) == 1:
+                if token not in _STOPWORDS:
+                    fragments.add(token)
+                continue
+            for index in range(len(token)):
+                single = token[index]
+                if single not in _STOPWORDS:
+                    fragments.add(single)
+                if index < len(token) - 1:
+                    fragments.add(token[index : index + 2])
+            continue
+        if token not in _STOPWORDS:
+            fragments.add(token)
+    return fragments
+
+
 class ClaimStatus(str, Enum):
     VERIFIED = "verified"
     CONTRADICTED = "contradicted"
@@ -193,6 +214,8 @@ class ClaimVerifier:
         best_overlap = 0
 
         for item in evidence:
+            if item.get("admissible") is False:
+                continue
             url = str(item.get("url") or "").strip() or "unknown"
             text = str(item.get("text") or "").strip()
             evidence_tokens = self._tokenize(text)
@@ -302,16 +325,23 @@ class ClaimVerifier:
                 if not url:
                     continue
                 canonical_url = source_registry.canonicalize_url(url) or url
+                passage_id = str(passage.get("passage_id") or passage.get("id") or "").strip()
                 text = str(passage.get("text") or "").strip()
-                if not text:
+                if not text or not passage_id:
                     continue
+                has_locator = bool(
+                    passage.get("quote")
+                    or passage.get("heading_path")
+                    or passage.get("locator")
+                    or passage.get("document_id")
+                )
+                admissible = bool(passage.get("admissible", True)) and has_locator
                 item: Dict[str, Any] = {
                     "url": canonical_url,
                     "text": text,
+                    "admissible": admissible,
                 }
-                passage_id = str(passage.get("passage_id") or passage.get("id") or "").strip()
-                if passage_id:
-                    item["passage_id"] = passage_id
+                item["passage_id"] = passage_id
                 snippet_hash = str(passage.get("snippet_hash") or "").strip()
                 if snippet_hash:
                     item["snippet_hash"] = snippet_hash
@@ -337,12 +367,12 @@ class ClaimVerifier:
                 )
                 text = str(text).strip()
                 if text:
-                    evidence.append({"url": canonical_url, "text": text})
+                    evidence.append({"url": canonical_url, "text": text, "admissible": False})
         return evidence
 
     def _tokenize(self, text: str) -> Set[str]:
-        tokens = re.findall(r"[a-z0-9\u4e00-\u9fff]+", (text or "").lower())
-        return {t for t in tokens if len(t) > 1 and t not in _STOPWORDS}
+        tokens = _token_fragments(text)
+        return {t for t in tokens if len(t) > 1 or t.isdigit()}
 
     def _has_negation(self, text: str) -> bool:
         return any(_contains_marker(text, marker) for marker in _NEGATION_MARKERS)
@@ -356,6 +386,37 @@ class ClaimVerifier:
             return -1
         return 0
 
+    def _primary_percentage_literal(self, text: str) -> str:
+        matches = re.findall(r"\d+(?:\.\d+)?%", str(text or ""))
+        if len(matches) == 1:
+            return matches[0]
+        return ""
+
+    def _primary_date_literal(self, text: str) -> str:
+        raw = str(text or "")
+        explicit_dates = re.findall(
+            r"\b\d{4}-\d{1,2}(?:-\d{1,2})?\b"
+            r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b"
+            r"|(?:19|20)\d{2}年(?:\d{1,2}月(?:\d{1,2}日)?)?"
+            r"|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{4}\b",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if len(explicit_dates) == 1:
+            return self._normalize_date_literal(explicit_dates[0])
+        years = re.findall(r"\b(?:19|20)\d{2}\b|(?:19|20)\d{2}年", raw)
+        if len(years) == 1:
+            return self._normalize_date_literal(years[0])
+        return ""
+
+    def _normalize_date_literal(self, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        normalized = normalized.replace("年", "-").replace("月", "-").replace("日", "")
+        normalized = normalized.replace("/", "-").replace(".", "-")
+        normalized = re.sub(r"\s+", " ", normalized)
+        normalized = re.sub(r"-+", "-", normalized).strip("- ")
+        return normalized
+
     def _is_contradiction(self, claim: str, evidence: str) -> bool:
         claim_neg = self._has_negation(claim)
         evidence_neg = self._has_negation(evidence)
@@ -365,6 +426,16 @@ class ClaimVerifier:
         claim_dir = self._trend_direction(claim)
         evidence_dir = self._trend_direction(evidence)
         if claim_dir != 0 and evidence_dir != 0 and claim_dir != evidence_dir:
+            return True
+
+        claim_percentage = self._primary_percentage_literal(claim)
+        evidence_percentage = self._primary_percentage_literal(evidence)
+        if claim_percentage and evidence_percentage and claim_percentage != evidence_percentage:
+            return True
+
+        claim_date = self._primary_date_literal(claim)
+        evidence_date = self._primary_date_literal(evidence)
+        if claim_date and evidence_date and claim_date != evidence_date:
             return True
 
         return False
