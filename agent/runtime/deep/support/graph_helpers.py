@@ -10,6 +10,7 @@ from agent.core.context import ResearchWorkerContext
 from agent.runtime.deep.schema import (
     AgentRunRecord,
     BranchSynthesis,
+    ClaimUnit,
     CoordinationRequest,
     EvidenceCard,
     EvidencePassage,
@@ -148,6 +149,7 @@ def restore_worker_result(payload: dict[str, Any]) -> WorkerExecutionResult:
     synthesis_payload = payload.get("branch_synthesis")
     branch_synthesis = BranchSynthesis(**synthesis_payload) if isinstance(synthesis_payload, dict) else None
     evidence_cards = [EvidenceCard(**item) for item in payload.get("evidence_cards", [])]
+    claim_units = [ClaimUnit(**item) for item in payload.get("claim_units", [])]
     section_payload = payload.get("section_draft")
     section_draft = ReportSectionDraft(**section_payload) if isinstance(section_payload, dict) else None
     coordination_requests = [
@@ -178,6 +180,8 @@ def restore_worker_result(payload: dict[str, Any]) -> WorkerExecutionResult:
         result_status=str(payload.get("result_status") or "completed"),
         agent_run=agent_run,
         error=str(payload.get("error") or ""),
+        claim_units=claim_units,
+        resolved_issue_ids=list(payload.get("resolved_issue_ids", [])),
     )
 
 

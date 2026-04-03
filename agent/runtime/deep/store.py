@@ -12,10 +12,16 @@ from typing import Any
 
 from agent.runtime.deep.schema import (
     BranchBrief,
+    BranchRevisionBrief,
     BranchSynthesis,
+    ClaimGroundingResult,
+    ClaimUnit,
+    ConsistencyResult,
     ContradictionRegistryArtifact,
     CoordinationRequest,
     CoverageMatrixArtifact,
+    CoverageEvaluationResult,
+    CoverageObligation,
     EvidenceCard,
     EvidencePassage,
     FetchedDocument,
@@ -28,6 +34,7 @@ from agent.runtime.deep.schema import (
     ResearchBriefArtifact,
     ResearchSubmission,
     ResearchTask,
+    RevisionIssue,
     SourceCandidate,
     SupervisorDecisionArtifact,
     TaskLedgerArtifact,
@@ -194,6 +201,13 @@ class ArtifactStore:
         self._missing_evidence_list: MissingEvidenceListArtifact | None = None
         self._outline: OutlineArtifact | None = None
         self._briefs: dict[str, BranchBrief] = {}
+        self._claim_units: dict[str, ClaimUnit] = {}
+        self._coverage_obligations: dict[str, CoverageObligation] = {}
+        self._claim_grounding_results: dict[str, ClaimGroundingResult] = {}
+        self._coverage_evaluation_results: dict[str, CoverageEvaluationResult] = {}
+        self._consistency_results: dict[str, ConsistencyResult] = {}
+        self._revision_issues: dict[str, RevisionIssue] = {}
+        self._revision_briefs: dict[str, BranchRevisionBrief] = {}
         self._source_candidates: dict[str, SourceCandidate] = {}
         self._fetched_documents: dict[str, FetchedDocument] = {}
         self._evidence_passages: dict[str, EvidencePassage] = {}
@@ -244,6 +258,28 @@ class ArtifactStore:
             outline = snapshot.get("outline")
             self._outline = OutlineArtifact(**outline) if isinstance(outline, dict) else None
             self._briefs = _restore_items(snapshot.get("branch_briefs", []), BranchBrief)
+            self._claim_units = _restore_items(snapshot.get("claim_units", []), ClaimUnit)
+            self._coverage_obligations = _restore_items(
+                snapshot.get("coverage_obligations", []),
+                CoverageObligation,
+            )
+            self._claim_grounding_results = _restore_items(
+                snapshot.get("claim_grounding_results", []),
+                ClaimGroundingResult,
+            )
+            self._coverage_evaluation_results = _restore_items(
+                snapshot.get("coverage_evaluation_results", []),
+                CoverageEvaluationResult,
+            )
+            self._consistency_results = _restore_items(
+                snapshot.get("consistency_results", []),
+                ConsistencyResult,
+            )
+            self._revision_issues = _restore_items(snapshot.get("revision_issues", []), RevisionIssue)
+            self._revision_briefs = _restore_items(
+                snapshot.get("revision_briefs", []),
+                BranchRevisionBrief,
+            )
             self._source_candidates = _restore_items(
                 snapshot.get("source_candidates", []),
                 SourceCandidate,
@@ -357,6 +393,163 @@ class ArtifactStore:
         with self._lock:
             brief = self._briefs.get(branch_id)
             return copy.deepcopy(brief) if brief else None
+
+    def add_claim_units(self, claim_units: list[ClaimUnit]) -> None:
+        with self._lock:
+            for item in claim_units:
+                item.updated_at = _now_iso()
+                self._claim_units[item.id] = item
+
+    def claim_units(
+        self,
+        *,
+        branch_id: str | None = None,
+        task_id: str | None = None,
+    ) -> list[ClaimUnit]:
+        with self._lock:
+            items = list(self._claim_units.values())
+            if branch_id:
+                items = [item for item in items if item.branch_id == branch_id]
+            if task_id:
+                items = [item for item in items if item.task_id == task_id]
+            return [copy.deepcopy(item) for item in items]
+
+    def add_coverage_obligations(self, obligations: list[CoverageObligation]) -> None:
+        with self._lock:
+            for item in obligations:
+                item.updated_at = _now_iso()
+                self._coverage_obligations[item.id] = item
+
+    def coverage_obligations(
+        self,
+        *,
+        branch_id: str | None = None,
+        task_id: str | None = None,
+    ) -> list[CoverageObligation]:
+        with self._lock:
+            items = list(self._coverage_obligations.values())
+            if branch_id:
+                items = [item for item in items if item.branch_id == branch_id]
+            if task_id:
+                items = [item for item in items if item.task_id == task_id]
+            return [copy.deepcopy(item) for item in items]
+
+    def add_claim_grounding_results(self, items: list[ClaimGroundingResult]) -> None:
+        with self._lock:
+            for item in items:
+                item.updated_at = _now_iso()
+                self._claim_grounding_results[item.id] = item
+
+    def claim_grounding_results(
+        self,
+        *,
+        branch_id: str | None = None,
+        task_id: str | None = None,
+    ) -> list[ClaimGroundingResult]:
+        with self._lock:
+            items = list(self._claim_grounding_results.values())
+            if branch_id:
+                items = [item for item in items if item.branch_id == branch_id]
+            if task_id:
+                items = [item for item in items if item.task_id == task_id]
+            return [copy.deepcopy(item) for item in items]
+
+    def add_coverage_evaluation_results(self, items: list[CoverageEvaluationResult]) -> None:
+        with self._lock:
+            for item in items:
+                item.updated_at = _now_iso()
+                self._coverage_evaluation_results[item.id] = item
+
+    def coverage_evaluation_results(
+        self,
+        *,
+        branch_id: str | None = None,
+        task_id: str | None = None,
+    ) -> list[CoverageEvaluationResult]:
+        with self._lock:
+            items = list(self._coverage_evaluation_results.values())
+            if branch_id:
+                items = [item for item in items if item.branch_id == branch_id]
+            if task_id:
+                items = [item for item in items if item.task_id == task_id]
+            return [copy.deepcopy(item) for item in items]
+
+    def add_consistency_results(self, items: list[ConsistencyResult]) -> None:
+        with self._lock:
+            for item in items:
+                item.updated_at = _now_iso()
+                self._consistency_results[item.id] = item
+
+    def consistency_results(
+        self,
+        *,
+        branch_id: str | None = None,
+    ) -> list[ConsistencyResult]:
+        with self._lock:
+            items = list(self._consistency_results.values())
+            if branch_id:
+                items = [item for item in items if item.branch_id == branch_id]
+            return [copy.deepcopy(item) for item in items]
+
+    def add_revision_issues(self, items: list[RevisionIssue]) -> None:
+        with self._lock:
+            for item in items:
+                item.updated_at = _now_iso()
+                self._revision_issues[item.id] = item
+
+    def revision_issues(
+        self,
+        *,
+        branch_id: str | None = None,
+        task_id: str | None = None,
+        status: str | None = None,
+    ) -> list[RevisionIssue]:
+        with self._lock:
+            items = list(self._revision_issues.values())
+            if branch_id:
+                items = [item for item in items if item.branch_id == branch_id]
+            if task_id:
+                items = [item for item in items if item.task_id == task_id]
+            if status:
+                items = [item for item in items if item.status == status]
+            return [copy.deepcopy(item) for item in items]
+
+    def update_revision_issue_status(
+        self,
+        issue_id: str,
+        status: str,
+        *,
+        resolution: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> RevisionIssue | None:
+        with self._lock:
+            issue = self._revision_issues.get(issue_id)
+            if not issue:
+                return None
+            issue.status = str(status or issue.status)
+            issue.updated_at = _now_iso()
+            if isinstance(resolution, dict) and resolution:
+                issue.resolution.update(resolution)
+            if isinstance(metadata, dict) and metadata:
+                issue.metadata.update(metadata)
+            return copy.deepcopy(issue)
+
+    def add_revision_briefs(self, items: list[BranchRevisionBrief]) -> None:
+        with self._lock:
+            for item in items:
+                item.updated_at = _now_iso()
+                self._revision_briefs[item.id] = item
+
+    def revision_briefs(
+        self,
+        *,
+        target_branch_id: str | None = None,
+    ) -> list[BranchRevisionBrief]:
+        with self._lock:
+            items = list(self._revision_briefs.values())
+            if target_branch_id:
+                items = [item for item in items if item.target_branch_id == target_branch_id]
+            return [copy.deepcopy(item) for item in items]
 
     def add_source_candidates(self, source_candidates: list[SourceCandidate]) -> None:
         with self._lock:
@@ -473,6 +666,41 @@ class ArtifactStore:
                 for section in self._section_drafts.values()
                 if section.task_id == task_id
             ]
+            claim_units = [
+                asdict(item)
+                for item in self._claim_units.values()
+                if item.task_id == task_id or (branch_id and item.branch_id == branch_id)
+            ]
+            obligations = [
+                asdict(item)
+                for item in self._coverage_obligations.values()
+                if item.task_id == task_id or (branch_id and item.branch_id == branch_id)
+            ]
+            grounding_results = [
+                asdict(item)
+                for item in self._claim_grounding_results.values()
+                if item.task_id == task_id or (branch_id and item.branch_id == branch_id)
+            ]
+            coverage_evaluation_results = [
+                asdict(item)
+                for item in self._coverage_evaluation_results.values()
+                if item.task_id == task_id or (branch_id and item.branch_id == branch_id)
+            ]
+            consistency_results = [
+                asdict(item)
+                for item in self._consistency_results.values()
+                if branch_id and item.branch_id == branch_id
+            ]
+            revision_issues = [
+                asdict(item)
+                for item in self._revision_issues.values()
+                if item.task_id == task_id or (branch_id and item.branch_id == branch_id)
+            ]
+            revision_briefs = [
+                asdict(item)
+                for item in self._revision_briefs.values()
+                if branch_id and item.target_branch_id == branch_id
+            ]
             syntheses = [
                 asdict(synthesis)
                 for synthesis in self._branch_syntheses.values()
@@ -506,6 +734,13 @@ class ArtifactStore:
                 asdict(self._missing_evidence_list) if self._missing_evidence_list else {}
             ),
             "outline": asdict(self._outline) if self._outline else {},
+            "claim_units": claim_units,
+            "coverage_obligations": obligations,
+            "claim_grounding_results": grounding_results,
+            "coverage_evaluation_results": coverage_evaluation_results,
+            "consistency_results": consistency_results,
+            "revision_issues": revision_issues,
+            "revision_briefs": revision_briefs,
             "source_candidates": source_candidates,
             "fetched_documents": fetched_documents,
             "evidence_passages": passages,
@@ -629,6 +864,55 @@ class ArtifactStore:
                 "branch_briefs": [
                     asdict(brief)
                     for brief in sorted(self._briefs.values(), key=lambda item: (item.created_at, item.id))
+                ],
+                "claim_units": [
+                    asdict(item)
+                    for item in sorted(
+                        self._claim_units.values(),
+                        key=lambda item: (item.task_id, item.created_at, item.id),
+                    )
+                ],
+                "coverage_obligations": [
+                    asdict(item)
+                    for item in sorted(
+                        self._coverage_obligations.values(),
+                        key=lambda item: (item.task_id, item.created_at, item.id),
+                    )
+                ],
+                "claim_grounding_results": [
+                    asdict(item)
+                    for item in sorted(
+                        self._claim_grounding_results.values(),
+                        key=lambda item: (item.task_id, item.created_at, item.id),
+                    )
+                ],
+                "coverage_evaluation_results": [
+                    asdict(item)
+                    for item in sorted(
+                        self._coverage_evaluation_results.values(),
+                        key=lambda item: (item.task_id, item.created_at, item.id),
+                    )
+                ],
+                "consistency_results": [
+                    asdict(item)
+                    for item in sorted(
+                        self._consistency_results.values(),
+                        key=lambda item: (item.created_at, item.id),
+                    )
+                ],
+                "revision_issues": [
+                    asdict(item)
+                    for item in sorted(
+                        self._revision_issues.values(),
+                        key=lambda item: (item.created_at, item.id),
+                    )
+                ],
+                "revision_briefs": [
+                    asdict(item)
+                    for item in sorted(
+                        self._revision_briefs.values(),
+                        key=lambda item: (item.created_at, item.id),
+                    )
                 ],
                 "source_candidates": [
                     asdict(candidate)

@@ -15,6 +15,7 @@ from langchain_core.tools import BaseTool, tool
 import agent.runtime.deep.support.runtime_support as support
 from agent.runtime.deep.schema import (
     BranchSynthesis,
+    ClaimUnit,
     CoordinationRequest,
     EvidenceCard,
     EvidencePassage,
@@ -27,6 +28,7 @@ from agent.runtime.deep.schema import (
     VerificationResult,
     validate_coordination_request_type,
 )
+from agent.runtime.deep.services.verification import derive_claim_units
 from agent.builders.agent_factory import build_deep_research_tool_agent
 from agent.contracts.claim_verifier import ClaimStatus
 
@@ -104,6 +106,7 @@ class DeepResearchToolAgentSession:
     evidence_cards: list[EvidenceCard] = field(default_factory=list)
     branch_synthesis: BranchSynthesis | None = None
     section_draft: ReportSectionDraft | None = None
+    claim_units: list[ClaimUnit] = field(default_factory=list)
     verification_results: list[VerificationResult] = field(default_factory=list)
     coordination_requests: list[CoordinationRequest] = field(default_factory=list)
     submissions: list[ResearchSubmission] = field(default_factory=list)
@@ -248,6 +251,7 @@ class DeepResearchToolAgentSession:
         summary: str,
         findings: list[str] | None = None,
         result_status: str = "completed",
+        resolved_issue_ids: list[str] | None = None,
     ) -> ResearchSubmission:
         self.ensure_minimum_evidence()
         findings = list(findings or _split_findings(summary))
@@ -264,9 +268,20 @@ class DeepResearchToolAgentSession:
                 evidence_passage_ids=[item.id for item in self.evidence_passages],
                 source_document_ids=[item.id for item in self.fetched_documents],
                 citation_urls=citation_urls,
+                revision_brief_id=self.task.revision_brief_id if self.task else None,
                 created_by=self.role,
                 metadata={"graph_run_id": self.graph_run_id, "attempt": self.attempt},
             )
+        self.claim_units = derive_claim_units(
+            claim_verifier=self.runtime.claim_verifier,
+            task=self.task,
+            synthesis=self.branch_synthesis,
+            created_by=self.role,
+            existing_claim_units=self.claim_units,
+        ) if self.task and self.branch_synthesis else []
+        if self.branch_synthesis:
+            self.branch_synthesis.claim_ids = [item.id for item in self.claim_units]
+            self.branch_synthesis.metadata.setdefault("addressed_issue_ids", list(self.task.target_issue_ids if self.task else []))
         if not self.section_draft:
             self.section_draft = ReportSectionDraft(
                 id=support._new_id("section"),
@@ -291,9 +306,12 @@ class DeepResearchToolAgentSession:
                 *[item.id for item in self.fetched_documents],
                 *[item.id for item in self.evidence_passages],
                 *[item.id for item in self.evidence_cards],
+                *[item.id for item in self.claim_units],
                 self.branch_synthesis.id,
                 self.section_draft.id,
             ],
+            claim_ids=[item.id for item in self.claim_units],
+            resolved_issue_ids=list(resolved_issue_ids or []),
             metadata={"graph_run_id": self.graph_run_id, "attempt": self.attempt},
         )
         self.submissions.append(submission)
@@ -310,6 +328,10 @@ class DeepResearchToolAgentSession:
         evidence_urls: list[str] | None = None,
         evidence_passage_ids: list[str] | None = None,
         request_ids: list[str] | None = None,
+        claim_ids: list[str] | None = None,
+        obligation_ids: list[str] | None = None,
+        consistency_result_ids: list[str] | None = None,
+        issue_ids: list[str] | None = None,
     ) -> tuple[VerificationResult, ResearchSubmission]:
         verification = VerificationResult(
             id=support._new_id("verification"),
@@ -338,6 +360,10 @@ class DeepResearchToolAgentSession:
             validation_stage=validation_stage,
             artifact_ids=[verification.id],
             request_ids=list(request_ids or []),
+            claim_ids=list(claim_ids or []),
+            obligation_ids=list(obligation_ids or []),
+            consistency_result_ids=list(consistency_result_ids or []),
+            issue_ids=list(issue_ids or []),
             metadata={"recommended_action": recommended_action},
         )
         self.verification_results.append(verification)
@@ -444,6 +470,23 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
         return session.related_artifacts
 
     @tool
+    def fabric_get_verification_contracts() -> dict[str, Any]:
+        """Return structured claim / obligation / issue / revision contracts for the active branch."""
+        payload: dict[str, Any] = {}
+        for key in (
+            "claim_units",
+            "coverage_obligations",
+            "claim_grounding_results",
+            "coverage_evaluation_results",
+            "consistency_results",
+            "revision_issues",
+            "revision_briefs",
+        ):
+            value = session.related_artifacts.get(key)
+            payload[key] = list(value) if isinstance(value, list) else []
+        return payload
+
+    @tool
     def fabric_get_control_plane() -> dict[str, Any]:
         """Return the structured control-plane artifacts relevant to the current role."""
         payload: dict[str, Any] = {}
@@ -460,7 +503,14 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
         return payload
 
     base_tools.extend(
-        [fabric_get_scope, fabric_get_research_brief, fabric_get_task, fabric_get_related_artifacts, fabric_get_control_plane]
+        [
+            fabric_get_scope,
+            fabric_get_research_brief,
+            fabric_get_task,
+            fabric_get_related_artifacts,
+            fabric_get_verification_contracts,
+            fabric_get_control_plane,
+        ]
     )
 
     if session.role == "supervisor":
@@ -572,16 +622,19 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
             summary: str,
             findings: list[str] | None = None,
             result_status: str = "completed",
+            resolved_issue_ids: list[str] | None = None,
         ) -> dict[str, Any]:
             """Submit the current branch research bundle using extracted evidence and a branch summary."""
             submission = session.submit_research_bundle(
                 summary=summary,
                 findings=list(findings or []),
                 result_status=result_status,
+                resolved_issue_ids=list(resolved_issue_ids or []),
             )
             return {
                 "submission_id": submission.id,
                 "branch_synthesis_id": session.branch_synthesis.id if session.branch_synthesis else "",
+                "claim_ids": [item.id for item in session.claim_units],
                 "result_status": submission.result_status,
             }
 
@@ -643,6 +696,10 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
             recommended_action: str,
             gap_ids: list[str] | None = None,
             evidence_urls: list[str] | None = None,
+            claim_ids: list[str] | None = None,
+            obligation_ids: list[str] | None = None,
+            consistency_result_ids: list[str] | None = None,
+            issue_ids: list[str] | None = None,
         ) -> dict[str, Any]:
             """Submit a structured verification bundle for the current branch."""
             request_ids: list[str] = []
@@ -670,6 +727,10 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
                 evidence_urls=list(evidence_urls or []),
                 evidence_passage_ids=[item.id for item in session.evidence_passages],
                 request_ids=request_ids,
+                claim_ids=list(claim_ids or []),
+                obligation_ids=list(obligation_ids or []),
+                consistency_result_ids=list(consistency_result_ids or []),
+                issue_ids=list(issue_ids or []),
             )
             return {
                 "verification_id": verification.id,
@@ -698,6 +759,11 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
                 result.task_id: result
                 for result in session.runtime.artifact_store.verification_results(validation_stage="claim_check")
             }
+            blocking_issue_branch_ids = {
+                issue.branch_id
+                for issue in session.runtime.artifact_store.revision_issues()
+                if issue.blocking and issue.status in {"open", "accepted"} and issue.branch_id
+            }
             items: list[dict[str, Any]] = []
             for synthesis in session.runtime.artifact_store.branch_syntheses():
                 if (
@@ -705,6 +771,7 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
                     and coverage_results.get(synthesis.task_id)
                     and claim_results[synthesis.task_id].outcome == "passed"
                     and coverage_results[synthesis.task_id].outcome == "passed"
+                    and synthesis.branch_id not in blocking_issue_branch_ids
                 ):
                     items.append(synthesis.to_dict())
             return items

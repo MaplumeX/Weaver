@@ -22,6 +22,10 @@ TaskStage = Literal[
     "extract",
     "synthesize",
     "verify",
+    "grounding_check",
+    "coverage_evaluation",
+    "consistency_check",
+    "revision",
     "challenge",
     "compare",
     "submit",
@@ -29,7 +33,13 @@ TaskStage = Literal[
     "coverage_check",
     "reported",
 ]
-ValidationStage = Literal["claim_check", "coverage_check", "challenge", "compare"]
+ValidationStage = Literal[
+    "claim_check",
+    "coverage_check",
+    "consistency_check",
+    "challenge",
+    "compare",
+]
 ValidationOutcome = Literal["passed", "failed", "needs_follow_up"]
 CoordinationRequestType = Literal[
     "retry_branch",
@@ -40,6 +50,12 @@ CoordinationRequestType = Literal[
 ]
 CoordinationRequestStatus = Literal["open", "accepted", "resolved", "dismissed"]
 SubmissionKind = Literal["research_bundle", "verification_bundle", "report_bundle"]
+GroundingStatus = Literal["grounded", "unsupported", "contradicted", "unresolved"]
+ObligationStatus = Literal["satisfied", "partially_satisfied", "unsatisfied", "unresolved"]
+ConsistencyStatus = Literal["consistent", "contradicted", "unresolved"]
+RevisionIssueSeverity = Literal["low", "medium", "high", "critical"]
+RevisionIssueStatus = Literal["open", "accepted", "resolved", "superseded", "waived"]
+RevisionKind = Literal["patch_branch", "spawn_follow_up_branch", "spawn_counterevidence_branch"]
 
 REGISTERED_COORDINATION_REQUEST_TYPES: tuple[CoordinationRequestType, ...] = (
     "retry_branch",
@@ -105,6 +121,9 @@ class BranchScopeSnapshot(TypedDict, total=False):
     verification_status: str
     latest_task_id: str | None
     latest_submission_id: str | None
+    latest_revision_brief_id: str | None
+    open_issue_ids: list[str]
+    resolved_issue_ids: list[str]
     open_request_ids: list[str]
     task_ids: list[str]
 
@@ -140,8 +159,15 @@ class BranchBrief:
     latest_task_id: str | None = None
     latest_synthesis_id: str | None = None
     latest_verification_id: str | None = None
+    latest_revision_brief_id: str | None = None
     current_stage: str = "planned"
     verification_status: str = "pending"
+    claim_ids: list[str] = field(default_factory=list)
+    obligation_ids: list[str] = field(default_factory=list)
+    open_issue_ids: list[str] = field(default_factory=list)
+    resolved_issue_ids: list[str] = field(default_factory=list)
+    revision_count: int = 0
+    lineage: dict[str, Any] = field(default_factory=dict)
     status: ArtifactStatus = "created"
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
@@ -196,6 +222,11 @@ class ResearchTask:
     branch_id: str | None = None
     parent_task_id: str | None = None
     parent_context_id: str | None = None
+    revision_kind: str = ""
+    revision_of_task_id: str | None = None
+    revision_brief_id: str | None = None
+    target_issue_ids: list[str] = field(default_factory=list)
+    resolved_issue_ids: list[str] = field(default_factory=list)
     assigned_agent_id: str | None = None
     attempts: int = 0
     created_at: str = field(default_factory=_now_iso)
@@ -293,6 +324,153 @@ class EvidencePassage:
 
 
 @dataclass
+class ClaimUnit:
+    id: str
+    task_id: str
+    branch_id: str | None
+    claim: str
+    claim_provenance: dict[str, Any] = field(default_factory=dict)
+    evidence_passage_ids: list[str] = field(default_factory=list)
+    citation_urls: list[str] = field(default_factory=list)
+    status: ArtifactStatus = "created"
+    created_by: str = ""
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CoverageObligation:
+    id: str
+    task_id: str
+    branch_id: str | None
+    source: str
+    target: str
+    completion_criteria: list[str] = field(default_factory=list)
+    status: ArtifactStatus = "created"
+    created_by: str = "supervisor"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ClaimGroundingResult:
+    id: str
+    task_id: str
+    branch_id: str | None
+    claim_id: str
+    status: GroundingStatus
+    summary: str
+    evidence_urls: list[str] = field(default_factory=list)
+    evidence_passage_ids: list[str] = field(default_factory=list)
+    severity: RevisionIssueSeverity = "medium"
+    created_by: str = "verifier"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CoverageEvaluationResult:
+    id: str
+    task_id: str
+    branch_id: str | None
+    obligation_id: str
+    status: ObligationStatus
+    summary: str
+    evidence_urls: list[str] = field(default_factory=list)
+    evidence_passage_ids: list[str] = field(default_factory=list)
+    created_by: str = "verifier"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ConsistencyResult:
+    id: str
+    task_id: str | None
+    branch_id: str | None
+    claim_ids: list[str]
+    related_branch_ids: list[str]
+    status: ConsistencyStatus
+    summary: str
+    evidence_urls: list[str] = field(default_factory=list)
+    evidence_passage_ids: list[str] = field(default_factory=list)
+    created_by: str = "verifier"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class RevisionIssue:
+    id: str
+    task_id: str | None
+    branch_id: str | None
+    issue_type: str
+    summary: str
+    status: RevisionIssueStatus = "open"
+    severity: RevisionIssueSeverity = "medium"
+    blocking: bool = True
+    recommended_action: str = ""
+    claim_ids: list[str] = field(default_factory=list)
+    obligation_ids: list[str] = field(default_factory=list)
+    consistency_result_ids: list[str] = field(default_factory=list)
+    artifact_ids: list[str] = field(default_factory=list)
+    evidence_urls: list[str] = field(default_factory=list)
+    evidence_passage_ids: list[str] = field(default_factory=list)
+    suggested_queries: list[str] = field(default_factory=list)
+    resolution: dict[str, Any] = field(default_factory=dict)
+    created_by: str = "verifier"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BranchRevisionBrief:
+    id: str
+    revision_kind: RevisionKind
+    target_branch_id: str | None
+    target_task_id: str | None
+    issue_ids: list[str]
+    summary: str
+    source_branch_id: str | None = None
+    source_task_id: str | None = None
+    reusable_artifact_ids: list[str] = field(default_factory=list)
+    suggested_queries: list[str] = field(default_factory=list)
+    completion_criteria: list[str] = field(default_factory=list)
+    status: ArtifactStatus = "created"
+    created_by: str = "supervisor"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class BranchSynthesis:
     id: str
     task_id: str
@@ -304,6 +482,9 @@ class BranchSynthesis:
     evidence_passage_ids: list[str] = field(default_factory=list)
     source_document_ids: list[str] = field(default_factory=list)
     citation_urls: list[str] = field(default_factory=list)
+    claim_ids: list[str] = field(default_factory=list)
+    resolved_issue_ids: list[str] = field(default_factory=list)
+    revision_brief_id: str | None = None
     status: ArtifactStatus = "created"
     created_by: str = ""
     created_at: str = field(default_factory=_now_iso)
@@ -342,6 +523,7 @@ class TaskLedgerArtifact:
     id: str
     research_brief_id: str | None = None
     entries: list[dict[str, Any]] = field(default_factory=list)
+    issue_statuses: list[dict[str, Any]] = field(default_factory=list)
     status: ArtifactStatus = "updated"
     created_by: str = "supervisor"
     created_at: str = field(default_factory=_now_iso)
@@ -363,6 +545,8 @@ class ProgressLedgerArtifact:
     decisions: list[dict[str, Any]] = field(default_factory=list)
     blockers: list[dict[str, Any]] = field(default_factory=list)
     verification_summary: dict[str, Any] = field(default_factory=dict)
+    issue_statuses: list[dict[str, Any]] = field(default_factory=list)
+    revision_lineage: list[dict[str, Any]] = field(default_factory=list)
     outline_status: str = "pending"
     budget_stop_reason: str = ""
     stop_reason: str = ""
@@ -450,11 +634,15 @@ class CoordinationRequest:
     status: CoordinationRequestStatus = "open"
     priority: int = 0
     artifact_ids: list[str] = field(default_factory=list)
+    issue_ids: list[str] = field(default_factory=list)
     suggested_queries: list[str] = field(default_factory=list)
     impact_scope: str = ""
     reason: str = ""
     blocking_level: str = "blocking"
     suggested_next_action: str = ""
+    target_branch_id: str | None = None
+    target_task_id: str | None = None
+    revision_brief_id: str | None = None
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -482,6 +670,11 @@ class ResearchSubmission:
     validation_stage: str = ""
     artifact_ids: list[str] = field(default_factory=list)
     request_ids: list[str] = field(default_factory=list)
+    claim_ids: list[str] = field(default_factory=list)
+    obligation_ids: list[str] = field(default_factory=list)
+    consistency_result_ids: list[str] = field(default_factory=list)
+    issue_ids: list[str] = field(default_factory=list)
+    resolved_issue_ids: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -499,6 +692,8 @@ class SupervisorDecisionArtifact:
     branch_id: str | None = None
     task_ids: list[str] = field(default_factory=list)
     request_ids: list[str] = field(default_factory=list)
+    issue_ids: list[str] = field(default_factory=list)
+    revision_brief_ids: list[str] = field(default_factory=list)
     next_step: str = ""
     planning_mode: str = ""
     iteration: int = 0
@@ -632,6 +827,8 @@ class WorkerExecutionResult:
     result_status: str = "completed"
     agent_run: AgentRunRecord | None = None
     error: str = ""
+    claim_units: list[ClaimUnit] = field(default_factory=list)
+    resolved_issue_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -653,6 +850,8 @@ class WorkerExecutionResult:
             "result_status": self.result_status,
             "agent_run": self.agent_run.to_dict() if self.agent_run else None,
             "error": self.error,
+            "claim_units": [item.to_dict() for item in self.claim_units],
+            "resolved_issue_ids": list(self.resolved_issue_ids),
         }
 
 
@@ -661,21 +860,29 @@ __all__ = [
     "AgentRunRecord",
     "ArtifactStatus",
     "BranchBrief",
+    "BranchRevisionBrief",
     "BranchScopeSnapshot",
     "BranchSynthesis",
+    "ClaimGroundingResult",
+    "ClaimUnit",
+    "ConsistencyResult",
     "ContradictionRegistryArtifact",
     "CoordinationRequest",
     "CoordinationRequestStatus",
     "CoordinationRequestType",
+    "CoverageEvaluationResult",
     "CoverageMatrixArtifact",
+    "CoverageObligation",
     "EvidenceCard",
     "EvidencePassage",
     "FetchedDocument",
     "FinalReportArtifact",
     "GraphScopeSnapshot",
+    "GroundingStatus",
     "is_registered_coordination_request_type",
     "KnowledgeGap",
     "MissingEvidenceListArtifact",
+    "ObligationStatus",
     "OutlineArtifact",
     "ProgressLedgerArtifact",
     "REGISTERED_COORDINATION_REQUEST_TYPES",
@@ -683,6 +890,10 @@ __all__ = [
     "ResearchBriefArtifact",
     "ResearchSubmission",
     "ResearchTask",
+    "RevisionIssue",
+    "RevisionIssueStatus",
+    "RevisionIssueSeverity",
+    "RevisionKind",
     "SourceCandidate",
     "ScopeDraft",
     "ScopeDraftStatus",

@@ -35,6 +35,7 @@ def build_tasks_from_plan(
         aspect = str(item.get("aspect") or "").strip()
         priority = int(item.get("priority") or len(tasks) + 1)
         task_kind = str(item.get("task_kind") or "branch_research").strip() or "branch_research"
+        revision_kind = str(item.get("revision_kind") or "").strip()
         allowed_tools = _coerce_list(item.get("allowed_tools")) or ["search", "read", "extract", "synthesize"]
         acceptance_criteria = _coerce_list(item.get("acceptance_criteria"))
         input_artifact_ids = _coerce_list(item.get("input_artifact_ids"))
@@ -65,6 +66,10 @@ def build_tasks_from_plan(
                 branch_id=task_branch_id,
                 parent_task_id=str(item.get("parent_task_id") or "").strip() or None,
                 parent_context_id=context_id,
+                revision_kind=revision_kind,
+                revision_of_task_id=str(item.get("revision_of_task_id") or "").strip() or None,
+                revision_brief_id=str(item.get("revision_brief_id") or "").strip() or None,
+                target_issue_ids=_coerce_list(item.get("target_issue_ids")),
             )
         )
     return tasks
@@ -95,7 +100,15 @@ def build_briefs_from_tasks(
                 parent_branch_id=parent_branch_id,
                 parent_task_id=task.parent_task_id,
                 latest_task_id=task.id,
+                latest_revision_brief_id=task.revision_brief_id,
                 current_stage=task.stage,
+                open_issue_ids=list(task.target_issue_ids),
+                revision_count=1 if task.revision_kind else 0,
+                lineage={
+                    "revision_kind": task.revision_kind,
+                    "revision_of_task_id": task.revision_of_task_id,
+                    "parent_branch_id": parent_branch_id,
+                },
             )
         )
     return briefs

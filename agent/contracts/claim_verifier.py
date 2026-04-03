@@ -103,8 +103,10 @@ class ClaimStatus(str, Enum):
 class ClaimCheck:
     claim: str
     status: ClaimStatus
+    claim_id: str = ""
     evidence_urls: List[str] = field(default_factory=list)
     evidence_passages: List[Dict[str, Any]] = field(default_factory=list)
+    evidence_passage_ids: List[str] = field(default_factory=list)
     score: float = 0.0
     notes: str = ""
 
@@ -173,9 +175,18 @@ class ClaimVerifier:
         return [self.verify_claim(claim, evidence) for claim in claims]
 
     def verify_claim(self, claim: str, evidence: List[Dict[str, Any]]) -> ClaimCheck:
+        return self.verify_claim_unit({"claim": claim}, evidence)
+
+    def verify_claim_unit(
+        self,
+        claim_unit: Dict[str, Any],
+        evidence: List[Dict[str, Any]],
+    ) -> ClaimCheck:
+        claim = str(claim_unit.get("claim") or "").strip()
+        claim_id = str(claim_unit.get("id") or "").strip()
         claim_tokens = self._tokenize(claim)
         if not claim_tokens:
-            return ClaimCheck(claim=claim, status=ClaimStatus.UNSUPPORTED)
+            return ClaimCheck(claim=claim, claim_id=claim_id, status=ClaimStatus.UNSUPPORTED)
 
         supported: List[tuple[int, str, Dict[str, Any]]] = []
         contradicted: List[tuple[int, str, Dict[str, Any]]] = []
@@ -199,6 +210,9 @@ class ClaimVerifier:
             quote = str(item.get("quote") or "").strip()
             if quote:
                 passage_payload["quote"] = quote
+            passage_id = str(item.get("passage_id") or item.get("id") or "").strip()
+            if passage_id:
+                passage_payload["passage_id"] = passage_id
             heading_path = item.get("heading_path")
             if isinstance(heading_path, list) and all(isinstance(p, str) for p in heading_path):
                 passage_payload["heading_path"] = heading_path
@@ -217,9 +231,15 @@ class ClaimVerifier:
             evidence_passages = [p for _o, _u, p in (contradicted + supported)][:limit]
             return ClaimCheck(
                 claim=claim,
+                claim_id=claim_id,
                 status=ClaimStatus.CONTRADICTED,
                 evidence_urls=urls[:limit],
                 evidence_passages=evidence_passages,
+                evidence_passage_ids=[
+                    str(p.get("passage_id") or "").strip()
+                    for p in evidence_passages
+                    if str(p.get("passage_id") or "").strip()
+                ],
                 score=float(best_overlap),
                 notes="conflicting evidence found",
             )
@@ -227,21 +247,43 @@ class ClaimVerifier:
         if supported:
             return ClaimCheck(
                 claim=claim,
+                claim_id=claim_id,
                 status=ClaimStatus.VERIFIED,
                 evidence_urls=list(dict.fromkeys([u for _o, u, _p in supported]))[:limit],
                 evidence_passages=[p for _o, _u, p in supported][:limit],
+                evidence_passage_ids=[
+                    str(p.get("passage_id") or "").strip()
+                    for _o, _u, p in supported[:limit]
+                    if str(p.get("passage_id") or "").strip()
+                ],
                 score=float(best_overlap),
                 notes="supported by evidence",
             )
 
         return ClaimCheck(
             claim=claim,
+            claim_id=claim_id,
             status=ClaimStatus.UNSUPPORTED,
             evidence_urls=[],
             evidence_passages=[],
+            evidence_passage_ids=[],
             score=0.0,
             notes="no matching evidence",
         )
+
+    def compare_claims(self, left_claim: str, right_claim: str) -> str:
+        left = str(left_claim or "").strip()
+        right = str(right_claim or "").strip()
+        if not left or not right:
+            return "unresolved"
+        left_tokens = self._tokenize(left)
+        right_tokens = self._tokenize(right)
+        overlap = len(left_tokens & right_tokens)
+        if overlap < self.min_overlap_tokens:
+            return "unresolved"
+        if self._is_contradiction(left, right) or self._is_contradiction(right, left):
+            return "contradicted"
+        return "consistent"
 
     def _extract_evidence(
         self,
@@ -267,6 +309,9 @@ class ClaimVerifier:
                     "url": canonical_url,
                     "text": text,
                 }
+                passage_id = str(passage.get("passage_id") or passage.get("id") or "").strip()
+                if passage_id:
+                    item["passage_id"] = passage_id
                 snippet_hash = str(passage.get("snippet_hash") or "").strip()
                 if snippet_hash:
                     item["snippet_hash"] = snippet_hash

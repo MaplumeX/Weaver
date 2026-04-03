@@ -400,6 +400,7 @@ def run_benchmark(
     executed_cases = 0
     executed_passed = 0
     evidence_summaries: List[Dict[str, Any]] = []
+    quality_updates: List[Dict[str, Any]] = []
 
     if execute and cases:
         # Best-effort: use the same defaults as the backend quality gates.
@@ -447,6 +448,9 @@ def run_benchmark(
             evidence = result.get("evidence_summary")
             if isinstance(evidence, dict):
                 evidence_summaries.append(evidence)
+            quality_update = result.get("last_quality_update")
+            if isinstance(quality_update, dict):
+                quality_updates.append(quality_update)
 
     def _avg(values: List[Optional[float]]) -> Optional[float]:
         cleaned = [v for v in values if isinstance(v, (int, float))]
@@ -457,6 +461,15 @@ def run_benchmark(
     evidence_citation = _avg([_maybe_float(e.get("citation_coverage")) for e in evidence_summaries])
     evidence_freshness = _avg([_maybe_float(e.get("freshness_ratio_30d")) for e in evidence_summaries])
     evidence_query_cov = _avg([_maybe_float(e.get("query_coverage_score")) for e in evidence_summaries])
+    avg_verification_precision = _avg(
+        [_maybe_float(update.get("verification_precision")) for update in quality_updates]
+    )
+    avg_unresolved_issue_count = _avg(
+        [_maybe_float(update.get("unresolved_issue_count")) for update in quality_updates]
+    )
+    avg_revision_convergence = _avg(
+        [_maybe_float(update.get("revision_convergence")) for update in quality_updates]
+    )
 
     unsupported_claims_total = (
         sum(int(_maybe_int(e.get("unsupported_claims_count")) or 0) for e in evidence_summaries)
@@ -504,6 +517,9 @@ def run_benchmark(
             "avg_freshness_ratio_30d": evidence_freshness,
             "avg_query_coverage_score": evidence_query_cov,
             "unsupported_claims_total": int(unsupported_claims_total),
+            "avg_verification_precision": avg_verification_precision,
+            "avg_unresolved_issue_count": avg_unresolved_issue_count,
+            "avg_revision_convergence": avg_revision_convergence,
         },
     }
 

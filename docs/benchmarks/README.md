@@ -89,3 +89,17 @@ The runner writes a JSON report containing:
   - default quality gate values used in this run
 
 Use this as a reproducible smoke signal in CI/nightly workflows.
+
+## Verification Revision Loop Metrics
+
+When `--execute` is enabled, the benchmark report also aggregates the latest `quality_update`
+payload emitted by Deep Research and exposes these revision-loop metrics:
+
+- `avg_verification_precision`: average `grounded_claims / total_checked_claims`
+- `avg_unresolved_issue_count`: average count of open or accepted revision issues
+- `avg_revision_convergence`: average `resolved_issues / total_revision_issues`
+
+These metrics are complementary to `avg_citation_coverage`, `avg_query_coverage_score` and
+`unsupported_claims_total`. A run should be treated as healthy only when evidence quality is
+acceptable and revision-loop metrics show that verification is converging instead of accumulating
+open issues.

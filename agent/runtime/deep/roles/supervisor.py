@@ -51,6 +51,10 @@ class SupervisorAction(str, Enum):
     DISPATCH = "dispatch"
     REPLAN = "replan"
     RETRY_BRANCH = "retry_branch"
+    PATCH_BRANCH = "patch_branch"
+    SPAWN_FOLLOW_UP_BRANCH = "spawn_follow_up_branch"
+    SPAWN_COUNTEREVIDENCE_BRANCH = "spawn_counterevidence_branch"
+    BOUNDED_STOP = "bounded_stop"
     REPORT = "report"
     STOP = "stop"
 
@@ -62,6 +66,8 @@ class SupervisorDecision:
     priority_topics: list[str] = field(default_factory=list)
     retry_task_ids: list[str] = field(default_factory=list)
     request_ids: list[str] = field(default_factory=list)
+    issue_ids: list[str] = field(default_factory=list)
+    target_branch_ids: list[str] = field(default_factory=list)
 
 
 class ResearchSupervisor:
@@ -126,6 +132,7 @@ class ResearchSupervisor:
         quality_gap_count: int = 0,
         citation_accuracy: float | None = None,
         verification_summary: dict[str, Any] | None = None,
+        revision_issues: list[dict[str, Any]] | None = None,
         research_brief: dict[str, Any] | None = None,
         task_ledger: dict[str, Any] | None = None,
         progress_ledger: dict[str, Any] | None = None,
@@ -144,6 +151,11 @@ class ResearchSupervisor:
             for request_id in (request_ids or [])
             if str(request_id).strip()
         ]
+        normalized_revision_issues = [
+            issue
+            for issue in (revision_issues or [])
+            if isinstance(issue, dict)
+        ]
         if budget_stop_reason:
             return SupervisorDecision(
                 action=SupervisorAction.STOP,
@@ -156,6 +168,10 @@ class ResearchSupervisor:
                 reasoning="已达到最大研究轮次，停止继续派发研究任务",
                 request_ids=normalized_request_ids,
             )
+        revision_decision = self._decide_revision_routing(normalized_revision_issues)
+        if revision_decision is not None:
+            revision_decision.request_ids = normalized_request_ids
+            return revision_decision
         if normalized_retry_task_ids:
             return SupervisorDecision(
                 action=SupervisorAction.RETRY_BRANCH,
@@ -206,6 +222,55 @@ class ResearchSupervisor:
             reasoning=reasoning,
             priority_topics=priority_topics,
             request_ids=normalized_request_ids,
+        )
+
+    def _decide_revision_routing(
+        self,
+        revision_issues: list[dict[str, Any]],
+    ) -> SupervisorDecision | None:
+        blocking_issues = [
+            issue
+            for issue in revision_issues
+            if issue.get("blocking") and str(issue.get("status") or "").strip() in {"open", "accepted"}
+        ]
+        if not blocking_issues:
+            return None
+        issue_ids = [
+            str(issue.get("id") or "").strip()
+            for issue in blocking_issues
+            if str(issue.get("id") or "").strip()
+        ]
+        target_branch_ids = list(
+            dict.fromkeys(
+                str(issue.get("branch_id") or "").strip()
+                for issue in blocking_issues
+                if str(issue.get("branch_id") or "").strip()
+            )
+        )
+        actions = {
+            str(issue.get("recommended_action") or "").strip()
+            for issue in blocking_issues
+            if str(issue.get("recommended_action") or "").strip()
+        }
+        if "spawn_counterevidence_branch" in actions:
+            return SupervisorDecision(
+                action=SupervisorAction.SPAWN_COUNTEREVIDENCE_BRANCH,
+                reasoning="blocking issues 显示当前结论存在冲突，需要派生 counterevidence branch",
+                issue_ids=issue_ids,
+                target_branch_ids=target_branch_ids,
+            )
+        if "spawn_follow_up_branch" in actions:
+            return SupervisorDecision(
+                action=SupervisorAction.SPAWN_FOLLOW_UP_BRANCH,
+                reasoning="blocking issues 需要额外 follow-up branch 来补齐 coverage 或证据范围",
+                issue_ids=issue_ids,
+                target_branch_ids=target_branch_ids,
+            )
+        return SupervisorDecision(
+            action=SupervisorAction.PATCH_BRANCH,
+            reasoning="blocking issues 可在现有 branch 上定向修订，优先 patch existing branch",
+            issue_ids=issue_ids,
+            target_branch_ids=target_branch_ids,
         )
 
     def _decide_from_structured_state(
