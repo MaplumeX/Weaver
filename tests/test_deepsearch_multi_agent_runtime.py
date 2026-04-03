@@ -291,13 +291,21 @@ def test_run_multi_agent_deep_research_merges_artifacts_and_emits_events(monkeyp
     assert len(artifact_store["evidence_cards"]) == 2
     assert len(artifact_store["branch_syntheses"]) == 2
     assert len(artifact_store["verification_results"]) == 4
-    assert len(artifact_store["coordination_requests"]) >= 1
+    assert artifact_store["research_brief"]["scope_id"]
+    assert len(artifact_store["task_ledger"]["entries"]) == 2
+    assert artifact_store["progress_ledger"]["outline_status"] == "ready"
+    assert len(artifact_store["coverage_matrix"]["rows"]) >= 1
+    assert len(artifact_store["contradiction_registry"]["entries"]) == 0
+    assert len(artifact_store["missing_evidence_list"]["items"]) == 0
+    assert artifact_store["outline"]["is_ready"] is True
     assert len(artifact_store["submissions"]) >= 4
     assert len(artifact_store["supervisor_decisions"]) >= 2
     assert len(artifact_store["report_section_drafts"]) == 2
     assert result["deep_runtime"]["runtime_state"]["engine"] == "multi_agent"
     assert result["deep_runtime"]["runtime_state"]["last_verification_summary"]["verified_branches"] == 2
     assert result["deep_runtime"]["runtime_state"]["supervisor_phase"] == "loop_decision"
+    assert result["deep_runtime"]["runtime_state"]["research_brief_id"]
+    assert result["deep_runtime"]["runtime_state"]["outline_status"] == "ready"
     assert {"clarify", "scope", "supervisor", "researcher", "verifier", "reporter"} <= agent_roles
     assert "research_agent_start" in event_types
     assert "research_task_update" in event_types
@@ -317,6 +325,8 @@ def test_run_multi_agent_deep_research_merges_artifacts_and_emits_events(monkeyp
         and update.get("validation_stage") == "coverage_check"
         for update in artifact_updates
     )
+    assert any(update.get("artifact_type") == "research_brief" for update in artifact_updates)
+    assert any(update.get("artifact_type") == "outline" for update in artifact_updates)
 
 
 def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
@@ -340,12 +350,14 @@ def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
     assert "clarify" in mermaid
     assert "scope" in mermaid
     assert "scope_review" in mermaid
+    assert "research_brief" in mermaid
     assert "supervisor_plan" in mermaid
     assert "dispatch" in mermaid
     assert "researcher" in mermaid
     assert "merge" in mermaid
     assert "verify" in mermaid
     assert "supervisor_decide" in mermaid
+    assert "outline_gate" in mermaid
     assert "report" in mermaid
     assert "finalize" in mermaid
 
@@ -561,7 +573,11 @@ def test_supervisor_plan_waits_for_scope_approval_before_dispatch(monkeypatch):
         "status": "approved",
         "research_goal": "Research AI chips",
     }
-    dispatched = runtime._supervisor_plan_node(approved_state)
+    gated = runtime._supervisor_plan_node(approved_state)
+    assert gated["next_step"] == "research_brief"
+
+    brief_state = runtime._research_brief_node(approved_state)
+    dispatched = runtime._supervisor_plan_node(brief_state)
 
     assert dispatched["next_step"] == "dispatch"
     assert dispatched["task_queue"]["stats"]["ready"] == 1

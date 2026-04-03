@@ -267,6 +267,42 @@ def build_public_deep_research_artifacts(
         "passages": public_passages,
         "sources": _normalize_sources(store_snapshot),
         "claims": claims,
+        "research_brief": (
+            dict(store_snapshot.get("research_brief"))
+            if isinstance(store_snapshot.get("research_brief"), dict)
+            else {}
+        ),
+        "task_ledger": (
+            dict(store_snapshot.get("task_ledger"))
+            if isinstance(store_snapshot.get("task_ledger"), dict)
+            else {}
+        ),
+        "progress_ledger": (
+            dict(store_snapshot.get("progress_ledger"))
+            if isinstance(store_snapshot.get("progress_ledger"), dict)
+            else {}
+        ),
+        "coverage_matrix": (
+            dict(store_snapshot.get("coverage_matrix"))
+            if isinstance(store_snapshot.get("coverage_matrix"), dict)
+            else {}
+        ),
+        "contradiction_registry": (
+            dict(store_snapshot.get("contradiction_registry"))
+            if isinstance(store_snapshot.get("contradiction_registry"), dict)
+            else {}
+        ),
+        "missing_evidence_list": (
+            dict(store_snapshot.get("missing_evidence_list"))
+            if isinstance(store_snapshot.get("missing_evidence_list"), dict)
+            else {}
+        ),
+        "outline": (
+            dict(store_snapshot.get("outline"))
+            if isinstance(store_snapshot.get("outline"), dict)
+            else {}
+        ),
+        "coordination_requests": list(store_snapshot.get("coordination_requests") or []),
         "final_report": str(final_report.get("report_markdown") or ""),
         "executive_summary": str(final_report.get("executive_summary") or ""),
         "runtime_state": runtime_state if isinstance(runtime_state, dict) else {},

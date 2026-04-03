@@ -75,7 +75,7 @@ def _tool_map(session: DeepResearchToolAgentSession):
     return {tool.name: tool for tool in build_deep_research_fabric_tools(session)}
 
 
-def test_researcher_fabric_tools_create_follow_up_and_research_bundle():
+def test_researcher_fabric_tools_create_blocked_request_and_research_bundle():
     runtime = _FakeRuntime()
     task = _make_task()
     session = DeepResearchToolAgentSession(
@@ -94,7 +94,7 @@ def test_researcher_fabric_tools_create_follow_up_and_research_bundle():
     extracted = tools["fabric_extract"].invoke({"url": search_results[0]["url"]})
     follow_up = tools["fabric_request_follow_up"].invoke(
         {
-            "request_type": "follow_up",
+            "request_type": "blocked_by_tooling",
             "summary": "Need one more earnings-call source",
             "suggested_queries": ["AI chips earnings call"],
         }
@@ -107,7 +107,7 @@ def test_researcher_fabric_tools_create_follow_up_and_research_bundle():
     )
 
     assert extracted["source_candidate_id"]
-    assert follow_up["request_type"] == "follow_up"
+    assert follow_up["request_type"] == "blocked_by_tooling"
     assert session.branch_synthesis is not None
     assert session.submissions[-1].submission_kind == "research_bundle"
     assert submission["result_status"] == "completed"

@@ -80,13 +80,14 @@ class ResearchSupervisor:
         existing_knowledge: str = "",
         existing_queries: list[str] | None = None,
         approved_scope: dict[str, Any] | None = None,
+        research_brief: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         return self._planner.create_plan(
             topic,
             num_queries=num_queries,
             existing_knowledge=existing_knowledge,
             existing_queries=existing_queries,
-            approved_scope=approved_scope,
+            approved_scope=research_brief or approved_scope,
         )
 
     def refine_plan(
@@ -97,13 +98,14 @@ class ResearchSupervisor:
         existing_queries: list[str],
         num_queries: int = 3,
         approved_scope: dict[str, Any] | None = None,
+        research_brief: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         return self._planner.refine_plan(
             topic,
             gaps=gaps,
             existing_queries=existing_queries,
             num_queries=num_queries,
-            approved_scope=approved_scope,
+            approved_scope=research_brief or approved_scope,
         )
 
     def decide_next_action(
@@ -124,6 +126,13 @@ class ResearchSupervisor:
         quality_gap_count: int = 0,
         citation_accuracy: float | None = None,
         verification_summary: dict[str, Any] | None = None,
+        research_brief: dict[str, Any] | None = None,
+        task_ledger: dict[str, Any] | None = None,
+        progress_ledger: dict[str, Any] | None = None,
+        coverage_matrix: dict[str, Any] | None = None,
+        contradiction_registry: dict[str, Any] | None = None,
+        missing_evidence_list: dict[str, Any] | None = None,
+        outline_artifact: dict[str, Any] | None = None,
     ) -> SupervisorDecision:
         normalized_retry_task_ids = [
             str(task_id).strip()
@@ -161,6 +170,24 @@ class ResearchSupervisor:
                 request_ids=normalized_request_ids,
             )
 
+        structured_action, structured_reason, structured_topics = self._decide_from_structured_state(
+            research_brief=research_brief or {},
+            task_ledger=task_ledger or {},
+            progress_ledger=progress_ledger or {},
+            coverage_matrix=coverage_matrix or {},
+            contradiction_registry=contradiction_registry or {},
+            missing_evidence_list=missing_evidence_list or {},
+            outline_artifact=outline_artifact or {},
+            verification_summary=verification_summary or {},
+        )
+        if structured_action is not None:
+            return SupervisorDecision(
+                action=structured_action,
+                reasoning=structured_reason,
+                priority_topics=structured_topics,
+                request_ids=normalized_request_ids,
+            )
+
         action, reasoning, priority_topics = self._decide_action(
             topic=topic,
             num_queries=num_queries,
@@ -180,6 +207,71 @@ class ResearchSupervisor:
             priority_topics=priority_topics,
             request_ids=normalized_request_ids,
         )
+
+    def _decide_from_structured_state(
+        self,
+        *,
+        research_brief: dict[str, Any],
+        task_ledger: dict[str, Any],
+        progress_ledger: dict[str, Any],
+        coverage_matrix: dict[str, Any],
+        contradiction_registry: dict[str, Any],
+        missing_evidence_list: dict[str, Any],
+        outline_artifact: dict[str, Any],
+        verification_summary: dict[str, Any],
+    ) -> tuple[SupervisorAction | None, str, list[str]]:
+        entries = task_ledger.get("entries", []) if isinstance(task_ledger, dict) else []
+        if research_brief and not entries:
+            return SupervisorAction.PLAN, "权威 research brief 已就绪，但 ledger 仍无任务，需要先生成正式计划", []
+
+        open_requests = progress_ledger.get("active_request_ids", []) if isinstance(progress_ledger, dict) else []
+        blocker_labels = []
+
+        contradiction_entries = (
+            contradiction_registry.get("entries", []) if isinstance(contradiction_registry, dict) else []
+        )
+        if contradiction_entries:
+            blocker_labels.append("处理矛盾证据")
+
+        missing_items = missing_evidence_list.get("items", []) if isinstance(missing_evidence_list, dict) else []
+        if missing_items:
+            blocker_labels.append("补齐缺失证据")
+
+        coverage_rows = coverage_matrix.get("rows", []) if isinstance(coverage_matrix, dict) else []
+        uncovered_dimensions = [
+            str(item.get("dimension") or item.get("label") or "").strip()
+            for item in coverage_rows
+            if isinstance(item, dict) and str(item.get("status") or "").strip().lower() not in {"covered", "passed"}
+        ]
+        blocker_labels.extend(item for item in uncovered_dimensions if item)
+
+        blocking_gaps = outline_artifact.get("blocking_gaps", []) if isinstance(outline_artifact, dict) else []
+        outline_ready = bool(outline_artifact.get("is_ready")) if isinstance(outline_artifact, dict) else False
+        if blocking_gaps:
+            blocker_labels.append("补齐报告结构缺口")
+
+        retry_branches = max(0, int(verification_summary.get("retry_branches", 0) or 0))
+        if retry_branches > 0:
+            blocker_labels.append("重试分支补证据")
+
+        if blocker_labels or open_requests:
+            return (
+                SupervisorAction.REPLAN,
+                "控制面 artifacts 指出仍有未解决问题，需要继续重规划: " + "、".join(dict.fromkeys(blocker_labels)),
+                list(dict.fromkeys(uncovered_dimensions[:3])),
+            )
+
+        if outline_artifact:
+            if outline_ready:
+                return SupervisorAction.REPORT, "outline 已就绪且不存在阻塞缺口，可以进入最终报告生成", []
+            return SupervisorAction.REPLAN, "outline 尚未就绪，仍需先完成结构整理", []
+
+        completed_entries = [
+            item for item in entries if isinstance(item, dict) and str(item.get("status") or "") == "completed"
+        ]
+        if completed_entries and not blocker_labels:
+            return SupervisorAction.REPORT, "brief、ledger 和验证 artifacts 已收敛，可以进入 outline/report 阶段", []
+        return None, "", []
 
     def _decide_action(
         self,

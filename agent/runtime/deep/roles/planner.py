@@ -263,6 +263,51 @@ class ResearchPlanner:
         if not isinstance(approved_scope, dict) or not approved_scope:
             return "暂无已批准 scope, 请仅在必要时基于主题做最小范围规划."
 
+        if approved_scope.get("coverage_dimensions") is not None:
+            sections = [
+                f"- research_goal: {approved_scope.get('research_goal', '')}",
+                f"- user_goal: {approved_scope.get('user_goal', '')}",
+                "- core_questions:",
+            ]
+            sections.extend(
+                f"  - {item}"
+                for item in approved_scope.get("core_questions", [])
+                if isinstance(item, str) and item.strip()
+            )
+            sections.append("- coverage_dimensions:")
+            sections.extend(
+                f"  - {item}"
+                for item in approved_scope.get("coverage_dimensions", [])
+                if isinstance(item, str) and item.strip()
+            )
+            sections.append("- in_scope:")
+            sections.extend(
+                f"  - {item}"
+                for item in approved_scope.get("in_scope", [])
+                if isinstance(item, str) and item.strip()
+            )
+            sections.append("- out_of_scope:")
+            sections.extend(
+                f"  - {item}"
+                for item in approved_scope.get("out_of_scope", [])
+                if isinstance(item, str) and item.strip()
+            )
+            sections.append("- deliverable_constraints:")
+            sections.extend(
+                f"  - {item}"
+                for item in approved_scope.get("deliverable_constraints", [])
+                if isinstance(item, str) and item.strip()
+            )
+            sections.append("- source_preferences:")
+            sections.extend(
+                f"  - {item}"
+                for item in approved_scope.get("source_preferences", [])
+                if isinstance(item, str) and item.strip()
+            )
+            if approved_scope.get("time_boundary"):
+                sections.append(f"- time_boundary: {approved_scope.get('time_boundary')}")
+            return "\n".join(sections)
+
         sections = [
             f"- research_goal: {approved_scope.get('research_goal', '')}",
             "- research_steps:",

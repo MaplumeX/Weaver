@@ -31,13 +31,39 @@ TaskStage = Literal[
 ]
 ValidationStage = Literal["claim_check", "coverage_check", "challenge", "compare"]
 ValidationOutcome = Literal["passed", "failed", "needs_follow_up"]
-CoordinationRequestType = Literal["follow_up", "retry_branch", "replan", "escalation", "report_ready"]
+CoordinationRequestType = Literal[
+    "retry_branch",
+    "need_counterevidence",
+    "contradiction_found",
+    "outline_gap",
+    "blocked_by_tooling",
+]
 CoordinationRequestStatus = Literal["open", "accepted", "resolved", "dismissed"]
 SubmissionKind = Literal["research_bundle", "verification_bundle", "report_bundle"]
+
+REGISTERED_COORDINATION_REQUEST_TYPES: tuple[CoordinationRequestType, ...] = (
+    "retry_branch",
+    "need_counterevidence",
+    "contradiction_found",
+    "outline_gap",
+    "blocked_by_tooling",
+)
 
 
 def _now_iso() -> str:
     return datetime.now().isoformat()
+
+
+def is_registered_coordination_request_type(value: str) -> bool:
+    return str(value or "").strip() in REGISTERED_COORDINATION_REQUEST_TYPES
+
+
+def validate_coordination_request_type(value: str) -> CoordinationRequestType:
+    normalized = str(value or "").strip()
+    if not is_registered_coordination_request_type(normalized):
+        allowed = ", ".join(REGISTERED_COORDINATION_REQUEST_TYPES)
+        raise ValueError(f"Unsupported coordination request type: {value!r}. Allowed: {allowed}")
+    return normalized  # type: ignore[return-value]
 
 
 class GraphScopeSnapshot(TypedDict, total=False):
@@ -52,6 +78,11 @@ class GraphScopeSnapshot(TypedDict, total=False):
     approved_scope_version: int
     supervisor_phase: str
     supervisor_plan_id: str
+    research_brief_id: str
+    task_ledger_id: str
+    progress_ledger_id: str
+    outline_id: str
+    outline_status: str
     latest_supervisor_decision_id: str
     open_request_count: int
     budget: dict[str, Any]
@@ -112,6 +143,32 @@ class BranchBrief:
     status: ArtifactStatus = "created"
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ResearchBriefArtifact:
+    id: str
+    scope_id: str
+    scope_version: int
+    topic: str
+    user_goal: str
+    research_goal: str
+    core_questions: list[str] = field(default_factory=list)
+    coverage_dimensions: list[str] = field(default_factory=list)
+    in_scope: list[str] = field(default_factory=list)
+    out_of_scope: list[str] = field(default_factory=list)
+    deliverable_constraints: list[str] = field(default_factory=list)
+    source_preferences: list[str] = field(default_factory=list)
+    time_boundary: str = ""
+    acceptance_criteria: list[str] = field(default_factory=list)
+    status: ArtifactStatus = "completed"
+    created_by: str = "scope"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -279,6 +336,108 @@ class VerificationResult:
 
 
 @dataclass
+class TaskLedgerArtifact:
+    id: str
+    research_brief_id: str | None = None
+    entries: list[dict[str, Any]] = field(default_factory=list)
+    status: ArtifactStatus = "updated"
+    created_by: str = "supervisor"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ProgressLedgerArtifact:
+    id: str
+    research_brief_id: str | None = None
+    phase: str = ""
+    current_iteration: int = 0
+    active_request_ids: list[str] = field(default_factory=list)
+    latest_decision: dict[str, Any] = field(default_factory=dict)
+    decisions: list[dict[str, Any]] = field(default_factory=list)
+    blockers: list[dict[str, Any]] = field(default_factory=list)
+    verification_summary: dict[str, Any] = field(default_factory=dict)
+    outline_status: str = "pending"
+    budget_stop_reason: str = ""
+    stop_reason: str = ""
+    status: ArtifactStatus = "updated"
+    created_by: str = "supervisor"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CoverageMatrixArtifact:
+    id: str
+    research_brief_id: str | None = None
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    overall_coverage: float = 0.0
+    status: ArtifactStatus = "completed"
+    created_by: str = "verifier"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ContradictionRegistryArtifact:
+    id: str
+    research_brief_id: str | None = None
+    entries: list[dict[str, Any]] = field(default_factory=list)
+    status: ArtifactStatus = "completed"
+    created_by: str = "verifier"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class MissingEvidenceListArtifact:
+    id: str
+    research_brief_id: str | None = None
+    items: list[dict[str, Any]] = field(default_factory=list)
+    status: ArtifactStatus = "completed"
+    created_by: str = "verifier"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class OutlineArtifact:
+    id: str
+    research_brief_id: str | None = None
+    sections: list[dict[str, Any]] = field(default_factory=list)
+    blocking_gaps: list[dict[str, Any]] = field(default_factory=list)
+    is_ready: bool = False
+    status: ArtifactStatus = "created"
+    created_by: str = "reporter"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class CoordinationRequest:
     id: str
     request_type: CoordinationRequestType
@@ -290,9 +449,18 @@ class CoordinationRequest:
     priority: int = 0
     artifact_ids: list[str] = field(default_factory=list)
     suggested_queries: list[str] = field(default_factory=list)
+    impact_scope: str = ""
+    reason: str = ""
+    blocking_level: str = "blocking"
+    suggested_next_action: str = ""
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.request_type = str(self.request_type or "").strip()  # type: ignore[assignment]
+        self.reason = self.reason or self.summary
+        self.impact_scope = self.impact_scope or str(self.branch_id or self.task_id or "").strip()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -493,16 +661,24 @@ __all__ = [
     "BranchBrief",
     "BranchScopeSnapshot",
     "BranchSynthesis",
+    "ContradictionRegistryArtifact",
     "CoordinationRequest",
     "CoordinationRequestStatus",
     "CoordinationRequestType",
+    "CoverageMatrixArtifact",
     "EvidenceCard",
     "EvidencePassage",
     "FetchedDocument",
     "FinalReportArtifact",
     "GraphScopeSnapshot",
+    "is_registered_coordination_request_type",
     "KnowledgeGap",
+    "MissingEvidenceListArtifact",
+    "OutlineArtifact",
+    "ProgressLedgerArtifact",
+    "REGISTERED_COORDINATION_REQUEST_TYPES",
     "ReportSectionDraft",
+    "ResearchBriefArtifact",
     "ResearchSubmission",
     "ResearchTask",
     "SourceCandidate",
@@ -510,6 +686,7 @@ __all__ = [
     "ScopeDraftStatus",
     "SubmissionKind",
     "SupervisorDecisionArtifact",
+    "TaskLedgerArtifact",
     "TaskStatus",
     "TaskStage",
     "ValidationOutcome",
@@ -518,4 +695,5 @@ __all__ = [
     "WorkerExecutionResult",
     "WorkerScopeSnapshot",
     "_now_iso",
+    "validate_coordination_request_type",
 ]

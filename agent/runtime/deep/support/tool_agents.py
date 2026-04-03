@@ -25,6 +25,7 @@ from agent.runtime.deep.schema import (
     ResearchTask,
     SourceCandidate,
     VerificationResult,
+    validate_coordination_request_type,
 )
 from agent.builders.agent_factory import build_deep_research_tool_agent
 from agent.contracts.claim_verifier import ClaimStatus
@@ -378,16 +379,24 @@ class DeepResearchToolAgentSession:
         summary: str,
         suggested_queries: list[str] | None = None,
         artifact_ids: list[str] | None = None,
+        impact_scope: str = "",
+        reason: str = "",
+        blocking_level: str = "blocking",
+        suggested_next_action: str = "",
     ) -> CoordinationRequest:
         request = CoordinationRequest(
             id=support._new_id("request"),
-            request_type=request_type,
+            request_type=validate_coordination_request_type(request_type),
             summary=summary,
             branch_id=self.branch_id,
             task_id=self.task.id if self.task else None,
             requested_by=self.role,
             artifact_ids=list(artifact_ids or []),
             suggested_queries=list(suggested_queries or []),
+            impact_scope=impact_scope,
+            reason=reason or summary,
+            blocking_level=blocking_level,
+            suggested_next_action=suggested_next_action,
             metadata={"graph_run_id": self.graph_run_id, "attempt": self.attempt},
         )
         self.coordination_requests.append(request)
@@ -413,6 +422,12 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
         }
 
     @tool
+    def fabric_get_research_brief() -> dict[str, Any]:
+        """Return the canonical research brief when it has already been generated."""
+        brief = session.related_artifacts.get("research_brief")
+        return brief if isinstance(brief, dict) else {}
+
+    @tool
     def fabric_get_task() -> dict[str, Any]:
         """Return the current branch task, role boundary and allowed capability summary."""
         return {
@@ -428,7 +443,25 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
         """Return the related blackboard artifacts already available to the current role."""
         return session.related_artifacts
 
-    base_tools.extend([fabric_get_scope, fabric_get_task, fabric_get_related_artifacts])
+    @tool
+    def fabric_get_control_plane() -> dict[str, Any]:
+        """Return the structured control-plane artifacts relevant to the current role."""
+        payload: dict[str, Any] = {}
+        for key in (
+            "task_ledger",
+            "progress_ledger",
+            "coverage_matrix",
+            "contradiction_registry",
+            "missing_evidence_list",
+            "outline",
+        ):
+            value = session.related_artifacts.get(key)
+            payload[key] = value if isinstance(value, dict) else {}
+        return payload
+
+    base_tools.extend(
+        [fabric_get_scope, fabric_get_research_brief, fabric_get_task, fabric_get_related_artifacts, fabric_get_control_plane]
+    )
 
     if session.role == "supervisor":
         @tool
@@ -523,11 +556,14 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
             summary: str,
             suggested_queries: list[str] | None = None,
         ) -> dict[str, Any]:
-            """Create a structured follow-up, retry or escalation request for the supervisor."""
+            """Create a structured supervisor request using one of the registered request types only."""
             request = session.request_follow_up(
                 request_type=request_type,
                 summary=summary,
                 suggested_queries=list(suggested_queries or []),
+                impact_scope=str(session.branch_id or session.task.id if session.task else ""),
+                reason=summary,
+                suggested_next_action=request_type,
             )
             return request.to_dict()
 
@@ -610,11 +646,19 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
         ) -> dict[str, Any]:
             """Submit a structured verification bundle for the current branch."""
             request_ids: list[str] = []
-            if recommended_action in {"retry_branch", "replan"}:
+            if recommended_action in {
+                "retry_branch",
+                "need_counterevidence",
+                "contradiction_found",
+                "blocked_by_tooling",
+            }:
                 request = session.request_follow_up(
-                    request_type="retry_branch" if recommended_action == "retry_branch" else "replan",
+                    request_type=recommended_action,
                     summary=summary,
                     suggested_queries=[],
+                    impact_scope=str(session.branch_id or session.task.id if session.task else ""),
+                    reason=summary,
+                    suggested_next_action="supervisor_review",
                 )
                 request_ids.append(request.id)
             verification, submission = session.submit_verification_bundle(
@@ -666,6 +710,12 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
             return items
 
         @tool
+        def fabric_get_outline_artifact() -> dict[str, Any]:
+            """Return the current outline artifact that gates final report generation."""
+            outline = session.related_artifacts.get("outline")
+            return outline if isinstance(outline, dict) else {}
+
+        @tool
         def fabric_format_report_section(title: str, body: str, sources: list[str] | None = None) -> str:
             """Format one report section in markdown with an optional flat source list."""
             source_lines = ""
@@ -680,6 +730,11 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
             citation_urls: list[str] | None = None,
         ) -> dict[str, Any]:
             """Submit the final report bundle derived from verified artifacts only."""
+            outline = session.related_artifacts.get("outline")
+            if not isinstance(outline, dict) or not outline.get("is_ready"):
+                raise RuntimeError("outline_not_ready")
+            if outline.get("blocking_gaps"):
+                raise RuntimeError("outline_gap_blocking")
             final_report, submission = session.submit_report_bundle(
                 report_markdown=report_markdown,
                 executive_summary=executive_summary,
@@ -690,6 +745,7 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
         base_tools.extend(
             [
                 fabric_get_verified_branch_summaries,
+                fabric_get_outline_artifact,
                 fabric_format_report_section,
                 fabric_submit_report_bundle,
             ]

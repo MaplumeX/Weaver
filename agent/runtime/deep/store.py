@@ -13,19 +13,27 @@ from typing import Any
 from agent.runtime.deep.schema import (
     BranchBrief,
     BranchSynthesis,
+    ContradictionRegistryArtifact,
     CoordinationRequest,
+    CoverageMatrixArtifact,
     EvidenceCard,
     EvidencePassage,
     FetchedDocument,
     FinalReportArtifact,
     KnowledgeGap,
+    MissingEvidenceListArtifact,
+    OutlineArtifact,
+    ProgressLedgerArtifact,
     ReportSectionDraft,
+    ResearchBriefArtifact,
     ResearchSubmission,
     ResearchTask,
     SourceCandidate,
     SupervisorDecisionArtifact,
+    TaskLedgerArtifact,
     VerificationResult,
     _now_iso,
+    validate_coordination_request_type,
 )
 
 
@@ -178,6 +186,13 @@ class ResearchTaskQueue:
 class ArtifactStore:
     def __init__(self, snapshot: dict[str, Any] | None = None) -> None:
         self._lock = threading.Lock()
+        self._research_brief: ResearchBriefArtifact | None = None
+        self._task_ledger: TaskLedgerArtifact | None = None
+        self._progress_ledger: ProgressLedgerArtifact | None = None
+        self._coverage_matrix: CoverageMatrixArtifact | None = None
+        self._contradiction_registry: ContradictionRegistryArtifact | None = None
+        self._missing_evidence_list: MissingEvidenceListArtifact | None = None
+        self._outline: OutlineArtifact | None = None
         self._briefs: dict[str, BranchBrief] = {}
         self._source_candidates: dict[str, SourceCandidate] = {}
         self._fetched_documents: dict[str, FetchedDocument] = {}
@@ -200,6 +215,34 @@ class ArtifactStore:
 
     def restore(self, snapshot: dict[str, Any]) -> None:
         with self._lock:
+            research_brief = snapshot.get("research_brief")
+            self._research_brief = (
+                ResearchBriefArtifact(**research_brief) if isinstance(research_brief, dict) else None
+            )
+            task_ledger = snapshot.get("task_ledger")
+            self._task_ledger = TaskLedgerArtifact(**task_ledger) if isinstance(task_ledger, dict) else None
+            progress_ledger = snapshot.get("progress_ledger")
+            self._progress_ledger = (
+                ProgressLedgerArtifact(**progress_ledger) if isinstance(progress_ledger, dict) else None
+            )
+            coverage_matrix = snapshot.get("coverage_matrix")
+            self._coverage_matrix = (
+                CoverageMatrixArtifact(**coverage_matrix) if isinstance(coverage_matrix, dict) else None
+            )
+            contradiction_registry = snapshot.get("contradiction_registry")
+            self._contradiction_registry = (
+                ContradictionRegistryArtifact(**contradiction_registry)
+                if isinstance(contradiction_registry, dict)
+                else None
+            )
+            missing_evidence_list = snapshot.get("missing_evidence_list")
+            self._missing_evidence_list = (
+                MissingEvidenceListArtifact(**missing_evidence_list)
+                if isinstance(missing_evidence_list, dict)
+                else None
+            )
+            outline = snapshot.get("outline")
+            self._outline = OutlineArtifact(**outline) if isinstance(outline, dict) else None
             self._briefs = _restore_items(snapshot.get("branch_briefs", []), BranchBrief)
             self._source_candidates = _restore_items(
                 snapshot.get("source_candidates", []),
@@ -241,6 +284,69 @@ class ArtifactStore:
             )
             final_report = snapshot.get("final_report")
             self._final_report = FinalReportArtifact(**final_report) if isinstance(final_report, dict) else None
+
+    def set_research_brief(self, brief: ResearchBriefArtifact) -> None:
+        with self._lock:
+            brief.updated_at = _now_iso()
+            self._research_brief = brief
+
+    def research_brief(self) -> ResearchBriefArtifact | None:
+        with self._lock:
+            return copy.deepcopy(self._research_brief)
+
+    def set_task_ledger(self, ledger: TaskLedgerArtifact) -> None:
+        with self._lock:
+            ledger.updated_at = _now_iso()
+            self._task_ledger = ledger
+
+    def task_ledger(self) -> TaskLedgerArtifact | None:
+        with self._lock:
+            return copy.deepcopy(self._task_ledger)
+
+    def set_progress_ledger(self, ledger: ProgressLedgerArtifact) -> None:
+        with self._lock:
+            ledger.updated_at = _now_iso()
+            self._progress_ledger = ledger
+
+    def progress_ledger(self) -> ProgressLedgerArtifact | None:
+        with self._lock:
+            return copy.deepcopy(self._progress_ledger)
+
+    def set_coverage_matrix(self, artifact: CoverageMatrixArtifact) -> None:
+        with self._lock:
+            artifact.updated_at = _now_iso()
+            self._coverage_matrix = artifact
+
+    def coverage_matrix(self) -> CoverageMatrixArtifact | None:
+        with self._lock:
+            return copy.deepcopy(self._coverage_matrix)
+
+    def set_contradiction_registry(self, artifact: ContradictionRegistryArtifact) -> None:
+        with self._lock:
+            artifact.updated_at = _now_iso()
+            self._contradiction_registry = artifact
+
+    def contradiction_registry(self) -> ContradictionRegistryArtifact | None:
+        with self._lock:
+            return copy.deepcopy(self._contradiction_registry)
+
+    def set_missing_evidence_list(self, artifact: MissingEvidenceListArtifact) -> None:
+        with self._lock:
+            artifact.updated_at = _now_iso()
+            self._missing_evidence_list = artifact
+
+    def missing_evidence_list(self) -> MissingEvidenceListArtifact | None:
+        with self._lock:
+            return copy.deepcopy(self._missing_evidence_list)
+
+    def set_outline(self, artifact: OutlineArtifact) -> None:
+        with self._lock:
+            artifact.updated_at = _now_iso()
+            self._outline = artifact
+
+    def outline(self) -> OutlineArtifact | None:
+        with self._lock:
+            return copy.deepcopy(self._outline)
 
     def put_brief(self, brief: BranchBrief) -> None:
         with self._lock:
@@ -290,6 +396,7 @@ class ArtifactStore:
     def add_coordination_requests(self, requests: list[CoordinationRequest]) -> None:
         with self._lock:
             for request in requests:
+                request.request_type = validate_coordination_request_type(request.request_type)
                 request.updated_at = _now_iso()
                 self._coordination_requests[request.id] = request
 
@@ -388,6 +495,17 @@ class ArtifactStore:
             ]
             gaps = [asdict(gap) for gap in self._knowledge_gaps.values()]
         return {
+            "research_brief": asdict(self._research_brief) if self._research_brief else {},
+            "task_ledger": asdict(self._task_ledger) if self._task_ledger else {},
+            "progress_ledger": asdict(self._progress_ledger) if self._progress_ledger else {},
+            "coverage_matrix": asdict(self._coverage_matrix) if self._coverage_matrix else {},
+            "contradiction_registry": (
+                asdict(self._contradiction_registry) if self._contradiction_registry else {}
+            ),
+            "missing_evidence_list": (
+                asdict(self._missing_evidence_list) if self._missing_evidence_list else {}
+            ),
+            "outline": asdict(self._outline) if self._outline else {},
             "source_candidates": source_candidates,
             "fetched_documents": fetched_documents,
             "evidence_passages": passages,
@@ -497,6 +615,17 @@ class ArtifactStore:
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {
+                "research_brief": asdict(self._research_brief) if self._research_brief else None,
+                "task_ledger": asdict(self._task_ledger) if self._task_ledger else None,
+                "progress_ledger": asdict(self._progress_ledger) if self._progress_ledger else None,
+                "coverage_matrix": asdict(self._coverage_matrix) if self._coverage_matrix else None,
+                "contradiction_registry": (
+                    asdict(self._contradiction_registry) if self._contradiction_registry else None
+                ),
+                "missing_evidence_list": (
+                    asdict(self._missing_evidence_list) if self._missing_evidence_list else None
+                ),
+                "outline": asdict(self._outline) if self._outline else None,
                 "branch_briefs": [
                     asdict(brief)
                     for brief in sorted(self._briefs.values(), key=lambda item: (item.created_at, item.id))
