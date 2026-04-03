@@ -16,6 +16,11 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { getRetainedProcessEvents } from '@/lib/chat-stream-state'
+import {
+  DeepResearchPhaseSummary,
+  DeepResearchTimelineProjection,
+  projectDeepResearchTimeline,
+} from '@/lib/deep-research-timeline'
 import { cn } from '@/lib/utils'
 import { ProcessEvent, RunMetrics, ToolInvocation } from '@/types/chat'
 
@@ -37,6 +42,7 @@ export function ThinkingProcess({
   completedAt,
 }: ThinkingProcessProps) {
   const [open, setOpen] = useState(false)
+  const [rawOpen, setRawOpen] = useState(false)
   const [userToggled, setUserToggled] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
@@ -63,6 +69,10 @@ export function ThinkingProcess({
     const seconds = Math.max(1, Math.round(durationMs / 1000))
     return `${seconds}s`
   }, [durationMs])
+
+  const deepResearchTimeline = useMemo(() => {
+    return projectDeepResearchTimeline(events)
+  }, [events])
 
   const stepCount = useMemo(() => {
     if (tools.length > 0) return tools.length
@@ -94,11 +104,21 @@ export function ThinkingProcess({
     else setOpen(false)
   }, [isThinking, userToggled])
 
+  useEffect(() => {
+    if (!deepResearchTimeline) setRawOpen(false)
+  }, [deepResearchTimeline])
+
   if (!hasDetails && !isThinking) return null
 
+  const progressLabel = deepResearchTimeline
+    ? deepResearchTimeline.headerMetrics.join(' · ')
+    : stepCount
+      ? `${stepCount} steps`
+      : ''
+
   const headerText = isThinking
-    ? `Thinking…${durationLabel ? ` · ${durationLabel}` : ''}${stepCount ? ` · ${stepCount} steps` : ''}`
-    : `Thought${durationLabel ? ` for ${durationLabel}` : ''}${stepCount ? ` · ${stepCount} steps` : ''}`
+    ? `Thinking…${durationLabel ? ` · ${durationLabel}` : ''}${progressLabel ? ` · ${progressLabel}` : ''}`
+    : `Thought${durationLabel ? ` for ${durationLabel}` : ''}${progressLabel ? ` · ${progressLabel}` : ''}`
 
   const toggle = () => {
     if (!hasDetails) return
@@ -145,12 +165,18 @@ export function ThinkingProcess({
       {hasDetails && (
         <div
           className="grid transition-[grid-template-rows] duration-200 ease-out"
-          style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
+            style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
         >
           <div className="overflow-hidden">
             <div className="mt-2 pl-4 ml-2 border-l border-border/60 text-sm text-muted-foreground">
               <div className="space-y-2 py-1">
-                {displayEvents.length > 0 ? (
+                {deepResearchTimeline ? (
+                  <DeepResearchTimelineView
+                    timeline={deepResearchTimeline}
+                    rawOpen={rawOpen}
+                    onToggleRaw={() => setRawOpen((value) => !value)}
+                  />
+                ) : displayEvents.length > 0 ? (
                   displayEvents.map((ev) => <EventRow key={ev.id} ev={ev} />)
                 ) : (
                   <FallbackTools tools={tools} />
@@ -160,6 +186,158 @@ export function ThinkingProcess({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function DeepResearchTimelineView({
+  timeline,
+  rawOpen,
+  onToggleRaw,
+}: {
+  timeline: DeepResearchTimelineProjection
+  rawOpen: boolean
+  onToggleRaw: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl border border-border/70 bg-muted/20 px-3 py-2">
+        <div className="text-[13px] leading-6 text-foreground/80">
+          {timeline.headerMetrics.join(' · ')}
+        </div>
+        {timeline.suppressedEventCount > 0 ? (
+          <div className="text-xs text-muted-foreground">
+            Default view collapses {timeline.suppressedEventCount} low-level events into phase and branch summaries.
+          </div>
+        ) : null}
+      </div>
+
+      {timeline.phases.map((phase) => (
+        <DeepResearchPhaseCard key={phase.key} phase={phase} />
+      ))}
+
+      <div className="rounded-2xl border border-border/70 bg-background/70">
+        <button
+          type="button"
+          onClick={onToggleRaw}
+          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+          aria-expanded={rawOpen}
+        >
+          <div>
+            <div className="font-medium text-foreground/80">Original Stream Events</div>
+            <div className="text-xs text-muted-foreground">
+              {timeline.rawEventCount} full-fidelity events remain available for drilldown.
+            </div>
+          </div>
+          <ChevronDown
+            className={cn(
+              'h-4 w-4 shrink-0 transition-transform duration-200 ease-out',
+              rawOpen ? 'rotate-180' : 'rotate-0'
+            )}
+          />
+        </button>
+
+        {rawOpen ? (
+          <div className="space-y-2 border-t border-border/60 px-3 py-3">
+            {timeline.rawEvents.map((event) => (
+              <EventRow key={event.id} ev={event} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function DeepResearchPhaseCard({ phase }: { phase: DeepResearchPhaseSummary }) {
+  return (
+    <div className="rounded-2xl border border-border/70 bg-background/70 px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium text-foreground/90">{phase.title}</div>
+          <div className="mt-1 text-[13px] leading-6 text-muted-foreground">{phase.summary}</div>
+        </div>
+      </div>
+
+      {phase.metrics.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {phase.metrics.map((metric) => (
+            <span
+              key={metric}
+              className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+            >
+              {metric}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {phase.highlights.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {phase.highlights.map((highlight) => (
+            <div key={highlight.id} className="rounded-lg bg-muted/20 px-3 py-2">
+              <div className="text-[13px] font-medium leading-6 text-foreground/85">{highlight.headline}</div>
+              {highlight.detail ? (
+                <div className="mt-1 text-[13px] leading-6 text-muted-foreground">{highlight.detail}</div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {phase.branches.length > 0 ? (
+        <div className="mt-3 space-y-3">
+          {phase.branches.map((branch) => (
+            <div key={branch.branchId} className="rounded-xl border border-border/60 bg-muted/20 px-3 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium text-foreground/90">{branch.label}</div>
+                  <div className="mt-1 text-[13px] leading-6 text-muted-foreground">{branch.headline}</div>
+                </div>
+                {branch.latestIteration !== null ? (
+                  <span className="rounded-full bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                    Iteration {branch.latestIteration}
+                  </span>
+                ) : null}
+              </div>
+
+              {branch.metrics.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {branch.metrics.map((metric) => (
+                    <span
+                      key={metric}
+                      className="rounded-full bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                    >
+                      {metric}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="mt-3 space-y-2">
+                {branch.iterations.map((iteration) => (
+                  <div key={`${branch.branchId}-${iteration.label}`} className="rounded-lg bg-background/80 px-3 py-2">
+                    <div className="font-medium text-foreground/80">{iteration.label}</div>
+                    <div className="mt-1 text-[13px] leading-6 text-muted-foreground">{iteration.headline}</div>
+                    {iteration.metrics.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {iteration.metrics.map((metric) => (
+                          <span
+                            key={metric}
+                            className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                          >
+                            {metric}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

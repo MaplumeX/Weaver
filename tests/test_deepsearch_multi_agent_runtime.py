@@ -218,6 +218,34 @@ class _SingleTaskSupervisor(_FakeSupervisor):
         return _default_plan(topic)[:1]
 
 
+_BRANCH_ARTIFACT_TYPES = {
+    "branch_brief",
+    "source_candidate",
+    "fetched_document",
+    "evidence_passage",
+    "evidence_card",
+    "branch_synthesis",
+    "report_section_draft",
+    "coordination_request",
+    "research_submission",
+    "verification_result",
+    "verification_submission",
+}
+
+_LOOP_DECISION_TYPES = {
+    "research",
+    "retry_branch",
+    "verification_retry_requested",
+    "coverage_gap_detected",
+    "verification_passed",
+    "outline_gap_detected",
+    "outline_ready",
+    "synthesize",
+    "complete",
+    "budget_stop",
+}
+
+
 class _BudgetAwareSupervisor(_FakeSupervisor):
     def decide_next_action(self, **kwargs):
         if kwargs.get("budget_stop_reason"):
@@ -362,6 +390,52 @@ def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
     assert "finalize" in mermaid
 
 
+def test_multi_agent_branch_events_include_stable_iteration_metadata(monkeypatch):
+    emitter = _DummyEmitter()
+
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    run_multi_agent_deep_research(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_iteration_metadata",
+                "deep_research_query_num": 1,
+            }
+        },
+    )
+
+    branch_task_updates = [
+        data
+        for name, data in emitter.emitted
+        if name == "research_task_update" and data.get("task_kind") == "branch_research"
+    ]
+    assert branch_task_updates
+    assert all(isinstance(item.get("iteration"), int) and item["iteration"] >= 1 for item in branch_task_updates)
+
+    branch_artifact_updates = [
+        data
+        for name, data in emitter.emitted
+        if (
+            name == "research_artifact_update"
+            and data.get("artifact_type") in _BRANCH_ARTIFACT_TYPES
+            and (data.get("branch_id") or data.get("task_id"))
+        )
+    ]
+    assert branch_artifact_updates
+    assert all(
+        isinstance(item.get("iteration"), int) and item["iteration"] >= 1
+        for item in branch_artifact_updates
+    )
+
+
 def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
     emitter = _DummyEmitter()
 
@@ -443,6 +517,27 @@ def test_multi_agent_events_include_resume_flag_when_configured(monkeypatch):
 
     assert research_events
     assert all(event.get("resumed_from_checkpoint") is True for event in research_events)
+
+    resumed_loop_events = [
+        data
+        for name, data in emitter.emitted
+        if (
+            name in {"research_agent_start", "research_agent_complete"}
+            and data.get("role") in {"researcher", "verifier", "reporter"}
+        )
+        or (name == "research_task_update" and data.get("task_kind") == "branch_research")
+        or (
+            name == "research_artifact_update"
+            and data.get("artifact_type") in _BRANCH_ARTIFACT_TYPES
+            and (data.get("branch_id") or data.get("task_id"))
+        )
+        or (name == "research_decision" and data.get("decision_type") in _LOOP_DECISION_TYPES)
+    ]
+
+    assert resumed_loop_events
+    assert all(event.get("graph_run_id") for event in resumed_loop_events)
+    assert all(isinstance(event.get("attempt"), int) and event["attempt"] >= 0 for event in resumed_loop_events)
+    assert all(isinstance(event.get("iteration"), int) and event["iteration"] >= 1 for event in resumed_loop_events)
 
 
 def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch):

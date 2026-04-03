@@ -932,10 +932,18 @@ class _RuntimeView:
         *,
         task: ResearchTask,
         status: str,
+        iteration: int | None = None,
         attempt: int | None = None,
         reason: str | None = None,
     ) -> None:
-        events.emit_task_update(self, task=task, status=status, attempt=attempt, reason=reason)
+        events.emit_task_update(
+            self,
+            task=task,
+            status=status,
+            iteration=iteration,
+            attempt=attempt,
+            reason=reason,
+        )
 
     def _emit_artifact_update(
         self,
@@ -951,6 +959,8 @@ class _RuntimeView:
         task_kind: str | None = None,
         stage: str | None = None,
         validation_stage: str | None = None,
+        iteration: int | None = None,
+        attempt: int | None = None,
         extra: dict[str, Any] | None = None,
     ) -> None:
         events.emit_artifact_update(
@@ -966,6 +976,8 @@ class _RuntimeView:
             task_kind=task_kind,
             stage=stage,
             validation_stage=validation_stage,
+            iteration=iteration,
+            attempt=attempt,
             extra=extra,
         )
 
@@ -2113,13 +2125,20 @@ class MultiAgentDeepResearchRuntime:
                         summary=brief.summary,
                         task_kind=brief.task_kind,
                         stage=brief.current_stage,
+                        iteration=max(1, view.current_iteration + 1),
+                        attempt=task.attempts,
                         extra={
                             "objective_summary": brief.objective,
                             "input_artifact_ids": brief.input_artifact_ids,
                         },
                     )
                 for task in tasks:
-                    view._emit_task_update(task=task, status=task.status, attempt=task.attempts)
+                    view._emit_task_update(
+                        task=task,
+                        status=task.status,
+                        iteration=max(1, view.current_iteration + 1),
+                        attempt=task.attempts,
+                    )
                 view._emit_deep_research_topology_update()
             plan_snapshot = {
                 "id": support._new_id("supervisor_plan"),
@@ -2485,6 +2504,7 @@ class MultiAgentDeepResearchRuntime:
             view.artifact_store.add_source_candidates(source_candidates)
             for candidate in source_candidates:
                 branch_task = task_map.get(candidate.task_id)
+                artifact_attempt = branch_task.attempts if branch_task else view.graph_attempt
                 view._emit_artifact_update(
                     artifact_id=candidate.id,
                     artifact_type="source_candidate",
@@ -2497,11 +2517,13 @@ class MultiAgentDeepResearchRuntime:
                     task_kind=branch_task.task_kind if branch_task else None,
                     stage="search",
                     validation_stage=validation_stage,
+                    attempt=artifact_attempt,
                 )
         if fetched_documents:
             view.artifact_store.add_fetched_documents(fetched_documents)
             for document in fetched_documents:
                 branch_task = task_map.get(document.task_id)
+                artifact_attempt = branch_task.attempts if branch_task else view.graph_attempt
                 view._emit_artifact_update(
                     artifact_id=document.id,
                     artifact_type="fetched_document",
@@ -2514,11 +2536,13 @@ class MultiAgentDeepResearchRuntime:
                     task_kind=branch_task.task_kind if branch_task else None,
                     stage="read",
                     validation_stage=validation_stage,
+                    attempt=artifact_attempt,
                 )
         if evidence_passages:
             view.artifact_store.add_evidence_passages(evidence_passages)
             for passage in evidence_passages:
                 branch_task = task_map.get(passage.task_id)
+                artifact_attempt = branch_task.attempts if branch_task else view.graph_attempt
                 view._emit_artifact_update(
                     artifact_id=passage.id,
                     artifact_type="evidence_passage",
@@ -2531,11 +2555,13 @@ class MultiAgentDeepResearchRuntime:
                     task_kind=branch_task.task_kind if branch_task else None,
                     stage="extract",
                     validation_stage=validation_stage,
+                    attempt=artifact_attempt,
                 )
         if evidence_cards:
             view.artifact_store.add_evidence(evidence_cards)
             for card in evidence_cards:
                 branch_task = task_map.get(card.task_id)
+                artifact_attempt = branch_task.attempts if branch_task else view.graph_attempt
                 view._emit_artifact_update(
                     artifact_id=card.id,
                     artifact_type="evidence_card",
@@ -2548,11 +2574,13 @@ class MultiAgentDeepResearchRuntime:
                     task_kind=branch_task.task_kind if branch_task else None,
                     stage="extract",
                     validation_stage=validation_stage,
+                    attempt=artifact_attempt,
                 )
         if verification_results:
             view.artifact_store.add_verification_results(verification_results)
             for result in verification_results:
                 branch_task = task_map.get(result.task_id)
+                artifact_attempt = branch_task.attempts if branch_task else view.graph_attempt
                 view._emit_artifact_update(
                     artifact_id=result.id,
                     artifact_type="verification_result",
@@ -2564,6 +2592,7 @@ class MultiAgentDeepResearchRuntime:
                     task_kind=branch_task.task_kind if branch_task else None,
                     stage=validation_stage,
                     validation_stage=result.validation_stage,
+                    attempt=artifact_attempt,
                     extra={
                         "outcome": result.outcome,
                         "recommended_action": result.recommended_action,
@@ -2581,6 +2610,7 @@ class MultiAgentDeepResearchRuntime:
             view.artifact_store.add_coordination_requests(coordination_requests)
             for request in coordination_requests:
                 branch_task = task_map.get(request.task_id or "")
+                artifact_attempt = branch_task.attempts if branch_task else view.graph_attempt
                 view._emit_artifact_update(
                     artifact_id=request.id,
                     artifact_type="coordination_request",
@@ -2592,6 +2622,7 @@ class MultiAgentDeepResearchRuntime:
                     task_kind=branch_task.task_kind if branch_task else None,
                     stage=validation_stage,
                     validation_stage=validation_stage,
+                    attempt=artifact_attempt,
                     extra={
                         "request_type": request.request_type,
                         "artifact_ids": list(request.artifact_ids),
@@ -2602,6 +2633,7 @@ class MultiAgentDeepResearchRuntime:
             view.artifact_store.add_submissions(submissions)
             for submission in submissions:
                 branch_task = task_map.get(submission.task_id or "")
+                artifact_attempt = branch_task.attempts if branch_task else view.graph_attempt
                 view._emit_artifact_update(
                     artifact_id=submission.id,
                     artifact_type="verification_submission",
@@ -2613,6 +2645,7 @@ class MultiAgentDeepResearchRuntime:
                     task_kind=branch_task.task_kind if branch_task else None,
                     stage=submission.stage or validation_stage,
                     validation_stage=submission.validation_stage or validation_stage,
+                    attempt=artifact_attempt,
                     extra={
                         "submission_kind": submission.submission_kind,
                         "result_status": submission.result_status,
@@ -2767,6 +2800,7 @@ class MultiAgentDeepResearchRuntime:
             view._emit_task_update(
                 task=task,
                 status="in_progress",
+                iteration=iteration,
                 attempt=attempt,
                 reason=reason or "",
             )
@@ -3123,6 +3157,7 @@ class MultiAgentDeepResearchRuntime:
                         summary=request.summary[:180],
                         task_kind=result.task.task_kind,
                         stage=result.task_stage or result.task.stage,
+                        attempt=result.task.attempts,
                         extra={
                             "request_type": request.request_type,
                             "artifact_ids": list(request.artifact_ids),
@@ -3143,6 +3178,7 @@ class MultiAgentDeepResearchRuntime:
                     task_kind=result.task.task_kind,
                     stage=result.submission.stage or result.task_stage or result.task.stage,
                     validation_stage=result.submission.validation_stage or None,
+                    attempt=result.task.attempts,
                     extra={
                         "submission_kind": result.submission.submission_kind,
                         "result_status": result.submission.result_status,
@@ -3165,6 +3201,7 @@ class MultiAgentDeepResearchRuntime:
                         source_url=candidate.url,
                         task_kind=result.task.task_kind,
                         stage="search",
+                        attempt=result.task.attempts,
                     )
 
             if result.fetched_documents:
@@ -3181,6 +3218,7 @@ class MultiAgentDeepResearchRuntime:
                         source_url=document.url,
                         task_kind=result.task.task_kind,
                         stage="read",
+                        attempt=result.task.attempts,
                     )
 
             if result.evidence_passages:
@@ -3197,6 +3235,7 @@ class MultiAgentDeepResearchRuntime:
                         source_url=passage.url,
                         task_kind=result.task.task_kind,
                         stage="extract",
+                        attempt=result.task.attempts,
                     )
 
             if result.evidence_cards:
@@ -3213,6 +3252,7 @@ class MultiAgentDeepResearchRuntime:
                         source_url=card.source_url,
                         task_kind=result.task.task_kind,
                         stage="extract",
+                        attempt=result.task.attempts,
                     )
 
             if result.branch_synthesis:
@@ -3227,6 +3267,7 @@ class MultiAgentDeepResearchRuntime:
                     summary=result.branch_synthesis.summary[:180],
                     task_kind=result.task.task_kind,
                     stage="synthesize",
+                    attempt=result.task.attempts,
                     extra={
                         "objective_summary": result.branch_synthesis.objective,
                         "citation_urls": result.branch_synthesis.citation_urls,
@@ -3245,6 +3286,7 @@ class MultiAgentDeepResearchRuntime:
                     summary=result.section_draft.summary[:180],
                     task_kind=result.task.task_kind,
                     stage="synthesize",
+                    attempt=result.task.attempts,
                 )
 
             if result.branch_id:
@@ -3303,6 +3345,7 @@ class MultiAgentDeepResearchRuntime:
                     view._emit_task_update(
                         task=retry_task,
                         status=retry_task.status,
+                        iteration=view.current_iteration + 1,
                         attempt=retry_task.attempts,
                         reason=reason,
                     )
@@ -4061,6 +4104,7 @@ class MultiAgentDeepResearchRuntime:
                         view._emit_task_update(
                             task=retried_task,
                             status=retried_task.status,
+                            iteration=view.current_iteration + 1,
                             attempt=retried_task.attempts,
                             reason="verification_follow_up",
                         )

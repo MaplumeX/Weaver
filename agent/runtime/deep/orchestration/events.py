@@ -60,14 +60,47 @@ def _graph_context(
     return payload
 
 
+def _resolve_iteration(
+    runtime: Any,
+    *,
+    iteration: int | None = None,
+    branch_id: str | None = None,
+    task_id: str | None = None,
+) -> int | None:
+    if isinstance(iteration, int) and iteration > 0:
+        return iteration
+    if not branch_id and not task_id:
+        return None
+    current_iteration = getattr(runtime, "current_iteration", None)
+    if isinstance(current_iteration, int) and current_iteration > 0:
+        return current_iteration
+    return None
+
+
+def _resolve_attempt(runtime: Any, *, attempt: int | None = None) -> int | None:
+    if isinstance(attempt, int) and attempt >= 0:
+        return attempt
+    graph_attempt = getattr(runtime, "graph_attempt", None)
+    if isinstance(graph_attempt, int) and graph_attempt >= 0:
+        return graph_attempt
+    return None
+
+
 def emit_task_update(
     runtime: Any,
     *,
     task: ResearchTask,
     status: str,
+    iteration: int | None = None,
     attempt: int | None = None,
     reason: str | None = None,
 ) -> None:
+    resolved_iteration = _resolve_iteration(
+        runtime,
+        iteration=iteration,
+        branch_id=task.branch_id,
+        task_id=task.id,
+    )
     payload = {
         **_graph_context(
             runtime,
@@ -90,6 +123,8 @@ def emit_task_update(
         "agent_id": task.assigned_agent_id,
         "priority": task.priority,
     }
+    if resolved_iteration is not None:
+        payload["iteration"] = resolved_iteration
     if reason:
         payload["reason"] = reason
     emit(runtime.emitter, ToolEventType.RESEARCH_TASK_UPDATE, payload)
@@ -118,10 +153,24 @@ def emit_artifact_update(
     task_kind: str | None = None,
     stage: str | None = None,
     validation_stage: str | None = None,
+    iteration: int | None = None,
+    attempt: int | None = None,
     extra: dict[str, Any] | None = None,
 ) -> None:
+    resolved_iteration = _resolve_iteration(
+        runtime,
+        iteration=iteration,
+        branch_id=branch_id,
+        task_id=task_id,
+    )
+    resolved_attempt = _resolve_attempt(runtime, attempt=attempt)
     payload: dict[str, Any] = {
-        **_graph_context(runtime, task_id=task_id, branch_id=branch_id or getattr(runtime, "root_branch_id", None)),
+        **_graph_context(
+            runtime,
+            task_id=task_id,
+            branch_id=branch_id or getattr(runtime, "root_branch_id", None),
+            attempt=resolved_attempt,
+        ),
         "artifact_id": artifact_id,
         "artifact_type": artifact_type,
         "status": status,
@@ -142,6 +191,8 @@ def emit_artifact_update(
         payload["stage"] = stage
     if validation_stage:
         payload["validation_stage"] = validation_stage
+    if resolved_iteration is not None:
+        payload["iteration"] = resolved_iteration
     if isinstance(extra, dict):
         payload.update(extra)
     emit(runtime.emitter, ToolEventType.RESEARCH_ARTIFACT_UPDATE, payload)
@@ -162,6 +213,12 @@ def emit_agent_start(
     validation_stage: str | None = None,
     objective_summary: str | None = None,
 ) -> None:
+    resolved_iteration = _resolve_iteration(
+        runtime,
+        iteration=iteration,
+        branch_id=branch_id,
+        task_id=task_id,
+    )
     payload: dict[str, Any] = {
         **_graph_context(
             runtime,
@@ -175,8 +232,8 @@ def emit_agent_start(
     }
     if task_id:
         payload["task_id"] = task_id
-    if iteration is not None:
-        payload["iteration"] = iteration
+    if resolved_iteration is not None:
+        payload["iteration"] = resolved_iteration
     if task_kind:
         payload["task_kind"] = task_kind
     if stage:
@@ -205,6 +262,12 @@ def emit_agent_complete(
     validation_stage: str | None = None,
     objective_summary: str | None = None,
 ) -> None:
+    resolved_iteration = _resolve_iteration(
+        runtime,
+        iteration=iteration,
+        branch_id=branch_id,
+        task_id=task_id,
+    )
     payload: dict[str, Any] = {
         **_graph_context(
             runtime,
@@ -219,8 +282,8 @@ def emit_agent_complete(
     }
     if task_id:
         payload["task_id"] = task_id
-    if iteration is not None:
-        payload["iteration"] = iteration
+    if resolved_iteration is not None:
+        payload["iteration"] = resolved_iteration
     if summary:
         payload["summary"] = summary
     if task_kind:
@@ -250,13 +313,19 @@ def emit_decision(
     validation_stage: str | None = None,
     extra: dict[str, Any] | None = None,
 ) -> None:
+    resolved_iteration = _resolve_iteration(
+        runtime,
+        iteration=iteration,
+        branch_id=branch_id,
+        task_id=task_id,
+    )
     payload: dict[str, Any] = {
         **_graph_context(runtime, attempt=attempt, branch_id=branch_id, task_id=task_id),
         "decision_type": decision_type,
         "reason": reason,
     }
-    if iteration is not None:
-        payload["iteration"] = iteration
+    if resolved_iteration is not None:
+        payload["iteration"] = resolved_iteration
     if coverage is not None:
         payload["coverage"] = coverage
     if gap_count is not None:
