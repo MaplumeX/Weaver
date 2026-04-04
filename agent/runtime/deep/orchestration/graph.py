@@ -39,8 +39,6 @@ from agent.runtime.deep.roles.researcher import ResearchAgent
 from agent.runtime.deep.roles.scope import DeepResearchScopeAgent
 from agent.runtime.deep.roles.supervisor import (
     ResearchSupervisor,
-    SupervisorAction,
-    SupervisorDecision,
 )
 from agent.runtime.deep.schema import (
     AgentRunRecord,
@@ -62,7 +60,6 @@ from agent.runtime.deep.support.graph_helpers import (
     build_scope_draft as _build_scope_draft,
     extract_interrupt_text as _extract_interrupt_text,
     format_scope_draft_markdown as _format_scope_draft_markdown,
-    restore_worker_result as _restore_worker_result,
     scope_draft_from_payload as _scope_draft_from_payload,
     split_findings as _split_findings,
 )
@@ -1356,6 +1353,16 @@ class MultiAgentDeepResearchRuntime:
                     task_id=task.id,
                     branch_id=task.branch_id,
                     iteration=max(1, parts.current_iteration or 1),
+                    extra={
+                        "source_count": len(bundle.get("sources", []) or []),
+                        "document_count": len(bundle.get("documents", []) or []),
+                        "passage_count": len(bundle.get("passages", []) or []),
+                        "source_urls": [
+                            str(item.get("url") or "").strip()
+                            for item in bundle.get("sources", []) or []
+                            if str(item.get("url") or "").strip()
+                        ],
+                    },
                 )
                 self._emit_artifact_update(
                     artifact_id=str(branch_result.get("id") or support._new_id("branch_result")),
@@ -1364,6 +1371,11 @@ class MultiAgentDeepResearchRuntime:
                     task_id=task.id,
                     branch_id=task.branch_id,
                     iteration=max(1, parts.current_iteration or 1),
+                    extra={
+                        "title": str(branch_result.get("title") or ""),
+                        "source_urls": list(branch_result.get("source_urls") or []),
+                        "finding_count": len(branch_result.get("key_findings") or []),
+                    },
                 )
             else:
                 reason = str(payload.get("error") or "researcher returned no results")
@@ -1673,7 +1685,6 @@ __all__ = [
     "GapAnalysisResult",
     "MultiAgentDeepResearchRuntime",
     "_format_scope_draft_markdown",
-    "_restore_worker_result",
     "create_multi_agent_deep_research_graph",
     "run_multi_agent_deep_research",
 ]

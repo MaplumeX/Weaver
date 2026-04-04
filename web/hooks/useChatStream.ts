@@ -100,17 +100,22 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
       if (status === 'revision_requested') return '多 Agent 调研：已收到范围修改意见，正在重写草案'
       return '多 Agent 调研：新的研究范围草案已生成'
     }
-    if (artifactType === 'source_candidate') return '多 Agent 调研：已发现新的候选来源'
-    if (artifactType === 'fetched_document') return '多 Agent 调研：已抓取分支文档'
-    if (artifactType === 'evidence_passage') return '多 Agent 调研：已抽取可追溯证据'
-    if (artifactType === 'branch_synthesis') return '多 Agent 调研：已生成分支结论'
-    if (artifactType === 'verification_result') {
-      if (validationStage === 'claim_check') return '多 Agent 调研：claim/citation 结果已落盘'
-      if (validationStage === 'coverage_check') return '多 Agent 调研：coverage/gap 结果已落盘'
-      return '多 Agent 调研：验证结果已落盘'
+    if (artifactType === 'scope') return '多 Agent 调研：研究范围已固化，准备拆分研究分支'
+    if (artifactType === 'plan') return '多 Agent 调研：已生成研究分支计划'
+    if (artifactType === 'evidence_bundle') {
+      const sourceCount = typeof payload?.source_count === 'number' ? payload.source_count : 0
+      return sourceCount > 0
+        ? `多 Agent 调研：已记录分支证据包 · ${sourceCount} 个来源`
+        : '多 Agent 调研：已记录分支证据包'
     }
-    if (artifactType === 'evidence_card') return '多 Agent 调研：已记录新的证据卡片'
-    if (artifactType === 'knowledge_gap') return '多 Agent 调研：识别到新的知识缺口'
+    if (artifactType === 'branch_result') return '多 Agent 调研：已生成分支结论'
+    if (artifactType === 'validation_summary') {
+      const validationStatus = String(payload?.validation_status || '').trim()
+      if (validationStatus === 'passed') return '多 Agent 调研：分支验证通过'
+      if (validationStatus === 'retry') return '多 Agent 调研：分支验证要求补充研究'
+      if (validationStatus === 'failed') return '多 Agent 调研：分支验证未通过'
+      return '多 Agent 调研：分支验证摘要已更新'
+    }
     if (artifactType === 'final_report') return '多 Agent 调研：已落盘最终报告产物'
   }
 
@@ -119,13 +124,18 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
     if (decisionType === 'scope_ready') return '多 Agent 调研：研究范围已准备好进入审阅'
     if (decisionType === 'scope_revision_requested') return '多 Agent 调研：根据反馈重写研究范围'
     if (decisionType === 'scope_approved') return '多 Agent 调研：研究范围已确认，开始正式规划'
+    if (decisionType === 'research_brief_ready') return '多 Agent 调研：研究范围已固化，准备生成研究计划'
     if (decisionType === 'retry_branch' || decisionType === 'verification_retry_requested') return '多 Agent 调研：验证要求重试当前 branch'
     if (decisionType === 'coverage_gap_detected') return '多 Agent 调研：验证发现 coverage gap，准备补充规划'
     if (decisionType === 'verification_passed') return '多 Agent 调研：分支验证通过，准备汇总'
-    if (decisionType === 'plan' || decisionType === 'replan') return '多 Agent 调研：supervisor 决定补充规划'
+    if (decisionType === 'plan' || decisionType === 'replan' || decisionType === 'supervisor_plan') {
+      return '多 Agent 调研：supervisor 已生成研究分支计划'
+    }
     if (decisionType === 'research') return '多 Agent 调研：supervisor 决定继续研究'
+    if (decisionType === 'report' || decisionType === 'outline_ready') return '多 Agent 调研：验证通过，准备生成最终报告'
     if (decisionType === 'synthesize' || decisionType === 'complete') return '多 Agent 调研：supervisor 决定进入汇总阶段'
     if (decisionType === 'budget_stop') return '多 Agent 调研：触发预算停止条件'
+    if (decisionType === 'stop') return '多 Agent 调研：调研流程已停止'
   }
 
   return null

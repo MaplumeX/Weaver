@@ -21,7 +21,6 @@ async def test_session_evidence_unknown_session_returns_404():
 async def test_session_evidence_includes_fetched_pages_and_passages(monkeypatch):
     artifacts = {
         "sources": [],
-        "claims": [],
         "quality_summary": {"summary_count": 1},
         "fetched_pages": [
             {
@@ -87,24 +86,11 @@ async def test_session_evidence_includes_fetched_pages_and_passages(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_session_evidence_returns_canonical_claims_from_artifacts(monkeypatch):
+async def test_session_evidence_strips_deprecated_claim_artifacts(monkeypatch):
     state = {
         "deep_research_artifacts": {
-            "claims": [
-                {
-                    "claim": "Revenue increased in 2024.",
-                    "status": "verified",
-                    "evidence_urls": ["https://example.com/earnings"],
-                    "evidence_passages": [
-                        {
-                            "url": "https://example.com/earnings",
-                            "snippet_hash": "passage_123",
-                            "quote": "In 2024, the company's revenue increased by 5% year over year.",
-                            "heading_path": ["Results"],
-                        }
-                    ],
-                }
-            ],
+            "claims": [{"claim": "Revenue increased in 2024.", "status": "verified"}],
+            "answer_units": [{"id": "answer_1"}],
             "passages": [
                 {
                     "url": "https://example.com/earnings",
@@ -128,11 +114,9 @@ async def test_session_evidence_returns_canonical_claims_from_artifacts(monkeypa
 
     assert resp.status_code == 200
     data = resp.json() or {}
-    assert isinstance(data.get("claims"), list)
-    assert data.get("claims"), "expected canonical claims to be returned"
-    claim = (data.get("claims") or [None])[0] or {}
-    assert isinstance(claim.get("evidence_passages"), list)
-    assert claim.get("evidence_passages"), "expected passage evidence to be present"
-    passage = (claim.get("evidence_passages") or [None])[0] or {}
+    assert "claims" not in data
+    passages = data.get("passages") or []
+    assert passages, "expected passages to be preserved"
+    passage = passages[0] or {}
     assert passage.get("snippet_hash") == "passage_123"
     assert passage.get("url") == "https://example.com/earnings"

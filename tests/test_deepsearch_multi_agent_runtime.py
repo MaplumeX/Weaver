@@ -5,10 +5,6 @@ from langgraph.types import Command
 import agent.runtime.deep.orchestration.graph as multi_agent_runtime
 from agent.core.state import build_deep_runtime_snapshot
 from agent.runtime.deep.orchestration import run_multi_agent_deep_research
-from agent.runtime.deep.support.tool_agents import (
-    DeepResearchToolAgentSession,
-    build_deep_research_fabric_tools,
-)
 
 
 class _DummyEmitter:
@@ -310,22 +306,6 @@ class _ContextCheckingReporter(_FakeReporter):
         return super().generate_report(topic_or_context, findings=findings, sources=sources)
 
 
-class _DummyArtifactStore:
-    def coordination_requests(self, status=None):
-        return []
-
-
-class _DummyToolSessionRuntime:
-    def __init__(self):
-        self.searches_used = 0
-        self.tokens_used = 0
-        self.max_searches = 0
-        self.max_tokens = 0
-        self.max_seconds = 0.0
-        self.start_ts = 0.0
-        self.artifact_store = _DummyArtifactStore()
-
-
 _LIGHTWEIGHT_ARTIFACT_TYPES = {
     "scope",
     "plan",
@@ -459,41 +439,6 @@ def test_build_initial_graph_state_restores_scope_review_from_checkpoint(monkeyp
     assert initial_state["runtime_state"]["active_agent"] == "scope"
     assert initial_state["runtime_state"]["current_scope_draft"]["id"] == "scope-1"
     assert initial_state["next_step"] == "scope_review"
-
-
-def test_control_plane_handoff_tools_are_owner_gated():
-    session = DeepResearchToolAgentSession(
-        runtime=_DummyToolSessionRuntime(),
-        role="scope",
-        topic="AI chips",
-        graph_run_id="graph-1",
-        branch_id="branch-1",
-        allowed_capabilities={"fabric"},
-        active_agent="clarify",
-    )
-    tools = {tool.name: tool for tool in build_deep_research_fabric_tools(session)}
-
-    assert "fabric_submit_handoff" in tools
-    with pytest.raises(RuntimeError):
-        tools["fabric_submit_handoff"].invoke({"to_agent": "supervisor", "reason": "scope ready"})
-
-    session.active_agent = "scope"
-    handoff = tools["fabric_submit_handoff"].invoke({"to_agent": "supervisor", "reason": "scope ready"})
-    assert handoff["from_agent"] == "scope"
-    assert handoff["to_agent"] == "supervisor"
-    assert session.active_agent == "supervisor"
-
-    researcher_session = DeepResearchToolAgentSession(
-        runtime=_DummyToolSessionRuntime(),
-        role="researcher",
-        topic="AI chips",
-        graph_run_id="graph-1",
-        branch_id="branch-1",
-        allowed_capabilities={"fabric", "search"},
-        active_agent="supervisor",
-    )
-    researcher_tool_names = {tool.name for tool in build_deep_research_fabric_tools(researcher_session)}
-    assert "fabric_submit_handoff" not in researcher_tool_names
 
 
 def test_multi_agent_graph_topology_exposes_lightweight_role_nodes(monkeypatch):

@@ -3475,15 +3475,6 @@ async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
         if isinstance(sources, list):
             sources_count = len(sources)
 
-        claims = artifacts.get("claims", [])
-        if isinstance(claims, list):
-            for claim in claims:
-                if not isinstance(claim, dict):
-                    continue
-                status = (claim.get("status") or "").strip().lower()
-                if status in ("unsupported", "contradicted"):
-                    unsupported_claims_count += 1
-
         validation_summary = artifacts.get("validation_summary", {})
         if isinstance(validation_summary, dict):
             raw_passed = validation_summary.get("passed_branch_count")
@@ -3553,6 +3544,12 @@ async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
             claim_verifier_verified = _maybe_int(quality_summary.get("claim_verifier_verified"))
             claim_verifier_unsupported = _maybe_int(quality_summary.get("claim_verifier_unsupported"))
             claim_verifier_contradicted = _maybe_int(quality_summary.get("claim_verifier_contradicted"))
+
+            if unsupported_claims_count == 0:
+                unsupported_claims_count = max(
+                    0,
+                    int(claim_verifier_unsupported or 0) + int(claim_verifier_contradicted or 0),
+                )
 
     except Exception:
         # Evidence summary is best-effort; never fail the metrics endpoint for this.
@@ -3909,10 +3906,6 @@ async def export_report_endpoint(
             if not isinstance(sources_payload, list):
                 sources_payload = extracted_sources
 
-            claims_payload = deep_research_artifacts.get("claims")
-            if not isinstance(claims_payload, list):
-                claims_payload = []
-
             branch_results_payload = deep_research_artifacts.get("branch_results")
             if not isinstance(branch_results_payload, list):
                 branch_results_payload = []
@@ -3934,7 +3927,6 @@ async def export_report_endpoint(
                     "title": report_title,
                     "report": final_report,
                     "sources": sources_payload,
-                    "claims": claims_payload,
                     "branch_results": branch_results_payload,
                     "validation_summary": validation_payload,
                     "quality": quality_payload,
@@ -4180,22 +4172,6 @@ class EvidenceSource(BaseModel):
     publishedDate: Optional[str] = None
 
 
-class EvidenceClaimEvidence(BaseModel):
-    url: str
-    snippet_hash: Optional[str] = None
-    quote: Optional[str] = None
-    heading_path: Optional[List[str]] = None
-
-
-class EvidenceClaim(BaseModel):
-    claim: str
-    status: str
-    evidence_urls: List[str] = []
-    evidence_passages: List[EvidenceClaimEvidence] = []
-    score: float = 0.0
-    notes: str = ""
-
-
 class EvidenceBranchResult(BaseModel):
     id: str = ""
     task_id: str = ""
@@ -4210,23 +4186,33 @@ class EvidenceBranchResult(BaseModel):
 
 class FetchedPageItem(BaseModel):
     url: str
-    raw_url: str
-    method: str
+    id: Optional[str] = None
+    task_id: Optional[str] = None
+    branch_id: Optional[str] = None
+    raw_url: Optional[str] = None
+    method: Optional[str] = None
     text: Optional[str] = None
     title: Optional[str] = None
+    excerpt: Optional[str] = None
+    content: Optional[str] = None
     published_date: Optional[str] = None
     retrieved_at: Optional[str] = None
     markdown: Optional[str] = None
     http_status: Optional[int] = None
     error: Optional[str] = None
     attempts: int = 1
+    source_candidate_id: Optional[str] = None
 
 
 class EvidencePassageItem(BaseModel):
     url: str
     text: str
-    start_char: int
-    end_char: int
+    id: Optional[str] = None
+    task_id: Optional[str] = None
+    branch_id: Optional[str] = None
+    document_id: Optional[str] = None
+    start_char: Optional[int] = None
+    end_char: Optional[int] = None
     heading: Optional[str] = None
     heading_path: Optional[List[str]] = None
     page_title: Optional[str] = None
@@ -4234,11 +4220,16 @@ class EvidencePassageItem(BaseModel):
     method: Optional[str] = None
     quote: Optional[str] = None
     snippet_hash: Optional[str] = None
+    source_title: Optional[str] = None
+    locator: Dict[str, Any] = Field(default_factory=dict)
+    source_published_date: Optional[str] = None
+    passage_kind: Optional[str] = None
+    admissible: Optional[bool] = None
+    authoritative: Optional[bool] = None
 
 
 class EvidenceResponse(BaseModel):
     sources: List[EvidenceSource] = []
-    claims: List[EvidenceClaim] = []
     branch_results: List[EvidenceBranchResult] = []
     validation_summary: Dict[str, Any] = {}
     quality_summary: Dict[str, Any] = {}
@@ -4366,7 +4357,7 @@ async def get_session_state(thread_id: str, request: Request):
 @app.get("/api/sessions/{thread_id}/evidence", response_model=EvidenceResponse)
 async def get_session_evidence(thread_id: str, request: Request):
     """
-    Get evidence artifacts (sources + claims + quality summary) for a session.
+    Get evidence artifacts (sources + branch results + quality summary) for a session.
     """
     if not checkpointer:
         raise HTTPException(status_code=400, detail="No checkpointer configured")
@@ -4391,7 +4382,6 @@ async def get_session_evidence(thread_id: str, request: Request):
             artifacts = {}
 
         sources = artifacts.get("sources", [])
-        claims = artifacts.get("claims", [])
         branch_results = artifacts.get("branch_results", [])
         validation_summary = artifacts.get("validation_summary", {})
         quality_summary = artifacts.get("quality_summary", {})
@@ -4400,7 +4390,6 @@ async def get_session_evidence(thread_id: str, request: Request):
 
         return {
             "sources": sources if isinstance(sources, list) else [],
-            "claims": claims if isinstance(claims, list) else [],
             "branch_results": branch_results if isinstance(branch_results, list) else [],
             "validation_summary": validation_summary if isinstance(validation_summary, dict) else {},
             "quality_summary": quality_summary if isinstance(quality_summary, dict) else {},

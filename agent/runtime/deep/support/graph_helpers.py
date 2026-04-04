@@ -10,20 +10,9 @@ import agent.runtime.deep.support.runtime_support as support
 from agent.core.context import ResearchWorkerContext
 from agent.runtime.deep.schema import (
     AgentRunRecord,
-    AnswerUnit,
-    BranchSynthesis,
-    ClaimUnit,
     ControlPlaneHandoff,
-    CoordinationRequest,
-    EvidenceCard,
-    EvidencePassage,
-    FetchedDocument,
-    ReportSectionDraft,
-    ResearchSubmission,
     ResearchTask,
     ScopeDraft,
-    SourceCandidate,
-    WorkerExecutionResult,
     _now_iso,
     is_control_plane_agent,
     validate_control_plane_agent,
@@ -141,53 +130,6 @@ def restore_agent_runs(items: list[dict[str, Any]]) -> list[AgentRunRecord]:
 
 def restore_worker_context(payload: dict[str, Any]) -> ResearchWorkerContext:
     return ResearchWorkerContext(**payload)
-
-
-def restore_worker_result(payload: dict[str, Any]) -> WorkerExecutionResult:
-    task = ResearchTask(**payload["task"])
-    context = restore_worker_context(payload["context"])
-    source_candidates = [SourceCandidate(**item) for item in payload.get("source_candidates", [])]
-    fetched_documents = [FetchedDocument(**item) for item in payload.get("fetched_documents", [])]
-    evidence_passages = [EvidencePassage(**item) for item in payload.get("evidence_passages", [])]
-    synthesis_payload = payload.get("branch_synthesis")
-    branch_synthesis = BranchSynthesis(**synthesis_payload) if isinstance(synthesis_payload, dict) else None
-    evidence_cards = [EvidenceCard(**item) for item in payload.get("evidence_cards", [])]
-    answer_units = [AnswerUnit(**item) for item in payload.get("answer_units", [])]
-    claim_units = [ClaimUnit(**item) for item in payload.get("claim_units", [])]
-    section_payload = payload.get("section_draft")
-    section_draft = ReportSectionDraft(**section_payload) if isinstance(section_payload, dict) else None
-    coordination_requests = [
-        CoordinationRequest(**item)
-        for item in payload.get("coordination_requests", [])
-        if isinstance(item, dict)
-    ]
-    submission_payload = payload.get("submission")
-    submission = ResearchSubmission(**submission_payload) if isinstance(submission_payload, dict) else None
-    agent_run_payload = payload.get("agent_run")
-    agent_run = AgentRunRecord(**agent_run_payload) if isinstance(agent_run_payload, dict) else None
-    return WorkerExecutionResult(
-        task=task,
-        context=context,
-        source_candidates=source_candidates,
-        fetched_documents=fetched_documents,
-        evidence_passages=evidence_passages,
-        branch_synthesis=branch_synthesis,
-        evidence_cards=evidence_cards,
-        section_draft=section_draft,
-        coordination_requests=coordination_requests,
-        submission=submission,
-        raw_results=list(payload.get("raw_results", [])),
-        tokens_used=int(payload.get("tokens_used", 0) or 0),
-        searches_used=int(payload.get("searches_used", 0) or 0),
-        branch_id=payload.get("branch_id"),
-        task_stage=str(payload.get("task_stage") or task.stage or ""),
-        result_status=str(payload.get("result_status") or "completed"),
-        agent_run=agent_run,
-        error=str(payload.get("error") or ""),
-        answer_units=answer_units,
-        claim_units=claim_units,
-        resolved_issue_ids=list(payload.get("resolved_issue_ids", [])),
-    )
 
 
 def gap_result_from_payload(payload: dict[str, Any] | None) -> GapAnalysisResult | None:
@@ -462,7 +404,6 @@ __all__ = [
     "reduce_worker_payloads",
     "restore_agent_runs",
     "restore_handoff_history",
-    "restore_worker_result",
     "scope_draft_from_payload",
     "scope_version",
     "split_findings",

@@ -143,17 +143,9 @@ const STAGE_ORDER = [
 ]
 
 const BRANCH_ARTIFACT_TYPES = new Set([
-  'branch_brief',
-  'source_candidate',
-  'fetched_document',
-  'evidence_passage',
-  'evidence_card',
-  'branch_synthesis',
-  'report_section_draft',
-  'research_submission',
-  'coordination_request',
-  'verification_result',
-  'verification_submission',
+  'evidence_bundle',
+  'branch_result',
+  'validation_summary',
 ])
 
 const SUPPRESSED_DEFAULT_VIEW_TYPES = new Set([
@@ -273,6 +265,8 @@ function describeDecision(decisionType: string, reason: string): string {
       return 'Coverage gaps detected'
     case 'verification_passed':
       return 'Verification passed'
+    case 'report':
+      return 'Preparing final report'
     case 'synthesize':
     case 'complete':
       return 'Preparing final report'
@@ -282,6 +276,8 @@ function describeDecision(decisionType: string, reason: string): string {
       return 'Outline blocked by remaining gaps'
     case 'budget_stop':
       return 'Budget limit reached'
+    case 'stop':
+      return 'Research stopped'
     default:
       return reason || 'Decision recorded'
   }
@@ -298,40 +294,23 @@ function describeArtifact(payload: any): string {
       if (status === 'approved') return 'Scope approved'
       if (status === 'revision_requested') return 'Scope revision requested'
       return 'Scope draft updated'
-    case 'research_brief':
-      return 'Research brief ready'
-    case 'branch_brief':
-      return 'Branch brief ready'
-    case 'task_ledger':
-      return 'Task ledger updated'
-    case 'progress_ledger':
-      return 'Progress ledger updated'
-    case 'source_candidate':
-      return 'Source candidate captured'
-    case 'fetched_document':
-      return 'Document fetched'
-    case 'evidence_passage':
-      return 'Evidence passage recorded'
-    case 'evidence_card':
-      return 'Evidence card recorded'
-    case 'branch_synthesis':
-      return 'Branch synthesis ready'
-    case 'report_section_draft':
-      return 'Report section drafted'
-    case 'verification_result':
+    case 'scope':
+      return 'Scope locked'
+    case 'plan':
+      return 'Research branches planned'
+    case 'evidence_bundle': {
+      const sourceCount = positiveNumber(payload?.source_count)
+      return sourceCount !== null ? `Evidence bundle recorded (${sourceCount} sources)` : 'Evidence bundle recorded'
+    }
+    case 'branch_result':
+      return 'Branch result ready'
+    case 'validation_summary': {
+      const validationStatus = text(payload?.validation_status)
+      if (validationStatus === 'passed') return 'Verification passed'
+      if (validationStatus === 'retry') return 'Verification requested another pass'
+      if (validationStatus === 'failed') return 'Verification failed'
       return formatVerificationOutcome(outcome, validationStage)
-    case 'verification_submission':
-      return 'Verification bundle submitted'
-    case 'research_submission':
-      return 'Research bundle submitted'
-    case 'coordination_request':
-      return 'Follow-up requested'
-    case 'knowledge_gap':
-      return 'Knowledge gaps updated'
-    case 'outline':
-      return payload?.is_ready ? 'Outline ready' : 'Outline blocked'
-    case 'report_submission':
-      return 'Report bundle submitted'
+    }
     case 'final_report':
       return 'Final report generated'
     default:
@@ -371,10 +350,9 @@ function describeAgentLifecycle(eventType: CanonicalEventType, payload: any): st
     return stage ? `${formatStageLabel(stage)} in progress` : 'Verification running'
   }
   if (role === 'reporter') {
-    if (eventType === 'research_agent_complete' && status === 'completed') {
-      return phase === 'final_report' ? 'Final report complete' : 'Outline ready'
-    }
-    return phase === 'final_report' ? 'Writing final report' : 'Preparing outline'
+    return eventType === 'research_agent_complete' && status === 'completed'
+      ? 'Final report complete'
+      : 'Writing final report'
   }
   return 'Agent lifecycle updated'
 }
@@ -458,32 +436,11 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
   }
 
   if (eventType === 'research_artifact_update') {
-    if (artifactType === 'scope_draft') return 'scope'
-    if (
-      artifactType === 'research_brief' ||
-      artifactType === 'branch_brief' ||
-      artifactType === 'task_ledger' ||
-      artifactType === 'progress_ledger' ||
-      artifactType === 'supervisor_decision'
-    ) {
-      return 'planning'
-    }
-    if (
-      artifactType === 'verification_result' ||
-      artifactType === 'verification_submission' ||
-      artifactType === 'knowledge_gap'
-    ) {
-      return 'verify'
-    }
-    if (artifactType === 'outline' || artifactType === 'report_submission' || artifactType === 'final_report') {
-      return 'report'
-    }
-    if (artifactType === 'coordination_request') {
-      if (validationStage) return 'verify'
-      if (stage === 'outline_gate') return 'report'
-      return 'branch_research'
-    }
-    if (artifactType === 'research_submission') return validationStage ? 'verify' : 'branch_research'
+    if (artifactType === 'scope_draft' || artifactType === 'scope') return 'scope'
+    if (artifactType === 'plan') return 'planning'
+    if (artifactType === 'validation_summary') return 'verify'
+    if (artifactType === 'final_report') return 'report'
+    if (artifactType === 'evidence_bundle' || artifactType === 'branch_result') return 'branch_research'
     if (validationStage || stage === 'claim_check' || stage === 'coverage_check') return 'verify'
     return 'branch_research'
   }
@@ -509,11 +466,13 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
       return 'verify'
     }
     if (
+      decisionType === 'report' ||
       decisionType === 'synthesize' ||
       decisionType === 'complete' ||
       decisionType === 'outline_ready' ||
       decisionType === 'outline_gap_detected' ||
-      decisionType === 'budget_stop'
+      decisionType === 'budget_stop' ||
+      decisionType === 'stop'
     ) {
       return 'report'
     }
@@ -525,13 +484,6 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
 }
 
 function branchLabelHint(payload: any): string {
-  const artifactType = text(payload?.artifact_type)
-  if (artifactType === 'branch_brief') {
-    return text(payload?.summary || payload?.objective_summary)
-  }
-  if (artifactType === 'branch_synthesis') {
-    return text(payload?.objective_summary || payload?.summary)
-  }
   return text(payload?.title || payload?.objective_summary || payload?.query)
 }
 
@@ -575,29 +527,27 @@ function updateSourceStats(
 ): void {
   const artifactId = text(payload?.artifact_id)
   const sourceUrl = text(payload?.source_url)
+  const sourceUrlsList = stringList(payload?.source_urls)
   const citationUrls = stringList(payload?.citation_urls)
 
   if (sourceUrl) sourceUrls.add(sourceUrl)
+  for (const url of sourceUrlsList) {
+    sourceUrls.add(url)
+  }
   for (const url of citationUrls) {
     sourceUrls.add(url)
   }
 
   if (!artifactId) return
 
-  if (artifactType === 'source_candidate') {
-    sourceIds.add(artifactId)
-    return
-  }
-  if (artifactType === 'fetched_document') {
+  if (artifactType === 'evidence_bundle') {
+    evidenceIds.add(artifactId)
     documentIds.add(artifactId)
     return
   }
-  if (artifactType === 'evidence_passage' || artifactType === 'evidence_card') {
-    evidenceIds.add(artifactId)
-    return
-  }
-  if (artifactType === 'branch_synthesis') {
+  if (artifactType === 'branch_result') {
     synthesisIds.add(artifactId)
+    return
   }
 }
 
@@ -698,26 +648,20 @@ function buildPhaseSummary(
 
   if (key === 'verify') {
     let passed = 0
-    let followUp = 0
+    let retry = 0
     let failed = 0
     for (const event of events) {
       if (event.type !== 'research_artifact_update') continue
       const artifactType = text(event.payload?.artifact_type)
-      if (artifactType !== 'verification_result') continue
-      const outcome = text(event.payload?.outcome)
-      if (outcome === 'passed') passed += 1
-      else if (outcome === 'failed') failed += 1
-      else if (outcome === 'needs_follow_up') followUp += 1
+      if (artifactType !== 'validation_summary') continue
+      const validationStatus = text(event.payload?.validation_status || event.payload?.status)
+      if (validationStatus === 'passed') passed += 1
+      else if (validationStatus === 'failed') failed += 1
+      else if (validationStatus === 'retry') retry += 1
     }
     if (passed > 0) metrics.push(formatCount(passed, 'verified branch', 'verified branches'))
-    if (followUp > 0) metrics.push(formatCount(followUp, 'follow-up', 'follow-ups'))
+    if (retry > 0) metrics.push(formatCount(retry, 'retry', 'retries'))
     if (failed > 0) metrics.push(formatCount(failed, 'failed branch', 'failed branches'))
-  }
-
-  if (key === 'report') {
-    const outlineEvent = events.find((event) => text(event.payload?.artifact_type) === 'outline')
-    const sectionCount = positiveNumber(outlineEvent?.payload?.section_count)
-    if (sectionCount !== null) metrics.push(formatCount(sectionCount, 'section', 'sections'))
   }
 
   const highlights = events
@@ -895,7 +839,7 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
       bucket.synthesisIds,
     )
 
-    if (artifactType === 'verification_result') {
+    if (artifactType === 'validation_summary') {
       bucket.verificationState = describeArtifact(payload)
     }
 

@@ -17,16 +17,21 @@ const KEY_DECISIONS = new Set([
   'scope_ready',
   'scope_revision_requested',
   'scope_approved',
+  'research_brief_ready',
   'retry_branch',
   'verification_retry_requested',
   'coverage_gap_detected',
   'verification_passed',
   'plan',
   'replan',
+  'supervisor_plan',
   'research',
+  'report',
+  'outline_ready',
   'synthesize',
   'complete',
   'budget_stop',
+  'stop',
 ])
 
 export function createStreamingAssistantMessage(overrides: Partial<Message> = {}): Message {
@@ -91,7 +96,7 @@ function isKeyDeepResearchEvent(ev: ProcessEvent): boolean {
   }
 
   if (ev.type === 'research_artifact_update') {
-    return ['scope_draft', 'branch_synthesis', 'verification_result'].includes(
+    return ['scope_draft', 'plan', 'evidence_bundle', 'branch_result', 'validation_summary', 'final_report'].includes(
       String(ev.data?.artifact_type || '').trim(),
     )
   }

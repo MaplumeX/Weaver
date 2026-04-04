@@ -78,9 +78,9 @@ test('maps verifier claim-check lifecycle to readable auto status', () => {
   assert.equal(text, '多 Agent 调研：正在核对 claim 与 citation…')
 })
 
-test('maps branch synthesis artifact to readable auto status', () => {
+test('maps branch result artifact to readable auto status', () => {
   const text = getDeepResearchAutoStatus('research_artifact_update', {
-    artifact_type: 'branch_synthesis',
+    artifact_type: 'branch_result',
     status: 'created',
   })
 

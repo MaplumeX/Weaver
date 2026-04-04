@@ -1,5 +1,5 @@
 """
-Public Deep Research artifact adapters derived from the multi-agent runtime.
+Public Deep Research artifact adapters for the lightweight runtime contract.
 """
 
 from __future__ import annotations
@@ -8,6 +8,25 @@ from typing import Any
 
 from agent.runtime.deep.state import read_deep_runtime_snapshot, resolve_deep_runtime_mode
 from agent.research.source_url_utils import canonicalize_source_url, compact_unique_sources
+
+_PUBLIC_SIGNAL_KEYS = (
+    "queries",
+    "scope",
+    "plan",
+    "tasks",
+    "research_topology",
+    "sources",
+    "branch_results",
+    "validation_summary",
+    "quality_summary",
+    "final_report",
+    "executive_summary",
+    "runtime_state",
+    "fetched_pages",
+    "passages",
+    "query_coverage",
+    "freshness_summary",
+)
 
 
 def _has_lightweight_snapshot(artifact_store: dict[str, Any]) -> bool:
@@ -46,186 +65,39 @@ def _build_queries(task_queue: dict[str, Any]) -> list[str]:
     return queries
 
 
-def _sorted_artifact_dicts(items: Any) -> list[dict[str, Any]]:
-    if not isinstance(items, list):
-        return []
-    return sorted(
-        (item for item in items if isinstance(item, dict)),
-        key=lambda item: (
-            str(item.get("created_at") or ""),
-            str(item.get("id") or ""),
-        ),
-    )
+def _coerce_queries(value: Any) -> list[str]:
+    if isinstance(value, list):
+        queries: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            text = str(item or "").strip()
+            key = text.lower()
+            if not text or key in seen:
+                continue
+            seen.add(key)
+            queries.append(text)
+        return queries
+    text = str(value or "").strip()
+    return [text] if text else []
 
 
-def _latest_branch_validation_summaries_snapshot(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    summaries = _sorted_artifact_dicts(artifact_store.get("branch_validation_summaries", []))
-    briefs = _sorted_artifact_dicts(artifact_store.get("branch_briefs", []))
-    summary_by_id = {
-        str(item.get("id") or "").strip(): item
-        for item in summaries
-        if str(item.get("id") or "").strip()
-    }
-    brief_by_branch = {
-        str(item.get("id") or "").strip(): item
-        for item in briefs
-        if str(item.get("id") or "").strip()
-    }
-    by_branch: dict[str, dict[str, Any]] = {}
-
-    for brief in briefs:
-        branch_id = str(brief.get("id") or "").strip()
-        summary = summary_by_id.get(str(brief.get("latest_verification_id") or "").strip())
-        if branch_id and isinstance(summary, dict) and str(summary.get("branch_id") or "").strip() == branch_id:
-            by_branch[branch_id] = summary
-
-    for summary in summaries:
-        branch_id = str(summary.get("branch_id") or "").strip()
-        if not branch_id or branch_id in by_branch:
-            continue
-        brief = brief_by_branch.get(branch_id, {})
-        latest_task_id = str(brief.get("latest_task_id") or "").strip()
-        summary_task_id = str(summary.get("task_id") or "").strip()
-        if latest_task_id and summary_task_id and latest_task_id != summary_task_id:
-            continue
-        by_branch[branch_id] = summary
-
-    if by_branch:
-        return list(by_branch.values())
-
-    fallback: dict[str, dict[str, Any]] = {}
-    for summary in summaries:
-        branch_id = str(summary.get("branch_id") or summary.get("task_id") or "").strip()
-        if branch_id:
-            fallback[branch_id] = summary
-    return list(fallback.values())
-
-
-def _normalize_fetched_pages(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    items = artifact_store.get("fetched_documents", []) if isinstance(artifact_store, dict) else []
-    pages: list[dict[str, Any]] = []
+def _normalize_public_sources(items: Any) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
-        url = canonicalize_source_url(item.get("url"))
-        if not url:
-            continue
-        pages.append(
+        candidates.append(
             {
-                "id": item.get("id"),
-                "task_id": item.get("task_id"),
-                "branch_id": item.get("branch_id"),
-                "url": url,
-                "title": str(item.get("title") or "").strip(),
-                "excerpt": str(item.get("excerpt") or "").strip(),
-                "content": str(item.get("content") or ""),
-                "source_candidate_id": item.get("source_candidate_id"),
+                "title": item.get("title", ""),
+                "url": item.get("raw_url") or item.get("rawUrl") or item.get("url") or "",
+                "provider": item.get("provider", ""),
+                "published_date": item.get("published_date") or item.get("publishedDate"),
             }
         )
-    return pages
+    return compact_unique_sources(candidates, limit=max(5, len(candidates) or 5))
 
 
-def _normalize_passages(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    items = artifact_store.get("evidence_passages", []) if isinstance(artifact_store, dict) else []
-    passages: list[dict[str, Any]] = []
-    for item in items if isinstance(items, list) else []:
-        if not isinstance(item, dict):
-            continue
-        url = canonicalize_source_url(item.get("url"))
-        if not url:
-            continue
-        passage = {
-            "id": item.get("id"),
-            "task_id": item.get("task_id"),
-            "branch_id": item.get("branch_id"),
-            "document_id": item.get("document_id"),
-            "url": url,
-            "text": str(item.get("text") or ""),
-            "quote": str(item.get("quote") or "").strip(),
-            "source_title": str(item.get("source_title") or "").strip(),
-            "snippet_hash": str(item.get("snippet_hash") or "").strip(),
-            "heading_path": list(item.get("heading_path") or []),
-            "locator": dict(item.get("locator") or {}),
-            "source_published_date": item.get("source_published_date"),
-            "passage_kind": str(item.get("passage_kind") or "quote").strip(),
-            "admissible": bool(item.get("admissible", True)),
-            "authoritative": bool(item.get("admissible", True)),
-        }
-        passages.append(passage)
-    return passages
-
-
-def _normalize_answer_units(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_answer_units = artifact_store.get("answer_units", []) if isinstance(artifact_store, dict) else []
-    raw_claim_units = artifact_store.get("claim_units", []) if isinstance(artifact_store, dict) else []
-    units = raw_answer_units if isinstance(raw_answer_units, list) and raw_answer_units else raw_claim_units
-    items: list[dict[str, Any]] = []
-    for unit in units if isinstance(units, list) else []:
-        if not isinstance(unit, dict):
-            continue
-        text = str(unit.get("text") or unit.get("claim") or "").strip()
-        unit_id = str(unit.get("id") or "").strip()
-        if not unit_id or not text:
-            continue
-        items.append(
-            {
-                "id": unit_id,
-                "task_id": unit.get("task_id"),
-                "branch_id": unit.get("branch_id"),
-                "text": text,
-                "unit_type": str(unit.get("unit_type") or "claim").strip(),
-                "required": bool(unit.get("required", True)),
-                "obligation_ids": list(unit.get("obligation_ids") or []),
-                "supporting_passage_ids": list(
-                    unit.get("supporting_passage_ids") or unit.get("evidence_passage_ids") or []
-                ),
-                "dependent_answer_unit_ids": list(unit.get("dependent_answer_unit_ids") or []),
-                "citation_urls": [
-                    canonicalize_source_url(url)
-                    for url in unit.get("citation_urls", []) or []
-                    if canonicalize_source_url(url)
-                ],
-                "provenance": dict(unit.get("provenance") or unit.get("claim_provenance") or {}),
-            }
-        )
-    return items
-
-
-def _normalize_branch_validation_summaries(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    for summary in _latest_branch_validation_summaries_snapshot(artifact_store):
-        items.append(
-            {
-                "id": summary.get("id"),
-                "task_id": summary.get("task_id"),
-                "branch_id": summary.get("branch_id"),
-                "synthesis_id": summary.get("synthesis_id"),
-                "ready_for_report": bool(summary.get("ready_for_report")),
-                "blocking": bool(summary.get("blocking")),
-                "summary": str(summary.get("summary") or "").strip(),
-                "answer_unit_ids": list(summary.get("answer_unit_ids") or []),
-                "supported_answer_unit_ids": list(summary.get("supported_answer_unit_ids") or []),
-                "partially_supported_answer_unit_ids": list(
-                    summary.get("partially_supported_answer_unit_ids") or []
-                ),
-                "unsupported_answer_unit_ids": list(summary.get("unsupported_answer_unit_ids") or []),
-                "contradicted_answer_unit_ids": list(summary.get("contradicted_answer_unit_ids") or []),
-                "obligation_ids": list(summary.get("obligation_ids") or []),
-                "satisfied_obligation_ids": list(summary.get("satisfied_obligation_ids") or []),
-                "partially_satisfied_obligation_ids": list(
-                    summary.get("partially_satisfied_obligation_ids") or []
-                ),
-                "unsatisfied_obligation_ids": list(summary.get("unsatisfied_obligation_ids") or []),
-                "issue_ids": list(summary.get("issue_ids") or []),
-                "blocking_issue_ids": list(summary.get("blocking_issue_ids") or []),
-                "consistency_result_ids": list(summary.get("consistency_result_ids") or []),
-                "advisory_notes": list(summary.get("advisory_notes") or []),
-            }
-        )
-    return items
-
-
-def _normalize_sources(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
+def _normalize_legacy_sources(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
 
     evidence_cards = artifact_store.get("evidence_cards", []) if isinstance(artifact_store, dict) else []
@@ -262,7 +134,6 @@ def _normalize_sources(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
                 "url": item.get("url", ""),
                 "provider": item.get("source_provider", ""),
                 "published_date": item.get("published_date"),
-                "score": item.get("rank", 0),
             }
         )
 
@@ -274,298 +145,302 @@ def _normalize_sources(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
     return compact_unique_sources(candidates, limit=max(5, len(candidates) or 5))
 
 
-def _normalize_claims(
-    artifact_store: dict[str, Any],
-    passages_by_id: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    answer_units = artifact_store.get("answer_units", []) if isinstance(artifact_store, dict) else []
-    claim_units = artifact_store.get("claim_units", []) if isinstance(artifact_store, dict) else []
-    grounding_results = (
-        artifact_store.get("claim_grounding_results", []) if isinstance(artifact_store, dict) else []
-    )
-    revision_issues = artifact_store.get("revision_issues", []) if isinstance(artifact_store, dict) else []
-    structured_units = answer_units if isinstance(answer_units, list) and answer_units else claim_units
-    if isinstance(structured_units, list) and structured_units:
-        grounding_by_claim: dict[str, dict[str, Any]] = {}
-        for item in grounding_results if isinstance(grounding_results, list) else []:
-            if not isinstance(item, dict):
-                continue
-            claim_id = str(item.get("claim_id") or "").strip()
-            if claim_id:
-                grounding_by_claim[claim_id] = item
-        issue_ids_by_claim: dict[str, list[str]] = {}
-        for issue in revision_issues if isinstance(revision_issues, list) else []:
-            if not isinstance(issue, dict):
-                continue
-            issue_id = str(issue.get("id") or "").strip()
-            if not issue_id:
-                continue
-            for claim_id in issue.get("claim_ids", []) or []:
-                normalized = str(claim_id or "").strip()
-                if not normalized:
-                    continue
-                issue_ids_by_claim.setdefault(normalized, []).append(issue_id)
-
-        claims: list[dict[str, Any]] = []
-        for unit in structured_units:
-            if not isinstance(unit, dict):
-                continue
-            claim_id = str(unit.get("id") or "").strip()
-            claim_text = str(unit.get("text") or unit.get("claim") or "").strip()
-            if not claim_id or not claim_text:
-                continue
-            grounding = grounding_by_claim.get(claim_id, {})
-            grounding_status = str(grounding.get("status") or "").strip().lower()
-            status = (
-                "verified"
-                if grounding_status == "grounded"
-                else (
-                    "contradicted"
-                    if grounding_status == "contradicted"
-                    else ("partial" if grounding_status == "unresolved" else grounding_status or "unsupported")
-                )
-            )
-            evidence_passage_ids = list(
-                grounding.get("evidence_passage_ids")
-                or unit.get("supporting_passage_ids")
-                or unit.get("evidence_passage_ids")
-                or []
-            )
-            evidence_passages = [
-                passages_by_id.get(str(passage_id))
-                for passage_id in evidence_passage_ids
-                if passages_by_id.get(str(passage_id))
-            ]
-            evidence_urls = [
-                canonicalize_source_url(url)
-                for url in grounding.get("evidence_urls", []) or unit.get("citation_urls", [])
-                if canonicalize_source_url(url)
-            ]
-            claims.append(
-                {
-                    "claim_id": claim_id,
-                    "claim": claim_text,
-                    "status": status,
-                    "unit_type": str(unit.get("unit_type") or "claim").strip(),
-                    "branch_id": unit.get("branch_id"),
-                    "task_id": unit.get("task_id"),
-                    "required": bool(unit.get("required", True)),
-                    "obligation_ids": list(unit.get("obligation_ids") or []),
-                    "issue_ids": list(dict.fromkeys(issue_ids_by_claim.get(claim_id, []))),
-                    "evidence_urls": evidence_urls,
-                    "evidence_passages": evidence_passages,
-                    "score": grounding.get("metadata", {}).get("score", 0.0)
-                    if isinstance(grounding.get("metadata"), dict)
-                    else 0.0,
-                    "notes": str(grounding.get("summary") or "").strip(),
-                    "provenance": dict(unit.get("provenance") or unit.get("claim_provenance") or {}),
-                    "authoritative": True,
-                }
-            )
-        return claims
-
-    verification_results = (
-        artifact_store.get("verification_results", []) if isinstance(artifact_store, dict) else []
-    )
-    claims: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for result in verification_results if isinstance(verification_results, list) else []:
-        if not isinstance(result, dict) or result.get("validation_stage") != "claim_check":
-            continue
-
-        metadata = result.get("metadata", {})
-        raw_claims = metadata.get("claims", []) if isinstance(metadata, dict) else []
-        for item in raw_claims if isinstance(raw_claims, list) else []:
-            if not isinstance(item, dict):
-                continue
-            claim_text = str(item.get("claim") or "").strip()
-            status = str(item.get("status") or "").strip().lower()
-            key = (claim_text.lower(), status)
-            if not claim_text or not status or key in seen:
-                continue
-            seen.add(key)
-
-            evidence_urls = [
-                canonicalize_source_url(url)
-                for url in item.get("evidence_urls", [])
-                if canonicalize_source_url(url)
-            ]
-            evidence_passages: list[dict[str, Any]] = []
-            raw_passages = item.get("evidence_passages", [])
-            if isinstance(raw_passages, list) and raw_passages:
-                for passage in raw_passages:
-                    if not isinstance(passage, dict):
-                        continue
-                    url = canonicalize_source_url(passage.get("url"))
-                    payload = {
-                        "url": url,
-                        "snippet_hash": str(passage.get("snippet_hash") or "").strip(),
-                        "quote": str(passage.get("quote") or "").strip(),
-                        "heading_path": list(passage.get("heading_path") or []),
-                    }
-                    if url:
-                        evidence_passages.append(payload)
-            else:
-                for passage_id in result.get("evidence_passage_ids", []) or []:
-                    passage = passages_by_id.get(str(passage_id))
-                    if passage:
-                        evidence_passages.append(passage)
-
-            if not evidence_urls and evidence_passages:
-                evidence_urls = [
-                    url
-                    for url in dict.fromkeys(
-                        passage.get("url")
-                        for passage in evidence_passages
-                        if isinstance(passage.get("url"), str) and passage.get("url")
-                    )
-                ]
-
-            claims.append(
-                {
-                    "claim": claim_text,
-                    "status": status,
-                    "evidence_urls": evidence_urls,
-                    "evidence_passages": evidence_passages,
-                    "score": item.get("score", 0.0),
-                    "notes": str(item.get("notes") or "").strip(),
-                }
-            )
-    return claims
-
-
-def _normalize_obligations(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    obligations = artifact_store.get("coverage_obligations", []) if isinstance(artifact_store, dict) else []
-    evaluations = (
-        artifact_store.get("coverage_evaluation_results", []) if isinstance(artifact_store, dict) else []
-    )
-    evaluation_items = evaluations if isinstance(evaluations, list) else []
-    evaluation_by_obligation = {
-        str(item.get("obligation_id")): item
-        for item in evaluation_items
-        if isinstance(item, dict) and str(item.get("obligation_id") or "").strip()
-    }
-    items: list[dict[str, Any]] = []
-    for obligation in obligations if isinstance(obligations, list) else []:
-        if not isinstance(obligation, dict):
-            continue
-        obligation_id = str(obligation.get("id") or "").strip()
-        evaluation = evaluation_by_obligation.get(obligation_id, {})
-        items.append(
-            {
-                "id": obligation_id,
-                "branch_id": obligation.get("branch_id"),
-                "task_id": obligation.get("task_id"),
-                "source": str(obligation.get("source") or "").strip(),
-                "target": str(obligation.get("target") or "").strip(),
-                "completion_criteria": list(obligation.get("completion_criteria") or []),
-                "status": str(evaluation.get("status") or "pending").strip(),
-                "summary": str(evaluation.get("summary") or "").strip(),
-            }
-        )
-    return items
-
-
-def _normalize_consistency_results(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    results = artifact_store.get("consistency_results", []) if isinstance(artifact_store, dict) else []
-    items: list[dict[str, Any]] = []
-    for item in results if isinstance(results, list) else []:
+def _normalize_public_fetched_pages(items: Any) -> list[dict[str, Any]]:
+    pages: list[dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
-        items.append(
+        url = canonicalize_source_url(item.get("url") or item.get("raw_url") or item.get("rawUrl"))
+        if not url:
+            continue
+        page = {
+            "id": item.get("id"),
+            "task_id": item.get("task_id"),
+            "branch_id": item.get("branch_id"),
+            "url": url,
+            "raw_url": str(item.get("raw_url") or item.get("rawUrl") or item.get("url") or ""),
+            "title": str(item.get("title") or "").strip(),
+            "excerpt": str(item.get("excerpt") or "").strip(),
+            "content": str(item.get("content") or ""),
+            "text": item.get("text"),
+            "method": item.get("method"),
+            "published_date": item.get("published_date"),
+            "retrieved_at": item.get("retrieved_at"),
+            "markdown": item.get("markdown"),
+            "http_status": item.get("http_status"),
+            "error": item.get("error"),
+            "attempts": item.get("attempts"),
+            "source_candidate_id": item.get("source_candidate_id"),
+        }
+        pages.append(page)
+    return pages
+
+
+def _normalize_legacy_fetched_pages(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
+    items = artifact_store.get("fetched_documents", []) if isinstance(artifact_store, dict) else []
+    pages: list[dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = canonicalize_source_url(item.get("url"))
+        if not url:
+            continue
+        pages.append(
             {
                 "id": item.get("id"),
-                "branch_id": item.get("branch_id"),
                 "task_id": item.get("task_id"),
-                "claim_ids": list(item.get("claim_ids") or []),
-                "related_branch_ids": list(item.get("related_branch_ids") or []),
-                "status": str(item.get("status") or "").strip(),
+                "branch_id": item.get("branch_id"),
+                "url": url,
+                "title": str(item.get("title") or "").strip(),
+                "excerpt": str(item.get("excerpt") or "").strip(),
+                "content": str(item.get("content") or ""),
+                "source_candidate_id": item.get("source_candidate_id"),
+            }
+        )
+    return pages
+
+
+def _normalize_public_passages(items: Any) -> list[dict[str, Any]]:
+    passages: list[dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = canonicalize_source_url(item.get("url"))
+        if not url:
+            continue
+        heading_path = item.get("heading_path")
+        heading_items = heading_path if isinstance(heading_path, list) else []
+        passages.append(
+            {
+                "id": item.get("id"),
+                "task_id": item.get("task_id"),
+                "branch_id": item.get("branch_id"),
+                "document_id": item.get("document_id"),
+                "url": url,
+                "text": str(item.get("text") or ""),
+                "quote": str(item.get("quote") or "").strip(),
+                "source_title": str(item.get("source_title") or "").strip(),
+                "snippet_hash": str(item.get("snippet_hash") or "").strip(),
+                "heading": item.get("heading") or (heading_items[0] if heading_items else None),
+                "heading_path": list(heading_items),
+                "page_title": item.get("page_title"),
+                "start_char": item.get("start_char"),
+                "end_char": item.get("end_char"),
+                "retrieved_at": item.get("retrieved_at"),
+                "method": item.get("method"),
+                "locator": dict(item.get("locator") or {}),
+                "source_published_date": item.get("source_published_date"),
+                "passage_kind": str(item.get("passage_kind") or "quote").strip(),
+                "admissible": bool(item.get("admissible", True)),
+                "authoritative": bool(item.get("authoritative", item.get("admissible", True))),
+            }
+        )
+    return passages
+
+
+def _normalize_legacy_passages(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
+    items = artifact_store.get("evidence_passages", []) if isinstance(artifact_store, dict) else []
+    passages: list[dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = canonicalize_source_url(item.get("url"))
+        if not url:
+            continue
+        heading_path = item.get("heading_path")
+        heading_items = heading_path if isinstance(heading_path, list) else []
+        passages.append(
+            {
+                "id": item.get("id"),
+                "task_id": item.get("task_id"),
+                "branch_id": item.get("branch_id"),
+                "document_id": item.get("document_id"),
+                "url": url,
+                "text": str(item.get("text") or ""),
+                "quote": str(item.get("quote") or "").strip(),
+                "source_title": str(item.get("source_title") or "").strip(),
+                "snippet_hash": str(item.get("snippet_hash") or "").strip(),
+                "heading": heading_items[0] if heading_items else None,
+                "heading_path": list(heading_items),
+                "locator": dict(item.get("locator") or {}),
+                "source_published_date": item.get("source_published_date"),
+                "passage_kind": str(item.get("passage_kind") or "quote").strip(),
+                "admissible": bool(item.get("admissible", True)),
+                "authoritative": bool(item.get("admissible", True)),
+            }
+        )
+    return passages
+
+
+def _normalize_public_branch_results(items: Any) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        results.append(
+            {
+                "id": item.get("id"),
+                "task_id": item.get("task_id"),
+                "branch_id": item.get("branch_id"),
+                "title": str(item.get("title") or "").strip(),
+                "objective": str(item.get("objective") or "").strip(),
                 "summary": str(item.get("summary") or "").strip(),
+                "key_findings": list(item.get("key_findings") or []),
+                "source_urls": [
+                    canonicalize_source_url(url)
+                    for url in item.get("source_urls", []) or []
+                    if canonicalize_source_url(url)
+                ],
+                "validation_status": str(item.get("validation_status") or "pending").strip(),
             }
         )
-    return items
+    return results
 
 
-def _normalize_revision_issues(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    issues = artifact_store.get("revision_issues", []) if isinstance(artifact_store, dict) else []
-    items: list[dict[str, Any]] = []
-    for issue in issues if isinstance(issues, list) else []:
-        if not isinstance(issue, dict):
+def _normalize_validation_summary(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+
+    summary: dict[str, Any] = {}
+    integer_keys = (
+        "passed_branch_count",
+        "retry_branch_count",
+        "failed_branch_count",
+        "advisory_gap_count",
+    )
+    for key in integer_keys:
+        value = payload.get(key)
+        if value is None:
             continue
-        items.append(
-            {
-                "id": issue.get("id"),
-                "branch_id": issue.get("branch_id"),
-                "task_id": issue.get("task_id"),
-                "issue_type": str(issue.get("issue_type") or "").strip(),
-                "summary": str(issue.get("summary") or "").strip(),
-                "status": str(issue.get("status") or "").strip(),
-                "severity": str(issue.get("severity") or "").strip(),
-                "blocking": bool(issue.get("blocking")),
-                "recommended_action": str(issue.get("recommended_action") or "").strip(),
-                "claim_ids": list(issue.get("claim_ids") or []),
-                "obligation_ids": list(issue.get("obligation_ids") or []),
-                "consistency_result_ids": list(issue.get("consistency_result_ids") or []),
-            }
-        )
-    return items
-
-
-def _normalize_revision_briefs(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    briefs = artifact_store.get("revision_briefs", []) if isinstance(artifact_store, dict) else []
-    items: list[dict[str, Any]] = []
-    for brief in briefs if isinstance(briefs, list) else []:
-        if not isinstance(brief, dict):
+        try:
+            summary[key] = int(value)
+        except (TypeError, ValueError):
             continue
-        items.append(
-            {
-                "id": brief.get("id"),
-                "revision_kind": str(brief.get("revision_kind") or "").strip(),
-                "target_branch_id": brief.get("target_branch_id"),
-                "target_task_id": brief.get("target_task_id"),
-                "source_branch_id": brief.get("source_branch_id"),
-                "source_task_id": brief.get("source_task_id"),
-                "issue_ids": list(brief.get("issue_ids") or []),
-                "summary": str(brief.get("summary") or "").strip(),
-            }
-        )
-    return items
 
-
-def _normalize_knowledge_gaps(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    gaps = artifact_store.get("knowledge_gaps", []) if isinstance(artifact_store, dict) else []
-    items: list[dict[str, Any]] = []
-    for gap in gaps if isinstance(gaps, list) else []:
-        if not isinstance(gap, dict):
+    float_keys = ("coverage_score",)
+    for key in float_keys:
+        value = payload.get(key)
+        if value is None:
             continue
-        items.append(
+        try:
+            summary[key] = float(value)
+        except (TypeError, ValueError):
+            continue
+
+    string_keys = ("status_reason", "notes")
+    for key in string_keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            summary[key] = value.strip()
+
+    raw_summaries = payload.get("summaries")
+    if isinstance(raw_summaries, list):
+        summary["summaries"] = [
             {
-                "id": gap.get("id"),
-                "branch_id": gap.get("branch_id"),
-                "aspect": str(gap.get("aspect") or "").strip(),
-                "importance": str(gap.get("importance") or "").strip(),
-                "reason": str(gap.get("reason") or "").strip(),
-                "suggested_queries": list(gap.get("suggested_queries") or []),
-                "advisory": bool(gap.get("advisory", True)),
+                "id": item.get("id"),
+                "task_id": item.get("task_id"),
+                "branch_id": item.get("branch_id"),
+                "status": str(item.get("status") or "pending").strip(),
+                "score": item.get("score", 0.0),
+                "missing_aspects": list(item.get("missing_aspects") or []),
+                "retry_queries": list(item.get("retry_queries") or []),
+                "notes": str(item.get("notes") or "").strip(),
             }
-        )
-    return items
+            for item in raw_summaries
+            if isinstance(item, dict)
+        ]
 
-
-def _merge_quality_summary(
-    quality_summary: dict[str, Any] | None,
-    claims: list[dict[str, Any]],
-) -> dict[str, Any]:
-    summary = dict(quality_summary or {})
-    if claims:
-        verified = sum(1 for claim in claims if claim.get("status") == "verified")
-        unsupported = sum(1 for claim in claims if claim.get("status") == "unsupported")
-        contradicted = sum(1 for claim in claims if claim.get("status") == "contradicted")
-        summary.setdefault("claim_verifier_total", len(claims))
-        summary.setdefault("claim_verifier_verified", verified)
-        summary.setdefault("claim_verifier_unsupported", unsupported)
-        summary.setdefault("claim_verifier_contradicted", contradicted)
     return summary
+
+
+def _build_query_coverage(
+    quality_summary: dict[str, Any],
+    explicit_query_coverage: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if isinstance(explicit_query_coverage, dict) and explicit_query_coverage:
+        return dict(explicit_query_coverage)
+    score = quality_summary.get("query_coverage_score")
+    if isinstance(score, (int, float)):
+        return {"score": float(score)}
+    nested = quality_summary.get("query_coverage")
+    if isinstance(nested, dict):
+        return dict(nested)
+    return {}
+
+
+def _normalize_control_plane(
+    runtime_state: dict[str, Any],
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    control_plane = dict(payload or {})
+    latest_handoff = control_plane.get("latest_handoff")
+    if not isinstance(latest_handoff, dict):
+        runtime_handoff = runtime_state.get("handoff_envelope")
+        latest_handoff = dict(runtime_handoff) if isinstance(runtime_handoff, dict) else {}
+
+    handoff_history = control_plane.get("handoff_history")
+    if not isinstance(handoff_history, list):
+        raw_history = runtime_state.get("handoff_history")
+        handoff_history = [item for item in raw_history if isinstance(item, dict)] if isinstance(raw_history, list) else []
+
+    return {
+        "active_agent": str(control_plane.get("active_agent") or runtime_state.get("active_agent") or ""),
+        "latest_handoff": dict(latest_handoff),
+        "handoff_history": list(handoff_history),
+    }
+
+
+def _build_public_payload(
+    *,
+    mode: str,
+    engine: str,
+    queries: list[str],
+    scope: dict[str, Any],
+    plan: dict[str, Any],
+    tasks: list[dict[str, Any]],
+    research_topology: dict[str, Any],
+    sources: list[dict[str, Any]],
+    branch_results: list[dict[str, Any]],
+    validation_summary: dict[str, Any],
+    quality_summary: dict[str, Any],
+    final_report: str,
+    executive_summary: str,
+    runtime_state: dict[str, Any],
+    fetched_pages: list[dict[str, Any]],
+    passages: list[dict[str, Any]],
+    query_coverage: dict[str, Any] | None = None,
+    freshness_summary: dict[str, Any] | None = None,
+    control_plane: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved_query_coverage = _build_query_coverage(quality_summary, query_coverage)
+    resolved_freshness = (
+        dict(freshness_summary)
+        if isinstance(freshness_summary, dict)
+        else dict(quality_summary.get("freshness_summary") or {})
+    )
+    return {
+        "mode": mode,
+        "engine": engine,
+        "query": queries[0] if queries else "",
+        "queries": queries,
+        "scope": dict(scope),
+        "plan": dict(plan),
+        "tasks": list(tasks),
+        "research_topology": dict(research_topology),
+        "sources": list(sources),
+        "branch_results": list(branch_results),
+        "validation_summary": dict(validation_summary),
+        "quality_summary": dict(quality_summary),
+        "final_report": final_report,
+        "executive_summary": executive_summary,
+        "runtime_state": dict(runtime_state),
+        "terminal_status": str(runtime_state.get("terminal_status") or ""),
+        "control_plane": _normalize_control_plane(runtime_state, control_plane),
+        "fetched_pages": list(fetched_pages),
+        "passages": list(passages),
+        "query_coverage": resolved_query_coverage,
+        "freshness_summary": resolved_freshness,
+    }
 
 
 def _normalize_lightweight_sources(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
@@ -640,7 +515,10 @@ def _normalize_lightweight_passages(artifact_store: dict[str, Any]) -> list[dict
                     "quote": str(item.get("quote") or "").strip(),
                     "source_title": str(item.get("source_title") or "").strip(),
                     "snippet_hash": str(item.get("snippet_hash") or "").strip(),
+                    "heading": (list(item.get("heading_path") or []) or [None])[0],
                     "heading_path": list(item.get("heading_path") or []),
+                    "admissible": True,
+                    "authoritative": True,
                 }
             )
     return passages
@@ -648,24 +526,7 @@ def _normalize_lightweight_passages(artifact_store: dict[str, Any]) -> list[dict
 
 def _normalize_lightweight_branch_results(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
     items = artifact_store.get("branch_results", []) if isinstance(artifact_store, dict) else []
-    return [
-        {
-            "id": item.get("id"),
-            "task_id": item.get("task_id"),
-            "branch_id": item.get("branch_id"),
-            "title": str(item.get("title") or "").strip(),
-            "objective": str(item.get("objective") or "").strip(),
-            "summary": str(item.get("summary") or "").strip(),
-            "key_findings": list(item.get("key_findings") or []),
-            "source_urls": [
-                canonicalize_source_url(url)
-                for url in item.get("source_urls", []) or []
-                if canonicalize_source_url(url)
-            ],
-            "validation_status": str(item.get("validation_status") or "pending").strip(),
-        }
-        for item in items if isinstance(item, dict)
-    ]
+    return _normalize_public_branch_results(items)
 
 
 def _normalize_lightweight_validation(artifact_store: dict[str, Any]) -> dict[str, Any]:
@@ -709,56 +570,69 @@ def _build_lightweight_public_artifacts(
     engine: str,
 ) -> dict[str, Any]:
     queries = _build_queries(queue_snapshot)
-    runtime_snapshot = runtime_state if isinstance(runtime_state, dict) else {}
-    sources = _normalize_lightweight_sources(store_snapshot)
-    fetched_pages = _normalize_lightweight_fetched_pages(store_snapshot)
-    passages = _normalize_lightweight_passages(store_snapshot)
-    branch_results = _normalize_lightweight_branch_results(store_snapshot)
     validation_summary = _normalize_lightweight_validation(store_snapshot)
-    final_report = store_snapshot.get("final_report") if isinstance(store_snapshot, dict) else {}
-    if not isinstance(final_report, dict):
-        final_report = {}
     merged_quality = dict(quality_summary or {})
     if "query_coverage_score" not in merged_quality and queries:
         passed = int(validation_summary.get("passed_branch_count") or 0)
         merged_quality["query_coverage_score"] = round(passed / max(1, len(queries)), 3)
 
-    return {
-        "mode": mode,
-        "engine": engine,
-        "query": queries[0] if queries else "",
-        "queries": queries,
-        "scope": dict(store_snapshot.get("scope")) if isinstance(store_snapshot.get("scope"), dict) else {},
-        "plan": dict(store_snapshot.get("plan")) if isinstance(store_snapshot.get("plan"), dict) else {},
-        "tasks": _sorted_tasks(queue_snapshot),
-        "research_topology": research_topology if isinstance(research_topology, dict) else {},
-        "sources": sources,
-        "branch_results": branch_results,
-        "validation_summary": validation_summary,
-        "quality_summary": merged_quality,
-        "final_report": str(final_report.get("report_markdown") or ""),
-        "executive_summary": str(final_report.get("executive_summary") or ""),
-        "runtime_state": runtime_snapshot,
-        "terminal_status": str(runtime_snapshot.get("terminal_status") or ""),
-        "control_plane": {
-            "active_agent": str(runtime_snapshot.get("active_agent") or ""),
-        },
-        "fetched_pages": fetched_pages,
-        "passages": passages,
-        "claims": [],
-        "answer_units": [],
-        "coverage_obligations": [],
-        "consistency_results": [],
-        "revision_issues": [],
-        "revision_briefs": [],
-        "knowledge_gaps": [],
-        "query_coverage": (
-            {"score": float(merged_quality.get("query_coverage_score"))}
-            if isinstance(merged_quality.get("query_coverage_score"), (int, float))
-            else {}
-        ),
-        "freshness_summary": dict(merged_quality.get("freshness_summary") or {}),
-    }
+    final_report = store_snapshot.get("final_report")
+    final_report_payload = final_report if isinstance(final_report, dict) else {}
+    runtime_snapshot = runtime_state if isinstance(runtime_state, dict) else {}
+
+    return _build_public_payload(
+        mode=mode,
+        engine=engine,
+        queries=queries,
+        scope=dict(store_snapshot.get("scope")) if isinstance(store_snapshot.get("scope"), dict) else {},
+        plan=dict(store_snapshot.get("plan")) if isinstance(store_snapshot.get("plan"), dict) else {},
+        tasks=_sorted_tasks(queue_snapshot),
+        research_topology=research_topology if isinstance(research_topology, dict) else {},
+        sources=_normalize_lightweight_sources(store_snapshot),
+        branch_results=_normalize_lightweight_branch_results(store_snapshot),
+        validation_summary=validation_summary,
+        quality_summary=merged_quality,
+        final_report=str(final_report_payload.get("report_markdown") or ""),
+        executive_summary=str(final_report_payload.get("executive_summary") or ""),
+        runtime_state=runtime_snapshot,
+        fetched_pages=_normalize_lightweight_fetched_pages(store_snapshot),
+        passages=_normalize_lightweight_passages(store_snapshot),
+    )
+
+
+def _build_legacy_public_artifacts(
+    *,
+    queue_snapshot: dict[str, Any],
+    store_snapshot: dict[str, Any],
+    research_topology: dict[str, Any] | None,
+    quality_summary: dict[str, Any] | None,
+    runtime_state: dict[str, Any] | None,
+    mode: str,
+    engine: str,
+) -> dict[str, Any]:
+    runtime_snapshot = runtime_state if isinstance(runtime_state, dict) else {}
+    final_report = store_snapshot.get("final_report")
+    final_report_payload = final_report if isinstance(final_report, dict) else {}
+    validation_summary = _normalize_validation_summary(runtime_snapshot.get("last_verification_summary"))
+
+    return _build_public_payload(
+        mode=mode,
+        engine=engine,
+        queries=_build_queries(queue_snapshot),
+        scope={},
+        plan={},
+        tasks=_sorted_tasks(queue_snapshot),
+        research_topology=research_topology if isinstance(research_topology, dict) else {},
+        sources=_normalize_legacy_sources(store_snapshot),
+        branch_results=[],
+        validation_summary=validation_summary,
+        quality_summary=dict(quality_summary or {}),
+        final_report=str(final_report_payload.get("report_markdown") or ""),
+        executive_summary=str(final_report_payload.get("executive_summary") or ""),
+        runtime_state=runtime_snapshot,
+        fetched_pages=_normalize_legacy_fetched_pages(store_snapshot),
+        passages=_normalize_legacy_passages(store_snapshot),
+    )
 
 
 def build_public_deep_research_artifacts(
@@ -783,101 +657,61 @@ def build_public_deep_research_artifacts(
             mode=mode,
             engine=engine,
         )
-    public_passages = _normalize_passages(store_snapshot)
-    passages_by_id = {
-        str(item.get("id")): item
-        for item in public_passages
-        if isinstance(item.get("id"), str) and item.get("id")
-    }
-    answer_units = _normalize_answer_units(store_snapshot)
-    branch_validation_summaries = _normalize_branch_validation_summaries(store_snapshot)
-    claims = _normalize_claims(store_snapshot, passages_by_id)
-    obligations = _normalize_obligations(store_snapshot)
-    consistency_results = _normalize_consistency_results(store_snapshot)
-    revision_issues = _normalize_revision_issues(store_snapshot)
-    revision_briefs = _normalize_revision_briefs(store_snapshot)
-    knowledge_gaps = _normalize_knowledge_gaps(store_snapshot)
-    merged_quality = _merge_quality_summary(quality_summary, claims)
-    query_coverage_score = merged_quality.get("query_coverage_score")
-    final_report = store_snapshot.get("final_report") if isinstance(store_snapshot, dict) else {}
-    if not isinstance(final_report, dict):
-        final_report = {}
-    freshness_summary = merged_quality.get("freshness_summary")
-    if not isinstance(freshness_summary, dict):
-        freshness_summary = {}
-    runtime_snapshot = runtime_state if isinstance(runtime_state, dict) else {}
-    latest_handoff = runtime_snapshot.get("handoff_envelope")
-    if not isinstance(latest_handoff, dict):
-        latest_handoff = {}
+    return _build_legacy_public_artifacts(
+        queue_snapshot=queue_snapshot,
+        store_snapshot=store_snapshot,
+        research_topology=research_topology,
+        quality_summary=quality_summary,
+        runtime_state=runtime_state,
+        mode=mode,
+        engine=engine,
+    )
 
-    return {
-        "mode": mode,
-        "engine": engine,
-        "queries": _build_queries(queue_snapshot),
-        "research_topology": research_topology if isinstance(research_topology, dict) else {},
-        "quality_summary": merged_quality,
-        "query_coverage": (
-            {"score": float(query_coverage_score)}
-            if isinstance(query_coverage_score, (int, float))
-            else {}
+
+def _filter_public_artifacts(
+    artifacts: dict[str, Any],
+    *,
+    default_mode: str,
+    default_engine: str,
+) -> dict[str, Any]:
+    quality_summary = dict(artifacts.get("quality_summary") or {}) if isinstance(artifacts.get("quality_summary"), dict) else {}
+    runtime_state = dict(artifacts.get("runtime_state") or {}) if isinstance(artifacts.get("runtime_state"), dict) else {}
+    queries = _coerce_queries(artifacts.get("queries"))
+    if not queries:
+        queries = _coerce_queries(artifacts.get("query"))
+
+    final_report = str(artifacts.get("final_report") or "")
+    executive_summary = str(artifacts.get("executive_summary") or "")
+
+    payload = _build_public_payload(
+        mode=str(artifacts.get("mode") or default_mode or "multi_agent"),
+        engine=str(artifacts.get("engine") or artifacts.get("mode") or default_engine or default_mode or "multi_agent"),
+        queries=queries,
+        scope=dict(artifacts.get("scope")) if isinstance(artifacts.get("scope"), dict) else {},
+        plan=dict(artifacts.get("plan")) if isinstance(artifacts.get("plan"), dict) else {},
+        tasks=_sorted_tasks({"tasks": artifacts.get("tasks")}) if isinstance(artifacts.get("tasks"), list) else [],
+        research_topology=dict(artifacts.get("research_topology")) if isinstance(artifacts.get("research_topology"), dict) else {},
+        sources=_normalize_public_sources(artifacts.get("sources")),
+        branch_results=_normalize_public_branch_results(artifacts.get("branch_results")),
+        validation_summary=_normalize_validation_summary(artifacts.get("validation_summary")),
+        quality_summary=quality_summary,
+        final_report=final_report,
+        executive_summary=executive_summary,
+        runtime_state=runtime_state,
+        fetched_pages=_normalize_public_fetched_pages(artifacts.get("fetched_pages")),
+        passages=_normalize_public_passages(artifacts.get("passages")),
+        query_coverage=dict(artifacts.get("query_coverage")) if isinstance(artifacts.get("query_coverage"), dict) else None,
+        freshness_summary=(
+            dict(artifacts.get("freshness_summary"))
+            if isinstance(artifacts.get("freshness_summary"), dict)
+            else None
         ),
-        "freshness_summary": freshness_summary,
-        "fetched_pages": _normalize_fetched_pages(store_snapshot),
-        "passages": public_passages,
-        "sources": _normalize_sources(store_snapshot),
-        "answer_units": answer_units,
-        "claims": claims,
-        "coverage_obligations": obligations,
-        "consistency_results": consistency_results,
-        "branch_validation_summaries": branch_validation_summaries,
-        "revision_issues": revision_issues,
-        "revision_briefs": revision_briefs,
-        "knowledge_gaps": knowledge_gaps,
-        "research_brief": (
-            dict(store_snapshot.get("research_brief"))
-            if isinstance(store_snapshot.get("research_brief"), dict)
-            else {}
-        ),
-        "task_ledger": (
-            dict(store_snapshot.get("task_ledger"))
-            if isinstance(store_snapshot.get("task_ledger"), dict)
-            else {}
-        ),
-        "progress_ledger": (
-            dict(store_snapshot.get("progress_ledger"))
-            if isinstance(store_snapshot.get("progress_ledger"), dict)
-            else {}
-        ),
-        "coverage_matrix": (
-            dict(store_snapshot.get("coverage_matrix"))
-            if isinstance(store_snapshot.get("coverage_matrix"), dict)
-            else {}
-        ),
-        "contradiction_registry": (
-            dict(store_snapshot.get("contradiction_registry"))
-            if isinstance(store_snapshot.get("contradiction_registry"), dict)
-            else {}
-        ),
-        "missing_evidence_list": (
-            dict(store_snapshot.get("missing_evidence_list"))
-            if isinstance(store_snapshot.get("missing_evidence_list"), dict)
-            else {}
-        ),
-        "outline": (
-            dict(store_snapshot.get("outline"))
-            if isinstance(store_snapshot.get("outline"), dict)
-            else {}
-        ),
-        "coordination_requests": list(store_snapshot.get("coordination_requests") or []),
-        "final_report": str(final_report.get("report_markdown") or ""),
-        "executive_summary": str(final_report.get("executive_summary") or ""),
-        "runtime_state": runtime_snapshot,
-        "control_plane": {
-            "active_agent": str(runtime_snapshot.get("active_agent") or ""),
-            "latest_handoff": dict(latest_handoff),
-            "handoff_history": list(runtime_snapshot.get("handoff_history") or []),
-        },
-    }
+        control_plane=dict(artifacts.get("control_plane")) if isinstance(artifacts.get("control_plane"), dict) else None,
+    )
+
+    if any(payload.get(key) for key in _PUBLIC_SIGNAL_KEYS):
+        return payload
+    return {}
 
 
 def build_public_deep_research_artifacts_from_state(state: dict[str, Any]) -> dict[str, Any]:
@@ -905,21 +739,13 @@ def build_public_deep_research_artifacts_from_state(state: dict[str, Any]) -> di
         )
 
     artifacts = state.get("deep_research_artifacts")
-    if isinstance(artifacts, dict) and any(
-        key in artifacts
-        for key in (
-            "sources",
-            "claims",
-            "branch_results",
-            "scope",
-            "fetched_pages",
-            "queries",
-            "quality_summary",
-            "final_report",
-            "executive_summary",
+    if isinstance(artifacts, dict) and artifacts:
+        mode = resolve_deep_runtime_mode(state, default_mode="multi_agent")
+        return _filter_public_artifacts(
+            artifacts,
+            default_mode=mode,
+            default_engine=str(mode or "multi_agent"),
         )
-    ):
-        return dict(artifacts)
     return {}
 
 

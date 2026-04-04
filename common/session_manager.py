@@ -559,12 +559,7 @@ class SessionManager:
         if not isinstance(state, dict):
             return {}
 
-        public_artifacts = build_public_deep_research_artifacts_from_state(state)
-        if public_artifacts:
-            return public_artifacts
-
-        artifacts = state.get("deep_research_artifacts")
-        return dict(artifacts) if isinstance(artifacts, dict) else {}
+        return build_public_deep_research_artifacts_from_state(state)
 
 
 # Global session manager instance

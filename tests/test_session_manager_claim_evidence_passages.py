@@ -1,7 +1,7 @@
 from common.session_manager import SessionManager
 
 
-def test_session_manager_preserves_claims_with_passage_level_evidence():
+def test_session_manager_drops_legacy_claims_but_preserves_passages():
     manager = SessionManager(checkpointer=object())
 
     state = {
@@ -34,15 +34,12 @@ def test_session_manager_preserves_claims_with_passage_level_evidence():
     }
 
     artifacts = manager._extract_deep_research_artifacts(state)
-    claims = artifacts.get("claims")
-    assert isinstance(claims, list)
-    assert claims, "expected canonical claims to be preserved"
-    claim = (claims or [None])[0] or {}
-    assert isinstance(claim.get("evidence_urls"), list)
-    assert isinstance(claim.get("evidence_passages"), list)
-    assert claim.get("evidence_passages"), "expected evidence_passages to be preserved"
+    assert "claims" not in artifacts
+    passages = artifacts.get("passages")
+    assert isinstance(passages, list)
+    assert passages, "expected passages to be preserved"
 
-    passage = (claim.get("evidence_passages") or [None])[0] or {}
+    passage = (passages or [None])[0] or {}
     assert passage.get("snippet_hash") == "passage_123"
     assert passage.get("heading_path") == ["Results"]
     assert passage.get("url") == "https://example.com/earnings"

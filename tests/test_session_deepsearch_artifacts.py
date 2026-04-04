@@ -121,7 +121,7 @@ def test_session_manager_extracts_query_coverage_from_quality_summary_fallback()
     assert artifacts["query_coverage"]["score"] == 0.6
 
 
-def test_session_manager_preserves_sources_and_claims_in_deep_research_artifacts():
+def test_session_manager_preserves_sources_and_strips_deprecated_artifacts():
     state = {
         "route": "deep",
         "deep_research_artifacts": {
@@ -130,14 +130,9 @@ def test_session_manager_preserves_sources_and_claims_in_deep_research_artifacts
             "research_topology": {"nodes": {"root": {"topic": "AI"}}},
             "quality_summary": {"summary_count": 1, "source_count": 1},
             "sources": [{"title": "Annual Report", "url": "https://example.com/"}],
-            "claims": [
-                {
-                    "claim": "Revenue increased by 20% in 2024.",
-                    "status": "verified",
-                    "evidence_urls": ["https://example.com/"],
-                    "evidence_passages": [],
-                }
-            ],
+            "claims": [{"claim": "deprecated", "status": "verified"}],
+            "answer_units": [{"id": "answer_1"}],
+            "coverage_obligations": [{"id": "obligation_1"}],
             "fetched_pages": [],
             "passages": [],
         },
@@ -150,7 +145,9 @@ def test_session_manager_preserves_sources_and_claims_in_deep_research_artifacts
 
     artifacts = session_state.deep_research_artifacts
     assert artifacts["sources"][0]["url"] == "https://example.com/"
-    assert artifacts["claims"][0]["evidence_urls"][0] == "https://example.com/"
+    assert "claims" not in artifacts
+    assert "answer_units" not in artifacts
+    assert "coverage_obligations" not in artifacts
 
 
 def test_session_manager_extracts_artifacts_from_nested_deep_runtime():
@@ -186,7 +183,7 @@ def test_session_manager_extracts_artifacts_from_nested_deep_runtime():
     assert artifacts["queries"] == ["q1"]
 
 
-def test_session_manager_public_artifacts_expose_answer_units_and_branch_validation_summaries():
+def test_session_manager_public_artifacts_strip_legacy_validation_artifacts():
     state = {
         "route": "deep",
         "deep_runtime": {
@@ -260,8 +257,7 @@ def test_session_manager_public_artifacts_expose_answer_units_and_branch_validat
     assert session_state is not None
     artifacts = session_state.deep_research_artifacts
 
-    assert artifacts["answer_units"][0]["id"] == "answer_1"
-    assert artifacts["branch_validation_summaries"][0]["id"] == "branch_validation_1"
-    assert artifacts["claims"][0]["claim_id"] == "answer_1"
-    assert artifacts["claims"][0]["status"] == "verified"
     assert artifacts["passages"][0]["authoritative"] is True
+    assert "answer_units" not in artifacts
+    assert "claims" not in artifacts
+    assert "branch_validation_summaries" not in artifacts

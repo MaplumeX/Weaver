@@ -17,21 +17,18 @@ async def test_export_report_json_includes_evidence_payload(monkeypatch):
                     "url": "https://example.com/?utm_source=test",
                 }
             ],
-            "claims": [
+            "branch_results": [
                 {
-                    "claim": "Revenue increased by 20% in 2024.",
-                    "status": "verified",
-                    "evidence_urls": ["https://example.com/"],
-                    "evidence_passages": [
-                        {
-                            "url": "https://example.com/",
-                            "snippet_hash": "passage_001",
-                            "quote": "Revenue increased by 20% in 2024.",
-                            "heading_path": ["Financial Highlights"],
-                        }
-                    ],
+                    "id": "branch_1",
+                    "task_id": "task_1",
+                    "branch_id": "branch_1",
+                    "title": "Revenue",
+                    "summary": "Revenue increased by 20% in 2024.",
+                    "source_urls": ["https://example.com/?utm_source=test"],
+                    "validation_status": "passed",
                 }
             ],
+            "validation_summary": {"passed_branch_count": 1},
             "quality_summary": {"summary_count": 1, "source_count": 1},
         },
     }
@@ -52,40 +49,24 @@ async def test_export_report_json_includes_evidence_payload(monkeypatch):
     data = resp.json()
     assert isinstance(data.get("report"), str)
     assert isinstance(data.get("sources"), list)
-    assert isinstance(data.get("claims"), list)
-    assert data.get("claims"), "expected canonical deep research artifacts to include claims"
-    claim = (data.get("claims") or [None])[0] or {}
-    assert isinstance(claim.get("evidence_urls"), list)
-    assert isinstance(claim.get("evidence_passages"), list)
-    assert claim.get("evidence_passages"), "expected at least one passage-level evidence item"
-    passage = (claim.get("evidence_passages") or [None])[0] or {}
-    assert isinstance(passage.get("url"), str)
-    assert "utm_source" not in passage.get("url")
+    assert "claims" not in data
+    assert isinstance(data.get("branch_results"), list)
+    branch_result = (data.get("branch_results") or [None])[0] or {}
+    assert branch_result.get("validation_status") == "passed"
+    assert "utm_source" not in (branch_result.get("source_urls") or [""])[0]
     assert isinstance(data.get("quality"), dict)
 
 
 @pytest.mark.asyncio
-async def test_export_report_json_preserves_passage_level_claim_evidence(monkeypatch):
+async def test_export_report_json_strips_deprecated_claim_artifacts(monkeypatch):
     state = {
         "final_report": "The company's revenue increased in 2024 according to the annual report.",
         "scraped_content": [],
         "deep_research_artifacts": {
-            "claims": [
-                    {
-                        "claim": "The company's revenue increased in 2024.",
-                        "status": "verified",
-                        "evidence_urls": ["https://example.com/earnings"],
-                        "evidence_passages": [
-                            {
-                                "url": "https://example.com/earnings",
-                                "text": "In 2024, the company's revenue increased by 5% year over year.",
-                                "snippet_hash": "passage_123",
-                                "quote": "In 2024, the company's revenue increased by 5% year over year.",
-                                "heading_path": ["Results"],
-                            }
-                    ],
-                }
-            ]
+            "claims": [{"claim": "The company's revenue increased in 2024.", "status": "verified"}],
+            "answer_units": [{"id": "answer_1"}],
+            "coverage_obligations": [{"id": "obligation_1"}],
+            "quality_summary": {"summary_count": 1},
         },
     }
 
@@ -102,14 +83,5 @@ async def test_export_report_json_preserves_passage_level_claim_evidence(monkeyp
 
     assert resp.status_code == 200
     data = resp.json() or {}
-    assert isinstance(data.get("claims"), list)
-    assert data.get("claims")
-    claim = (data.get("claims") or [None])[0] or {}
-    assert claim.get("status") in {"verified", "unsupported", "contradicted"}
-    assert isinstance(claim.get("evidence_urls"), list)
-    assert isinstance(claim.get("evidence_passages"), list)
-    assert claim.get("evidence_passages"), "expected passage-level evidence to be attached"
-    passage = (claim.get("evidence_passages") or [None])[0] or {}
-    assert passage.get("snippet_hash") == "passage_123"
-    assert passage.get("heading_path") == ["Results"]
-    assert "utm_source" not in str(passage.get("url") or "")
+    assert "claims" not in data
+    assert isinstance(data.get("quality"), dict)

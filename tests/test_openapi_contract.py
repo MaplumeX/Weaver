@@ -116,7 +116,7 @@ def test_openapi_has_key_paths_and_distinct_resume_schemas():
     evidence_resolved = _resolve_schema_ref(spec, evidence_schema)
     evidence_props = evidence_resolved.get("properties", {}) or {}
     assert evidence_props.get("sources", {}).get("type") == "array"
-    assert evidence_props.get("claims", {}).get("type") == "array"
+    assert "claims" not in evidence_props
     assert evidence_props.get("fetched_pages", {}).get("type") == "array"
     assert evidence_props.get("passages", {}).get("type") == "array"
 
@@ -129,11 +129,6 @@ def test_openapi_has_key_paths_and_distinct_resume_schemas():
     assert "method" in passage_item_props
     assert "quote" in passage_item_props
     assert "snippet_hash" in passage_item_props
-
-    claim_item = schemas.get("EvidenceClaim", {}) or {}
-    claim_item_props = claim_item.get("properties", {}) or {}
-    assert "evidence_passages" in claim_item_props
-    assert claim_item_props.get("evidence_passages", {}).get("type") == "array"
 
     runs_get = (paths.get("/api/runs/{thread_id}", {}) or {}).get("get", {}) or {}
     runs_schema = (
