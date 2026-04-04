@@ -6,6 +6,7 @@ import copy
 import re
 from typing import Annotated, Any, TypedDict
 
+import agent.runtime.deep.support.runtime_support as support
 from agent.core.context import ResearchWorkerContext
 from agent.runtime.deep.schema import (
     AgentRunRecord,
@@ -20,16 +21,14 @@ from agent.runtime.deep.schema import (
     ReportSectionDraft,
     ResearchSubmission,
     ResearchTask,
-    SourceCandidate,
     ScopeDraft,
+    SourceCandidate,
     WorkerExecutionResult,
     _now_iso,
     is_control_plane_agent,
     validate_control_plane_agent,
 )
 from agent.runtime.deep.services.knowledge_gap import GapAnalysisResult
-import agent.runtime.deep.support.runtime_support as support
-
 
 _COVERAGE_STOPWORDS = {
     "the",
@@ -309,7 +308,7 @@ def scope_draft_from_payload(payload: dict[str, Any] | None) -> ScopeDraft | Non
         source_preferences=coerce_string_list(payload.get("source_preferences")),
         deliverable_preferences=coerce_string_list(payload.get("deliverable_preferences")),
         assumptions=coerce_string_list(payload.get("assumptions")),
-        intake_summary=copy.deepcopy(payload.get("intake_summary") or {}),
+        clarification_context=copy.deepcopy(payload.get("clarification_context") or {}),
         feedback=str(payload.get("feedback") or ""),
         status=str(payload.get("status") or "awaiting_review"),
         created_by=str(payload.get("created_by") or "scope"),
@@ -399,7 +398,7 @@ def build_scope_draft(
     topic: str,
     version: int,
     draft_payload: dict[str, Any],
-    intake_summary: dict[str, Any],
+    clarification_context: dict[str, Any],
     feedback: str,
     agent_id: str,
     previous: dict[str, Any] | None = None,
@@ -424,16 +423,24 @@ def build_scope_draft(
         out_of_scope=coerce_string_list(draft_payload.get("out_of_scope"))
         or (previous_draft.out_of_scope if previous_draft else []),
         constraints=coerce_string_list(draft_payload.get("constraints"))
-        or coerce_string_list(intake_summary.get("constraints"))
+        or coerce_string_list(
+            (clarification_context.get("resolved_slots") or {}).get("constraints")
+            if isinstance(clarification_context.get("resolved_slots"), dict)
+            else []
+        )
         or (previous_draft.constraints if previous_draft else []),
         source_preferences=coerce_string_list(draft_payload.get("source_preferences"))
-        or coerce_string_list(intake_summary.get("source_preferences"))
+        or coerce_string_list(
+            (clarification_context.get("resolved_slots") or {}).get("source_preferences")
+            if isinstance(clarification_context.get("resolved_slots"), dict)
+            else []
+        )
         or (previous_draft.source_preferences if previous_draft else []),
         deliverable_preferences=coerce_string_list(draft_payload.get("deliverable_preferences"))
         or (previous_draft.deliverable_preferences if previous_draft else []),
         assumptions=coerce_string_list(draft_payload.get("assumptions"))
         or (previous_draft.assumptions if previous_draft else []),
-        intake_summary=copy.deepcopy(intake_summary),
+        clarification_context=copy.deepcopy(clarification_context),
         feedback=feedback,
         status="awaiting_review",
         created_by=agent_id,

@@ -420,7 +420,7 @@ class MultiAgentDeepResearchRuntime:
             "clarify_question": "",
             "clarify_question_history": [],
             "clarify_answer_history": [],
-            "intake_summary": {},
+            "clarification_state": {},
             "current_scope_draft": {},
             "approved_scope_draft": {},
             "scope_revision_count": 0,
@@ -987,12 +987,12 @@ class MultiAgentDeepResearchRuntime:
             clarify_answers=clarify_answers,
             clarify_history=clarify_history,
         )
-        intake_summary = copy.deepcopy(result.get("intake_summary") or {})
-        parts.runtime_state["intake_summary"] = intake_summary
-        question = str(result.get("question") or "").strip()
-        needs_clarification = bool(result.get("needs_clarification"))
+        clarification_state = copy.deepcopy(result or {})
+        status = str(clarification_state.get("status") or "ready_for_scope").strip().lower()
+        question = str(clarification_state.get("follow_up_question") or "").strip()
+        parts.runtime_state["clarification_state"] = clarification_state
 
-        if needs_clarification and question and self.allow_interrupts and len(clarify_answers) < self.max_clarify_rounds:
+        if status == "needs_user_input" and question and self.allow_interrupts and not clarify_answers:
             prompt = {
                 "checkpoint": "deep_research_clarify",
                 "message": question,
@@ -1012,11 +1012,21 @@ class MultiAgentDeepResearchRuntime:
             parts.runtime_state["intake_status"] = "pending"
             return self._patch(parts, next_step="clarify")
 
+        if status == "needs_user_input":
+            clarification_state["status"] = "ready_for_scope"
+            clarification_state["follow_up_question"] = ""
+            clarification_state["blocking_slot"] = "none"
+            parts.runtime_state["clarification_state"] = clarification_state
+
         parts.runtime_state["clarify_question"] = ""
         parts.runtime_state["intake_status"] = "ready_for_scope"
-        reason = question if needs_clarification and question else "intake ready"
+        reason = (
+            "clarify complete; remaining ambiguity delegated to scope"
+            if status == "needs_user_input"
+            else "clarify ready"
+        )
         self._emit_decision("scope_ready", reason, iteration=max(1, parts.current_iteration or 1))
-        self._finish_agent_run(parts, record, status="completed", summary=str(intake_summary.get("research_goal") or reason))
+        self._finish_agent_run(parts, record, status="completed", summary=reason)
         return self._patch(parts, next_step="scope")
 
     def _route_after_clarify(self, graph_state: MultiAgentGraphState) -> str:
@@ -1029,7 +1039,7 @@ class MultiAgentDeepResearchRuntime:
         parts = self._unpack(graph_state)
         parts.runtime_state["active_agent"] = "scope"
         record = self._start_agent_run(parts, role="scope", phase="scope", attempt=self.graph_attempt)
-        intake_summary = copy.deepcopy(parts.runtime_state.get("intake_summary") or {})
+        clarification_state = copy.deepcopy(parts.runtime_state.get("clarification_state") or {})
         current_scope_payload = copy.deepcopy(parts.runtime_state.get("current_scope_draft") or {})
         pending_feedback = ""
         feedback_history = list(parts.runtime_state.get("scope_feedback_history") or [])
@@ -1038,7 +1048,7 @@ class MultiAgentDeepResearchRuntime:
 
         scope_payload = self.scope_agent.create_scope(
             self.topic,
-            intake_summary=intake_summary,
+            clarification_state=clarification_state,
             previous_scope=current_scope_payload if pending_feedback else {},
             scope_feedback=pending_feedback,
             clarify_transcript=_build_clarify_transcript(
@@ -1052,7 +1062,7 @@ class MultiAgentDeepResearchRuntime:
             topic=self.topic,
             version=next_version,
             draft_payload=scope_payload,
-            intake_summary=intake_summary,
+            clarification_context=clarification_state,
             feedback=pending_feedback,
             agent_id=record.get("agent_id", "scope"),
             previous=current_scope_payload if pending_feedback else None,

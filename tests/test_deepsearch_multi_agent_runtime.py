@@ -1,6 +1,6 @@
+import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
-import pytest
 
 import agent.runtime.deep.orchestration.graph as multi_agent_runtime
 from agent.core.state import build_deep_runtime_snapshot
@@ -81,17 +81,19 @@ class _FakeClarifyAgent:
 
     def assess_intake(self, topic, clarify_answers=None, clarify_history=None):
         return {
-            "needs_clarification": False,
-            "question": "",
-            "missing_information": [],
-            "intake_summary": {
-                "research_goal": f"Research {topic}",
-                "background": f"Known context for {topic}",
-                "constraints": [],
+            "status": "ready_for_scope",
+            "follow_up_question": "",
+            "blocking_slot": "none",
+            "resolved_slots": {
+                "goal": f"Research {topic}",
                 "time_range": "",
                 "source_preferences": [],
+                "constraints": [],
                 "exclusions": [],
+                "deliverable_preferences": [],
             },
+            "unresolved_slots": [],
+            "asked_slots": [],
         }
 
 
@@ -102,11 +104,13 @@ class _FakeScopeAgent:
     def create_scope(
         self,
         topic,
-        intake_summary=None,
+        clarification_state=None,
         previous_scope=None,
         scope_feedback="",
         clarify_transcript=None,
     ):
+        clarification_state = clarification_state or {}
+        resolved_slots = clarification_state.get("resolved_slots") or {}
         previous_scope = previous_scope or {}
         if scope_feedback and previous_scope:
             base_questions = list(previous_scope.get("core_questions") or [])
@@ -126,7 +130,7 @@ class _FakeScopeAgent:
                 "assumptions": [scope_feedback],
             }
         return {
-            "research_goal": intake_summary.get("research_goal") or f"Research {topic}",
+            "research_goal": resolved_slots.get("goal") or f"Research {topic}",
             "research_steps": [
                 f"Collect the latest evidence about the current state of {topic}",
                 f"Break down the most important questions and trade-offs in {topic}",
@@ -135,8 +139,8 @@ class _FakeScopeAgent:
             "core_questions": [f"What is the current state of {topic}?", f"What are the key trade-offs in {topic}?"],
             "in_scope": [f"{topic} market and roadmap", f"{topic} ecosystem"],
             "out_of_scope": ["unrelated consumer gadgets"],
-            "constraints": intake_summary.get("constraints") or [],
-            "source_preferences": intake_summary.get("source_preferences") or [],
+            "constraints": resolved_slots.get("constraints") or [],
+            "source_preferences": resolved_slots.get("source_preferences") or [],
             "deliverable_preferences": ["Comparative report"],
             "assumptions": [],
         }
@@ -927,37 +931,41 @@ def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
             )
             if not clarify_answers:
                 return {
-                    "needs_clarification": True,
-                    "question": "What time range should the research cover?",
-                    "missing_information": ["time_range"],
-                    "intake_summary": {
-                        "research_goal": f"Research {topic}",
-                        "background": f"Known context for {topic}",
-                        "constraints": [],
+                    "status": "needs_user_input",
+                    "follow_up_question": "What time range should the research cover?",
+                    "blocking_slot": "time_range",
+                    "resolved_slots": {
+                        "goal": f"Research {topic}",
                         "time_range": "",
                         "source_preferences": [],
+                        "constraints": [],
                         "exclusions": [],
+                        "deliverable_preferences": [],
                     },
+                    "unresolved_slots": ["time_range"],
+                    "asked_slots": ["time_range"],
                 }
             return {
-                "needs_clarification": False,
-                "question": "",
-                "missing_information": [],
-                "intake_summary": {
-                    "research_goal": f"Research {topic}",
-                    "background": f"Known context for {topic}",
-                    "constraints": [],
+                "status": "ready_for_scope",
+                "follow_up_question": "",
+                "blocking_slot": "none",
+                "resolved_slots": {
+                    "goal": f"Research {topic}",
                     "time_range": clarify_answers[-1],
                     "source_preferences": [],
+                    "constraints": [],
                     "exclusions": [],
+                    "deliverable_preferences": [],
                 },
+                "unresolved_slots": [],
+                "asked_slots": ["time_range"],
             }
 
     class _ScopeCapture(_FakeScopeAgent):
         def create_scope(
             self,
             topic,
-            intake_summary=None,
+            clarification_state=None,
             previous_scope=None,
             scope_feedback="",
             clarify_transcript=None,
@@ -965,7 +973,7 @@ def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
             scope_calls.append(list(clarify_transcript or []))
             return super().create_scope(
                 topic,
-                intake_summary=intake_summary,
+                clarification_state=clarification_state,
                 previous_scope=previous_scope,
                 scope_feedback=scope_feedback,
                 clarify_transcript=clarify_transcript,
@@ -1014,3 +1022,57 @@ def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
             }
         ]
     ]
+
+
+def test_multi_agent_clarify_forces_scope_after_single_user_answer(monkeypatch):
+    emitter = _DummyEmitter()
+
+    class _ClarifyAsksTwice:
+        def __init__(self, _llm, _config=None):
+            pass
+
+        def assess_intake(self, topic, clarify_answers=None, clarify_history=None):
+            answer = str((clarify_answers or [""])[-1] or "").strip()
+            return {
+                "status": "needs_user_input",
+                "follow_up_question": "Which sources should the research prioritize?",
+                "blocking_slot": "source_preferences",
+                "resolved_slots": {
+                    "goal": f"Research {topic}",
+                    "time_range": "",
+                    "source_preferences": [answer] if answer else [],
+                    "constraints": [],
+                    "exclusions": [],
+                    "deliverable_preferences": [],
+                },
+                "unresolved_slots": ["source_preferences"],
+                "asked_slots": ["source_preferences"],
+            }
+
+    _patch_runtime_deps(
+        monkeypatch,
+        emitter=emitter,
+        clarify=_ClarifyAsksTwice,
+        supervisor=_SingleTaskSupervisor,
+    )
+
+    config = {
+        "configurable": {
+            "thread_id": "thread_single_clarify_round",
+            "allow_interrupts": True,
+            "deep_research_query_num": 1,
+        }
+    }
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        config,
+    )
+    graph = runtime.build_graph(checkpointer=MemorySaver())
+
+    first = graph.invoke(runtime.build_initial_graph_state(), config)
+    assert "__interrupt__" in first
+    assert first["__interrupt__"][0].value["checkpoint"] == "deep_research_clarify"
+
+    second = graph.invoke(Command(resume={"clarify_answer": "Use official filings"}), config)
+    assert "__interrupt__" in second
+    assert second["__interrupt__"][0].value["checkpoint"] == "deep_research_scope_review"

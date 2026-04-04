@@ -19,17 +19,19 @@ def test_clarify_agent_prompt_includes_question_answer_history():
     llm = _CaptureLLM(
         """```json
         {
-          "needs_clarification": false,
-          "question": "",
-          "missing_information": [],
-          "intake_summary": {
-            "research_goal": "Analyze AI chips",
-            "background": "",
-            "constraints": [],
+          "status": "ready_for_scope",
+          "follow_up_question": "",
+          "blocking_slot": "none",
+          "resolved_slots": {
+            "goal": "Analyze AI chips",
             "time_range": "Only 2024",
             "source_preferences": [],
-            "exclusions": []
-          }
+            "constraints": [],
+            "exclusions": [],
+            "deliverable_preferences": []
+          },
+          "unresolved_slots": [],
+          "asked_slots": ["time_range"]
         }
         ```"""
     )
@@ -49,7 +51,7 @@ def test_clarify_agent_prompt_includes_question_answer_history():
     prompt = llm.messages[0].content
     assert "Q: What time range should the research cover?" in prompt
     assert "A: Only 2024" in prompt
-    assert result["intake_summary"]["time_range"] == "Only 2024"
+    assert result["resolved_slots"]["time_range"] == "Only 2024"
 
 
 def test_scope_agent_prompt_and_fallback_include_clarify_transcript():
@@ -72,7 +74,17 @@ def test_scope_agent_prompt_and_fallback_include_clarify_transcript():
 
     result = agent.create_scope(
         "AI chips",
-        intake_summary={"research_goal": "Analyze AI chips"},
+        clarification_state={
+            "resolved_slots": {
+                "goal": "Analyze AI chips",
+                "time_range": "",
+                "source_preferences": [],
+                "constraints": [],
+                "exclusions": [],
+                "deliverable_preferences": [],
+            },
+            "unresolved_slots": [],
+        },
         clarify_transcript=[
             {
                 "question": "Which sources should the research prioritize?",
@@ -85,6 +97,29 @@ def test_scope_agent_prompt_and_fallback_include_clarify_transcript():
     assert "Q: Which sources should the research prioritize?" in prompt
     assert "A: Use official filings and earnings calls as sources." in prompt
     assert result["source_preferences"] == ["Use official filings and earnings calls as sources."]
+
+
+def test_scope_agent_turns_unresolved_slots_into_assumptions():
+    llm = _CaptureLLM("{}")
+    agent = DeepResearchScopeAgent(llm)
+
+    result = agent.create_scope(
+        "AI chips",
+        clarification_state={
+            "resolved_slots": {
+                "goal": "Analyze AI chips",
+                "time_range": "",
+                "source_preferences": [],
+                "constraints": [],
+                "exclusions": [],
+                "deliverable_preferences": [],
+            },
+            "unresolved_slots": ["time_range", "source_preferences"],
+        },
+    )
+
+    assert "Clarification still needed for time_range." in result["assumptions"]
+    assert "Clarification still needed for source_preferences." in result["assumptions"]
 
 
 def test_gap_analysis_prompt_avoids_fixed_score_examples():

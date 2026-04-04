@@ -122,7 +122,8 @@ flowchart LR
 
 - `clarify`
   - 调用 `DeepResearchClarifyAgent.assess_intake()`。
-  - 产出 `intake_summary`、是否需要用户补充信息、下一轮澄清问题。
+  - 产出结构化 `clarification_state`，包含 `status`、`resolved_slots`、`unresolved_slots`、`asked_slots`、`follow_up_question`。
+  - clarifier 只承担 intake gate，不再生成 research brief 或 summary。
   - 当 `allow_interrupts=true` 时，会通过 `interrupt()` 触发 `deep_research_clarify` 检查点。
 
 - `scope`

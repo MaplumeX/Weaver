@@ -1124,28 +1124,32 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
     if session.role == "clarify":
         @tool
         def fabric_submit_intake_assessment(
-            needs_clarification: bool,
-            question: str = "",
-            missing_information: list[str] | None = None,
-            research_goal: str = "",
-            background: str = "",
+            status: str,
+            follow_up_question: str = "",
+            blocking_slot: str = "none",
+            unresolved_slots: list[str] | None = None,
+            goal: str = "",
             constraints: list[str] | None = None,
             time_range: str = "",
             source_preferences: list[str] | None = None,
             exclusions: list[str] | None = None,
+            deliverable_preferences: list[str] | None = None,
+            asked_slots: list[str] | None = None,
         ) -> dict[str, Any]:
             """Submit the normalized clarify result for the current intake step."""
             payload = {
-                "needs_clarification": bool(needs_clarification),
-                "question": str(question or "").strip(),
-                "missing_information": _normalize_ids(missing_information),
-                "intake_summary": {
-                    "research_goal": str(research_goal or session.topic).strip() or session.topic,
-                    "background": str(background or "").strip(),
-                    "constraints": _normalize_ids(constraints),
+                "status": str(status or "").strip() or "ready_for_scope",
+                "follow_up_question": str(follow_up_question or "").strip(),
+                "blocking_slot": str(blocking_slot or "none").strip() or "none",
+                "unresolved_slots": _normalize_ids(unresolved_slots),
+                "asked_slots": _normalize_ids(asked_slots),
+                "resolved_slots": {
+                    "goal": str(goal or "").strip(),
                     "time_range": str(time_range or "").strip(),
                     "source_preferences": _normalize_ids(source_preferences),
+                    "constraints": _normalize_ids(constraints),
                     "exclusions": _normalize_ids(exclusions),
+                    "deliverable_preferences": _normalize_ids(deliverable_preferences),
                 },
             }
             return session.submit_control_plane_result(payload)

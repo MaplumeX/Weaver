@@ -148,7 +148,7 @@ class DeepResearchScopeAgent:
         self,
         topic: str,
         *,
-        intake_summary: dict[str, Any] | None = None,
+        clarification_state: dict[str, Any] | None = None,
         previous_scope: dict[str, Any] | None = None,
         scope_feedback: str = "",
         clarify_transcript: list[dict[str, str]] | None = None,
@@ -156,7 +156,7 @@ class DeepResearchScopeAgent:
         prompt = ChatPromptTemplate.from_messages([("user", SCOPE_PROMPT)])
         msg = prompt.format_messages(
             topic=topic,
-            intake_summary=json.dumps(intake_summary or {}, ensure_ascii=False, indent=2),
+            clarification_state=json.dumps(clarification_state or {}, ensure_ascii=False, indent=2),
             clarify_transcript=_format_clarify_transcript(clarify_transcript),
             previous_scope=json.dumps(previous_scope or {}, ensure_ascii=False, indent=2),
             scope_feedback=scope_feedback or "None",
@@ -166,7 +166,7 @@ class DeepResearchScopeAgent:
         return self._parse_response(
             content,
             topic=topic,
-            intake_summary=intake_summary or {},
+            clarification_state=clarification_state or {},
             previous_scope=previous_scope or {},
             scope_feedback=scope_feedback,
             clarify_transcript=clarify_transcript or [],
@@ -177,7 +177,7 @@ class DeepResearchScopeAgent:
         content: str,
         *,
         topic: str,
-        intake_summary: dict[str, Any],
+        clarification_state: dict[str, Any],
         previous_scope: dict[str, Any],
         scope_feedback: str,
         clarify_transcript: list[dict[str, str]],
@@ -187,21 +187,28 @@ class DeepResearchScopeAgent:
             payload = {}
 
         transcript_answers = _extract_transcript_answers(clarify_transcript)
+        resolved_slots = (
+            clarification_state.get("resolved_slots")
+            if isinstance(clarification_state.get("resolved_slots"), dict)
+            else {}
+        )
+        unresolved_slots = _coerce_string_list(clarification_state.get("unresolved_slots"))
+        goal = str(resolved_slots.get("goal") or "").strip()
+        time_range = str(resolved_slots.get("time_range") or "").strip()
         research_goal = str(
             payload.get("research_goal")
-            or intake_summary.get("research_goal")
+            or goal
             or previous_scope.get("research_goal")
             or topic
         ).strip() or topic
-        background = str(intake_summary.get("background") or "").strip()
         constraints = _coerce_string_list(payload.get("constraints")) or _coerce_string_list(
-            intake_summary.get("constraints")
+            resolved_slots.get("constraints")
         )
         source_preferences = _coerce_string_list(payload.get("source_preferences")) or _coerce_string_list(
-            intake_summary.get("source_preferences")
+            resolved_slots.get("source_preferences")
         )
         out_of_scope = _coerce_string_list(payload.get("out_of_scope")) or _coerce_string_list(
-            intake_summary.get("exclusions")
+            resolved_slots.get("exclusions")
         )
         research_steps = _coerce_string_list(payload.get("research_steps"))
         core_questions = _coerce_string_list(payload.get("core_questions"))
@@ -213,9 +220,9 @@ class DeepResearchScopeAgent:
         in_scope = _coerce_string_list(payload.get("in_scope"))
         if not in_scope:
             in_scope = [research_goal]
-            if background:
-                in_scope.append(background)
-        deliverable_preferences = _coerce_string_list(payload.get("deliverable_preferences"))
+        deliverable_preferences = _coerce_string_list(
+            payload.get("deliverable_preferences")
+        ) or _coerce_string_list(resolved_slots.get("deliverable_preferences"))
         assumptions = _coerce_string_list(payload.get("assumptions"))
 
         if not constraints and transcript_answers:
@@ -236,6 +243,11 @@ class DeepResearchScopeAgent:
                 ):
                     out_of_scope.append(answer)
 
+        if time_range:
+            time_range_constraint = f"Time range: {time_range}"
+            if time_range_constraint not in constraints:
+                constraints.append(time_range_constraint)
+
         if not research_steps:
             research_steps = _default_research_steps(
                 topic=topic,
@@ -247,6 +259,10 @@ class DeepResearchScopeAgent:
                 deliverable_preferences=deliverable_preferences,
                 scope_feedback=scope_feedback,
             )
+        for slot in unresolved_slots:
+            assumption = f"Clarification still needed for {slot}."
+            if assumption not in assumptions:
+                assumptions.append(assumption)
         if scope_feedback:
             assumptions.append(f"Revision requested: {scope_feedback}")
 

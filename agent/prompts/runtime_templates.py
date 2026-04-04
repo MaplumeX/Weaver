@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 ROUTING_CLARIFY_SYSTEM_PROMPT = """
 You are a safety check that decides if the user's request needs clarification before research.
 If the ask is ambiguous, missing key details, or multi-intent, set need_clarification=true and propose ONE concise question.
@@ -86,7 +85,7 @@ DEEP_CLARIFY_PROMPT = """
 You are the Deep Research intake clarifier.
 
 # Task
-Decide whether the current request has enough information to draft a research scope.
+Decide whether the current request needs one final clarification before scope drafting.
 
 # Original topic
 {topic}
@@ -95,27 +94,31 @@ Decide whether the current request has enough information to draft a research sc
 {clarify_history}
 
 # Requirements
-1. If key details are missing, ask one focused follow-up question.
-2. If the request is already specific enough, do not ask another question.
-3. Always produce a normalized intake summary for the scope agent.
-4. Keep missing_information concise and actionable.
-5. Ground the intake summary in the full clarification transcript, not just the latest answer.
+1. You are a clarification gate, not a scope writer.
+2. Do not write a research brief, scope summary, or background narrative.
+3. Fill structured clarification slots from the topic and transcript.
+4. If one blocking detail is still missing and no follow-up has been asked yet, ask exactly one focused question.
+5. If the transcript already contains one user answer, do not ask a second follow-up question. Mark any remaining ambiguity as unresolved and return `ready_for_scope`.
+6. Allowed blocking slots are: `goal`, `time_range`, `source_preferences`, `exclusions`, `constraints`, `deliverable_preferences`.
+7. If the request is already workable for scope drafting, return `ready_for_scope` even if some details are still unresolved.
 
 # Output
 Return a JSON object:
 ```json
 {{
-  "needs_clarification": true,
-  "question": "One focused question for the user",
-  "missing_information": ["goal", "time_range"],
-  "intake_summary": {{
-    "research_goal": "What the user wants to learn",
-    "background": "Relevant context already known",
-    "constraints": ["Any hard constraints"],
-    "time_range": "Time period if specified",
-    "source_preferences": ["Preferred source types"],
-    "exclusions": ["Out-of-scope items"]
-  }}
+  "status": "needs_user_input",
+  "follow_up_question": "One focused question for the user",
+  "blocking_slot": "time_range",
+  "resolved_slots": {{
+    "goal": "",
+    "time_range": "",
+    "source_preferences": [],
+    "constraints": [],
+    "exclusions": [],
+    "deliverable_preferences": []
+  }},
+  "unresolved_slots": ["time_range"],
+  "asked_slots": ["time_range"]
 }}
 ```
 """.strip()
@@ -128,8 +131,8 @@ You are the Deep Research scope agent.
 # Original topic
 {topic}
 
-# Normalized intake summary
-{intake_summary}
+# Clarification state
+{clarification_state}
 
 # Clarification transcript
 {clarify_transcript}
@@ -145,11 +148,12 @@ Produce a structured scope draft for the research planner.
 
 # Requirements
 1. The draft must be concrete and reviewable by a human.
-2. Capture goals, key questions, in-scope items, out-of-scope items, constraints, and source preferences.
-3. Include 3-7 concrete `research_steps` that explain how the research will be carried out.
-4. The `research_steps` must read like a reviewable step outline for the user, not like raw search queries.
-5. If scope_feedback is present, rewrite the draft based on the previous draft and the feedback.
-6. Do not generate final answers, exhaustive evidence, or low-level execution logs.
+2. Treat `resolved_slots` as the main structured input from clarify.
+3. If `unresolved_slots` is not empty, convert that uncertainty into explicit assumptions instead of asking more questions.
+4. Include 3-7 concrete `research_steps` that explain how the research will be carried out.
+5. The `research_steps` must read like a reviewable step outline for the user, not like raw search queries.
+6. If scope_feedback is present, rewrite the draft based on the previous draft and the feedback.
+7. Do not generate final answers, exhaustive evidence, or low-level execution logs.
 
 # Output
 Return a JSON object:

@@ -1002,7 +1002,7 @@ class ScopeDraft:
     source_preferences: list[str] = field(default_factory=list)
     deliverable_preferences: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
-    intake_summary: dict[str, Any] = field(default_factory=dict)
+    clarification_context: dict[str, Any] = field(default_factory=dict)
     feedback: str = ""
     status: ScopeDraftStatus = "awaiting_review"
     created_by: str = "scope"
