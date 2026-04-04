@@ -2,11 +2,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 import pytest
 
-import agent.runtime.deep.orchestration.graph as multi_agent_graph
 import agent.runtime.deep.orchestration.graph as multi_agent_runtime
 from agent.core.state import build_deep_runtime_snapshot
 from agent.runtime.deep.orchestration import run_multi_agent_deep_research
-from agent.runtime.deep.roles.supervisor import SupervisorAction, SupervisorDecision
 from agent.runtime.deep.support.tool_agents import (
     DeepResearchToolAgentSession,
     build_deep_research_fabric_tools,
@@ -64,25 +62,17 @@ class _FakeSupervisor:
     def refine_plan(self, topic, gaps, existing_queries, num_queries=3, approved_scope=None):
         return []
 
-    def decide_next_action(self, **kwargs):
-        if kwargs.get("retry_task_ids"):
-            return SupervisorDecision(
-                action=SupervisorAction.RETRY_BRANCH,
-                reasoning="retry branch",
-                retry_task_ids=list(kwargs.get("retry_task_ids") or []),
-                request_ids=list(kwargs.get("request_ids") or []),
-            )
-        if int(kwargs.get("ready_task_count") or 0) > 0:
-            return SupervisorDecision(
-                action=SupervisorAction.DISPATCH,
-                reasoning="dispatch ready branches",
-                request_ids=list(kwargs.get("request_ids") or []),
-            )
-        return SupervisorDecision(
-            action=SupervisorAction.REPORT,
-            reasoning="evidence is sufficient",
-            request_ids=list(kwargs.get("request_ids") or []),
-        )
+
+class _SingleTaskSupervisor(_FakeSupervisor):
+    def create_plan(
+        self,
+        topic,
+        num_queries=5,
+        existing_knowledge="",
+        existing_queries=None,
+        approved_scope=None,
+    ):
+        return _default_plan(topic)[:1]
 
 
 class _FakeClarifyAgent:
@@ -174,6 +164,29 @@ class _FakeResearchAgent:
         return f"{topic} -> {results[0]['title']}"
 
 
+class _FlakyResearchAgent(_FakeResearchAgent):
+    def __init__(self, _llm, search_func, config=None):
+        super().__init__(_llm, search_func, config=config)
+        self.calls = {}
+
+    def execute_queries(self, queries, max_results_per_query=5):
+        query = queries[0]
+        self.calls[query] = self.calls.get(query, 0) + 1
+        if self.calls[query] == 1:
+            return []
+        return super().execute_queries(queries, max_results_per_query=max_results_per_query)
+
+
+class _CompleteCriteriaResearchAgent(_FakeResearchAgent):
+    def summarize_findings(self, topic, results, existing_summary=""):
+        return f"Explain the current state of {topic} aspect 1"
+
+
+class _IncompleteResearchAgent(_FakeResearchAgent):
+    def summarize_findings(self, topic, results, existing_summary=""):
+        return "Unrelated memo"
+
+
 class _FakeVerifier:
     def __init__(self, _llm, _config=None):
         pass
@@ -214,6 +227,41 @@ class _GapingVerifier:
         )
 
 
+class _EventuallyPassingVerifier:
+    def __init__(self, _llm, _config=None):
+        self.calls = {}
+
+    def analyze(self, topic, executed_queries, collected_knowledge):
+        self.calls[topic] = self.calls.get(topic, 0) + 1
+        if self.calls[topic] == 1:
+            return multi_agent_runtime.GapAnalysisResult.from_dict(
+                {
+                    "overall_coverage": 0.25,
+                    "confidence": 0.52,
+                    "gaps": [
+                        {
+                            "aspect": f"{topic} follow-up",
+                            "importance": "high",
+                            "reason": "needs another pass",
+                        }
+                    ],
+                    "suggested_queries": [f"{topic} second pass"],
+                    "covered_aspects": [],
+                    "analysis": "first pass incomplete",
+                }
+            )
+        return multi_agent_runtime.GapAnalysisResult.from_dict(
+            {
+                "overall_coverage": 0.91,
+                "confidence": 0.86,
+                "gaps": [],
+                "suggested_queries": [],
+                "covered_aspects": ["aspect 1"],
+                "analysis": "retry closed the gap",
+            }
+        )
+
+
 class _FakeReporter:
     def __init__(self, _llm, _config=None):
         pass
@@ -250,100 +298,12 @@ class _FakeReporter:
         return f"{topic} executive summary"
 
 
-class _StrictReporter(_FakeReporter):
-    def generate_report(self, topic_or_context, findings=None, sources=None):
-        topic = topic_or_context.topic if hasattr(topic_or_context, "topic") else topic_or_context
-        raise AssertionError(f"reporter fallback should not run for {topic}")
-
-    def generate_executive_summary(self, report, topic):
-        raise AssertionError(f"reporter fallback should not run for {topic}")
-
-
 class _ContextCheckingReporter(_FakeReporter):
     def generate_report(self, topic_or_context, findings=None, sources=None):
         assert hasattr(topic_or_context, "sections")
         assert topic_or_context.sections
         assert topic_or_context.sources
         return super().generate_report(topic_or_context, findings=findings, sources=sources)
-
-
-class _SingleTaskSupervisor(_FakeSupervisor):
-    def create_plan(
-        self,
-        topic,
-        num_queries=5,
-        existing_knowledge="",
-        existing_queries=None,
-        approved_scope=None,
-    ):
-        return _default_plan(topic)[:1]
-
-
-_BRANCH_ARTIFACT_TYPES = {
-    "branch_brief",
-    "source_candidate",
-    "fetched_document",
-    "evidence_passage",
-    "evidence_card",
-    "branch_synthesis",
-    "report_section_draft",
-    "coordination_request",
-    "research_submission",
-    "verification_result",
-    "verification_submission",
-}
-
-_LOOP_DECISION_TYPES = {
-    "research",
-    "retry_branch",
-    "verification_retry_requested",
-    "coverage_gap_detected",
-    "verification_passed",
-    "outline_gap_detected",
-    "outline_ready",
-    "synthesize",
-    "complete",
-    "budget_stop",
-}
-
-
-class _BudgetAwareSupervisor(_FakeSupervisor):
-    def decide_next_action(self, **kwargs):
-        if kwargs.get("budget_stop_reason"):
-            return SupervisorDecision(
-                action=SupervisorAction.REPORT,
-                reasoning="stop after budget exhaustion",
-                request_ids=list(kwargs.get("request_ids") or []),
-            )
-        return super().decide_next_action(**kwargs)
-
-
-class _FlakyResearchAgent(_FakeResearchAgent):
-    def __init__(self, _llm, search_func, config=None):
-        super().__init__(_llm, search_func, config=config)
-        self.calls = {}
-
-    def execute_queries(self, queries, max_results_per_query=5):
-        query = queries[0]
-        self.calls[query] = self.calls.get(query, 0) + 1
-        if self.calls[query] == 1:
-            return []
-        return super().execute_queries(queries, max_results_per_query=max_results_per_query)
-
-    def summarize_findings(self, topic, results, existing_summary=""):
-        if not results:
-            return f"{topic} -> no results yet"
-        return super().summarize_findings(topic, results, existing_summary=existing_summary)
-
-
-class _IncompleteResearchAgent(_FakeResearchAgent):
-    def summarize_findings(self, topic, results, existing_summary=""):
-        return f"{topic} -> partial notes only"
-
-
-class _CompleteCriteriaResearchAgent(_FakeResearchAgent):
-    def summarize_findings(self, topic, results, existing_summary=""):
-        return f"Explain the current state of {topic} aspect 1"
 
 
 class _DummyArtifactStore:
@@ -362,134 +322,107 @@ class _DummyToolSessionRuntime:
         self.artifact_store = _DummyArtifactStore()
 
 
+_LIGHTWEIGHT_ARTIFACT_TYPES = {
+    "scope",
+    "plan",
+    "evidence_bundle",
+    "branch_result",
+    "validation_summary",
+    "final_report",
+}
+
+_BRANCH_ARTIFACT_TYPES = {"evidence_bundle", "branch_result", "validation_summary"}
+
+
+def _patch_runtime_deps(
+    monkeypatch,
+    *,
+    emitter,
+    clarify=_FakeClarifyAgent,
+    scope=_FakeScopeAgent,
+    supervisor=_FakeSupervisor,
+    researcher=_FakeResearchAgent,
+    verifier=_FakeVerifier,
+    reporter=_FakeReporter,
+):
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", clarify)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", scope)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", supervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", researcher)
+    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", verifier)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", reporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+
 @pytest.fixture(autouse=True)
 def _disable_tool_agents_by_default(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime.settings, "deep_research_use_tool_agents", False, raising=False)
 
 
-def test_run_multi_agent_deep_research_merges_artifacts_and_emits_events(monkeypatch):
+def test_run_multi_agent_deep_research_emits_lightweight_artifacts_and_events(monkeypatch):
     emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    _patch_runtime_deps(monkeypatch, emitter=emitter)
 
     result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
                 "thread_id": "thread_test",
-                                "deep_research_query_num": 2,
+                "deep_research_query_num": 2,
                 "deep_research_results_per_query": 2,
             }
         },
     )
 
-    queue_stats = result["deep_runtime"]["task_queue"]["stats"]
-    artifact_store = result["deep_runtime"]["artifact_store"]
+    runtime = result["deep_runtime"]
+    artifact_store = runtime["artifact_store"]
+    public_artifacts = result["deep_research_artifacts"]
+    queue_stats = runtime["task_queue"]["stats"]
     event_types = [name for name, _ in emitter.emitted]
-    agent_roles = {run["role"] for run in result["deep_runtime"]["agent_runs"]}
+    artifact_types = {
+        data["artifact_type"]
+        for name, data in emitter.emitted
+        if name == "research_artifact_update"
+    }
+    agent_roles = {run["role"] for run in runtime["agent_runs"]}
 
-    assert result["deep_runtime"]["engine"] == "multi_agent"
-    assert result["deep_runtime"]["engine"] == "multi_agent"
+    assert runtime["engine"] == "multi_agent"
     assert result["is_complete"] is True
-    assert result["deep_runtime"]["task_queue"]["stats"]["completed"] == queue_stats["completed"]
     assert queue_stats["completed"] == 2
-    assert len(artifact_store["branch_briefs"]) >= 3
-    assert len(artifact_store["source_candidates"]) == 2
-    assert len(artifact_store["fetched_documents"]) == 2
-    assert len(artifact_store["evidence_passages"]) == 2
-    assert len(artifact_store["evidence_cards"]) == 2
-    assert len(artifact_store["branch_syntheses"]) == 2
-    assert len(artifact_store["answer_units"]) >= 2
-    assert len(artifact_store["verification_results"]) == 4
-    assert len(artifact_store["branch_validation_summaries"]) == 2
-    assert artifact_store["research_brief"]["scope_id"]
-    assert len(artifact_store["task_ledger"]["entries"]) == 2
-    assert artifact_store["progress_ledger"]["outline_status"] == "ready"
-    assert len(artifact_store["coverage_matrix"]["rows"]) >= 1
-    assert len(artifact_store["contradiction_registry"]["entries"]) == 0
-    assert len(artifact_store["missing_evidence_list"]["items"]) == 0
-    assert artifact_store["outline"]["is_ready"] is True
-    assert len(artifact_store["submissions"]) >= 4
-    assert len(artifact_store["supervisor_decisions"]) >= 2
-    assert len(artifact_store["report_section_drafts"]) == 2
-    assert result["deep_runtime"]["runtime_state"]["engine"] == "multi_agent"
-    assert result["deep_runtime"]["runtime_state"]["last_verification_summary"]["verified_branches"] == 2
-    assert len(
-        result["deep_runtime"]["runtime_state"]["last_verification_summary"]["branch_validation_summary_ids"]
-    ) == 2
-    assert result["deep_runtime"]["runtime_state"]["supervisor_phase"] == "loop_decision"
-    assert result["deep_runtime"]["runtime_state"]["research_brief_id"]
-    assert result["deep_runtime"]["runtime_state"]["outline_status"] == "ready"
+    assert set(artifact_store) == {
+        "scope",
+        "plan",
+        "evidence_bundles",
+        "branch_results",
+        "validation_summaries",
+        "final_report",
+    }
+    assert len(artifact_store["plan"]["tasks"]) == 2
+    assert len(artifact_store["evidence_bundles"]) == 2
+    assert len(artifact_store["branch_results"]) == 2
+    assert len(artifact_store["validation_summaries"]) == 2
+    assert artifact_store["final_report"]["executive_summary"] == "AI chips executive summary"
+    assert public_artifacts["queries"] == ["AI chips aspect 1", "AI chips aspect 2"]
+    assert len(public_artifacts["tasks"]) == 2
+    assert len(public_artifacts["branch_results"]) == 2
+    assert public_artifacts["validation_summary"]["passed_branch_count"] == 2
+    assert public_artifacts["quality_summary"]["passed_branch_count"] == 2
+    assert public_artifacts["control_plane"]["active_agent"] == "supervisor"
+    assert public_artifacts["final_report"] == result["final_report"]
+    assert len(result["research_topology"]["children"]) == 2
     assert {"clarify", "scope", "supervisor", "researcher", "verifier", "reporter"} <= agent_roles
+    assert _LIGHTWEIGHT_ARTIFACT_TYPES <= artifact_types
     assert "research_agent_start" in event_types
     assert "research_task_update" in event_types
     assert "research_artifact_update" in event_types
     assert "research_decision" in event_types
     assert "research_node_complete" in event_types
 
-    task_updates = [data for name, data in emitter.emitted if name == "research_task_update"]
-    assert any(update.get("task_kind") == "branch_research" for update in task_updates)
-    assert any(update.get("stage") == "search" for update in task_updates)
-    assert any(update.get("stage") == "synthesize" for update in task_updates)
 
-
-def test_multi_agent_runtime_exposes_control_plane_handoffs_and_public_artifacts(monkeypatch):
+def test_build_initial_graph_state_restores_scope_review_from_checkpoint(monkeypatch):
     emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
-
-    result = run_multi_agent_deep_research(
-        {"input": "AI chips", "sub_agent_contexts": {}},
-        {
-            "configurable": {
-                "thread_id": "thread_control_plane",
-                "deep_research_query_num": 1,
-            }
-        },
-    )
-
-    runtime_state = result["deep_runtime"]["runtime_state"]
-    handoff_history = runtime_state["handoff_history"]
-    control_plane = result["deep_research_artifacts"]["control_plane"]
-
-    assert runtime_state["active_agent"] == "supervisor"
-    assert len(handoff_history) >= 2
-    assert any(
-        item["from_agent"] == "clarify" and item["to_agent"] == "scope"
-        for item in handoff_history
-    )
-    assert any(
-        item["from_agent"] == "scope" and item["to_agent"] == "supervisor"
-        for item in handoff_history
-    )
-    assert control_plane["active_agent"] == "supervisor"
-    assert control_plane["latest_handoff"]["to_agent"] == "supervisor"
-    assert len(control_plane["handoff_history"]) == len(handoff_history)
-
-
-def test_build_initial_graph_state_restores_control_plane_owner_from_checkpoint(monkeypatch):
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: _DummyEmitter())
+    _patch_runtime_deps(monkeypatch, emitter=emitter, supervisor=_SingleTaskSupervisor)
 
     checkpoint_state = build_deep_runtime_snapshot(
         engine="multi_agent",
@@ -503,32 +436,6 @@ def test_build_initial_graph_state_restores_control_plane_owner_from_checkpoint(
                 "research_goal": "Research AI chips",
                 "status": "awaiting_review",
             },
-            "handoff_envelope": {
-                "id": "handoff-1",
-                "from_agent": "clarify",
-                "to_agent": "scope",
-                "reason": "clarify completed",
-                "context_refs": [],
-                "scope_snapshot": {},
-                "review_state": "ready_for_scope",
-                "created_at": "2026-04-04T00:00:00",
-                "created_by": "clarify",
-                "metadata": {},
-            },
-            "handoff_history": [
-                {
-                    "id": "handoff-1",
-                    "from_agent": "clarify",
-                    "to_agent": "scope",
-                    "reason": "clarify completed",
-                    "context_refs": [],
-                    "scope_snapshot": {},
-                    "review_state": "ready_for_scope",
-                    "created_at": "2026-04-04T00:00:00",
-                    "created_by": "clarify",
-                    "metadata": {},
-                }
-            ],
         },
         task_queue={},
         artifact_store={},
@@ -546,7 +453,7 @@ def test_build_initial_graph_state_restores_control_plane_owner_from_checkpoint(
     initial_state = runtime.build_initial_graph_state()
 
     assert initial_state["runtime_state"]["active_agent"] == "scope"
-    assert initial_state["runtime_state"]["handoff_envelope"]["to_agent"] == "scope"
+    assert initial_state["runtime_state"]["current_scope_draft"]["id"] == "scope-1"
     assert initial_state["next_step"] == "scope_review"
 
 
@@ -581,22 +488,13 @@ def test_control_plane_handoff_tools_are_owner_gated():
         allowed_capabilities={"fabric", "search"},
         active_agent="supervisor",
     )
-    researcher_tool_names = {
-        tool.name
-        for tool in build_deep_research_fabric_tools(researcher_session)
-    }
+    researcher_tool_names = {tool.name for tool in build_deep_research_fabric_tools(researcher_session)}
     assert "fabric_submit_handoff" not in researcher_tool_names
 
 
-def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: _DummyEmitter())
+def test_multi_agent_graph_topology_exposes_lightweight_role_nodes(monkeypatch):
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(monkeypatch, emitter=emitter)
 
     runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
         {"input": "AI chips", "sub_agent_contexts": {}},
@@ -621,26 +519,13 @@ def test_multi_agent_graph_topology_exposes_role_nodes(monkeypatch):
     assert "finalize" in mermaid
 
 
-def test_multi_agent_branch_events_include_stable_iteration_metadata(monkeypatch):
+def test_multi_agent_branch_events_include_iteration_metadata(monkeypatch):
     emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    _patch_runtime_deps(monkeypatch, emitter=emitter, supervisor=_SingleTaskSupervisor)
 
     run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
-        {
-            "configurable": {
-                "thread_id": "thread_iteration_metadata",
-                "deep_research_query_num": 1,
-            }
-        },
+        {"configurable": {"thread_id": "thread_iteration_metadata", "deep_research_query_num": 1}},
     )
 
     branch_task_updates = [
@@ -648,9 +533,6 @@ def test_multi_agent_branch_events_include_stable_iteration_metadata(monkeypatch
         for name, data in emitter.emitted
         if name == "research_task_update" and data.get("task_kind") == "branch_research"
     ]
-    assert branch_task_updates
-    assert all(isinstance(item.get("iteration"), int) and item["iteration"] >= 1 for item in branch_task_updates)
-
     branch_artifact_updates = [
         data
         for name, data in emitter.emitted
@@ -660,29 +542,22 @@ def test_multi_agent_branch_events_include_stable_iteration_metadata(monkeypatch
             and (data.get("branch_id") or data.get("task_id"))
         )
     ]
+
+    assert branch_task_updates
     assert branch_artifact_updates
-    assert all(
-        isinstance(item.get("iteration"), int) and item["iteration"] >= 1
-        for item in branch_artifact_updates
-    )
+    assert all(isinstance(item.get("iteration"), int) and item["iteration"] >= 1 for item in branch_task_updates)
+    assert all(isinstance(item.get("iteration"), int) and item["iteration"] >= 1 for item in branch_artifact_updates)
 
 
-def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
+def test_multi_agent_graph_can_resume_from_merge_checkpoint(monkeypatch):
     emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    _patch_runtime_deps(monkeypatch, emitter=emitter)
 
     config = {
         "configurable": {
             "thread_id": "thread_resume",
-                        "deep_research_pause_before_merge": True,
+            "deep_research_query_num": 2,
+            "deep_research_pause_before_merge": True,
         }
     }
     runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
@@ -696,38 +571,23 @@ def test_multi_agent_graph_can_resume_from_checkpoint(monkeypatch):
     interrupt_payload = interrupted["__interrupt__"][0].value
     assert interrupt_payload["checkpoint"] == "deep_research_merge"
 
-    resume_config = {
-        "configurable": {
-            **config["configurable"],
-            "resumed_from_checkpoint": True,
-        }
-    }
-    resumed = graph.invoke(Command(resume={"continue": True}), resume_config)
+    resumed = graph.invoke(
+        Command(resume={"continue": True}),
+        {"configurable": {**config["configurable"], "resumed_from_checkpoint": True}},
+    )
     final_result = resumed["final_result"]
 
     assert final_result["deep_runtime"]["runtime_state"]["graph_run_id"] == interrupt_payload["graph_run_id"]
     assert final_result["deep_runtime"]["task_queue"]["stats"]["completed"] == 2
-    assert final_result["deep_runtime"]["runtime_state"]["last_verification_summary"]["verified_branches"] == 2
+    assert final_result["deep_runtime"]["runtime_state"]["last_verification_summary"]["passed_branch_count"] == 2
+    assert final_result["final_report"].startswith("# AI chips")
 
 
 def test_multi_agent_completed_snapshot_resumes_via_finalize_without_replanning(monkeypatch):
     emitter = _DummyEmitter()
+    _patch_runtime_deps(monkeypatch, emitter=emitter, supervisor=_SingleTaskSupervisor)
 
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
-
-    config = {
-        "configurable": {
-            "thread_id": "thread_resume_completed",
-            "deep_research_query_num": 1,
-        }
-    }
+    config = {"configurable": {"thread_id": "thread_resume_completed", "deep_research_query_num": 1}}
     initial_result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         config,
@@ -742,9 +602,6 @@ def test_multi_agent_completed_snapshot_resumes_via_finalize_without_replanning(
 
         def refine_plan(self, *args, **kwargs):
             raise AssertionError("completed snapshot should not re-enter supervisor_plan")
-
-        def decide_next_action(self, **kwargs):
-            raise AssertionError("completed snapshot should not re-enter supervisor_decide")
 
     monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FailingSupervisor)
 
@@ -767,22 +624,14 @@ def test_multi_agent_completed_snapshot_resumes_via_finalize_without_replanning(
 
 def test_multi_agent_events_include_resume_flag_when_configured(monkeypatch):
     emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    _patch_runtime_deps(monkeypatch, emitter=emitter, supervisor=_SingleTaskSupervisor)
 
     run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
                 "thread_id": "thread_resume_flag",
-                                "deep_research_query_num": 1,
+                "deep_research_query_num": 1,
                 "resumed_from_checkpoint": True,
             }
         },
@@ -800,50 +649,36 @@ def test_multi_agent_events_include_resume_flag_when_configured(monkeypatch):
             "research_decision",
         }
     ]
+    agent_events = [
+        data
+        for name, data in emitter.emitted
+        if name in {"research_agent_start", "research_agent_complete"}
+        and data.get("role") in {"researcher", "verifier", "reporter"}
+    ]
+    iterated_events = [event for event in research_events if "iteration" in event]
 
     assert research_events
     assert all(event.get("resumed_from_checkpoint") is True for event in research_events)
-
-    resumed_loop_events = [
-        data
-        for name, data in emitter.emitted
-        if (
-            name in {"research_agent_start", "research_agent_complete"}
-            and data.get("role") in {"researcher", "verifier", "reporter"}
-        )
-        or (name == "research_task_update" and data.get("task_kind") == "branch_research")
-        or (
-            name == "research_artifact_update"
-            and data.get("artifact_type") in _BRANCH_ARTIFACT_TYPES
-            and (data.get("branch_id") or data.get("task_id"))
-        )
-        or (name == "research_decision" and data.get("decision_type") in _LOOP_DECISION_TYPES)
-    ]
-
-    assert resumed_loop_events
-    assert all(event.get("graph_run_id") for event in resumed_loop_events)
-    assert all(isinstance(event.get("attempt"), int) and event["attempt"] >= 0 for event in resumed_loop_events)
-    assert all(isinstance(event.get("iteration"), int) and event["iteration"] >= 1 for event in resumed_loop_events)
+    assert all(event.get("graph_run_id") for event in research_events)
+    assert all(isinstance(event.get("attempt"), int) and event["attempt"] >= 1 for event in agent_events)
+    assert all(isinstance(event.get("iteration"), int) and event["iteration"] >= 1 for event in iterated_events)
 
 
 def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch):
     emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FlakyResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    _patch_runtime_deps(
+        monkeypatch,
+        emitter=emitter,
+        supervisor=_SingleTaskSupervisor,
+        researcher=_FlakyResearchAgent,
+    )
 
     result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
-                "thread_id": "thread_retry",
-                                "deep_research_query_num": 1,
+                "thread_id": "thread_retry_failure",
+                "deep_research_query_num": 1,
                 "deep_research_task_retry_limit": 2,
                 "deep_research_max_epochs": 3,
             }
@@ -851,42 +686,35 @@ def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch
     )
 
     tasks = result["deep_runtime"]["task_queue"]["tasks"]
-    assert len(tasks) == 1
-    assert tasks[0]["status"] == "completed"
-    assert tasks[0]["attempts"] == 2
-
     task_updates = [
         data
         for name, data in emitter.emitted
         if name == "research_task_update" and data.get("task_id") == tasks[0]["id"]
     ]
     statuses = [item["status"] for item in task_updates]
-    assert "failed" in statuses
-    assert statuses.count("ready") >= 2
     dispatch_updates = [
         item
         for item in task_updates
         if item["status"] == "in_progress" and item.get("stage") == "dispatch"
     ]
-    assert len(dispatch_updates) == 2
+
+    assert len(tasks) == 1
+    assert tasks[0]["status"] == "completed"
+    assert tasks[0]["attempts"] == 2
+    assert result["deep_runtime"]["artifact_store"]["validation_summaries"][0]["status"] == "passed"
+    assert "failed" in statuses
+    assert statuses.count("ready") >= 2
+    assert {item["attempt"] for item in dispatch_updates} == {1, 2}
 
 
 def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
     emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    _patch_runtime_deps(monkeypatch, emitter=emitter, supervisor=_SingleTaskSupervisor)
 
     config = {
         "configurable": {
             "thread_id": "thread_scope_review",
-                        "allow_interrupts": True,
+            "allow_interrupts": True,
             "deep_research_query_num": 1,
         }
     }
@@ -901,8 +729,7 @@ def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
     first_prompt = first["__interrupt__"][0].value
     assert first_prompt["checkpoint"] == "deep_research_scope_review"
     assert first_prompt["scope_version"] == 1
-    assert "1. Collect the latest evidence about the current state of AI chips" in first_prompt["content"]
-    assert "## Core Questions" not in first_prompt["content"]
+    assert "current state of AI chips" in first_prompt["content"]
 
     second = graph.invoke(
         Command(resume={"action": "revise_scope", "scope_feedback": "Focus on supply chain resilience"}),
@@ -913,31 +740,24 @@ def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
     assert second_prompt["checkpoint"] == "deep_research_scope_review"
     assert second_prompt["scope_version"] == 2
     assert second_prompt["graph_run_id"] == first_prompt["graph_run_id"]
-    assert "1. Refocus the research around the revision request: Focus on supply chain resilience" in second_prompt["content"]
+    assert "Focus on supply chain resilience" in second_prompt["content"]
 
     resumed = graph.invoke(Command(resume={"action": "approve_scope"}), config)
     final_result = resumed["final_result"]
     runtime_state = final_result["deep_runtime"]["runtime_state"]
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
 
     assert runtime_state["scope_revision_count"] == 1
     assert runtime_state["approved_scope_draft"]["version"] == 2
     assert runtime_state["approved_scope_draft"]["status"] == "approved"
     assert final_result["deep_runtime"]["task_queue"]["stats"]["completed"] == 1
-
-    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
     assert "scope_revision_requested" in decision_types
     assert "scope_approved" in decision_types
 
 
 def test_supervisor_plan_waits_for_scope_approval_before_dispatch(monkeypatch):
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: _DummyEmitter())
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(monkeypatch, emitter=emitter, supervisor=_SingleTaskSupervisor)
 
     runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
         {"input": "AI chips", "sub_agent_contexts": {}},
@@ -965,101 +785,50 @@ def test_supervisor_plan_waits_for_scope_approval_before_dispatch(monkeypatch):
     assert dispatched["runtime_state"]["supervisor_phase"] == "initial_plan"
 
 
-def test_multi_agent_runtime_uses_tool_agent_paths_when_enabled(monkeypatch):
+def test_multi_agent_runtime_retries_validation_until_branch_passes(monkeypatch):
     emitter = _DummyEmitter()
-    bounded_roles = []
-
-    def _fake_run_bounded_tool_agent(session, **_kwargs):
-        bounded_roles.append((session.role, session.task.id if session.task else None))
-        if session.role == "researcher":
-            session.search_results.append(
-                {
-                    "title": "tool-agent result",
-                    "url": "https://example.com/tool-agent",
-                    "summary": "tool-agent summary",
-                    "raw_excerpt": "tool-agent raw excerpt",
-                    "provider": "fake",
-                }
-            )
-            session._ensure_extracted_result(session.search_results[0])
-            session.submit_research_bundle(
-                summary="tool-agent branch summary",
-                findings=["tool-agent finding"],
-            )
-        elif session.role == "verifier":
-            validation_stage = "claim_check"
-            if session.task and session.task.stage == "coverage_check":
-                validation_stage = "coverage_check"
-            claim_ids = [item.id for item in session.claim_units]
-            obligation_ids = [
-                str(item.get("id") or "").strip()
-                for item in session.related_artifacts.get("coverage_obligations", [])
-                if isinstance(item, dict) and str(item.get("id") or "").strip()
-            ]
-            session.submit_verification_bundle(
-                validation_stage=validation_stage,
-                outcome="passed",
-                summary=f"{validation_stage} passed",
-                recommended_action="report",
-                claim_ids=claim_ids if validation_stage == "claim_check" else None,
-                obligation_ids=obligation_ids if validation_stage == "coverage_check" else None,
-            )
-        elif session.role == "reporter":
-            session.submit_report_bundle(
-                report_markdown="# AI chips\n\nTool-agent report",
-                executive_summary="tool-agent summary",
-                citation_urls=["https://example.com/tool-agent"],
-            )
-        return {"response": {}, "text": "", "tool_names": ["fabric_get_task"]}
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _StrictReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
-    monkeypatch.setattr(multi_agent_graph, "run_bounded_tool_agent", _fake_run_bounded_tool_agent)
+    _patch_runtime_deps(
+        monkeypatch,
+        emitter=emitter,
+        supervisor=_SingleTaskSupervisor,
+        researcher=_IncompleteResearchAgent,
+        verifier=_EventuallyPassingVerifier,
+    )
 
     result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
-                "thread_id": "thread_tool_agents",
-                                "deep_research_query_num": 1,
-                "deep_research_use_tool_agents": True,
+                "thread_id": "thread_validation_retry",
+                "deep_research_query_num": 1,
+                "deep_research_task_retry_limit": 3,
+                "deep_research_max_epochs": 3,
             }
         },
     )
 
-    assert result["deep_runtime"]["artifact_store"]["final_report"]["executive_summary"] == "tool-agent summary"
-    assert "## 来源" in result["deep_runtime"]["artifact_store"]["final_report"]["report_markdown"]
-    assert {role for role, _task_id in bounded_roles} >= {
-        "clarify",
-        "scope",
-        "supervisor",
-        "researcher",
-        "verifier",
-        "reporter",
-    }
-    assert any(
-        item["submission_kind"] == "report_bundle"
-        for item in result["deep_runtime"]["artifact_store"]["submissions"]
-    )
+    runtime = result["deep_runtime"]
+    tasks = runtime["task_queue"]["tasks"]
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+
+    assert tasks[0]["status"] == "completed"
+    assert tasks[0]["attempts"] == 2
+    assert runtime["artifact_store"]["validation_summaries"][0]["status"] == "passed"
+    assert runtime["runtime_state"]["last_verification_summary"]["passed_branch_count"] == 1
+    assert runtime["runtime_state"]["last_verification_summary"]["retry_branch_count"] == 0
+    assert "retry_branch" in decision_types
 
 
 def test_multi_agent_runtime_allows_advisory_gaps_without_blocking_report(monkeypatch):
     emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _CompleteCriteriaResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _GapingVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _ContextCheckingReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    _patch_runtime_deps(
+        monkeypatch,
+        emitter=emitter,
+        supervisor=_SingleTaskSupervisor,
+        researcher=_CompleteCriteriaResearchAgent,
+        verifier=_GapingVerifier,
+        reporter=_ContextCheckingReporter,
+    )
 
     result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
@@ -1073,166 +842,70 @@ def test_multi_agent_runtime_allows_advisory_gaps_without_blocking_report(monkey
         },
     )
 
-    artifact_store = result["deep_runtime"]["artifact_store"]
-    runtime_state = result["deep_runtime"]["runtime_state"]
+    runtime = result["deep_runtime"]
+    validation = runtime["artifact_store"]["validation_summaries"][0]
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
 
     assert result["is_complete"] is True
-    assert artifact_store["outline"]["is_ready"] is True
-    assert artifact_store["missing_evidence_list"]["items"] == []
-    assert len(artifact_store["knowledge_gaps"]) == 1
-    assert artifact_store["knowledge_gaps"][0]["advisory"] is True
-    assert runtime_state["last_verification_summary"]["blocking_verification_debt_count"] == 0
-    assert runtime_state["last_verification_summary"]["advisory_gap_count"] == 1
-    assert "## 来源" in artifact_store["final_report"]["report_markdown"]
-    assert "[1]" in artifact_store["final_report"]["report_markdown"]
-
-    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    assert validation["status"] == "passed"
+    assert validation["status_reason"] == "advisory_only"
+    assert runtime["runtime_state"]["last_verification_summary"]["advisory_gap_count"] == 1
+    assert "## 来源" in runtime["artifact_store"]["final_report"]["report_markdown"]
+    assert "[1]" in runtime["artifact_store"]["final_report"]["report_markdown"]
     assert "verification_passed" in decision_types
     assert "report" in decision_types
 
 
-def test_multi_agent_dispatch_stops_when_search_budget_is_exhausted(monkeypatch):
+def test_multi_agent_dispatch_records_budget_stop_reason_when_search_budget_exhausted(monkeypatch):
     emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _BudgetAwareSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    _patch_runtime_deps(monkeypatch, emitter=emitter)
 
     result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
                 "thread_id": "thread_budget_stop",
-                                "deep_research_query_num": 2,
+                "deep_research_query_num": 2,
+                "deep_research_parallel_workers": 1,
                 "deep_research_max_searches": 1,
             }
         },
     )
 
-    assert result["deep_runtime"]["runtime_state"]["budget_stop_reason"] == "search_budget_exceeded"
-    assert result["deep_runtime"]["task_queue"]["stats"]["completed"] == 1
-    assert result["deep_runtime"]["task_queue"]["stats"]["ready"] == 1
+    runtime = result["deep_runtime"]
     decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
-    assert "dispatch" in decision_types
+
+    assert runtime["runtime_state"]["budget_stop_reason"] == "search_budget_exceeded"
+    assert runtime["task_queue"]["stats"]["completed"] == 1
+    assert runtime["task_queue"]["stats"]["ready"] == 1
+    assert result["deep_research_artifacts"]["quality_summary"]["budget_stop_reason"] == "search_budget_exceeded"
     assert "budget_stop" in decision_types
+    assert "report" in decision_types
 
 
-def test_multi_agent_runtime_honors_max_epochs_even_if_supervisor_wants_dispatch(monkeypatch):
+def test_multi_agent_runtime_honors_max_epochs_even_with_ready_tasks(monkeypatch):
     emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    _patch_runtime_deps(monkeypatch, emitter=emitter)
 
     result = run_multi_agent_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
                 "thread_id": "thread_max_epochs_stop",
-                                "deep_research_query_num": 2,
+                "deep_research_query_num": 2,
                 "deep_research_max_epochs": 1,
                 "deep_research_parallel_workers": 1,
             }
         },
     )
+
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
 
     assert result["deep_runtime"]["runtime_state"]["current_iteration"] == 1
     assert result["deep_runtime"]["task_queue"]["stats"]["completed"] == 1
     assert result["deep_runtime"]["task_queue"]["stats"]["ready"] == 1
-    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
     assert "research" in decision_types
     assert "report" in decision_types
-
-
-def test_multi_agent_runtime_stops_when_replan_produces_no_new_tasks(monkeypatch):
-    emitter = _DummyEmitter()
-
-    class _ReplanWithoutTasksSupervisor(_SingleTaskSupervisor):
-        def decide_next_action(self, **kwargs):
-            if int(kwargs.get("ready_task_count") or 0) > 0:
-                return SupervisorDecision(
-                    action=SupervisorAction.DISPATCH,
-                    reasoning="dispatch ready branches",
-                    request_ids=list(kwargs.get("request_ids") or []),
-                )
-            return SupervisorDecision(
-                action=SupervisorAction.REPLAN,
-                reasoning="coverage still incomplete, replan instead",
-                request_ids=list(kwargs.get("request_ids") or []),
-            )
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _ReplanWithoutTasksSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _IncompleteResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _GapingVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
-
-    result = run_multi_agent_deep_research(
-        {"input": "AI chips", "sub_agent_contexts": {}},
-            {
-                "configurable": {
-                    "thread_id": "thread_replan_empty",
-                    "deep_research_query_num": 1,
-                    "deep_research_max_epochs": 3,
-                }
-            },
-        )
-
-    runtime_state = result["deep_runtime"]["runtime_state"]
-    assert runtime_state["terminal_status"] == "blocked"
-    assert "重规划未生成新的 branch 研究任务" in runtime_state["terminal_reason"]
-    assert "Deep Research 未能完成" in result["final_report"]
-    assert result["deep_runtime"]["artifact_store"]["final_report"] is None
-
-    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
-    assert "stop" in decision_types
-
-
-def test_multi_agent_runtime_allows_advisory_outline_progress_after_report_decision(monkeypatch):
-    emitter = _DummyEmitter()
-
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _IncompleteResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _GapingVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
-
-    result = run_multi_agent_deep_research(
-        {"input": "AI chips", "sub_agent_contexts": {}},
-        {
-            "configurable": {
-                "thread_id": "thread_outline_blocked_report",
-                "deep_research_query_num": 1,
-                "deep_research_max_epochs": 1,
-                "deep_research_parallel_workers": 1,
-            }
-        },
-    )
-
-    runtime_state = result["deep_runtime"]["runtime_state"]
-    assert runtime_state["terminal_status"] == ""
-    assert result["deep_runtime"]["artifact_store"]["outline"]["is_ready"] is True
-    assert result["deep_runtime"]["artifact_store"]["final_report"] is not None
-
-    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
-    assert "report" in decision_types
-    assert "outline_ready" in decision_types
 
 
 def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
@@ -1298,19 +971,18 @@ def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
                 clarify_transcript=clarify_transcript,
             )
 
-    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _ClarifyWithFollowUp)
-    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _ScopeCapture)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _SingleTaskSupervisor)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", _FakeVerifier)
-    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
-    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+    _patch_runtime_deps(
+        monkeypatch,
+        emitter=emitter,
+        clarify=_ClarifyWithFollowUp,
+        scope=_ScopeCapture,
+        supervisor=_SingleTaskSupervisor,
+    )
 
     config = {
         "configurable": {
             "thread_id": "thread_clarify_scope_context",
-                        "allow_interrupts": True,
+            "allow_interrupts": True,
             "deep_research_query_num": 1,
         }
     }
@@ -1322,20 +994,12 @@ def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
 
     first = graph.invoke(runtime.build_initial_graph_state(), config)
     assert "__interrupt__" in first
-    first_prompt = first["__interrupt__"][0].value
-    assert first_prompt["checkpoint"] == "deep_research_clarify"
+    assert first["__interrupt__"][0].value["checkpoint"] == "deep_research_clarify"
 
-    second = graph.invoke(
-        Command(resume={"clarify_answer": "Only 2024 annual filings"}),
-        config,
-    )
+    second = graph.invoke(Command(resume={"clarify_answer": "Only 2024 annual filings"}), config)
     assert "__interrupt__" in second
-    second_prompt = second["__interrupt__"][0].value
-    assert second_prompt["checkpoint"] == "deep_research_scope_review"
+    assert second["__interrupt__"][0].value["checkpoint"] == "deep_research_scope_review"
 
-    assert len(clarify_calls) >= 3
-    assert clarify_calls[0]["clarify_history"] == []
-    assert clarify_calls[1]["clarify_history"] == []
     assert clarify_calls[-1]["clarify_history"] == [
         {
             "question": "What time range should the research cover?",

@@ -916,6 +916,79 @@ class FinalReportArtifact:
 
 
 @dataclass
+class ResearchPlanArtifact:
+    id: str
+    scope_id: str | None = None
+    tasks: list[dict[str, Any]] = field(default_factory=list)
+    status: ArtifactStatus = "completed"
+    created_by: str = "supervisor"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class EvidenceBundle:
+    id: str
+    task_id: str
+    branch_id: str | None
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    documents: list[dict[str, Any]] = field(default_factory=list)
+    passages: list[dict[str, Any]] = field(default_factory=list)
+    source_count: int = 0
+    status: ArtifactStatus = "completed"
+    created_by: str = "researcher"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ValidationSummary:
+    id: str
+    task_id: str
+    branch_id: str | None
+    status: str
+    score: float = 0.0
+    missing_aspects: list[str] = field(default_factory=list)
+    retry_queries: list[str] = field(default_factory=list)
+    notes: str = ""
+    status_reason: str = ""
+    created_by: str = "verifier"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BranchResult:
+    id: str
+    task_id: str
+    branch_id: str | None
+    title: str
+    objective: str = ""
+    summary: str = ""
+    key_findings: list[str] = field(default_factory=list)
+    source_urls: list[str] = field(default_factory=list)
+    evidence_bundle_id: str | None = None
+    validation_summary_id: str | None = None
+    validation_status: str = "pending"
+    status: ArtifactStatus = "completed"
+    created_by: str = "researcher"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class ScopeDraft:
     id: str
     version: int
