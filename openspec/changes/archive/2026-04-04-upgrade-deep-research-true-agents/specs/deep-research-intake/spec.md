@@ -1,7 +1,4 @@
-## Purpose
-定义 multi-agent Deep Research 在正式研究前的 intake/scoping 门控、scope 审阅与批准契约。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Deep Research intake gates planning
 系统 MUST 在 `multi_agent` Deep Research 中先完成由 control-plane handoff 驱动的 clarify/scoping，并在 `supervisor` 收到权威 `research brief` handoff 后才允许进入正式计划与调度。
@@ -34,24 +31,6 @@
 - **THEN** 系统 MUST 保留当前草案版本、审阅状态、当前 `active_agent` 和最近一次 handoff 原因
 - **THEN** 用户 MUST 能理解当前草案是在等待批准、等待重写，还是刚刚生成的新版本
 
-### Requirement: Scope revisions are feedback-driven
-系统 MUST 仅允许用户通过自然语言修改意见驱动 scope 重写，而不是直接编辑结构化字段并立即生效。
-
-#### Scenario: User requests scope revision
-- **WHEN** 用户认为当前 scope draft 需要修改
-- **THEN** 系统 MUST 接收用户的自然语言 `scope_feedback`
-- **THEN** 系统 MUST 将当前草案与该反馈交给 `scope agent` 生成新的草案版本
-
-#### Scenario: Direct field edits are not authoritative
-- **WHEN** 客户端试图直接提交修改后的 scope draft 字段作为已确认范围
-- **THEN** 系统 MUST NOT 将该字段集视为权威的已批准 scope
-- **THEN** 系统 MUST 要求通过批准当前草案或提交修改意见来推进流程
-
-#### Scenario: Revision progress remains visible to the user
-- **WHEN** 用户提交 `scope_feedback` 后系统开始重写 scope draft
-- **THEN** 系统 MUST 让用户持续看到本次重写仍属于同一研究流程的后续进展
-- **THEN** 用户 MUST 在 `supervisor` 开始正式规划前看到重写后的新草案版本
-
 ### Requirement: Approved scope becomes the supervisor contract
 系统 MUST 将用户明确批准的 scope snapshot 先转换为结构化 `research brief`，并通过显式 handoff 交给 `supervisor`，让该 brief 成为后续研究循环的唯一上游范围契约。
 
@@ -69,3 +48,4 @@
 - **WHEN** 用户批准当前 scope draft 并且系统开始生成 `research brief`
 - **THEN** 系统 MUST 让用户继续观察到从 scope approval 进入 brief handoff 与 `supervisor` planning 的后续进展
 - **THEN** 客户端 MUST 不需要额外刷新或静默等待最终结果，才能知道批准后的流程已经继续执行
+

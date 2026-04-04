@@ -593,6 +593,10 @@ def build_public_deep_research_artifacts(
     freshness_summary = merged_quality.get("freshness_summary")
     if not isinstance(freshness_summary, dict):
         freshness_summary = {}
+    runtime_snapshot = runtime_state if isinstance(runtime_state, dict) else {}
+    latest_handoff = runtime_snapshot.get("handoff_envelope")
+    if not isinstance(latest_handoff, dict):
+        latest_handoff = {}
 
     return {
         "mode": mode,
@@ -655,7 +659,12 @@ def build_public_deep_research_artifacts(
         "coordination_requests": list(store_snapshot.get("coordination_requests") or []),
         "final_report": str(final_report.get("report_markdown") or ""),
         "executive_summary": str(final_report.get("executive_summary") or ""),
-        "runtime_state": runtime_state if isinstance(runtime_state, dict) else {},
+        "runtime_state": runtime_snapshot,
+        "control_plane": {
+            "active_agent": str(runtime_snapshot.get("active_agent") or ""),
+            "latest_handoff": dict(latest_handoff),
+            "handoff_history": list(runtime_snapshot.get("handoff_history") or []),
+        },
     }
 
 

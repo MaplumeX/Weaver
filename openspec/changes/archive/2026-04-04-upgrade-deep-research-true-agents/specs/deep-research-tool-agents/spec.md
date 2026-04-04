@@ -1,7 +1,4 @@
-## Purpose
-定义 Deep Research bounded tool agents 的角色工具边界、fabric tools 协作契约与策略门控。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Deep research roles are exposed as bounded tool agents
 系统 MUST 将 Deep Research 角色统一收敛为 bounded tool agents，但角色类型 MUST 分为 control-plane handoff agents 与 execution subagents 两类：`clarify`、`scope`、`supervisor` 属于前者，`researcher`、`verifier`、`reporter` 属于后者。
@@ -52,6 +49,8 @@
 - **THEN** 系统 MUST 通过 fabric tools 提交结构化 `outline_gap` request 并把控制权保留在 `supervisor` 路径
 - **THEN** 调用方 MUST 不需要重新解析完整原始工具对话，才能理解为什么报告尚未进入最终生成
 
+## ADDED Requirements
+
 ### Requirement: Control-plane handoff tools are owner-gated
 系统 MUST 只允许当前 `active_agent` 调用 control-plane handoff tools，并拒绝任何非 owner 角色尝试改写当前控制平面所有权。
 
@@ -65,55 +64,3 @@
 - **THEN** 系统 MUST 允许其调用 handoff tool 把控制权移交给下一个允许的 control-plane role
 - **THEN** 该移交 MUST 被记录为可恢复、可观测的结构化状态变更
 
-### Requirement: Tool agent execution is policy-gated
-系统 MUST 对每个 Deep Research tool agent 执行步骤限制、预算限制、审批策略和失败回传约束。
-
-#### Scenario: Tool use exceeds role or budget policy
-- **WHEN** 任一 Deep Research tool agent 尝试调用超出角色权限或超出预算边界的工具
-- **THEN** 系统 MUST 阻止该调用并保留结构化失败原因
-- **THEN** graph 或 `supervisor` MUST 能基于该失败原因决定重试、降级、replan 或停止
-
-#### Scenario: Tool agent run completes with partial progress
-- **WHEN** tool agent 在预算、来源或审批限制下只能部分完成任务
-- **THEN** 系统 MUST 要求它返回结构化的部分完成状态、已提交产物和建议的后续动作
-- **THEN** 调用方 MUST 不需要重新解析完整原始工具对话，才能理解这次执行结果
-
-### Requirement: Fabric tools expose verification contracts and revision context
-系统 MUST 为 `researcher` 与 `verifier` bounded tool agents 暴露结构化 verification contracts 与 revision context，而不是只暴露 summary 文本和松散 artifact 列表。
-
-#### Scenario: Revision-oriented researcher starts
-- **WHEN** revision-oriented `researcher` tool agent 启动
-- **THEN** fabric tools MUST 让它读取当前 branch 的 unresolved issues、prior answer units、prior evidence、obligations 和 revision brief
-- **THEN** 它 MUST 不需要从自由文本 summary 中重新推断当前修订目标
-
-#### Scenario: Verifier tool agent adjudicates a boundary case
-- **WHEN** `verifier` tool agent 被调用处理证据不足、反证冲突或一致性边界 case
-- **THEN** fabric tools MUST 提供 answer unit ids、obligation ids、issue ids、相关 evidence passage 引用和最小上下文范围
-- **THEN** tool agent MUST 围绕这些结构化对象返回结果，而不是只提交新的自由文本解释
-
-### Requirement: Tool-agent submissions are issue-addressable
-系统 MUST 要求 verifier 与 revision-oriented researcher 的 tool-agent 提交结果引用稳定的 verification object identifiers。
-
-#### Scenario: Verifier submits a verification bundle
-- **WHEN** `verifier` tool agent 提交 grounding、coverage 或 consistency 结果
-- **THEN** submission MUST 在适用时引用 answer unit ids、obligation ids、consistency finding ids 或 issue ids
-- **THEN** submission MUST 同时声明相关 `evidence_passage_ids`
-- **THEN** graph merge MUST 能据此确定性地更新 artifact store 和 ledgers
-
-#### Scenario: Researcher submits a revision bundle
-- **WHEN** revision-oriented `researcher` tool agent 提交补证据或反证结果
-- **THEN** submission MUST 在适用时声明其试图解决的 issue ids 与实际解决状态
-- **THEN** `supervisor` MUST 能基于该 submission 判断本轮修订是否已满足继续推进条件
-
-### Requirement: Verifier tools are unit-addressable and summary-free
-系统 MUST 将 verifier bounded tool-agent 的权威工具表面设计为 unit / obligation 可寻址接口，而不是 summary-oriented challenge tools。
-
-#### Scenario: Verifier tool agent starts a validation pass
-- **WHEN** `verifier` tool agent 启动
-- **THEN** 系统 MUST 向它暴露可枚举 answer units、读取 obligations、读取 evidence passages、验证单个 unit、验证单个 obligation 和提交验证结果的工具，或与其等价的结构化接口
-- **THEN** 系统 MUST NOT 把 `summary` challenge、summary coverage compare 或等价的自由文本工具作为 authoritative validation path
-
-#### Scenario: Verifier tool agent returns a verdict
-- **WHEN** `verifier` tool agent 对某个边界 case 返回 verdict
-- **THEN** 每个 verdict MUST 显式绑定它 adjudicate 的 answer unit 或 obligation
-- **THEN** 系统 MUST NOT 因为一个 branch-level outcome 就把相同 verdict 自动扩散到整批 answer units 或 obligations

@@ -40,6 +40,7 @@ from agent.runtime.deep.schema import (
     ClaimGroundingResult,
     ClaimUnit,
     ConsistencyResult,
+    ControlPlaneHandoff,
     ContradictionRegistryArtifact,
     CoordinationRequest,
     CoverageMatrixArtifact,
@@ -79,12 +80,15 @@ from agent.runtime.deep.support.graph_helpers import (
     build_clarify_transcript as _build_clarify_transcript,
     build_scope_draft as _build_scope_draft,
     coerce_string_list as _coerce_string_list,
+    control_plane_handoff_from_payload as _control_plane_handoff_from_payload,
     derive_branch_queries as _derive_branch_queries,
     derive_role_counters as _derive_role_counters,
     extract_interrupt_text as _extract_interrupt_text,
     format_scope_draft_markdown as _format_scope_draft_markdown,
     gap_result_from_payload as _gap_result_from_payload,
+    normalize_control_plane_agent as _normalize_control_plane_agent,
     restore_agent_runs as _restore_agent_runs,
+    restore_handoff_history as _restore_handoff_history,
     restore_worker_result as _restore_worker_result,
     scope_draft_from_payload as _scope_draft_from_payload,
     scope_version as _scope_version,
@@ -125,6 +129,20 @@ from common.cancellation import check_cancellation as _check_cancel_token
 from common.config import settings
 
 logger = logging.getLogger(__name__)
+
+_CONTROL_PLANE_NODE_TO_AGENT = {
+    "clarify": "clarify",
+    "scope": "scope",
+    "scope_review": "scope",
+    "research_brief": "scope",
+    "supervisor_plan": "supervisor",
+    "dispatch": "supervisor",
+    "verify": "supervisor",
+    "supervisor_decide": "supervisor",
+    "outline_gate": "supervisor",
+    "report": "supervisor",
+    "finalize": "supervisor",
+}
 
 
 def _resolve_deps(explicit_deps: Any = None) -> Any:
@@ -1104,6 +1122,46 @@ class _RuntimeView:
         self.runtime_state.setdefault("approved_scope_draft", {})
         self.runtime_state.setdefault("terminal_status", "")
         self.runtime_state.setdefault("terminal_reason", "")
+        self._normalize_control_plane_state()
+
+    def _derive_default_active_agent(self) -> str:
+        phase = str(self.runtime_state.get("phase") or self.current_node_id or "").strip().lower()
+        next_step = str(self.runtime_state.get("next_step") or "").strip().lower()
+        for candidate in (phase, next_step):
+            if candidate in _CONTROL_PLANE_NODE_TO_AGENT:
+                return _CONTROL_PLANE_NODE_TO_AGENT[candidate]
+        approved_scope = bool(self.runtime_state.get("approved_scope_draft"))
+        current_scope = bool(self.runtime_state.get("current_scope_draft"))
+        intake_status = str(self.runtime_state.get("intake_status") or "pending").strip().lower()
+        if not approved_scope:
+            if current_scope or intake_status in {
+                "ready_for_scope",
+                "awaiting_scope_review",
+                "scope_revision_requested",
+                "scope_approved",
+            }:
+                return "scope"
+            return "clarify"
+        return "supervisor"
+
+    def _normalize_control_plane_state(self) -> None:
+        history_payload = self.runtime_state.get("handoff_history")
+        history = _restore_handoff_history(history_payload if isinstance(history_payload, list) else [])
+        envelope = _control_plane_handoff_from_payload(
+            self.runtime_state.get("handoff_envelope")
+            if isinstance(self.runtime_state.get("handoff_envelope"), dict)
+            else None
+        )
+        if envelope is None and history:
+            envelope = history[-1]
+        default_agent = self._derive_default_active_agent()
+        active_agent = _normalize_control_plane_agent(
+            self.runtime_state.get("active_agent") or (envelope.to_agent if envelope else default_agent),
+            default=default_agent,
+        )
+        self.runtime_state["active_agent"] = active_agent
+        self.runtime_state["handoff_envelope"] = envelope.to_dict() if envelope else {}
+        self.runtime_state["handoff_history"] = [item.to_dict() for item in history][-20:]
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.owner, name)
@@ -1111,6 +1169,28 @@ class _RuntimeView:
     @property
     def emitter(self) -> Any:
         return self.owner.emitter
+
+    @property
+    def active_agent(self) -> str:
+        return _normalize_control_plane_agent(
+            self.runtime_state.get("active_agent"),
+            default=self._derive_default_active_agent(),
+        )
+
+    @active_agent.setter
+    def active_agent(self, value: str) -> None:
+        self.runtime_state["active_agent"] = _normalize_control_plane_agent(
+            value,
+            default=self._derive_default_active_agent(),
+        )
+
+    @property
+    def latest_handoff(self) -> ControlPlaneHandoff | None:
+        return _control_plane_handoff_from_payload(
+            self.runtime_state.get("handoff_envelope")
+            if isinstance(self.runtime_state.get("handoff_envelope"), dict)
+            else None
+        )
 
     @property
     def start_ts(self) -> float:
@@ -1161,6 +1241,40 @@ class _RuntimeView:
         counters = self.runtime_state.setdefault("role_counters", {})
         counters[role] = int(counters.get(role, 0) or 0) + 1
         return f"{role}-{counters[role]}"
+
+    def record_handoff(
+        self,
+        *,
+        from_agent: str,
+        to_agent: str,
+        reason: str,
+        context_refs: list[str] | None = None,
+        scope_snapshot: dict[str, Any] | None = None,
+        review_state: str = "",
+        created_by: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> ControlPlaneHandoff:
+        handoff = ControlPlaneHandoff(
+            id=support._new_id("handoff"),
+            from_agent=_normalize_control_plane_agent(from_agent, default=self.active_agent),
+            to_agent=_normalize_control_plane_agent(to_agent, default=self.active_agent),
+            reason=str(reason or "").strip(),
+            context_refs=[str(item).strip() for item in (context_refs or []) if str(item).strip()],
+            scope_snapshot=copy.deepcopy(scope_snapshot or {}),
+            review_state=str(review_state or "").strip(),
+            created_by=str(created_by or from_agent or "").strip(),
+            metadata=copy.deepcopy(metadata or {}),
+        )
+        history = _restore_handoff_history(
+            self.runtime_state.get("handoff_history")
+            if isinstance(self.runtime_state.get("handoff_history"), list)
+            else []
+        )
+        history.append(handoff)
+        self.active_agent = handoff.to_agent
+        self.runtime_state["handoff_envelope"] = handoff.to_dict()
+        self.runtime_state["handoff_history"] = [item.to_dict() for item in history][-20:]
+        return handoff
 
     def _check_cancel(self) -> None:
         if self.shared_state.get("is_cancelled"):
@@ -1232,12 +1346,20 @@ class _RuntimeView:
 
     def _research_topology_snapshot(self) -> dict[str, Any]:
         tasks = sorted(self.task_queue.all_tasks(), key=lambda task: (task.priority, task.created_at, task.id))
+        latest_handoff = self.latest_handoff
         return {
             "id": "deep_research_multi_agent",
             "topic": self.owner.topic,
             "engine": "multi_agent",
             "graph_run_id": self.graph_run_id,
             "branch_id": self.root_branch_id,
+            "control_plane": {
+                "active_agent": self.active_agent,
+                "latest_handoff": latest_handoff.to_dict() if latest_handoff else {},
+                "handoff_history": copy.deepcopy(self.runtime_state.get("handoff_history", [])),
+                "agents": ["clarify", "scope", "supervisor"],
+                "execution_subagents": ["researcher", "verifier", "reporter"],
+            },
             "children": [
                 {
                     "id": task.id,
@@ -1266,11 +1388,18 @@ class _RuntimeView:
         briefs = self.artifact_store.branch_briefs()
         current_scope = copy.deepcopy(self.runtime_state.get("current_scope_draft") or {})
         approved_scope = copy.deepcopy(self.runtime_state.get("approved_scope_draft") or {})
+        latest_handoff = self.latest_handoff
         graph_scope: GraphScopeSnapshot = {
             "graph_run_id": self.graph_run_id,
             "graph_attempt": self.graph_attempt,
             "topic": self.owner.topic,
             "phase": self.current_node_id,
+            "active_agent": self.active_agent,
+            "latest_handoff_id": latest_handoff.id if latest_handoff else "",
+            "latest_handoff_from_agent": latest_handoff.from_agent if latest_handoff else "",
+            "latest_handoff_to_agent": latest_handoff.to_agent if latest_handoff else "",
+            "latest_handoff_reason": latest_handoff.reason if latest_handoff else "",
+            "handoff_count": len(self.runtime_state.get("handoff_history") or []),
             "current_iteration": self.current_iteration,
             "intake_status": str(self.runtime_state.get("intake_status") or "pending"),
             "scope_revision_count": int(self.runtime_state.get("scope_revision_count", 0) or 0),
@@ -1389,6 +1518,9 @@ class _RuntimeView:
             "branch_scopes": branch_scopes,
             "worker_scopes": worker_scopes,
             "intake": {
+                "active_agent": self.active_agent,
+                "latest_handoff": latest_handoff.to_dict() if latest_handoff else {},
+                "handoff_history": copy.deepcopy(self.runtime_state.get("handoff_history", [])),
                 "clarify_question": str(self.runtime_state.get("clarify_question") or ""),
                 "clarify_question_history": copy.deepcopy(
                     self.runtime_state.get("clarify_question_history", [])
@@ -1411,6 +1543,13 @@ class _RuntimeView:
             "graph_run_id": self.graph_run_id,
             "graph_attempt": self.graph_attempt,
             "phase": self.current_node_id,
+            "active_agent": self.active_agent,
+            "handoff_envelope": (
+                self.latest_handoff.to_dict()
+                if self.latest_handoff is not None
+                else copy.deepcopy(self.runtime_state.get("handoff_envelope", {}))
+            ),
+            "handoff_history": copy.deepcopy(self.runtime_state.get("handoff_history", [])),
             "next_step": self.runtime_state.get("next_step", ""),
             "planning_mode": self.runtime_state.get("planning_mode", ""),
             "current_iteration": self.current_iteration,
@@ -1477,6 +1616,7 @@ class _RuntimeView:
         latest_verification = extra.get("latest_verification_summary")
         if latest_verification is not None:
             self.runtime_state["last_verification_summary"] = copy.deepcopy(latest_verification)
+        self._normalize_control_plane_state()
         patch: dict[str, Any] = {
             "shared_state": copy.deepcopy(self.shared_state),
             "graph_run_id": self.graph_run_id,
@@ -1639,6 +1779,12 @@ class _RuntimeView:
         validation_stage: str | None = None,
         extra: dict[str, Any] | None = None,
     ) -> None:
+        latest_handoff = self.latest_handoff
+        merged_extra = {
+            "active_agent": self.active_agent,
+            "latest_handoff": latest_handoff.to_dict() if latest_handoff else {},
+            **copy.deepcopy(extra or {}),
+        }
         events.emit_decision(
             self,
             decision_type=decision_type,
@@ -1652,7 +1798,7 @@ class _RuntimeView:
             task_kind=task_kind,
             stage=stage,
             validation_stage=validation_stage,
-            extra=extra,
+            extra=merged_extra,
         )
 
     def _emit_deep_research_topology_update(self) -> None:
@@ -1695,6 +1841,7 @@ class _RuntimeView:
             "summary": summary,
             "next_step": next_step,
             "planning_mode": planning_mode,
+            "active_agent": self.active_agent,
             "task_ids": list(task_ids or []),
             "request_ids": list(request_ids or []),
             "issue_ids": list(issue_ids or []),
@@ -1712,6 +1859,7 @@ class _RuntimeView:
                 "decision_type": decision_type,
                 "next_step": next_step,
                 "planning_mode": planning_mode,
+                "active_agent": self.active_agent,
                 "task_ids": list(task_ids or []),
                 "request_ids": list(request_ids or []),
                 "issue_ids": list(issue_ids or []),
@@ -2077,6 +2225,38 @@ class MultiAgentDeepResearchRuntime:
         approved_scope = runtime_state_snapshot.get("approved_scope_draft")
         current_scope = runtime_state_snapshot.get("current_scope_draft")
         intake_status = str(runtime_state_snapshot.get("intake_status") or "pending").strip().lower()
+        handoff = _control_plane_handoff_from_payload(
+            runtime_state_snapshot.get("handoff_envelope")
+            if isinstance(runtime_state_snapshot.get("handoff_envelope"), dict)
+            else None
+        )
+        default_active_agent = (
+            "supervisor"
+            if isinstance(approved_scope, dict) and approved_scope
+            else (
+                "scope"
+                if isinstance(current_scope, dict) and current_scope
+                or intake_status in {"ready_for_scope", "scope_revision_requested", "awaiting_scope_review"}
+                else "clarify"
+            )
+        )
+        active_agent = _normalize_control_plane_agent(
+            runtime_state_snapshot.get("active_agent") or (handoff.to_agent if handoff else default_active_agent),
+            default=default_active_agent,
+        )
+        if active_agent == "clarify" and (not isinstance(approved_scope, dict) or not approved_scope):
+            return "clarify"
+        if active_agent == "scope":
+            if not isinstance(approved_scope, dict) or not approved_scope:
+                if intake_status in {"ready_for_scope", "scope_revision_requested"}:
+                    return "scope"
+                if isinstance(current_scope, dict) and current_scope:
+                    return "scope_review"
+                return "scope"
+            if not isinstance(artifact_store_snapshot.get("research_brief"), dict) or not artifact_store_snapshot.get(
+                "research_brief"
+            ):
+                return "research_brief"
         if not isinstance(approved_scope, dict) or not approved_scope:
             if isinstance(current_scope, dict) and current_scope:
                 return "scope_review"
@@ -2105,6 +2285,17 @@ class MultiAgentDeepResearchRuntime:
         task_queue_snapshot = self._resume_task_queue_snapshot()
         artifact_store_snapshot = self._resume_artifact_store_snapshot()
         runtime_state_snapshot = self._resume_runtime_state_snapshot()
+        next_step = self._initial_next_step(
+            task_queue_snapshot,
+            artifact_store_snapshot,
+            runtime_state_snapshot,
+        )
+        runtime_state_snapshot.setdefault(
+            "active_agent",
+            _CONTROL_PLANE_NODE_TO_AGENT.get(next_step, "supervisor"),
+        )
+        runtime_state_snapshot.setdefault("handoff_envelope", {})
+        runtime_state_snapshot.setdefault("handoff_history", [])
         return {
             "shared_state": self._initial_shared_state(),
             "topic": self.topic,
@@ -2121,11 +2312,7 @@ class MultiAgentDeepResearchRuntime:
             "agent_runs": self._resume_agent_runs_snapshot(),
             "current_iteration": int(runtime_state_snapshot.get("current_iteration", 0) or 0),
             "planning_mode": str(runtime_state_snapshot.get("planning_mode") or "").strip() or "initial",
-            "next_step": self._initial_next_step(
-                task_queue_snapshot,
-                artifact_store_snapshot,
-                runtime_state_snapshot,
-            ),
+            "next_step": next_step,
             "latest_gap_result": copy.deepcopy(runtime_state_snapshot.get("last_gap_result", {})),
             "latest_decision": copy.deepcopy(runtime_state_snapshot.get("last_decision", {})),
             "latest_verification_summary": copy.deepcopy(
@@ -2227,8 +2414,198 @@ class MultiAgentDeepResearchRuntime:
             return next_step
         return "supervisor_plan"
 
+    def _try_clarify_tool_agent(
+        self,
+        *,
+        view: _RuntimeView,
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        if not self.enable_tool_agents:
+            return None
+        session = DeepResearchToolAgentSession(
+            runtime=view,
+            role="clarify",
+            topic=self.topic,
+            graph_run_id=view.graph_run_id,
+            branch_id=view.root_branch_id,
+            iteration=view.current_iteration,
+            attempt=view.graph_attempt,
+            allowed_capabilities={"fabric"},
+            approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
+            related_artifacts={
+                "intake_summary": copy.deepcopy(view.runtime_state.get("intake_summary") or {}),
+                "clarify_transcript": _build_clarify_transcript(
+                    list(view.runtime_state.get("clarify_question_history") or []),
+                    list(view.runtime_state.get("clarify_answer_history") or []),
+                ),
+            },
+            active_agent=view.active_agent,
+            handoff_envelope=copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
+            handoff_history=copy.deepcopy(view.runtime_state.get("handoff_history") or []),
+        )
+        user_prompt = (
+            f"Topic: {self.topic}\n"
+            f"Clarification transcript: {session.related_artifacts.get('clarify_transcript', [])}\n"
+            f"Current intake summary: {session.related_artifacts.get('intake_summary', {})}\n"
+            "First call fabric_get_handoff_state and fabric_get_related_artifacts, then "
+            "submit a normalized intake result with fabric_submit_intake_assessment. "
+            "If the request is specific enough, hand off to scope with fabric_submit_handoff."
+        )
+        try:
+            run_bounded_tool_agent(
+                session,
+                model=self.supervisor_model,
+                allowed_tools=None,
+                system_prompt=(
+                    "You are the Deep Research clarify control-plane agent.\n"
+                    "Use only fabric tools.\n"
+                    "Always submit a structured intake assessment.\n"
+                    "When intake is sufficient, hand off to scope.\n"
+                    "When more detail is required, keep ownership and ask one focused question."
+                ),
+                user_prompt=user_prompt,
+                config=self.config,
+            )
+        except Exception:
+            return None
+        if not session.control_plane_result:
+            return None
+        return dict(session.control_plane_result), dict(session.handoff_envelope)
+
+    def _try_scope_tool_agent(
+        self,
+        *,
+        view: _RuntimeView,
+        current_scope_payload: dict[str, Any],
+        pending_feedback: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        if not self.enable_tool_agents:
+            return None
+        session = DeepResearchToolAgentSession(
+            runtime=view,
+            role="scope",
+            topic=self.topic,
+            graph_run_id=view.graph_run_id,
+            branch_id=view.root_branch_id,
+            iteration=view.current_iteration,
+            attempt=view.graph_attempt,
+            allowed_capabilities={"fabric"},
+            approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
+            related_artifacts={
+                "intake_summary": copy.deepcopy(view.runtime_state.get("intake_summary") or {}),
+                "clarify_transcript": _build_clarify_transcript(
+                    list(view.runtime_state.get("clarify_question_history") or []),
+                    list(view.runtime_state.get("clarify_answer_history") or []),
+                ),
+                "current_scope_draft": copy.deepcopy(current_scope_payload),
+                "pending_scope_feedback": pending_feedback,
+            },
+            active_agent=view.active_agent,
+            handoff_envelope=copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
+            handoff_history=copy.deepcopy(view.runtime_state.get("handoff_history") or []),
+        )
+        user_prompt = (
+            f"Topic: {self.topic}\n"
+            f"Intake summary: {session.related_artifacts.get('intake_summary', {})}\n"
+            f"Clarify transcript: {session.related_artifacts.get('clarify_transcript', [])}\n"
+            f"Previous scope draft: {current_scope_payload}\n"
+            f"Pending scope feedback: {pending_feedback or 'none'}\n"
+            "First inspect the current handoff state, then submit a structured scope draft "
+            "with fabric_submit_scope_draft. Do not use world-facing tools."
+        )
+        try:
+            run_bounded_tool_agent(
+                session,
+                model=self.supervisor_model,
+                allowed_tools=None,
+                system_prompt=(
+                    "You are the Deep Research scope control-plane agent.\n"
+                    "Use only fabric tools.\n"
+                    "Generate a concrete, reviewable scope draft and submit it with fabric_submit_scope_draft.\n"
+                    "Do not hand off to supervisor until the user approves the scope."
+                ),
+                user_prompt=user_prompt,
+                config=self.config,
+            )
+        except Exception:
+            return None
+        if not session.control_plane_result:
+            return None
+        return dict(session.control_plane_result), dict(session.handoff_envelope)
+
+    def _try_supervisor_decision_tool_agent(
+        self,
+        *,
+        view: _RuntimeView,
+        verification_summary: dict[str, Any],
+        research_brief: ResearchBriefArtifact | None,
+        task_ledger: TaskLedgerArtifact | None,
+        progress_ledger: ProgressLedgerArtifact | None,
+        coverage_matrix: CoverageMatrixArtifact | None,
+        contradiction_registry: ContradictionRegistryArtifact | None,
+        missing_evidence_list: MissingEvidenceListArtifact | None,
+        outline_artifact: OutlineArtifact | None,
+    ) -> dict[str, Any] | None:
+        if not self.enable_tool_agents:
+            return None
+        session = DeepResearchToolAgentSession(
+            runtime=view,
+            role="supervisor",
+            topic=self.topic,
+            graph_run_id=view.graph_run_id,
+            branch_id=view.root_branch_id,
+            iteration=view.current_iteration,
+            attempt=view.graph_attempt,
+            allowed_capabilities={"fabric"},
+            approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
+            related_artifacts={
+                "research_brief": research_brief.to_dict() if research_brief else {},
+                "task_ledger": task_ledger.to_dict() if task_ledger else {},
+                "progress_ledger": progress_ledger.to_dict() if progress_ledger else {},
+                "coverage_matrix": coverage_matrix.to_dict() if coverage_matrix else {},
+                "contradiction_registry": (
+                    contradiction_registry.to_dict() if contradiction_registry else {}
+                ),
+                "missing_evidence_list": (
+                    missing_evidence_list.to_dict() if missing_evidence_list else {}
+                ),
+                "outline": outline_artifact.to_dict() if outline_artifact else {},
+                "verification_summary": copy.deepcopy(verification_summary),
+            },
+            active_agent=view.active_agent,
+            handoff_envelope=copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
+            handoff_history=copy.deepcopy(view.runtime_state.get("handoff_history") or []),
+        )
+        user_prompt = (
+            f"Topic: {self.topic}\n"
+            f"Current iteration: {view.current_iteration}/{self.max_epochs}\n"
+            f"Ready task count: {view.task_queue.ready_count()}\n"
+            f"Open requests: {[request.id for request in view.artifact_store.coordination_requests(status='open')]}\n"
+            f"Verification summary: {verification_summary}\n"
+            "Inspect the control-plane state and artifacts, then submit the next structured supervisor "
+            "decision with fabric_submit_supervisor_decision. If scope must be rewritten, hand off to scope."
+        )
+        try:
+            run_bounded_tool_agent(
+                session,
+                model=self.supervisor_model,
+                allowed_tools=None,
+                system_prompt=(
+                    "You are the Deep Research supervisor control-plane owner.\n"
+                    "Use only fabric tools.\n"
+                    "You are the only role allowed to decide dispatch, replan, outline gating, reporting, "
+                    "or whether execution feedback should become a new handoff.\n"
+                    "Always submit a structured supervisor decision."
+                ),
+                user_prompt=user_prompt,
+                config=self.config,
+            )
+        except Exception:
+            return None
+        return dict(session.supervisor_decision) if session.supervisor_decision else None
+
     def _clarify_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "clarify")
+        view.active_agent = "clarify"
         record = view.start_agent_run(
             role="clarify",
             phase="intake",
@@ -2241,11 +2618,16 @@ class MultiAgentDeepResearchRuntime:
                 list(view.runtime_state.get("clarify_question_history") or []),
                 clarify_answers,
             )
-            result = self.clarifier.assess_intake(
-                self.topic,
-                clarify_answers=clarify_answers,
-                clarify_history=clarify_transcript,
-            )
+            tool_result = self._try_clarify_tool_agent(view=view)
+            handoff_payload: dict[str, Any] = {}
+            if tool_result is not None:
+                result, handoff_payload = tool_result
+            else:
+                result = self.clarifier.assess_intake(
+                    self.topic,
+                    clarify_answers=clarify_answers,
+                    clarify_history=clarify_transcript,
+                )
             intake_summary = copy.deepcopy(result.get("intake_summary") or {})
             if intake_summary:
                 view.runtime_state["intake_summary"] = intake_summary
@@ -2301,6 +2683,7 @@ class MultiAgentDeepResearchRuntime:
                 view.runtime_state["clarify_question_history"] = question_history
                 view.runtime_state["clarify_answer_history"] = answer_history
                 view.runtime_state["intake_status"] = "pending"
+                view.active_agent = "clarify"
                 return view.snapshot_patch(next_step="clarify")
 
             if needs_clarification and question:
@@ -2311,12 +2694,32 @@ class MultiAgentDeepResearchRuntime:
                 reason = "intake information is sufficient for scope drafting"
             view.runtime_state["clarify_question"] = ""
             view.runtime_state["intake_status"] = "ready_for_scope"
+            handoff_reason = str(handoff_payload.get("reason") or reason).strip() or reason
+            handoff = view.record_handoff(
+                from_agent="clarify",
+                to_agent="scope",
+                reason=handoff_reason,
+                context_refs=list(handoff_payload.get("context_refs") or []),
+                scope_snapshot=intake_summary,
+                review_state="ready_for_scope",
+                created_by=record.agent_id,
+                metadata={
+                    "missing_information": missing_information,
+                    **(
+                        dict(handoff_payload.get("metadata") or {})
+                        if isinstance(handoff_payload.get("metadata"), dict)
+                        else {}
+                    ),
+                },
+            )
             view._emit_decision(
                 decision_type="scope_ready",
                 reason=reason,
                 attempt=view.graph_attempt,
                 extra={
                     "intake_summary": intake_summary,
+                    "active_agent": view.active_agent,
+                    "handoff": handoff.to_dict(),
                 },
             )
             view.finish_agent_run(
@@ -2343,6 +2746,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _scope_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "scope")
+        view.active_agent = "scope"
         record = view.start_agent_run(
             role="scope",
             phase="draft_scope",
@@ -2362,13 +2766,21 @@ class MultiAgentDeepResearchRuntime:
             if current_scope:
                 next_version = current_scope.version + 1 if pending_feedback else current_scope.version
 
-            scope_payload = self.scope_agent.create_scope(
-                self.topic,
-                intake_summary=intake_summary,
-                previous_scope=current_scope_payload if pending_feedback else {},
-                scope_feedback=pending_feedback,
-                clarify_transcript=clarify_transcript,
+            tool_result = self._try_scope_tool_agent(
+                view=view,
+                current_scope_payload=current_scope_payload,
+                pending_feedback=pending_feedback,
             )
+            if tool_result is not None:
+                scope_payload, _ = tool_result
+            else:
+                scope_payload = self.scope_agent.create_scope(
+                    self.topic,
+                    intake_summary=intake_summary,
+                    previous_scope=current_scope_payload if pending_feedback else {},
+                    scope_feedback=pending_feedback,
+                    clarify_transcript=clarify_transcript,
+                )
             scope_draft = _build_scope_draft(
                 topic=self.topic,
                 version=next_version,
@@ -2396,6 +2808,7 @@ class MultiAgentDeepResearchRuntime:
                 attempt=view.graph_attempt,
                 extra={
                     "scope_version": scope_draft.version,
+                    "active_agent": view.active_agent,
                 },
             )
             view._emit_artifact_update(
@@ -2407,6 +2820,7 @@ class MultiAgentDeepResearchRuntime:
                 extra={
                     "scope_version": scope_draft.version,
                     "review_state": scope_draft.status,
+                    "active_agent": view.active_agent,
                     "content": _format_scope_draft_markdown(scope_draft),
                 },
             )
@@ -2428,6 +2842,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _scope_review_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "scope_review")
+        view.active_agent = "scope"
         current_scope_payload = copy.deepcopy(view.runtime_state.get("current_scope_draft") or {})
         scope_draft = _scope_draft_from_payload(current_scope_payload)
         if not scope_draft:
@@ -2445,7 +2860,10 @@ class MultiAgentDeepResearchRuntime:
                 decision_type="scope_approved",
                 reason="interrupts disabled; auto-approving current scope draft",
                 attempt=view.graph_attempt,
-                extra={"scope_version": scope_draft.version},
+                extra={
+                    "scope_version": scope_draft.version,
+                    "active_agent": view.active_agent,
+                },
             )
             view._emit_artifact_update(
                 artifact_id=scope_draft.id,
@@ -2456,6 +2874,7 @@ class MultiAgentDeepResearchRuntime:
                 extra={
                     "scope_version": scope_draft.version,
                     "review_state": "approved",
+                    "active_agent": view.active_agent,
                     "content": _format_scope_draft_markdown(approved_payload),
                 },
             )
@@ -2508,7 +2927,10 @@ class MultiAgentDeepResearchRuntime:
                 decision_type="scope_approved",
                 reason="user approved the current scope draft",
                 attempt=view.graph_attempt,
-                extra={"scope_version": scope_draft.version},
+                extra={
+                    "scope_version": scope_draft.version,
+                    "active_agent": view.active_agent,
+                },
             )
             view._emit_artifact_update(
                 artifact_id=scope_draft.id,
@@ -2519,6 +2941,7 @@ class MultiAgentDeepResearchRuntime:
                 extra={
                     "scope_version": scope_draft.version,
                     "review_state": "approved",
+                    "active_agent": view.active_agent,
                     "content": _format_scope_draft_markdown(approved_payload),
                 },
             )
@@ -2548,7 +2971,10 @@ class MultiAgentDeepResearchRuntime:
             decision_type="scope_revision_requested",
             reason=scope_feedback,
             attempt=view.graph_attempt,
-            extra={"scope_version": scope_draft.version},
+            extra={
+                "scope_version": scope_draft.version,
+                "active_agent": view.active_agent,
+            },
         )
         view._emit_artifact_update(
             artifact_id=scope_draft.id,
@@ -2559,6 +2985,7 @@ class MultiAgentDeepResearchRuntime:
             extra={
                 "scope_version": scope_draft.version,
                 "review_state": "revision_requested",
+                "active_agent": view.active_agent,
                 "content": _format_scope_draft_markdown(scope_draft),
             },
         )
@@ -2572,6 +2999,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _research_brief_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "research_brief")
+        view.active_agent = "scope"
         approved_scope = copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {})
         if not approved_scope:
             return view.snapshot_patch(next_step="scope_review")
@@ -2592,6 +3020,19 @@ class MultiAgentDeepResearchRuntime:
             view.artifact_store.set_research_brief(research_brief)
             view.runtime_state["research_brief_id"] = research_brief.id
             view.runtime_state["intake_status"] = "brief_ready"
+            handoff = view.record_handoff(
+                from_agent="scope",
+                to_agent="supervisor",
+                reason="approved scope 已转换为结构化 research brief，控制权移交给 supervisor",
+                context_refs=[research_brief.id, research_brief.scope_id],
+                scope_snapshot=approved_scope,
+                review_state="brief_ready",
+                created_by=record.agent_id,
+                metadata={
+                    "research_brief_id": research_brief.id,
+                    "scope_version": research_brief.scope_version,
+                },
+            )
             view._emit_artifact_update(
                 artifact_id=research_brief.id,
                 artifact_type="research_brief",
@@ -2604,6 +3045,8 @@ class MultiAgentDeepResearchRuntime:
                     "scope_id": research_brief.scope_id,
                     "scope_version": research_brief.scope_version,
                     "coverage_dimensions": list(research_brief.coverage_dimensions),
+                    "active_agent": view.active_agent,
+                    "handoff": handoff.to_dict(),
                 },
             )
             view.sync_task_ledger(reason="research brief 已生成，初始化 task ledger", created_by="scope")
@@ -2621,6 +3064,8 @@ class MultiAgentDeepResearchRuntime:
                     "research_brief_id": research_brief.id,
                     "scope_id": research_brief.scope_id,
                     "scope_version": research_brief.scope_version,
+                    "active_agent": view.active_agent,
+                    "handoff": handoff.to_dict(),
                 },
             )
             view.finish_agent_run(
@@ -2641,6 +3086,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _supervisor_plan_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "supervisor_plan")
+        view.active_agent = "supervisor"
         approved_scope = copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {})
         if not approved_scope:
             return view.snapshot_patch(next_step="scope_review")
@@ -3018,6 +3464,9 @@ class MultiAgentDeepResearchRuntime:
             allowed_capabilities=set(task.allowed_tools or []),
             approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
             related_artifacts=view.artifact_store.get_related_artifacts(task.id, branch_id=task.branch_id),
+            active_agent=view.active_agent,
+            handoff_envelope=copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
+            handoff_history=copy.deepcopy(view.runtime_state.get("handoff_history") or []),
         )
         system_prompt = (
             "You are the Deep Research branch researcher.\n"
@@ -3168,6 +3617,9 @@ class MultiAgentDeepResearchRuntime:
             allowed_capabilities={"search", "read", "extract"},
             approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
             related_artifacts=related_artifacts,
+            active_agent=view.active_agent,
+            handoff_envelope=copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
+            handoff_history=copy.deepcopy(view.runtime_state.get("handoff_history") or []),
         )
         session.branch_synthesis = copy.deepcopy(synthesis)
         session.answer_units = [
@@ -3490,6 +3942,9 @@ class MultiAgentDeepResearchRuntime:
                     else {}
                 ),
             },
+            active_agent=view.active_agent,
+            handoff_envelope=copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
+            handoff_history=copy.deepcopy(view.runtime_state.get("handoff_history") or []),
         )
         outline_lines = "\n".join(
             f"- {section.get('title')}: {section.get('summary', '')[:180]}"
@@ -3538,6 +3993,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _researcher_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "researcher")
+        view.active_agent = "supervisor"
         payload = graph_state.get("worker_task") or {}
         task_payload = payload.get("task") if isinstance(payload, dict) else None
         task = ResearchTask(**task_payload) if isinstance(task_payload, dict) else ResearchTask(**payload)
@@ -4237,6 +4693,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _verify_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "verify")
+        view.active_agent = "supervisor"
         task_map = {task.id: task for task in view.task_queue.all_tasks()}
         syntheses = latest_branch_syntheses(
             view.artifact_store.branch_syntheses(),
@@ -5502,6 +5959,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _supervisor_decide_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "supervisor_decide")
+        view.active_agent = "supervisor"
         gap_result = _gap_result_from_payload(
             graph_state.get("latest_gap_result") or view.runtime_state.get("last_gap_result")
         )
@@ -5553,37 +6011,94 @@ class MultiAgentDeepResearchRuntime:
                     request_ids=[request.id for request in open_requests],
                 )
             else:
-                decision = self.supervisor.decide_next_action(
-                    topic=self.topic,
-                    num_queries=view.task_queue.completed_count(),
-                    num_sources=len(unique_urls),
-                    num_summaries=section_count,
-                    current_epoch=view.current_iteration,
-                    max_epochs=self.max_epochs,
-                    ready_task_count=view.task_queue.ready_count(),
-                    retry_task_ids=retry_task_ids,
-                    request_ids=[request.id for request in open_requests],
-                    budget_stop_reason=view.budget_stop_reason or "",
-                    knowledge_summary=view._knowledge_summary(),
-                    quality_score=gap_result.overall_coverage if gap_result else 0.0,
-                    quality_gap_count=len(gap_result.gaps) if gap_result else 0,
-                    citation_accuracy=citation_accuracy,
+                tool_decision = self._try_supervisor_decision_tool_agent(
+                    view=view,
                     verification_summary=verification_summary,
-                    revision_issues=[issue.to_dict() for issue in revision_issues],
-                    research_brief=research_brief.to_dict() if research_brief else {},
-                    task_ledger=task_ledger.to_dict() if task_ledger else {},
-                    progress_ledger=progress_ledger.to_dict() if progress_ledger else {},
-                    coverage_matrix=coverage_matrix.to_dict() if coverage_matrix else {},
-                    contradiction_registry=contradiction_registry.to_dict() if contradiction_registry else {},
-                    missing_evidence_list=missing_evidence_list.to_dict() if missing_evidence_list else {},
-                    outline_artifact=outline_artifact.to_dict() if outline_artifact else {},
+                    research_brief=research_brief,
+                    task_ledger=task_ledger,
+                    progress_ledger=progress_ledger,
+                    coverage_matrix=coverage_matrix,
+                    contradiction_registry=contradiction_registry,
+                    missing_evidence_list=missing_evidence_list,
+                    outline_artifact=outline_artifact,
                 )
+                if tool_decision:
+                    try:
+                        action = SupervisorAction(str(tool_decision.get("action") or "").strip())
+                    except ValueError:
+                        action = None
+                    if action is not None:
+                        decision = self._deps.SupervisorDecision(
+                            action=action,
+                            reasoning=str(tool_decision.get("reasoning") or "").strip() or "tool-agent decision",
+                            priority_topics=list(tool_decision.get("priority_topics") or []),
+                            retry_task_ids=list(tool_decision.get("retry_task_ids") or []),
+                            request_ids=(
+                                list(tool_decision.get("request_ids") or [])
+                                or [request.id for request in open_requests]
+                            ),
+                            issue_ids=list(tool_decision.get("issue_ids") or []),
+                            target_branch_ids=list(tool_decision.get("target_branch_ids") or []),
+                        )
+                    else:
+                        decision = self.supervisor.decide_next_action(
+                            topic=self.topic,
+                            num_queries=view.task_queue.completed_count(),
+                            num_sources=len(unique_urls),
+                            num_summaries=section_count,
+                            current_epoch=view.current_iteration,
+                            max_epochs=self.max_epochs,
+                            ready_task_count=view.task_queue.ready_count(),
+                            retry_task_ids=retry_task_ids,
+                            request_ids=[request.id for request in open_requests],
+                            budget_stop_reason=view.budget_stop_reason or "",
+                            knowledge_summary=view._knowledge_summary(),
+                            quality_score=gap_result.overall_coverage if gap_result else 0.0,
+                            quality_gap_count=len(gap_result.gaps) if gap_result else 0,
+                            citation_accuracy=citation_accuracy,
+                            verification_summary=verification_summary,
+                            revision_issues=[issue.to_dict() for issue in revision_issues],
+                            research_brief=research_brief.to_dict() if research_brief else {},
+                            task_ledger=task_ledger.to_dict() if task_ledger else {},
+                            progress_ledger=progress_ledger.to_dict() if progress_ledger else {},
+                            coverage_matrix=coverage_matrix.to_dict() if coverage_matrix else {},
+                            contradiction_registry=contradiction_registry.to_dict() if contradiction_registry else {},
+                            missing_evidence_list=missing_evidence_list.to_dict() if missing_evidence_list else {},
+                            outline_artifact=outline_artifact.to_dict() if outline_artifact else {},
+                        )
+                else:
+                    decision = self.supervisor.decide_next_action(
+                        topic=self.topic,
+                        num_queries=view.task_queue.completed_count(),
+                        num_sources=len(unique_urls),
+                        num_summaries=section_count,
+                        current_epoch=view.current_iteration,
+                        max_epochs=self.max_epochs,
+                        ready_task_count=view.task_queue.ready_count(),
+                        retry_task_ids=retry_task_ids,
+                        request_ids=[request.id for request in open_requests],
+                        budget_stop_reason=view.budget_stop_reason or "",
+                        knowledge_summary=view._knowledge_summary(),
+                        quality_score=gap_result.overall_coverage if gap_result else 0.0,
+                        quality_gap_count=len(gap_result.gaps) if gap_result else 0,
+                        citation_accuracy=citation_accuracy,
+                        verification_summary=verification_summary,
+                        revision_issues=[issue.to_dict() for issue in revision_issues],
+                        research_brief=research_brief.to_dict() if research_brief else {},
+                        task_ledger=task_ledger.to_dict() if task_ledger else {},
+                        progress_ledger=progress_ledger.to_dict() if progress_ledger else {},
+                        coverage_matrix=coverage_matrix.to_dict() if coverage_matrix else {},
+                        contradiction_registry=contradiction_registry.to_dict() if contradiction_registry else {},
+                        missing_evidence_list=missing_evidence_list.to_dict() if missing_evidence_list else {},
+                        outline_artifact=outline_artifact.to_dict() if outline_artifact else {},
+                    )
             latest_decision = {
                 "action": decision.action.value,
                 "reasoning": decision.reasoning,
                 "iteration": view.current_iteration,
                 "request_ids": list(decision.request_ids),
                 "issue_ids": list(decision.issue_ids),
+                "active_agent": view.active_agent,
             }
             view._emit_decision(
                 decision_type=decision.action.value,
@@ -6131,6 +6646,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _outline_gate_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "outline_gate")
+        view.active_agent = "supervisor"
         record = view.start_agent_run(
             role="reporter",
             phase="outline_gate",
@@ -6274,6 +6790,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _report_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "report")
+        view.active_agent = "supervisor"
         outline_artifact = view.artifact_store.outline()
         if outline_artifact is None or not outline_artifact.is_ready or outline_artifact.blocking_gaps:
             return view.snapshot_patch(next_step="outline_gate")
@@ -6397,6 +6914,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _finalize_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "finalize")
+        view.active_agent = "supervisor"
         gap_result = _gap_result_from_payload(
             graph_state.get("latest_gap_result") or view.runtime_state.get("last_gap_result")
         )

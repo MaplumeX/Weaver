@@ -16,6 +16,7 @@ from agent.runtime.deep.schema import (
     AnswerUnit,
     BranchSynthesis,
     ClaimUnit,
+    ControlPlaneHandoff,
     CoordinationRequest,
     EvidenceCard,
     EvidencePassage,
@@ -26,6 +27,7 @@ from agent.runtime.deep.schema import (
     ResearchTask,
     SourceCandidate,
     VerificationResult,
+    validate_control_plane_agent,
     validate_coordination_request_type,
 )
 from agent.runtime.deep.services.verification import (
@@ -34,7 +36,14 @@ from agent.runtime.deep.services.verification import (
     ground_claim_units,
     latest_branch_syntheses,
 )
-from agent.builders.agent_factory import build_deep_research_tool_agent
+from agent.builders.agent_factory import build_deep_research_tool_agent, classify_deep_research_role
+
+
+_CONTROL_PLANE_HANDOFF_TARGETS: dict[str, set[str]] = {
+    "clarify": {"scope"},
+    "scope": {"supervisor"},
+    "supervisor": {"scope"},
+}
 
 
 def _extract_json_object(content: str) -> dict[str, Any]:
@@ -204,6 +213,9 @@ class DeepResearchToolAgentSession:
     allowed_capabilities: set[str] = field(default_factory=set)
     approved_scope: dict[str, Any] = field(default_factory=dict)
     related_artifacts: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    active_agent: str = ""
+    handoff_envelope: dict[str, Any] = field(default_factory=dict)
+    handoff_history: list[dict[str, Any]] = field(default_factory=list)
     search_results: list[dict[str, Any]] = field(default_factory=list)
     source_candidates: list[SourceCandidate] = field(default_factory=list)
     fetched_documents: list[FetchedDocument] = field(default_factory=list)
@@ -217,13 +229,116 @@ class DeepResearchToolAgentSession:
     coordination_requests: list[CoordinationRequest] = field(default_factory=list)
     submissions: list[ResearchSubmission] = field(default_factory=list)
     final_report: FinalReportArtifact | None = None
+    control_plane_result: dict[str, Any] = field(default_factory=dict)
+    supervisor_decision: dict[str, Any] = field(default_factory=dict)
+    plan_items: list[dict[str, Any]] = field(default_factory=list)
     searches_used: int = 0
     tokens_used: int = 0
     notes: list[str] = field(default_factory=list)
+    role_kind: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.role = str(self.role or "").strip().lower()
+        self.role_kind = classify_deep_research_role(self.role)
+        normalized_active_agent = str(self.active_agent or "").strip().lower()
+        if self.role_kind == "control_plane":
+            self.active_agent = validate_control_plane_agent(normalized_active_agent or self.role)
+        else:
+            self.active_agent = normalized_active_agent or "supervisor"
+        self.handoff_envelope = dict(self.handoff_envelope or {})
+        self.handoff_history = [
+            dict(item)
+            for item in self.handoff_history
+            if isinstance(item, dict)
+        ]
+        self.control_plane_result = dict(self.control_plane_result or {})
+        self.supervisor_decision = dict(self.supervisor_decision or {})
+        self.plan_items = [
+            dict(item)
+            for item in self.plan_items
+            if isinstance(item, dict)
+        ]
 
     def ensure_capability(self, capability: str) -> None:
         if capability not in self.allowed_capabilities:
             raise RuntimeError(f"{self.role} role is not allowed to use capability: {capability}")
+
+    def ensure_control_plane_owner(self) -> None:
+        if self.role_kind != "control_plane":
+            raise RuntimeError(f"{self.role} is not allowed to modify control-plane ownership")
+        if self.active_agent != self.role:
+            raise RuntimeError(f"only active control-plane owner '{self.active_agent}' may hand off ownership")
+
+    def submit_control_plane_result(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.role_kind != "control_plane":
+            raise RuntimeError(f"{self.role} is not a control-plane role")
+        self.control_plane_result = dict(payload or {})
+        return dict(self.control_plane_result)
+
+    def submit_control_plane_handoff(
+        self,
+        *,
+        to_agent: str,
+        reason: str,
+        context_refs: list[str] | None = None,
+        scope_snapshot: dict[str, Any] | None = None,
+        review_state: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> ControlPlaneHandoff:
+        self.ensure_control_plane_owner()
+        normalized_to_agent = validate_control_plane_agent(to_agent)
+        allowed_targets = _CONTROL_PLANE_HANDOFF_TARGETS.get(self.role, set())
+        if allowed_targets and normalized_to_agent not in allowed_targets:
+            allowed = ", ".join(sorted(allowed_targets))
+            raise ValueError(f"{self.role} can only hand off to: {allowed}")
+        handoff = ControlPlaneHandoff(
+            id=support._new_id("handoff"),
+            from_agent=validate_control_plane_agent(self.role),
+            to_agent=normalized_to_agent,
+            reason=str(reason or "").strip(),
+            context_refs=[str(item).strip() for item in (context_refs or []) if str(item).strip()],
+            scope_snapshot=dict(scope_snapshot or {}),
+            review_state=str(review_state or "").strip(),
+            created_by=self.role,
+            metadata=dict(metadata or {}),
+        )
+        payload = handoff.to_dict()
+        self.active_agent = handoff.to_agent
+        self.handoff_envelope = payload
+        self.handoff_history = [*self.handoff_history, payload][-20:]
+        return handoff
+
+    def submit_supervisor_decision(
+        self,
+        *,
+        action: str,
+        reasoning: str,
+        priority_topics: list[str] | None = None,
+        retry_task_ids: list[str] | None = None,
+        request_ids: list[str] | None = None,
+        issue_ids: list[str] | None = None,
+        target_branch_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if self.role != "supervisor":
+            raise RuntimeError("only supervisor may submit a supervisor decision")
+        self.ensure_control_plane_owner()
+        self.supervisor_decision = {
+            "action": str(action or "").strip(),
+            "reasoning": str(reasoning or "").strip(),
+            "priority_topics": _normalize_ids(priority_topics),
+            "retry_task_ids": _normalize_ids(retry_task_ids),
+            "request_ids": _normalize_ids(request_ids),
+            "issue_ids": _normalize_ids(issue_ids),
+            "target_branch_ids": _normalize_ids(target_branch_ids),
+        }
+        return dict(self.supervisor_decision)
+
+    def submit_plan_items(self, items: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+        if self.role != "supervisor":
+            raise RuntimeError("only supervisor may submit plan items")
+        self.ensure_control_plane_owner()
+        self.plan_items = [dict(item) for item in (items or []) if isinstance(item, dict)]
+        return list(self.plan_items)
 
     def budget_stop_reason(self) -> str | None:
         return support._budget_stop_reason(
@@ -601,6 +716,7 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
         """Return the current branch task, role boundary and allowed capability summary."""
         return {
             "role": session.role,
+            "role_kind": session.role_kind,
             "topic": session.topic,
             "branch_id": session.branch_id,
             "allowed_capabilities": sorted(session.allowed_capabilities),
@@ -645,6 +761,18 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
             payload[key] = value if isinstance(value, dict) else {}
         return payload
 
+    @tool
+    def fabric_get_handoff_state() -> dict[str, Any]:
+        """Return the authoritative control-plane owner and recent handoff context."""
+        return {
+            "role": session.role,
+            "role_kind": session.role_kind,
+            "active_agent": session.active_agent,
+            "latest_handoff": dict(session.handoff_envelope),
+            "handoff_history": list(session.handoff_history),
+            "allowed_targets": sorted(_CONTROL_PLANE_HANDOFF_TARGETS.get(session.role, set())),
+        }
+
     base_tools.extend(
         [
             fabric_get_scope,
@@ -653,8 +781,90 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
             fabric_get_related_artifacts,
             fabric_get_verification_contracts,
             fabric_get_control_plane,
+            fabric_get_handoff_state,
         ]
     )
+
+    if session.role_kind == "control_plane":
+        @tool
+        def fabric_submit_handoff(
+            to_agent: str,
+            reason: str,
+            context_refs: list[str] | None = None,
+            scope_snapshot: dict[str, Any] | None = None,
+            review_state: str = "",
+        ) -> dict[str, Any]:
+            """Submit a structured control-plane handoff. Only the current active owner may call this tool."""
+            handoff = session.submit_control_plane_handoff(
+                to_agent=to_agent,
+                reason=reason,
+                context_refs=list(context_refs or []),
+                scope_snapshot=dict(scope_snapshot or {}),
+                review_state=review_state,
+            )
+            return handoff.to_dict()
+
+        base_tools.append(fabric_submit_handoff)
+
+    if session.role == "clarify":
+        @tool
+        def fabric_submit_intake_assessment(
+            needs_clarification: bool,
+            question: str = "",
+            missing_information: list[str] | None = None,
+            research_goal: str = "",
+            background: str = "",
+            constraints: list[str] | None = None,
+            time_range: str = "",
+            source_preferences: list[str] | None = None,
+            exclusions: list[str] | None = None,
+        ) -> dict[str, Any]:
+            """Submit the normalized clarify result for the current intake step."""
+            payload = {
+                "needs_clarification": bool(needs_clarification),
+                "question": str(question or "").strip(),
+                "missing_information": _normalize_ids(missing_information),
+                "intake_summary": {
+                    "research_goal": str(research_goal or session.topic).strip() or session.topic,
+                    "background": str(background or "").strip(),
+                    "constraints": _normalize_ids(constraints),
+                    "time_range": str(time_range or "").strip(),
+                    "source_preferences": _normalize_ids(source_preferences),
+                    "exclusions": _normalize_ids(exclusions),
+                },
+            }
+            return session.submit_control_plane_result(payload)
+
+        base_tools.append(fabric_submit_intake_assessment)
+
+    if session.role == "scope":
+        @tool
+        def fabric_submit_scope_draft(
+            research_goal: str,
+            research_steps: list[str] | None = None,
+            core_questions: list[str] | None = None,
+            in_scope: list[str] | None = None,
+            out_of_scope: list[str] | None = None,
+            constraints: list[str] | None = None,
+            source_preferences: list[str] | None = None,
+            deliverable_preferences: list[str] | None = None,
+            assumptions: list[str] | None = None,
+        ) -> dict[str, Any]:
+            """Submit the structured scope draft that will be shown for review."""
+            payload = {
+                "research_goal": str(research_goal or session.topic).strip() or session.topic,
+                "research_steps": _normalize_ids(research_steps),
+                "core_questions": _normalize_ids(core_questions),
+                "in_scope": _normalize_ids(in_scope),
+                "out_of_scope": _normalize_ids(out_of_scope),
+                "constraints": _normalize_ids(constraints),
+                "source_preferences": _normalize_ids(source_preferences),
+                "deliverable_preferences": _normalize_ids(deliverable_preferences),
+                "assumptions": _normalize_ids(assumptions),
+            }
+            return session.submit_control_plane_result(payload)
+
+        base_tools.append(fabric_submit_scope_draft)
 
     if session.role == "supervisor":
         @tool
@@ -670,7 +880,40 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
                 for request in session.runtime.artifact_store.coordination_requests(status="open")
             ]
 
-        base_tools.extend([fabric_get_task_queue, fabric_get_open_requests])
+        @tool
+        def fabric_submit_supervisor_decision(
+            action: str,
+            reasoning: str,
+            priority_topics: list[str] | None = None,
+            retry_task_ids: list[str] | None = None,
+            request_ids: list[str] | None = None,
+            issue_ids: list[str] | None = None,
+            target_branch_ids: list[str] | None = None,
+        ) -> dict[str, Any]:
+            """Submit the supervisor's next structured control-plane decision."""
+            return session.submit_supervisor_decision(
+                action=action,
+                reasoning=reasoning,
+                priority_topics=list(priority_topics or []),
+                retry_task_ids=list(retry_task_ids or []),
+                request_ids=list(request_ids or []),
+                issue_ids=list(issue_ids or []),
+                target_branch_ids=list(target_branch_ids or []),
+            )
+
+        @tool
+        def fabric_submit_plan_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            """Submit the next plan or replan task candidates for supervisor-owned dispatch."""
+            return session.submit_plan_items(items)
+
+        base_tools.extend(
+            [
+                fabric_get_task_queue,
+                fabric_get_open_requests,
+                fabric_submit_supervisor_decision,
+                fabric_submit_plan_items,
+            ]
+        )
         return base_tools
 
     if "search" in session.allowed_capabilities:
@@ -1132,7 +1375,66 @@ def materialize_session_from_text(session: DeepResearchToolAgentSession, text: s
     payload = _extract_json_object(text)
     if not payload:
         return
-    if session.role == "researcher" and not session.submissions:
+    if session.role == "clarify" and not session.control_plane_result:
+        intake_summary = payload.get("intake_summary") if isinstance(payload.get("intake_summary"), dict) else {}
+        if intake_summary or "needs_clarification" in payload:
+            session.submit_control_plane_result(
+                {
+                    "needs_clarification": bool(payload.get("needs_clarification")),
+                    "question": str(payload.get("question") or "").strip(),
+                    "missing_information": _normalize_ids(payload.get("missing_information")),
+                    "intake_summary": {
+                        "research_goal": str(intake_summary.get("research_goal") or session.topic).strip()
+                        or session.topic,
+                        "background": str(intake_summary.get("background") or "").strip(),
+                        "constraints": _normalize_ids(intake_summary.get("constraints")),
+                        "time_range": str(intake_summary.get("time_range") or "").strip(),
+                        "source_preferences": _normalize_ids(intake_summary.get("source_preferences")),
+                        "exclusions": _normalize_ids(intake_summary.get("exclusions")),
+                    },
+                }
+            )
+    elif session.role == "scope" and not session.control_plane_result:
+        if any(
+            key in payload
+            for key in (
+                "research_goal",
+                "research_steps",
+                "core_questions",
+                "in_scope",
+                "out_of_scope",
+            )
+        ):
+            session.submit_control_plane_result(
+                {
+                    "research_goal": str(payload.get("research_goal") or session.topic).strip() or session.topic,
+                    "research_steps": _normalize_ids(payload.get("research_steps")),
+                    "core_questions": _normalize_ids(payload.get("core_questions")),
+                    "in_scope": _normalize_ids(payload.get("in_scope")),
+                    "out_of_scope": _normalize_ids(payload.get("out_of_scope")),
+                    "constraints": _normalize_ids(payload.get("constraints")),
+                    "source_preferences": _normalize_ids(payload.get("source_preferences")),
+                    "deliverable_preferences": _normalize_ids(payload.get("deliverable_preferences")),
+                    "assumptions": _normalize_ids(payload.get("assumptions")),
+                }
+            )
+    elif session.role == "supervisor":
+        if not session.plan_items and isinstance(payload.get("plan_items"), list):
+            session.submit_plan_items(payload.get("plan_items"))
+        if not session.supervisor_decision:
+            action = str(payload.get("action") or payload.get("decision_type") or "").strip()
+            reasoning = str(payload.get("reasoning") or payload.get("summary") or "").strip()
+            if action and reasoning:
+                session.submit_supervisor_decision(
+                    action=action,
+                    reasoning=reasoning,
+                    priority_topics=_normalize_ids(payload.get("priority_topics")),
+                    retry_task_ids=_normalize_ids(payload.get("retry_task_ids")),
+                    request_ids=_normalize_ids(payload.get("request_ids")),
+                    issue_ids=_normalize_ids(payload.get("issue_ids")),
+                    target_branch_ids=_normalize_ids(payload.get("target_branch_ids")),
+                )
+    elif session.role == "researcher" and not session.submissions:
         summary = str(payload.get("summary") or payload.get("result_summary") or "").strip()
         if summary:
             session.submit_research_bundle(
@@ -1172,6 +1474,27 @@ def materialize_session_from_text(session: DeepResearchToolAgentSession, text: s
                 executive_summary=executive_summary,
                 citation_urls=list(payload.get("citation_urls") or []),
             )
+    if (
+        session.role_kind == "control_plane"
+        and not session.handoff_envelope
+        and payload.get("to_agent")
+        and payload.get("reason")
+    ):
+        try:
+            session.submit_control_plane_handoff(
+                to_agent=str(payload.get("to_agent") or "").strip(),
+                reason=str(payload.get("reason") or "").strip(),
+                context_refs=_normalize_ids(payload.get("context_refs")),
+                scope_snapshot=(
+                    dict(payload.get("scope_snapshot"))
+                    if isinstance(payload.get("scope_snapshot"), dict)
+                    else {}
+                ),
+                review_state=str(payload.get("review_state") or "").strip(),
+                metadata=dict(payload.get("metadata") or {}),
+            )
+        except Exception:
+            return
 
 
 def run_bounded_tool_agent(

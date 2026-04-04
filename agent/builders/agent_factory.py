@@ -24,6 +24,9 @@ from tools.core.registry import get_registered_tools
 
 logger = logging.getLogger(__name__)
 
+DEEP_RESEARCH_CONTROL_PLANE_ROLES = frozenset({"clarify", "scope", "supervisor"})
+DEEP_RESEARCH_EXECUTION_ROLES = frozenset({"researcher", "verifier", "reporter"})
+
 _DEEP_RESEARCH_TOOL_GROUPS = {
     "search": {
         "browser_search",
@@ -59,6 +62,15 @@ _DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS = {
     "verifier": {"fabric", "search", "read", "extract"},
     "reporter": {"fabric", "synthesize", "execute_python_code"},
 }
+
+
+def classify_deep_research_role(role: str) -> str:
+    normalized_role = str(role or "").strip().lower()
+    if normalized_role in DEEP_RESEARCH_CONTROL_PLANE_ROLES:
+        return "control_plane"
+    if normalized_role in DEEP_RESEARCH_EXECUTION_ROLES:
+        return "execution"
+    return "unknown"
 
 
 def _build_llm(model: str, temperature: float = 0.7) -> ChatOpenAI:
