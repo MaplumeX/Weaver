@@ -12,38 +12,11 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
+from agent.prompts.runtime_templates import (
+    DEEP_SUPERVISOR_DECISION_PROMPT as SUPERVISOR_DECISION_PROMPT,
+)
 
 from .planner import ResearchPlanner
-
-
-SUPERVISOR_DECISION_PROMPT = """
-# 角色
-你是一名 Deep Research supervisor，负责决定当前研究循环的下一步动作。
-
-# 当前研究状态
-- 主题: {topic}
-- 已完成查询数: {num_queries}
-- 已收集来源数: {num_sources}
-- 已生成摘要数: {num_summaries}
-- 当前轮次: {current_epoch}/{max_epochs}
-- 质量总分: {quality_score}
-- 缺口数量: {quality_gap_count}
-- 引用准确/覆盖: {citation_accuracy}
-- 已知信息摘要: {knowledge_summary}
-
-# 可选动作
-1. plan: 首次生成研究计划
-2. dispatch: 继续派发当前 ready branch
-3. replan: 基于缺口和验证反馈重规划
-4. report: 停止研究并生成最终报告
-5. stop: 终止当前研究循环
-
-# 输出格式
-严格按照以下格式输出：
-action: <动作名称>
-reasoning: <决策理由>
-priority_topics: <如选择 replan，可列出优先研究的子话题，逗号分隔>
-"""
 
 
 class SupervisorAction(str, Enum):

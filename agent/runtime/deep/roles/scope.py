@@ -12,56 +12,9 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
+from agent.prompts.runtime_templates import DEEP_SCOPE_PROMPT as SCOPE_PROMPT
 
 logger = logging.getLogger(__name__)
-
-
-SCOPE_PROMPT = """
-# Role
-You are the Deep Research scope agent.
-
-# Original topic
-{topic}
-
-# Normalized intake summary
-{intake_summary}
-
-# Clarification transcript
-{clarify_transcript}
-
-# Previous scope draft
-{previous_scope}
-
-# Latest scope feedback
-{scope_feedback}
-
-# Task
-Produce a structured scope draft for the research planner.
-
-# Requirements
-1. The draft must be concrete and reviewable by a human.
-2. Capture goals, key questions, in-scope items, out-of-scope items, constraints, and source preferences.
-3. Include 3-7 concrete `research_steps` that explain how the research will be carried out.
-4. The `research_steps` must read like a reviewable step outline for the user, not like raw search queries.
-5. If scope_feedback is present, rewrite the draft based on the previous draft and the feedback.
-6. Do not generate final answers, exhaustive evidence, or low-level execution logs.
-
-# Output
-Return a JSON object:
-```json
-{{
-  "research_goal": "Primary research goal",
-  "research_steps": ["Step 1", "Step 2"],
-  "core_questions": ["Question 1", "Question 2"],
-  "in_scope": ["In-scope item 1"],
-  "out_of_scope": ["Out-of-scope item 1"],
-  "constraints": ["Constraint 1"],
-  "source_preferences": ["Preferred source 1"],
-  "deliverable_preferences": ["Preferred report style"],
-  "assumptions": ["Assumption 1"]
-}}
-```
-"""
 
 
 def _coerce_string_list(value: Any) -> list[str]:

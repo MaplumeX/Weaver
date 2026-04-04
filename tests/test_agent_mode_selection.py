@@ -29,7 +29,7 @@ def test_agent_node_delegates_simple_verification_query_to_fast_search(monkeypat
         raise AssertionError("full tool agent should be skipped for simple verification query")
 
     monkeypatch.setattr(nodes, "_answer_simple_agent_query", fake_fast, raising=False)
-    monkeypatch.setattr(nodes, "build_agent_tools", fail_build_tools)
+    monkeypatch.setattr(nodes, "build_agent_toolset", fail_build_tools)
 
     result = nodes.agent_node(
         {
@@ -58,7 +58,7 @@ def test_agent_node_delegates_narrow_comparison_query_to_fast_search(monkeypatch
         raise AssertionError("full tool agent should be skipped for narrow comparison query")
 
     monkeypatch.setattr(nodes, "_answer_simple_agent_query", fake_fast, raising=False)
-    monkeypatch.setattr(nodes, "build_agent_tools", fail_build_tools)
+    monkeypatch.setattr(nodes, "build_agent_toolset", fail_build_tools)
 
     result = nodes.agent_node(
         {
@@ -81,7 +81,7 @@ def test_agent_node_keeps_full_tool_agent_for_complex_research_queries(monkeypat
         raise AssertionError("fast search path should be skipped for complex research queries")
 
     monkeypatch.setattr(nodes, "_answer_simple_agent_query", fail_fast, raising=False)
-    monkeypatch.setattr(nodes, "build_agent_tools", lambda _config: [])
+    monkeypatch.setattr(nodes, "build_agent_toolset", lambda _config: [])
     monkeypatch.setattr(nodes, "build_tool_agent", lambda **_kwargs: FakeAgent())
     monkeypatch.setattr(nodes, "detect_stuck", lambda _messages, threshold=1: False)
 

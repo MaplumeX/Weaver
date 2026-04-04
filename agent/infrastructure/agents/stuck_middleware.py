@@ -1,5 +1,5 @@
 """
-Stuck detection middleware: detects repeated assistant messages and injects a nudge.
+Stuck detection helpers for repeated assistant messages.
 """
 
 from typing import List
@@ -14,8 +14,8 @@ def detect_stuck(messages: List[BaseMessage], threshold: int = 2) -> bool:
     if not isinstance(last, AIMessage) or not last.content:
         return False
     dup = 0
-    for m in reversed(messages[:-1]):
-        if isinstance(m, AIMessage) and m.content == last.content:
+    for message in reversed(messages[:-1]):
+        if isinstance(message, AIMessage) and message.content == last.content:
             dup += 1
         else:
             break

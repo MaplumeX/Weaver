@@ -4,6 +4,16 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
 from langchain_core.messages import BaseMessage, SystemMessage
 from langgraph.graph.message import add_messages
 
+from agent.domain.state import (
+    ConversationState,
+    DeepRuntimeSnapshot,
+    ExecutionState,
+    ResearchState,
+    RuntimeSnapshot,
+    build_deep_runtime_snapshot as _build_deep_runtime_snapshot,
+    build_state_slices as _build_state_slices,
+    project_state_updates as _project_state_updates,
+)
 from agent.core.message_utils import summarize_messages
 from common.config import settings
 
@@ -47,16 +57,6 @@ def capped_add_messages(
 
 # Execution status type
 ExecutionStatus = Literal["pending", "running", "paused", "completed", "failed", "cancelled"]
-
-
-class DeepRuntimeSnapshot(TypedDict, total=False):
-    """Nested deep runtime snapshot used to reduce top-level state sprawl."""
-
-    engine: str
-    task_queue: Dict[str, Any]
-    artifact_store: Dict[str, Any]
-    runtime_state: Dict[str, Any]
-    agent_runs: List[Dict[str, Any]]
 
 
 class AgentState(TypedDict):
@@ -190,6 +190,12 @@ class AgentState(TypedDict):
     total_input_tokens: int
     total_output_tokens: int
 
+    # ============ Structured State Slices ============
+    conversation_state: ConversationState
+    execution_state: ExecutionState
+    research_state: ResearchState
+    runtime_snapshot: RuntimeSnapshot
+
 
 class ResearchPlan(TypedDict):
     """Structured research plan output."""
@@ -231,10 +237,21 @@ def build_deep_runtime_snapshot(
 ) -> DeepRuntimeSnapshot:
     """Build the preferred nested runtime snapshot while keeping old fields usable."""
 
-    return {
-        "engine": engine,
-        "task_queue": dict(task_queue or {}),
-        "artifact_store": dict(artifact_store or {}),
-        "runtime_state": dict(runtime_state or {}),
-        "agent_runs": list(agent_runs or []),
-    }
+    return _build_deep_runtime_snapshot(
+        engine=engine,
+        task_queue=task_queue,
+        artifact_store=artifact_store,
+        runtime_state=runtime_state,
+        agent_runs=agent_runs,
+    )
+
+
+def build_state_slices(state: Dict[str, Any] | None) -> Dict[str, Any]:
+    return _build_state_slices(state)
+
+
+def project_state_updates(
+    state: Dict[str, Any] | None,
+    updates: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    return _project_state_updates(state, updates)

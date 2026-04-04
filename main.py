@@ -48,11 +48,14 @@ from agent import (
     create_checkpointer,
     create_research_graph,
     event_stream_generator,
-    get_deep_agent_prompt,
     get_default_agent_prompt,
     get_emitter,
     initialize_enhanced_tools,
     remove_emitter,
+)
+from agent.application import (
+    build_execution_request,
+    build_initial_agent_state as build_application_initial_agent_state,
 )
 from agent.contracts.research import extract_message_sources
 from agent.contracts.search_cache import clear_search_cache, get_search_cache
@@ -2136,63 +2139,23 @@ def _build_initial_agent_state(
 ) -> AgentState:
     images = images or []
     user_id = user_id or settings.memory_user_id
-    deep_runtime_engine = (
-        SUPPORTED_DEEP_RESEARCH_RUNTIME if mode_info.get("mode") == "deep" else ""
-    )
-    initial_state: AgentState = {
-        "input": input_text,
-        "images": images,
-        "needs_clarification": False,
-        "tool_approved": False,
-        "pending_tool_calls": [],
-        "user_id": user_id,
-        "messages": [],
-        "research_plan": [],
-        "current_step": 0,
-        "scraped_content": [],
-        "code_results": [],
-        "final_report": "",
-        "draft_report": "",
-        "evaluation": "",
-        "verdict": "",
-        "route": mode_info.get("mode", "agent"),
-        "revision_count": 0,
-        "max_revisions": settings.max_revisions,
-        "tool_call_count": 0,
-        "is_complete": False,
-        "errors": [],
-        "sub_agent_contexts": {},
-        "deep_runtime": {
-            "engine": deep_runtime_engine,
-            "task_queue": {},
-            "artifact_store": {},
-            "runtime_state": {},
-            "agent_runs": [],
+    request = build_execution_request(
+        input_text=input_text,
+        thread_id=thread_id,
+        user_id=user_id,
+        mode_info=mode_info,
+        images=images,
+        agent_profile=agent_profile,
+        options={
+            "max_revisions": settings.max_revisions,
+            "tool_call_limit": settings.tool_call_limit,
         },
-        "cancel_token_id": thread_id,
-        "is_cancelled": False,
-    }
-
-    messages: list[Any] = []
-    if mode_info.get("mode") == "agent" and agent_profile and agent_profile.system_prompt:
-        messages.append(SystemMessage(content=agent_profile.system_prompt))
-    if mode_info.get("mode") == "deep":
-        messages.append(SystemMessage(content=get_deep_agent_prompt()))
-
-    store_memories = _store_search(input_text, user_id=user_id)
-    if store_memories:
-        store_text = "\n".join(f"- {m}" for m in store_memories)
-        messages.append(SystemMessage(content=f"Stored memories:\n{store_text}"))
-
-    mem_entries = fetch_memories(query=input_text, user_id=user_id)
-    if mem_entries:
-        memory_text = "\n".join(f"- {m}" for m in mem_entries)
-        messages.append(SystemMessage(content=f"Relevant past knowledge:\n{memory_text}"))
-
-    if messages:
-        initial_state["messages"] = messages
-
-    return initial_state
+    )
+    return build_application_initial_agent_state(
+        request,
+        stored_memories=_store_search(input_text, user_id=user_id),
+        relevant_memories=fetch_memories(query=input_text, user_id=user_id),
+    )
 
 
 _MULTI_AGENT_GENERIC_PROGRESS_NODE_NAMES = {

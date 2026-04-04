@@ -15,7 +15,6 @@ def build_browser_context_hint(thread_id: str = "default") -> Optional[str]:
     session = browser_sessions.get(thread_id)
     page = getattr(session, "current", None)
     if not page or not page.url:
-        # try sandbox browser (Playwright)
         sb = sandbox_browser_sessions.get(thread_id)
         page = getattr(sb, "current", None) if sb else None
     if not page or not getattr(page, "url", None):
@@ -23,7 +22,7 @@ def build_browser_context_hint(thread_id: str = "default") -> Optional[str]:
 
     links = page.links[:5] if getattr(page, "links", None) else []
     links_text = "\n".join(
-        f"- {l.get('text') or l.get('url')}" for l in links if isinstance(l, dict)
+        f"- {link.get('text') or link.get('url')}" for link in links if isinstance(link, dict)
     )
 
     hint = [

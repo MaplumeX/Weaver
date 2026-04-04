@@ -11,50 +11,14 @@ from dataclasses import dataclass, field
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
+from agent.prompts.runtime_templates import (
+    DEEP_REPORTER_EXEC_SUMMARY_PROMPT,
+    DEEP_REPORTER_PROMPT as REPORTER_PROMPT,
+    DEEP_REPORTER_REFINE_PROMPT,
+)
 from agent.research.source_url_utils import canonicalize_source_url
 
 logger = logging.getLogger(__name__)
-
-
-REPORTER_PROMPT = """
-# 角色
-你是一名专业的研究报告撰写者。基于已经过整理和验证的研究材料，撰写一份全面的深度研究报告。
-
-# 主题
-{topic}
-
-# 章节素材
-{sections}
-
-# 可用来源映射
-{sources}
-
-# 报告要求
-## 内容要求
-- 字数不少于 3500 字，尽可能详细全面
-- 所有事实、数据必须来自提供的章节素材和来源映射
-- 涵盖主题的所有关键方面
-- 提供足够的技术深度和专业见解
-- 引用具体数据和案例
-
-## 结构要求
-- 使用清晰的 Markdown 标题层级（# ## ###）
-- 逻辑清晰，层次分明
-- 每段内容聚焦单一要点
-- 适当使用项目符号和编号列表
-
-## 格式要求
-- 直接以 Markdown 格式输出
-- 使用 [来源序号] 格式进行行内引用，且仅可使用来源映射中的编号
-- 在文末添加"来源"部分，并保持编号连续
-
-# 输出结构
-1. 标题与概述/摘要
-2. 核心内容（多个章节）
-3. 分析与见解
-4. 结论与展望
-5. 来源
-"""
 
 
 @dataclass
@@ -290,24 +254,7 @@ class ResearchReporter:
             Refined report
         """
         prompt = ChatPromptTemplate.from_messages([
-            ("user", """
-# 任务
-根据评审反馈修改研究报告。
-
-# 主题: {topic}
-
-# 当前报告
-{report}
-
-# 评审反馈
-{feedback}
-
-# 要求
-1. 根据反馈修改相应内容
-2. 保持报告的整体结构和风格
-3. 确保修改后的内容准确无误
-4. 输出完整的修改后报告（Markdown 格式）
-""")
+            ("user", DEEP_REPORTER_REFINE_PROMPT)
         ])
 
         msg = prompt.format_messages(
@@ -334,20 +281,7 @@ class ResearchReporter:
             Executive summary text
         """
         prompt = ChatPromptTemplate.from_messages([
-            ("user", """
-# 任务
-为以下研究报告生成执行摘要。
-
-# 主题: {topic}
-
-# 报告
-{report}
-
-# 要求
-- 300字以内
-- 包含核心发现、关键结论和建议
-- 简洁明了，高度概括
-""")
+            ("user", DEEP_REPORTER_EXEC_SUMMARY_PROMPT)
         ])
 
         msg = prompt.format_messages(

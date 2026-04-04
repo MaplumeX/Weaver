@@ -12,7 +12,7 @@ from langchain.agents.middleware.todo import (
     WRITE_TODOS_TOOL_DESCRIPTION,
 )
 
-from agent.builders import agent_factory
+import agent.infrastructure.agents.factory as agent_factory
 from common.config import Settings
 
 

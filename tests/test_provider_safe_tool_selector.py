@@ -11,7 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent.builders.provider_safe_middleware import ProviderSafeToolSelectorMiddleware
+from agent.infrastructure.agents.provider_safe_middleware import (
+    ProviderSafeToolSelectorMiddleware,
+)
 
 
 @tool

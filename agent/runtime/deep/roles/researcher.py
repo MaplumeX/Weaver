@@ -10,6 +10,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
+from agent.prompts.runtime_templates import (
+    DEEP_RESEARCHER_SELECT_URLS_PROMPT,
+    DEEP_RESEARCHER_SUMMARIZE_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,20 +109,7 @@ class ResearchAgent:
             )
 
         prompt = ChatPromptTemplate.from_messages([
-            ("user", """
-# 任务
-从以下搜索结果中选择与主题最相关的 {max_urls} 个 URL。
-
-# 主题: {topic}
-
-# 已有信息: {summary_context}
-
-# 搜索结果
-{results}
-
-# 输出
-只输出选中的 URL 列表（每行一个）：
-""")
+            ("user", DEEP_RESEARCHER_SELECT_URLS_PROMPT)
         ])
 
         msg = prompt.format_messages(
@@ -170,21 +161,7 @@ class ResearchAgent:
             )
 
         prompt = ChatPromptTemplate.from_messages([
-            ("user", """
-# 任务
-总结以下搜索结果中与主题相关的新发现。
-
-# 主题: {topic}
-# 已有信息: {existing_summary}
-# 新搜索结果:
-{findings}
-
-# 输出要求
-- 提取与主题相关的关键新信息
-- 避免与已有信息重复
-- 简洁有条理
-- 500字以内
-""")
+            ("user", DEEP_RESEARCHER_SUMMARIZE_PROMPT)
         ])
 
         msg = prompt.format_messages(

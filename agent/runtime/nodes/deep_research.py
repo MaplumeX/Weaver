@@ -22,6 +22,7 @@ _auto_mode_prefers_linear = _shared._auto_mode_prefers_linear
 _build_compact_unique_source_preview = _shared._build_compact_unique_source_preview
 _configurable = _shared._configurable
 _event_results_limit = _shared._event_results_limit
+project_state_updates = _shared.project_state_updates
 handle_cancellation = _shared.handle_cancellation
 logger = _shared.logger
 settings = _shared.settings
@@ -134,7 +135,7 @@ def deep_research_node(
             except Exception as e:
                 logger.debug(f"[deep_research_node] failed to emit completion events: {e}")
 
-        return result
+        return deps.project_state_updates(state, result)
     except asyncio.CancelledError as e:
         return deps.handle_cancellation(state, e)
     except GraphBubbleUp:
@@ -151,13 +152,16 @@ def deep_research_node(
             )
         else:
             msg = f"Deep Research failed: {err_text}"
-        return {
-            "errors": [msg],
-            "final_report": msg,
-            "draft_report": msg,
-            "is_complete": False,
-            "messages": [AIMessage(content=msg)],
-        }
+        return deps.project_state_updates(
+            state,
+            {
+                "errors": [msg],
+                "final_report": msg,
+                "draft_report": msg,
+                "is_complete": False,
+                "messages": [AIMessage(content=msg)],
+            },
+        )
 
 
 __all__ = ["deep_research_node"]

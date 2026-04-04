@@ -1,74 +1,27 @@
-"""
-Prompt Manager for Weaver Agent System.
-
-Provides centralized prompt management with support for:
-- Simple vs Enhanced prompt modes
-- Custom prompt loading
-- Context-aware prompt building
-- Easy A/B testing
-"""
+"""Central prompt manager and registry facade."""
 
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from agent.infrastructure.prompts import PromptRegistry, build_default_prompt_registry
 from common.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-ENHANCED_PLANNER_PROMPT = """You are creating a research plan. Follow these principles:
-
-1. **Break Down the Question**
-   - Identify key concepts and sub-questions
-   - Determine information types needed (facts, statistics, opinions, examples)
-
-2. **Design Search Strategy**
-   - Formulate 3-7 specific search queries
-   - Each query should target a different aspect
-   - Use specific, targeted queries rather than broad ones
-   - Examples:
-     * Broad: "climate change"
-     * Specific: "latest IPCC report 2024 key findings"
-     * Specific: "renewable energy adoption statistics 2024"
-
-3. **Consider Multiple Perspectives**
-   - Authoritative sources
-   - Recent developments
-   - Diverse viewpoints
-
-Return JSON with queries and reasoning."""
-
-
 class PromptManager:
-    """
-    Centralized prompt management for Weaver agents.
+    """Centralized prompt management for Weaver agents."""
 
-    Supports multiple prompt styles:
-    - "simple": Concise, minimal prompts
-    - "enhanced": Detailed prompts with best practices (Manus-inspired)
-    - "custom": Load from custom file paths
-    """
-
-    def __init__(self, prompt_style: str = "enhanced"):
-        """
-        Initialize PromptManager.
-
-        Args:
-            prompt_style: "simple", "enhanced", or "custom"
-        """
+    def __init__(self, prompt_style: str = "enhanced", registry: PromptRegistry | None = None):
         self.prompt_style = prompt_style
+        self._registry = registry or build_default_prompt_registry(prompt_style)
         self._custom_prompts: Dict[str, str] = {}
 
     def set_custom_prompt(self, prompt_type: str, content: str):
-        """
-        Set a custom prompt for a specific type.
-
-        Args:
-            prompt_type: "agent", "writer", "planner", etc.
-            content: Prompt content string
-        """
-        self._custom_prompts[prompt_type] = content
+        prompt_id = str(prompt_type or "").strip()
+        self._custom_prompts[prompt_id] = content
+        self._registry.set_override(prompt_id, content)
         logger.info(f"Custom {prompt_type} prompt set ({len(content)} chars)")
 
     def load_custom_prompt(self, prompt_type: str, file_path: str):
@@ -87,117 +40,30 @@ class PromptManager:
         self.set_custom_prompt(prompt_type, content)
         logger.info(f"Loaded custom {prompt_type} prompt from {file_path}")
 
+    @property
+    def registry(self) -> PromptRegistry:
+        return self._registry
+
+    def render(self, prompt_id: str, context: Optional[Dict[str, Any]] = None) -> str:
+        prompt_key = str(prompt_id or "").strip()
+        if prompt_key in self._custom_prompts:
+            return self._custom_prompts[prompt_key]
+        return self._registry.render(prompt_key, context=context)
+
     def get_agent_prompt(self, context: Optional[Dict[str, Any]] = None) -> str:
-        """
-        Get the agent system prompt.
-
-        Args:
-            context: Optional context dict with:
-                - current_time: datetime object
-                - enabled_tools: list of tool names
-
-        Returns:
-            Agent system prompt string
-        """
-        # Check for custom prompt first
-        if "agent" in self._custom_prompts:
-            return self._custom_prompts["agent"]
-
-        # Return based on style
-        if self.prompt_style == "simple":
-            from agent.prompts.agent_prompts import get_default_agent_prompt
-
-            return get_default_agent_prompt()
-
-        elif self.prompt_style == "enhanced":
-            from agent.prompts.system_prompts import get_agent_prompt
-
-            return get_agent_prompt(mode="agent", context=context)
-
-        # Default to enhanced
-        from agent.prompts.system_prompts import get_agent_prompt
-
-        return get_agent_prompt(mode="agent", context=context)
+        return self.render("agent", context=context)
 
     def get_writer_prompt(self) -> str:
-        """
-        Get the writer system prompt.
-
-        Returns:
-            Writer system prompt string
-        """
-        # Check for custom prompt first
-        if "writer" in self._custom_prompts:
-            return self._custom_prompts["writer"]
-
-        # Return based on style
-        if self.prompt_style == "simple":
-            return """You are an expert research analyst. Write a concise, well-structured report with markdown headings, inline source tags like [S1-1], and a Sources section at the end."""
-
-        elif self.prompt_style == "enhanced":
-            from agent.prompts.system_prompts import get_writer_prompt
-
-            return get_writer_prompt()
-
-        # Default to enhanced
-        from agent.prompts.system_prompts import get_writer_prompt
-
-        return get_writer_prompt()
+        return self.render("writer")
 
     def get_planner_prompt(self) -> str:
-        """
-        Get the planner guidance prompt.
-
-        Returns:
-            Planner guidance string
-        """
-        # Check for custom prompt first
-        if "planner" in self._custom_prompts:
-            return self._custom_prompts["planner"]
-
-        # Return based on style
-        if self.prompt_style == "simple":
-            return "You are a research planner. Generate 3-7 targeted search queries and reasoning."
-
-        elif self.prompt_style == "enhanced":
-            return ENHANCED_PLANNER_PROMPT
-
-        # Default to enhanced prompt
-        return ENHANCED_PLANNER_PROMPT
+        return self.render("planner")
 
     def get_deep_research_prompt(self) -> str:
-        """
-        Get the deep research methodology prompt.
-
-        Returns:
-            Deep research prompt string
-        """
-        # Check for custom prompt first
-        if "deep_research" in self._custom_prompts:
-            return self._custom_prompts["deep_research"]
-
-        # Only available in enhanced mode
-        if self.prompt_style == "enhanced":
-            from agent.prompts.system_prompts import get_deep_research_prompt
-
-            return get_deep_research_prompt()
-
-        # Fallback to agent prompt
-        return self.get_agent_prompt()
+        return self.render("deep_research")
 
     def get_direct_answer_prompt(self) -> str:
-        """
-        Get the direct answer prompt.
-
-        Returns:
-            Direct answer prompt string
-        """
-        # Check for custom prompt first
-        if "direct_answer" in self._custom_prompts:
-            return self._custom_prompts["direct_answer"]
-
-        # Simple prompt for quick answers
-        return "You are a helpful assistant. Answer succinctly and accurately."
+        return self.render("direct_answer")
 
 
 # ============================================================================
@@ -245,8 +111,16 @@ def reset_prompt_manager():
 
 
 # ============================================================================
-# Convenience Functions (for backward compatibility)
+# Prompt accessors
 # ============================================================================
+
+
+def get_prompt_registry() -> PromptRegistry:
+    return get_prompt_manager().registry
+
+
+def render_prompt(prompt_id: str, context: Optional[Dict[str, Any]] = None) -> str:
+    return get_prompt_manager().render(prompt_id, context=context)
 
 
 def get_agent_system_prompt(context: Optional[Dict[str, Any]] = None) -> str:

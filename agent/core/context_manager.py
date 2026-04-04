@@ -580,16 +580,6 @@ def get_context_window_manager(
     return _context_managers[key]
 
 
-def get_context_manager(
-    model: str = "gpt-4",
-    config: Optional[TruncationConfig] = None,
-) -> ContextWindowManager:
-    """
-    Backward-compatible alias for callers that still import the old name.
-    """
-    return get_context_window_manager(model=model, config=config)
-
-
 def truncate_for_model(
     messages: List[BaseMessage],
     model: str = "gpt-4",
@@ -618,7 +608,3 @@ def truncate_for_model(
         logger.info(f"[context_manager] Truncated {stats.truncated_count} messages for {model}")
 
     return truncated
-
-
-# Backward compatibility for existing imports.
-ContextManager = ContextWindowManager

@@ -9,53 +9,12 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
+from agent.prompts.runtime_templates import (
+    DEEP_PLANNER_PROMPT as PLANNER_PROMPT,
+    DEEP_PLANNER_REFINE_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
-
-PLANNER_PROMPT = """
-# 角色
-你是一名研究规划专家, 擅长为复杂话题制定全面的研究计划。
-
-# 任务
-为以下主题制定研究计划, 生成结构化的 branch objective 列表。
-
-# 主题
-{topic}
-
-# 已批准的研究范围
-{approved_scope}
-
-# 已有信息
-{existing_knowledge}
-
-# 已执行的查询
-{existing_queries}
-
-# 要求
-1. 生成 {num_queries} 个 branch objective
-2. 每个 objective 应覆盖主题的不同方面
-3. objective 不能与已有 branch objective 重复
-4. objective 需要表达目标、验收标准、允许工具类别和必要的 query hints
-5. 保持 researcher 的执行边界清晰，避免把完整执行过程写死
-
-# 输出格式
-按优先级排序，输出 JSON 列表：
-```json
-[
-    {{
-        "title": "分支标题1",
-        "objective": "该 branch 需要回答的问题",
-        "task_kind": "branch_research",
-        "aspect": "覆盖的方面",
-        "acceptance_criteria": ["完成该分支必须满足的标准"],
-        "allowed_tools": ["search", "read", "extract", "synthesize"],
-        "query_hints": ["可选的查询提示"],
-        "output_artifact_types": ["branch_synthesis", "evidence_passage"],
-        "priority": 1
-    }}
-]
-```
-"""
 
 
 class ResearchPlanner:
@@ -126,38 +85,7 @@ class ResearchPlanner:
         gap_text = "\n".join(f"- {g}" for g in gaps) if gaps else "无明确缺口"
 
         prompt = ChatPromptTemplate.from_messages([
-            ("user", """
-# 任务
-基于以下知识缺口, 补充研究计划。
-
-# 主题: {topic}
-
-# 知识缺口
-{gaps}
-
-# 已有查询
-{existing_queries}
-
-# 已批准的研究范围
-{approved_scope}
-
-# 要求
-生成 {num_queries} 个针对知识缺口的 branch objective。
-
-# 输出格式
-```json
-[{{
-    "title": "补充分支标题",
-    "objective": "需要补齐的研究目标",
-    "task_kind": "gap_follow_up",
-    "aspect": "方面",
-    "acceptance_criteria": ["补齐什么信息才算完成"],
-    "allowed_tools": ["search", "read", "extract", "synthesize"],
-    "query_hints": ["查询提示"],
-    "priority": 1
-}}]
-```
-""")
+            ("user", DEEP_PLANNER_REFINE_PROMPT)
         ])
 
         msg = prompt.format_messages(

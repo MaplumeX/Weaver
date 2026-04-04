@@ -21,11 +21,11 @@ def _configurable(config: dict[str, Any] | None) -> dict[str, Any]:
 
 def ensure_supported_runtime_inputs(config: dict[str, Any] | None) -> None:
     cfg = _configurable(config)
-    legacy_runtime_key = str(cfg.get("deepsearch_engine") or "").strip()
-    if legacy_runtime_key:
+    removed_runtime_key = str(cfg.get("deepsearch_engine") or "").strip()
+    if removed_runtime_key:
         raise ValueError(
             "Deep Research runtime selection was removed on "
-            f"{REMOVAL_DATE}. Remove `deepsearchEngine={legacy_runtime_key}` and use the built-in "
+            f"{REMOVAL_DATE}. Remove `deepsearchEngine={removed_runtime_key}` and use the built-in "
             f"`{SUPPORTED_DEEP_RESEARCH_RUNTIME}` runtime."
         )
 

@@ -36,7 +36,10 @@ from agent.runtime.deep.services.verification import (
     ground_claim_units,
     latest_branch_syntheses,
 )
-from agent.builders.agent_factory import build_deep_research_tool_agent, classify_deep_research_role
+from agent.infrastructure.agents import (
+    build_deep_research_tool_agent,
+    classify_deep_research_role,
+)
 
 
 _CONTROL_PLANE_HANDOFF_TARGETS: dict[str, set[str]] = {

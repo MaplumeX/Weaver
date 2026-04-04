@@ -5,7 +5,7 @@ Keep this list small and stable; everything else should be imported from the
 specific submodules (agent.runtime.*, agent.contracts.*, agent.prompts.*, etc.).
 """
 
-from agent.builders import build_agent_tools, build_tool_agent, build_writer_agent
+from agent.application import build_execution_request, build_initial_agent_state
 from agent.contracts.research import (
     ClaimStatus,
     ClaimVerifier,
@@ -13,12 +13,24 @@ from agent.contracts.research import (
     extract_message_sources,
 )
 from agent.contracts.search_cache import clear_search_cache, get_search_cache
+from agent.domain import (
+    AgentProfileConfig,
+    ExecutionMode,
+    ExecutionRequest,
+    ExecutionResult,
+    ReviewDecision,
+    ToolCapability,
+)
 from agent.core import (
     AgentState,
+    ConversationState,
     ContextWindowManager,
+    ExecutionState,
     QueryState,
     QueryDeduplicator,
+    ResearchState,
     ResearchPlan,
+    RuntimeSnapshot,
     ToolEvent,
     ToolEventType,
     event_stream_generator,
@@ -29,13 +41,18 @@ from agent.core import (
     smart_route,
 )
 from agent.core.message_utils import summarize_messages
+from agent.infrastructure.agents import build_tool_agent, build_writer_agent
+from agent.infrastructure.tools import build_agent_toolset
 from agent.prompts import (
     PromptManager,
+    PromptRegistry,
     get_deep_agent_prompt,
     get_agent_prompt,
     get_deep_research_prompt,
     get_default_agent_prompt,
     get_prompt_manager,
+    get_prompt_registry,
+    render_prompt,
     get_writer_prompt,
     set_prompt_manager,
 )
@@ -49,12 +66,24 @@ __all__ = [
     "create_research_graph",
     "create_checkpointer",
     "AgentState",
+    "ConversationState",
+    "ExecutionState",
     "QueryState",
     "ResearchPlan",
+    "ResearchState",
+    "RuntimeSnapshot",
     "smart_route",
     "ContextWindowManager",
     "get_context_window_manager",
     "QueryDeduplicator",
+    "ExecutionMode",
+    "ExecutionRequest",
+    "ExecutionResult",
+    "ReviewDecision",
+    "ToolCapability",
+    "AgentProfileConfig",
+    "build_execution_request",
+    "build_initial_agent_state",
     # Events / streaming
     "event_stream_generator",
     "get_emitter",
@@ -68,14 +97,17 @@ __all__ = [
     "get_writer_prompt",
     "get_deep_research_prompt",
     "PromptManager",
+    "PromptRegistry",
     "get_prompt_manager",
+    "get_prompt_registry",
+    "render_prompt",
     "set_prompt_manager",
-    # Runtime/builders/tools
+    # Runtime/tools
     "get_deep_agent_prompt",
     "run_deep_research",
     "build_writer_agent",
     "build_tool_agent",
-    "build_agent_tools",
+    "build_agent_toolset",
     "initialize_enhanced_tools",
     "summarize_messages",
     # Shared contracts

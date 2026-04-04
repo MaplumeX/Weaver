@@ -1,4 +1,4 @@
-from agent.builders.agent_tools import build_agent_tools
+from agent.infrastructure.tools import build_agent_toolset
 from common.config import settings
 
 
@@ -11,9 +11,8 @@ def test_agent_tools_includes_rag_search_when_enabled_and_configured():
     settings.rag_enabled = True
     try:
         cfg = {"configurable": {"thread_id": "rag1", "agent_profile": {"enabled_tools": {"rag": True}}}}
-        names = _names(build_agent_tools(cfg))
+        names = _names(build_agent_toolset(cfg))
     finally:
         settings.rag_enabled = original
 
     assert "rag_search" in names
-

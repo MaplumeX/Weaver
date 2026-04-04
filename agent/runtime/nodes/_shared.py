@@ -13,7 +13,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
 from agent.core.middleware import retry_call
-from agent.core.state import AgentState, QueryState
+from agent.core.state import AgentState, QueryState, project_state_updates
+from agent.prompts import render_prompt
 from agent.runtime.deep.shared import _auto_mode_prefers_linear
 from agent.research.source_url_utils import compact_unique_sources
 from common.cancellation import check_cancellation as _check_cancellation
@@ -165,12 +166,15 @@ def handle_cancellation(state: AgentState, error: Exception) -> Dict[str, Any]:
     处理取消异常，返回取消状态
     """
     logger.info(f"Task cancelled: {error}")
-    return {
+    result = {
         "is_cancelled": True,
         "is_complete": True,
         "errors": [f"Cancelled: {str(error)}"],
         "final_report": "任务已被用户取消。",
     }
+    if isinstance(state, dict) and ("input" in state or "route" in state):
+        return project_state_updates(state, result)
+    return result
 
 
 def _event_results_limit() -> int:
@@ -411,15 +415,7 @@ def _answer_simple_agent_query(
 
     messages.append(
         SystemMessage(
-            content=(
-                "You are Weaver in fast verification mode. "
-                "You already have current web evidence. "
-                "Answer the user's question directly using only the provided evidence. "
-                "Prefer the most authoritative and consistent evidence. "
-                "If the request is a comparison, compare only the specific dimension the user asked for and do not introduce adjacent metrics. "
-                "Keep the answer concise. If the user requested an exact reply format, follow it exactly. "
-                "Do not add a sources section unless the user explicitly asked for it."
-            )
+            content=render_prompt("answer.fast")
         )
     )
     messages.append(
@@ -441,7 +437,9 @@ def _answer_simple_agent_query(
     content = deps._apply_output_contract(user_input, content)
 
     logger.info(f"[timing] agent_fast_search {(time.time() - t0):.3f}s")
-    return {
+    return project_state_updates(
+        state,
+        {
         "scraped_content": [
             {
                 "query": search_query,
@@ -455,7 +453,8 @@ def _answer_simple_agent_query(
         "final_report": content,
         "is_complete": False,
         "messages": [AIMessage(content=content)],
-    }
+        },
+    )
 
 
 def _chat_model(
@@ -594,7 +593,7 @@ def _model_for_task(task_type: str, config: RunnableConfig) -> str:
     Get model name for a specific task type using the ModelRouter.
 
     Respects runtime config overrides, per-task settings, and defaults.
-    Falls back to _selected_model/_selected_reasoning_model for compatibility.
+    Falls back to direct runtime-config selection if the router is unavailable.
     """
     try:
         from agent.core.multi_model import TaskType, get_model_router

@@ -170,7 +170,7 @@ class WorkerContextStore:
         # Register context
         self.contexts[scope_id] = context
 
-        logger.debug(f"[ContextManager] Forked context: {scope_id} from {parent_scope_id}")
+        logger.debug(f"[WorkerContextStore] Forked context: {scope_id} from {parent_scope_id}")
 
         return context
 
@@ -229,7 +229,7 @@ class WorkerContextStore:
         updates["sub_agent_contexts"] = sub_contexts
 
         logger.debug(
-            f"[ContextManager] Merged context {child_context.scope_id}: "
+            f"[WorkerContextStore] Merged context {child_context.scope_id}: "
             f"+{len(child_context.scraped_content)} content, "
             f"+{len(child_context.summary_notes)} notes"
         )
@@ -244,7 +244,7 @@ class WorkerContextStore:
         """Remove a context after completion."""
         if scope_id in self.contexts:
             del self.contexts[scope_id]
-            logger.debug(f"[ContextManager] Removed context: {scope_id}")
+            logger.debug(f"[WorkerContextStore] Removed context: {scope_id}")
 
     def get_active_contexts(self) -> List[SubAgentContext]:
         """Get all active (non-complete) contexts."""
@@ -254,7 +254,7 @@ class WorkerContextStore:
         """Mark a context as cancelled."""
         if scope_id in self.contexts:
             self.contexts[scope_id].is_cancelled = True
-            logger.debug(f"[ContextManager] Cancelled context: {scope_id}")
+            logger.debug(f"[WorkerContextStore] Cancelled context: {scope_id}")
 
 
 def fork_state(
@@ -265,7 +265,7 @@ def fork_state(
     """
     Create a forked state dictionary for a sub-agent.
 
-    This is a simpler alternative to ContextManager for basic use cases.
+    This is a simpler alternative to WorkerContextStore for basic use cases.
 
     Args:
         parent_state: Parent state dictionary
@@ -310,7 +310,7 @@ def merge_state(
     """
     Merge child state results back to parent.
 
-    This is a simpler alternative to ContextManager for basic use cases.
+    This is a simpler alternative to WorkerContextStore for basic use cases.
 
     Args:
         parent_state: Parent state dictionary
@@ -384,7 +384,7 @@ def build_research_worker_context(
     parent_state["sub_agent_contexts"] = sub_contexts
 
     logger.debug(
-        "[ContextManager] Built research worker context %s for task %s",
+        "[WorkerContextStore] Built research worker context %s for task %s",
         resolved_scope_id,
         task_id,
     )
@@ -437,7 +437,7 @@ def merge_research_worker_context(
     updates["sub_agent_contexts"] = sub_contexts
 
     logger.debug(
-        "[ContextManager] Merged research worker context %s for task %s",
+        "[WorkerContextStore] Merged research worker context %s for task %s",
         worker_context.scope_id,
         worker_context.task_id,
     )
@@ -454,12 +454,3 @@ def get_worker_context_store() -> WorkerContextStore:
     if _global_context_manager is None:
         _global_context_manager = WorkerContextStore()
     return _global_context_manager
-
-
-def get_context_manager() -> WorkerContextStore:
-    """Backward-compatible alias for legacy imports."""
-    return get_worker_context_store()
-
-
-# Backward compatibility for existing internal references.
-ContextManager = WorkerContextStore

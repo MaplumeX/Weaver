@@ -17,12 +17,14 @@ from pydantic import BaseModel, Field
 
 import agent.contracts.events as _events
 import agent.runtime.nodes._shared as _shared
+from agent.prompts import render_prompt
 
 _apply_output_contract = _shared._apply_output_contract
 _chat_model = _shared._chat_model
 _configurable = _shared._configurable
 _log_usage = _shared._log_usage
 _model_for_task = _shared._model_for_task
+project_state_updates = _shared.project_state_updates
 logger = _shared.logger
 settings = _shared.settings
 ToolEventType = _events.ToolEventType
@@ -137,7 +139,8 @@ def hitl_plan_review_node(
     if not parsed:
         return {}
 
-    return {"research_plan": parsed}
+    deps = _resolve_deps(_deps)
+    return deps.project_state_updates(state, {"research_plan": parsed})
 
 
 def hitl_draft_review_node(
@@ -177,7 +180,11 @@ def hitl_draft_review_node(
     if content is None or not content.strip():
         return {}
 
-    return {"draft_report": content, "final_report": content}
+    deps = _resolve_deps(_deps)
+    return deps.project_state_updates(
+        state,
+        {"draft_report": content, "final_report": content},
+    )
 
 
 def _format_sources_snapshot_for_instruction(state: Dict[str, Any]) -> str:
@@ -299,7 +306,8 @@ def hitl_sources_review_node(
     if not guidance:
         return {}
 
-    return {"human_guidance": guidance}
+    deps = _resolve_deps(_deps)
+    return deps.project_state_updates(state, {"human_guidance": guidance})
 
 
 def should_continue_research(state: Dict[str, Any]) -> str:
@@ -360,40 +368,7 @@ def evaluator_node(
         [
             (
                 "system",
-                """You are a strict report evaluator. Assess the report across multiple dimensions.
-
-## Evaluation Criteria:
-
-1. **Coverage** (0-1): Does the report fully address the question?
-   - 1.0: All aspects covered comprehensively
-   - 0.7+: Most aspects covered, minor gaps
-   - 0.5: Partial coverage, notable gaps
-   - <0.5: Major aspects missing
-
-2. **Accuracy** (0-1): Are claims properly sourced?
-   - 1.0: All claims cited with source tags
-   - 0.7+: Most claims sourced
-   - 0.5: Mixed sourcing
-   - <0.5: Unsupported claims
-
-3. **Freshness** (0-1): Is the information current?
-   - 1.0: Up-to-date, recent sources
-   - 0.7+: Mostly current
-   - 0.5: Some outdated info
-   - <0.5: Significantly outdated
-
-4. **Coherence** (0-1): Is it well-organized?
-   - 1.0: Clear structure, logical flow
-   - 0.7+: Good organization
-   - 0.5: Some structural issues
-   - <0.5: Disorganized
-
-## Verdict Rules:
-- "pass": All dimensions >= 0.7 and no critical gaps
-- "revise": Any dimension 0.5-0.7 or minor gaps
-- "incomplete": Any dimension < 0.5 or major missing topics
-
-Provide specific, actionable feedback and search queries to address gaps.""",
+                render_prompt("review.evaluate"),
             ),
             ("human", "Question:\n{question}\n\nReport:\n{report}"),
         ]
@@ -612,11 +587,14 @@ Provide specific, actionable feedback and search queries to address gaps.""",
         if deep_research_artifacts is not None:
             result["deep_research_artifacts"] = deep_research_artifacts
 
-        return result
+        return deps.project_state_updates(state, result)
 
     except Exception as e:
         logger.error(f"Evaluator error: {e}")
-        return {"evaluation": f"Evaluation failed: {e}", "verdict": "pass"}
+        return deps.project_state_updates(
+            state,
+            {"evaluation": f"Evaluation failed: {e}", "verdict": "pass"},
+        )
 
 
 def revise_report_node(
@@ -633,8 +611,7 @@ def revise_report_node(
         [
             (
                 "system",
-                """You are a helpful editor. Revise the report using the feedback.
-Keep the structure clear and improve factual accuracy and clarity.""",
+                render_prompt("review.revise"),
             ),
             (
                 "human",
@@ -652,13 +629,16 @@ Keep the structure clear and improve factual accuracy and clarity.""",
     content = response.content if hasattr(response, "content") else str(response)
 
     revision_count = int(state.get("revision_count", 0)) + 1
-    return {
-        "draft_report": content,
-        "final_report": content,
-        "revision_count": revision_count,
-        "messages": [AIMessage(content=content)],
-        "is_complete": False,
-    }
+    return deps.project_state_updates(
+        state,
+        {
+            "draft_report": content,
+            "final_report": content,
+            "revision_count": revision_count,
+            "messages": [AIMessage(content=content)],
+            "is_complete": False,
+        },
+    )
 
 
 def human_review_node(
@@ -679,11 +659,14 @@ def human_review_node(
 
     if not (allow_interrupts and require_review):
         report = deps._apply_output_contract(state.get("input", ""), report)
-        return {
-            "final_report": report,
-            "is_complete": True,
-            "messages": [AIMessage(content=report)],
-        }
+        return deps.project_state_updates(
+            state,
+            {
+                "final_report": report,
+                "is_complete": True,
+                "messages": [AIMessage(content=report)],
+            },
+        )
 
     updated = interrupt(
         {
@@ -701,7 +684,10 @@ def human_review_node(
 
     report = deps._apply_output_contract(state.get("input", ""), report)
 
-    return {"final_report": report, "is_complete": True, "messages": [AIMessage(content=report)]}
+    return deps.project_state_updates(
+        state,
+        {"final_report": report, "is_complete": True, "messages": [AIMessage(content=report)]},
+    )
 
 
 __all__ = [

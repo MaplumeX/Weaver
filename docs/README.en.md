@@ -410,16 +410,12 @@ Configure agent tools in `data/agents.json`:
 ### Context Management
 
 ```python
-from agent.core.context_manager import ContextManager
+from agent.core.context_manager import ContextWindowManager
 
-manager = ContextManager(
-    model_name="gpt-4o",
-    max_tokens=128000,
-    truncation_strategy="smart"  # smart|fifo|middle
-)
+manager = ContextWindowManager(model="gpt-4o")
 
 # Automatically truncate messages
-truncated_messages = manager.truncate_messages(messages)
+truncated_messages, stats = manager.truncate_messages(messages, max_tokens=128000)
 ```
 
 **Truncation Strategies:**

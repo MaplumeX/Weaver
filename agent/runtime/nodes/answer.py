@@ -14,10 +14,11 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 import agent.runtime.nodes._shared as _shared
-import agent.builders.agent_factory as _agent_factory
-import agent.builders.agent_tools as _agent_tools
-import agent.builders.stuck_middleware as _stuck_middleware
-from agent.interaction.browser_context_helper import build_browser_context_hint
+import agent.infrastructure.agents.factory as _agent_factory
+from agent.infrastructure.agents.stuck_middleware import detect_stuck, inject_stuck_hint
+from agent.infrastructure.browser_context import build_browser_context_hint
+from agent.infrastructure.tools import build_agent_toolset
+from agent.prompts import get_prompt_manager
 
 ENHANCED_TOOLS_AVAILABLE = _shared.ENHANCED_TOOLS_AVAILABLE
 _answer_simple_agent_query = _shared._answer_simple_agent_query
@@ -27,15 +28,13 @@ _configurable = _shared._configurable
 _log_usage = _shared._log_usage
 _model_for_task = _shared._model_for_task
 _should_use_fast_agent_path = _shared._should_use_fast_agent_path
+project_state_updates = _shared.project_state_updates
 check_cancellation = _shared.check_cancellation
 handle_cancellation = _shared.handle_cancellation
 logger = _shared.logger
 settings = _shared.settings
 build_tool_agent = _agent_factory.build_tool_agent
 build_writer_agent = _agent_factory.build_writer_agent
-build_agent_tools = _agent_tools.build_agent_tools
-detect_stuck = _stuck_middleware.detect_stuck
-inject_stuck_hint = _stuck_middleware.inject_stuck_hint
 
 
 def _resolve_deps(explicit_deps: Any = None) -> Any:
@@ -69,7 +68,7 @@ def agent_node(
         thread_id = str(cfg.get("thread_id") or "default")
 
         model = deps._model_for_task("research", config)
-        tools = deps.build_agent_tools(config)
+        tools = deps.build_agent_toolset(config)
 
         tool_names = [getattr(t, "name", t.__class__.__name__) for t in tools]
         logger.info(f"Agent loaded {len(tools)} tools: {tool_names}")
@@ -89,13 +88,10 @@ def agent_node(
         agent = deps.build_tool_agent(model=model, tools=tools, temperature=0.7)
         t0 = time.time()
 
-        from agent.prompts.system_prompts import get_agent_prompt
-
         profile_prompt_pack = profile.get("prompt_pack")
         profile_prompt_variant = profile.get("prompt_variant", "full")
 
-        enhanced_system_prompt = get_agent_prompt(
-            mode="agent",
+        enhanced_system_prompt = get_prompt_manager().get_agent_prompt(
             context={
                 "current_time": datetime.now(),
                 "enabled_tools": [tool.__class__.__name__ for tool in tools] if tools else [],
@@ -180,20 +176,23 @@ You can also use XML format for tool calls:
             result["continuation_needed"] = True
             result["xml_tool_calls_detected"] = True
 
-        return result
+        return deps.project_state_updates(state, result)
 
     except asyncio.CancelledError as e:
         return deps.handle_cancellation(state, e)
     except Exception as e:
         logger.error(f"Agent node error: {e}", exc_info=settings.debug)
         msg = f"Agent mode failed: {e}"
-        return {
-            "errors": [msg],
-            "final_report": msg,
-            "draft_report": msg,
-            "is_complete": False,
-            "messages": [AIMessage(content=msg)],
-        }
+        return deps.project_state_updates(
+            state,
+            {
+                "errors": [msg],
+                "final_report": msg,
+                "draft_report": msg,
+                "is_complete": False,
+                "messages": [AIMessage(content=msg)],
+            },
+        )
 
 
 def writer_node(
@@ -242,9 +241,7 @@ def writer_node(
             f"tiers: {len(aggregated.tier_1)}/{len(aggregated.tier_2)}/{len(aggregated.tier_3)}"
         )
 
-        from agent.prompts.system_prompts import get_writer_prompt
-
-        writer_system_prompt = get_writer_prompt()
+        writer_system_prompt = get_prompt_manager().get_writer_prompt()
 
         messages: List[Any] = [
             SystemMessage(content=writer_system_prompt),
@@ -298,24 +295,30 @@ def writer_node(
             except Exception as e:
                 logger.warning(f"[writer] Chart generation skipped: {e}")
 
-        return {
-            "draft_report": report,
-            "final_report": report,
-            "is_complete": False,
-            "messages": [AIMessage(content=report)],
-            "code_results": code_results,
-        }
+        return deps.project_state_updates(
+            state,
+            {
+                "draft_report": report,
+                "final_report": report,
+                "is_complete": False,
+                "messages": [AIMessage(content=report)],
+                "code_results": code_results,
+            },
+        )
 
     except asyncio.CancelledError as e:
         return deps.handle_cancellation(state, e)
     except Exception as e:
         logger.error(f"Writer error: {str(e)}", exc_info=True)
-        return {
-            "final_report": "Error generating report",
-            "is_complete": True,
-            "errors": [f"Writing error: {str(e)}"],
-            "messages": [AIMessage(content=f"Failed to generate report: {str(e)}")],
-        }
+        return deps.project_state_updates(
+            state,
+            {
+                "final_report": "Error generating report",
+                "is_complete": True,
+                "errors": [f"Writing error: {str(e)}"],
+                "messages": [AIMessage(content=f"Failed to generate report: {str(e)}")],
+            },
+        )
 
 
 __all__ = ["agent_node", "writer_node"]

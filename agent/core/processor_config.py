@@ -44,7 +44,7 @@ class AgentProcessorConfig:
     prefer_xml_over_native: bool = False
     """
     If both XML and native calls detected, which to prefer.
-    False = prefer native (default for compatibility)
+    False = prefer native
     True = prefer XML (better for Claude)
     """
 

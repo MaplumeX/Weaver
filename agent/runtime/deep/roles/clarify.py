@@ -12,48 +12,9 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
+from agent.prompts.runtime_templates import DEEP_CLARIFY_PROMPT as CLARIFY_PROMPT
 
 logger = logging.getLogger(__name__)
-
-
-CLARIFY_PROMPT = """
-# Role
-You are the Deep Research intake clarifier.
-
-# Task
-Decide whether the current request has enough information to draft a research scope.
-
-# Original topic
-{topic}
-
-# Clarification transcript so far
-{clarify_history}
-
-# Requirements
-1. If key details are missing, ask one focused follow-up question.
-2. If the request is already specific enough, do not ask another question.
-3. Always produce a normalized intake summary for the scope agent.
-4. Keep missing_information concise and actionable.
-5. Ground the intake summary in the full clarification transcript, not just the latest answer.
-
-# Output
-Return a JSON object:
-```json
-{{
-  "needs_clarification": true,
-  "question": "One focused question for the user",
-  "missing_information": ["goal", "time_range"],
-  "intake_summary": {{
-    "research_goal": "What the user wants to learn",
-    "background": "Relevant context already known",
-    "constraints": ["Any hard constraints"],
-    "time_range": "Time period if specified",
-    "source_preferences": ["Preferred source types"],
-    "exclusions": ["Out-of-scope items"]
-  }}
-}}
-```
-"""
 
 
 def _coerce_string_list(value: Any) -> list[str]:

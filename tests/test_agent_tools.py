@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent.builders.agent_tools import build_agent_tools
+from agent.infrastructure.tools import build_agent_toolset
 from common.config import settings
 
 
@@ -18,7 +18,7 @@ def test_agent_tools_lightweight_browser_selected_by_default():
     cfg = {
         "configurable": {"thread_id": "t1", "agent_profile": {"enabled_tools": {"browser": True}}}
     }
-    names = _names(build_agent_tools(cfg))
+    names = _names(build_agent_toolset(cfg))
     assert "browser_navigate" in names
     assert "sb_browser_navigate" not in names
 
@@ -34,7 +34,7 @@ def test_agent_tools_sandbox_browser_selected_when_enabled():
                 "agent_profile": {"enabled_tools": {"sandbox_browser": True}},
             }
         }
-        names = _names(build_agent_tools(cfg))
+        names = _names(build_agent_toolset(cfg))
     finally:
         settings.e2b_api_key = original_key
     assert "sb_browser_navigate" in names
@@ -56,7 +56,7 @@ def test_agent_tools_web_dev_tools_when_enabled():
                 },
             }
         }
-        names = _names(build_agent_tools(cfg))
+        names = _names(build_agent_toolset(cfg))
     finally:
         settings.e2b_api_key = original_key
     assert "sandbox_scaffold_web_project" in names
@@ -82,7 +82,7 @@ def test_agent_tools_prefer_api_search_over_sandbox_search_when_web_search_enabl
                 },
             }
         }
-        names = _names(build_agent_tools(cfg))
+        names = _names(build_agent_toolset(cfg))
     finally:
         settings.e2b_api_key = original_key
         settings.search_engines = original_search_engines
@@ -112,7 +112,7 @@ def test_agent_tools_include_sandbox_search_when_api_search_disabled():
                 },
             }
         }
-        names = _names(build_agent_tools(cfg))
+        names = _names(build_agent_toolset(cfg))
     finally:
         settings.e2b_api_key = original_key
         settings.search_engines = original_search_engines
@@ -128,7 +128,7 @@ def test_agent_tools_include_task_list_tools_by_default():
             "agent_profile": {"enabled_tools": {}},
         }
     }
-    names = _names(build_agent_tools(cfg))
+    names = _names(build_agent_toolset(cfg))
     assert "create_tasks" in names
     assert "view_tasks" in names
     assert "update_task" in names

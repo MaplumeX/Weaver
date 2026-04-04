@@ -17,8 +17,10 @@ from langchain.agents.middleware import (
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 
+from agent.domain import ToolCapability
+from agent.infrastructure.agents.provider_safe_middleware import ProviderSafeToolSelectorMiddleware
+from agent.infrastructure.tools import resolve_tool_names_for_capabilities
 from common.config import settings
-from agent.builders.provider_safe_middleware import ProviderSafeToolSelectorMiddleware
 from tools.code.code_executor import execute_python_code
 from tools.core.registry import get_registered_tools
 
@@ -27,40 +29,24 @@ logger = logging.getLogger(__name__)
 DEEP_RESEARCH_CONTROL_PLANE_ROLES = frozenset({"clarify", "scope", "supervisor"})
 DEEP_RESEARCH_EXECUTION_ROLES = frozenset({"researcher", "verifier", "reporter"})
 
-_DEEP_RESEARCH_TOOL_GROUPS = {
-    "search": {
-        "browser_search",
-        "tavily_search",
-        "multi_search",
-    },
-    "read": {
-        "browser_navigate",
-        "browser_click",
-        "crawl_url",
-        "crawl_urls",
-        "sb_browser_navigate",
-        "sb_browser_click",
-        "sb_browser_extract_text",
-        "sb_browser_scroll",
-        "sb_browser_press",
-        "sb_browser_type",
-    },
-    "extract": {
-        "sb_browser_extract_text",
-        "sb_browser_screenshot",
-        "crawl_url",
-        "crawl_urls",
-    },
-    "synthesize": set(),
-}
-
 _DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS = {
     "clarify": {"fabric"},
     "scope": {"fabric"},
     "supervisor": {"fabric"},
-    "researcher": {"fabric", "search", "read", "extract", "synthesize"},
-    "verifier": {"fabric", "search", "read", "extract"},
-    "reporter": {"fabric", "synthesize", "execute_python_code"},
+    "researcher": {
+        "fabric",
+        ToolCapability.SEARCH.value,
+        ToolCapability.READ.value,
+        ToolCapability.EXTRACT.value,
+        ToolCapability.SYNTHESIZE.value,
+    },
+    "verifier": {
+        "fabric",
+        ToolCapability.SEARCH.value,
+        ToolCapability.READ.value,
+        ToolCapability.EXTRACT.value,
+    },
+    "reporter": {"fabric", ToolCapability.SYNTHESIZE.value, "execute_python_code"},
 }
 
 
@@ -257,15 +243,12 @@ def build_tool_agent(*, model: str, tools: List[BaseTool], temperature: float = 
 def _resolve_deep_research_tool_names(allowed_tools: List[str] | None = None) -> set[str]:
     requested = [str(item).strip() for item in (allowed_tools or []) if str(item).strip()]
     if not requested:
-        requested = ["search", "read", "extract"]
-
-    allowed_names: set[str] = set()
-    for item in requested:
-        if item in _DEEP_RESEARCH_TOOL_GROUPS:
-            allowed_names.update(_DEEP_RESEARCH_TOOL_GROUPS[item])
-        else:
-            allowed_names.add(item)
-    return allowed_names
+        requested = [
+            ToolCapability.SEARCH.value,
+            ToolCapability.READ.value,
+            ToolCapability.EXTRACT.value,
+        ]
+    return resolve_tool_names_for_capabilities(requested)
 
 
 def resolve_deep_research_role_tool_names(
@@ -278,7 +261,7 @@ def resolve_deep_research_role_tool_names(
     normalized_role = str(role or "").strip().lower()
     requested = list(_DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS.get(normalized_role, {"fabric"}))
     if normalized_role == "supervisor" and enable_supervisor_world_tools:
-        requested.extend(["search", "read"])
+        requested.extend([ToolCapability.SEARCH.value, ToolCapability.READ.value])
     if normalized_role == "reporter" and not enable_reporter_python_tools:
         requested = [item for item in requested if item != "execute_python_code"]
     requested.extend(str(item).strip() for item in (allowed_tools or []) if str(item).strip())

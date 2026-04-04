@@ -12,12 +12,14 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 import agent.runtime.nodes._shared as _shared
+from agent.prompts import render_prompt
 
 _build_user_content = _shared._build_user_content
 _chat_model = _shared._chat_model
 _configurable = _shared._configurable
 _log_usage = _shared._log_usage
 _model_for_task = _shared._model_for_task
+project_state_updates = _shared.project_state_updates
 logger = _shared.logger
 settings = _shared.settings
 
@@ -100,7 +102,7 @@ def route_node(
             result["domain"] = "general"
             result["domain_config"] = {}
 
-    return result
+    return deps.project_state_updates(state, result)
 
 
 def clarify_node(
@@ -127,11 +129,7 @@ def clarify_node(
         )
 
     system_msg = SystemMessage(
-        content=(
-            "You are a safety check that decides if the user's request needs clarification before research.\n"
-            "If the ask is ambiguous, missing key details, or multi-intent, set need_clarification=true and propose ONE concise question.\n"
-            "Otherwise, set need_clarification=false and provide a short confirmation to proceed."
-        )
+        content=render_prompt("routing.clarify")
     )
     human_msg = HumanMessage(
         content=deps._build_user_content(state.get("input", ""), state.get("images"))
@@ -146,7 +144,7 @@ def clarify_node(
         deps._log_usage(response, "clarify")
     except Exception as e:
         logger.warning(f"Clarify step failed, proceeding without clarification: {e}")
-        return {"needs_clarification": False}
+        return deps.project_state_updates(state, {"needs_clarification": False})
 
     needs_clarification = bool(getattr(response, "need_clarification", False))
     question = getattr(response, "question", "") or "Could you clarify your request?"
@@ -154,15 +152,22 @@ def clarify_node(
 
     if needs_clarification:
         logger.info("Clarification required; returning question to user.")
-        return {
-            "needs_clarification": True,
-            "final_report": question,
-            "messages": [AIMessage(content=question)],
-            "is_complete": True,
-        }
+        return deps.project_state_updates(
+            state,
+            {
+                "needs_clarification": True,
+                "clarification_question": question,
+                "final_report": question,
+                "messages": [AIMessage(content=question)],
+                "is_complete": True,
+            },
+        )
 
     logger.info("No clarification needed; proceeding to planning.")
-    return {"needs_clarification": False, "messages": [AIMessage(content=verification)]}
+    return deps.project_state_updates(
+        state,
+        {"needs_clarification": False, "messages": [AIMessage(content=verification)]},
+    )
 
 
 __all__ = ["clarify_node", "route_node"]

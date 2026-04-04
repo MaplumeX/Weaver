@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 import agent.contracts.search_cache as _search_cache_contracts
 import agent.runtime.nodes._shared as _shared
 from agent.core.middleware import enforce_tool_call_limit, retry_call
+from agent.prompts import render_prompt
 from tools import tavily_search
 
 QueryDeduplicator = _search_cache_contracts.QueryDeduplicator
@@ -27,6 +28,7 @@ _build_user_content = _shared._build_user_content
 _chat_model = _shared._chat_model
 _log_usage = _shared._log_usage
 _model_for_task = _shared._model_for_task
+project_state_updates = _shared.project_state_updates
 check_cancellation = _shared.check_cancellation
 handle_cancellation = _shared.handle_cancellation
 logger = _shared.logger
@@ -201,9 +203,7 @@ def planner_node(
             queries: List[str] = Field(description="3-7 targeted search queries")
             reasoning: str = Field(description="Brief explanation of the research strategy")
 
-        system_msg = SystemMessage(
-            content="You are an expert research planner. Return JSON with 3-7 targeted search queries and a brief reasoning."
-        )
+        system_msg = SystemMessage(content=render_prompt("planning.plan"))
         human_msg = HumanMessage(content=deps._build_user_content(state["input"], state.get("images")))
 
         response = (
@@ -238,29 +238,35 @@ def planner_node(
 
         logger.info(f"Generated {len(queries)} research queries")
 
-        return {
-            "research_plan": queries,
-            "current_step": 0,
-            "messages": [
-                AIMessage(
-                    content=f"Research Plan:\n{reasoning}\n\nQueries:\n"
-                    + "\n".join(f"{i + 1}. {q}" for i, q in enumerate(queries))
-                )
-            ],
-        }
+        return deps.project_state_updates(
+            state,
+            {
+                "research_plan": queries,
+                "current_step": 0,
+                "messages": [
+                    AIMessage(
+                        content=f"Research Plan:\n{reasoning}\n\nQueries:\n"
+                        + "\n".join(f"{i + 1}. {q}" for i, q in enumerate(queries))
+                    )
+                ],
+            },
+        )
 
     except asyncio.CancelledError as e:
         return deps.handle_cancellation(state, e)
     except Exception as e:
         logger.error(f"Planner error: {str(e)}")
-        return {
-            "research_plan": [state["input"]],
-            "current_step": 0,
-            "errors": [f"Planning error: {str(e)}"],
-            "messages": [
-                AIMessage(content=f"Using fallback plan: search for '{state['input']}'")
-            ],
-        }
+        return deps.project_state_updates(
+            state,
+            {
+                "research_plan": [state["input"]],
+                "current_step": 0,
+                "errors": [f"Planning error: {str(e)}"],
+                "messages": [
+                    AIMessage(content=f"Using fallback plan: search for '{state['input']}'")
+                ],
+            },
+        )
 
 
 def refine_plan_node(
@@ -313,15 +319,7 @@ def refine_plan_node(
             [
                 (
                     "system",
-                    """You are a research strategist. Generate up to 3 follow-up search queries to close the gaps called out in feedback.
-
-Rules:
-- Target missing evidence, data, or counterpoints.
-- Avoid repeating prior queries unless wording needs to be more specific.
-- Keep queries concise and specific.
-
-Return ONLY a JSON object:
-{"queries": ["q1", "q2", ...]}""",
+                    render_prompt("planning.refine"),
                 ),
                 (
                     "human",
@@ -370,15 +368,18 @@ Return ONLY a JSON object:
     revision_count = int(state.get("revision_count", 0)) + 1
 
     logger.info(f"Refine plan added {len(new_queries)} queries; total plan size {len(merged_plan)}")
-    return {
-        "research_plan": merged_plan,
-        "revision_count": revision_count,
-        "messages": [
-            AIMessage(
-                content="Added follow-up queries:\n" + "\n".join(f"- {q}" for q in new_queries)
-            )
-        ],
-    }
+    return deps.project_state_updates(
+        state,
+        {
+            "research_plan": merged_plan,
+            "revision_count": revision_count,
+            "messages": [
+                AIMessage(
+                    content="Added follow-up queries:\n" + "\n".join(f"- {q}" for q in new_queries)
+                )
+            ],
+        },
+    )
 
 
 def compressor_node(
@@ -401,7 +402,7 @@ def compressor_node(
 
     if not scraped_content:
         logger.info("[compressor] No content to compress")
-        return {"compressed_knowledge": {}}
+        return deps.project_state_updates(state, {"compressed_knowledge": {}})
 
     try:
         model = deps._model_for_task("research", config)
@@ -437,11 +438,11 @@ def compressor_node(
             f"{len(knowledge.statistics)} stats"
         )
 
-        return {"compressed_knowledge": compressed_dict}
+        return deps.project_state_updates(state, {"compressed_knowledge": compressed_dict})
 
     except Exception as e:
         logger.error(f"Compressor error: {e}", exc_info=True)
-        return {"compressed_knowledge": {}}
+        return deps.project_state_updates(state, {"compressed_knowledge": {}})
 
 
 __all__ = [

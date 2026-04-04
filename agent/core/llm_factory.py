@@ -81,7 +81,3 @@ def create_summary_model() -> ChatOpenAI:
     """
     model = settings.summary_messages_model or settings.primary_model
     return create_chat_model(model, temperature=0)
-
-
-# Aliases for backward compatibility
-build_chat_model = create_chat_model
