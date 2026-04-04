@@ -1,40 +1,26 @@
-# Agent Instructions
+# Repository Guidelines
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+## Project Structure & Module Organization
+`main.py` boots the FastAPI backend. Core backend code lives in `agent/`, `tools/`, `common/`, and `triggers/`. Prompts are in `prompts/`, tests in `tests/`, scripts in `scripts/`, docs in `docs/`, and SDKs in `sdk/python/` and `sdk/typescript/`. The Next.js frontend lives in `web/`, with routes in `web/app/`, shared UI in `web/components/`, helpers in `web/lib/`, and tests in `web/tests/`.
 
-## Quick Reference
+## Build, Test, and Development Commands
+Use `make setup` to create `.venv` and install backend dependencies. Use `pnpm -C web install --frozen-lockfile` for frontend dependencies. Recommended startup is `./scripts/dev.sh`; manual startup is `make dev` plus `pnpm -C web dev`. Key checks:
 
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
-```
+- `make test`: run backend `pytest`.
+- `make lint`: run Ruff on changed Python files.
+- `make format`: apply Ruff formatting.
+- `make openapi-types`: verify OpenAPI to TypeScript type sync.
+- `make verify`: run backend checks, API smoke, and frontend E2E flow.
+- `pnpm -C web test | lint | build`: run frontend tests, lint, or production build.
 
-## Landing the Plane (Session Completion)
+## Coding Style & Naming Conventions
+Follow `.editorconfig`: 4 spaces for Python, 2 spaces for web files, tabs only in `Makefile`, and LF line endings. Python targets 3.11 and uses Ruff (`line-length = 100`). Use `snake_case` for Python modules/functions, `PascalCase` for React components, and `camelCase` for hooks and browser utilities. Regenerate `sdk/typescript/src/openapi-types.ts` instead of editing it manually.
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+## Testing Guidelines
+Backend tests use `pytest` in `tests/test_*.py`. Frontend tests use the Node test runner in `web/tests/*.test.ts`. Add regression tests with every behavior change, especially around streaming, OpenAPI contracts, and deep-research flows. No global coverage threshold is configured, so extend tests for touched paths and keep CI green.
 
-**MANDATORY WORKFLOW:**
+## Commit & Pull Request Guidelines
+Recent history uses short imperative subjects and frequent Conventional Commit prefixes such as `feat:`, `fix:`, and `refactor(scope):`; prefer `type(scope): summary`. PRs should complete `.github/pull_request_template.md`, include a concrete test plan, and update docs when behavior or setup changes. Run `make lint && make test`, run `pnpm -C web lint && pnpm -C web build` if `web/` changed, and run `docker build -f docker/Dockerfile .` if Docker files changed. Include screenshots for visible UI changes.
 
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd sync
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-
+## Security & Agent Workflow
+Copy `.env.example` and `web/.env.local.example` for local setup; never commit real secrets; run `make secret-scan` before opening a PR. This repository also tracks work with `bd` (`bd ready`, `bd show <id>`, `bd update <id> --status in_progress`), so keep issue status aligned with code changes.
