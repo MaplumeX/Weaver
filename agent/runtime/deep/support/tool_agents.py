@@ -4,12 +4,12 @@ Bounded tool-agent helpers for Deep Research multi-agent runtime.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.tools import BaseTool, tool
+from langchain_core.tools import BaseTool, StructuredTool, tool
+from pydantic import BaseModel, Field
 
 import agent.runtime.deep.support.runtime_support as support
 from agent.runtime.deep.schema import (
@@ -44,31 +44,6 @@ _CONTROL_PLANE_HANDOFF_TARGETS: dict[str, set[str]] = {
     "scope": {"supervisor"},
     "supervisor": {"scope"},
 }
-
-
-def _extract_json_object(content: str) -> dict[str, Any]:
-    text = str(content or "").strip()
-    if not text:
-        return {}
-    if "```" in text:
-        start = text.find("```")
-        end = text.rfind("```")
-        if end > start:
-            block = text[start + 3 : end].strip()
-            if block.lower().startswith("json"):
-                block = block[4:].strip()
-            text = block
-    brace_start = text.find("{")
-    brace_end = text.rfind("}")
-    if brace_start >= 0 and brace_end > brace_start:
-        text = text[brace_start : brace_end + 1]
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
 def _extract_agent_text(response: Any) -> str:
     if isinstance(response, dict) and response.get("messages"):
         last = response["messages"][-1]
@@ -685,6 +660,343 @@ class DeepResearchToolAgentSession:
         )
         self.coordination_requests.append(request)
         return request
+
+
+@dataclass
+class ExecutionSubagentBundle:
+    role: str
+    response_text: str = ""
+    tool_names: list[str] = field(default_factory=list)
+    search_results: list[dict[str, Any]] = field(default_factory=list)
+    source_candidates: list[SourceCandidate] = field(default_factory=list)
+    fetched_documents: list[FetchedDocument] = field(default_factory=list)
+    evidence_passages: list[EvidencePassage] = field(default_factory=list)
+    evidence_cards: list[EvidenceCard] = field(default_factory=list)
+    branch_synthesis: BranchSynthesis | None = None
+    section_draft: ReportSectionDraft | None = None
+    answer_units: list[AnswerUnit] = field(default_factory=list)
+    claim_units: list[ClaimUnit] = field(default_factory=list)
+    verification_results: list[VerificationResult] = field(default_factory=list)
+    coordination_requests: list[CoordinationRequest] = field(default_factory=list)
+    submissions: list[ResearchSubmission] = field(default_factory=list)
+    final_report: FinalReportArtifact | None = None
+    searches_used: int = 0
+    tokens_used: int = 0
+
+    @classmethod
+    def from_session(
+        cls,
+        session: DeepResearchToolAgentSession,
+        *,
+        response_text: str = "",
+        tool_names: list[str] | None = None,
+    ) -> "ExecutionSubagentBundle":
+        return cls(
+            role=session.role,
+            response_text=response_text,
+            tool_names=list(tool_names or []),
+            search_results=[dict(item) for item in session.search_results if isinstance(item, dict)],
+            source_candidates=[item for item in session.source_candidates],
+            fetched_documents=[item for item in session.fetched_documents],
+            evidence_passages=[item for item in session.evidence_passages],
+            evidence_cards=[item for item in session.evidence_cards],
+            branch_synthesis=session.branch_synthesis,
+            section_draft=session.section_draft,
+            answer_units=[item for item in session.answer_units],
+            claim_units=[item for item in session.claim_units],
+            verification_results=[item for item in session.verification_results],
+            coordination_requests=[item for item in session.coordination_requests],
+            submissions=[item for item in session.submissions],
+            final_report=session.final_report,
+            searches_used=session.searches_used,
+            tokens_used=session.tokens_used,
+        )
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "ExecutionSubagentBundle":
+        if not isinstance(payload, dict):
+            raise TypeError("execution subagent payload must be a dict")
+        return cls(
+            role=str(payload.get("role") or "").strip(),
+            response_text=str(payload.get("response_text") or ""),
+            tool_names=_normalize_ids(payload.get("tool_names")),
+            search_results=[
+                dict(item)
+                for item in payload.get("search_results", [])
+                if isinstance(item, dict)
+            ],
+            source_candidates=[
+                SourceCandidate(**item)
+                for item in payload.get("source_candidates", [])
+                if isinstance(item, dict)
+            ],
+            fetched_documents=[
+                FetchedDocument(**item)
+                for item in payload.get("fetched_documents", [])
+                if isinstance(item, dict)
+            ],
+            evidence_passages=[
+                EvidencePassage(**item)
+                for item in payload.get("evidence_passages", [])
+                if isinstance(item, dict)
+            ],
+            evidence_cards=[
+                EvidenceCard(**item)
+                for item in payload.get("evidence_cards", [])
+                if isinstance(item, dict)
+            ],
+            branch_synthesis=(
+                BranchSynthesis(**payload["branch_synthesis"])
+                if isinstance(payload.get("branch_synthesis"), dict)
+                else None
+            ),
+            section_draft=(
+                ReportSectionDraft(**payload["section_draft"])
+                if isinstance(payload.get("section_draft"), dict)
+                else None
+            ),
+            answer_units=[
+                AnswerUnit(**item)
+                for item in payload.get("answer_units", [])
+                if isinstance(item, dict)
+            ],
+            claim_units=[
+                ClaimUnit(**item)
+                for item in payload.get("claim_units", [])
+                if isinstance(item, dict)
+            ],
+            verification_results=[
+                VerificationResult(**item)
+                for item in payload.get("verification_results", [])
+                if isinstance(item, dict)
+            ],
+            coordination_requests=[
+                CoordinationRequest(**item)
+                for item in payload.get("coordination_requests", [])
+                if isinstance(item, dict)
+            ],
+            submissions=[
+                ResearchSubmission(**item)
+                for item in payload.get("submissions", [])
+                if isinstance(item, dict)
+            ],
+            final_report=(
+                FinalReportArtifact(**payload["final_report"])
+                if isinstance(payload.get("final_report"), dict)
+                else None
+            ),
+            searches_used=int(payload.get("searches_used") or 0),
+            tokens_used=int(payload.get("tokens_used") or 0),
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "role": self.role,
+            "response_text": self.response_text,
+            "tool_names": list(self.tool_names),
+            "search_results": [dict(item) for item in self.search_results],
+            "source_candidates": [item.to_dict() for item in self.source_candidates],
+            "fetched_documents": [item.to_dict() for item in self.fetched_documents],
+            "evidence_passages": [item.to_dict() for item in self.evidence_passages],
+            "evidence_cards": [item.to_dict() for item in self.evidence_cards],
+            "branch_synthesis": self.branch_synthesis.to_dict() if self.branch_synthesis else None,
+            "section_draft": self.section_draft.to_dict() if self.section_draft else None,
+            "answer_units": [item.to_dict() for item in self.answer_units],
+            "claim_units": [item.to_dict() for item in self.claim_units],
+            "verification_results": [item.to_dict() for item in self.verification_results],
+            "coordination_requests": [item.to_dict() for item in self.coordination_requests],
+            "submissions": [item.to_dict() for item in self.submissions],
+            "final_report": self.final_report.to_dict() if self.final_report else None,
+            "searches_used": self.searches_used,
+            "tokens_used": self.tokens_used,
+        }
+
+
+class ExecutionSubagentInvocation(BaseModel):
+    model: str
+    topic: str
+    graph_run_id: str
+    branch_id: str | None = None
+    task: dict[str, Any] | None = None
+    iteration: int = 0
+    attempt: int = 1
+    allowed_tools: list[str] = Field(default_factory=list)
+    allowed_capabilities: list[str] = Field(default_factory=list)
+    approved_scope: dict[str, Any] = Field(default_factory=dict)
+    related_artifacts: dict[str, Any] = Field(default_factory=dict)
+    active_agent: str = ""
+    handoff_envelope: dict[str, Any] = Field(default_factory=dict)
+    handoff_history: list[dict[str, Any]] = Field(default_factory=list)
+    system_prompt: str
+    user_prompt: str
+    branch_synthesis: dict[str, Any] | None = None
+    section_draft: dict[str, Any] | None = None
+    answer_units: list[dict[str, Any]] = Field(default_factory=list)
+    claim_units: list[dict[str, Any]] = Field(default_factory=list)
+    source_candidates: list[dict[str, Any]] = Field(default_factory=list)
+    fetched_documents: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_passages: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_cards: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def _hydrate_execution_session(
+    *,
+    runtime: Any,
+    role: str,
+    invocation: ExecutionSubagentInvocation,
+) -> DeepResearchToolAgentSession:
+    task = ResearchTask(**invocation.task) if isinstance(invocation.task, dict) else None
+    session = DeepResearchToolAgentSession(
+        runtime=runtime,
+        role=role,
+        topic=invocation.topic,
+        graph_run_id=invocation.graph_run_id,
+        branch_id=invocation.branch_id,
+        task=task,
+        iteration=max(0, int(invocation.iteration or 0)),
+        attempt=max(1, int(invocation.attempt or 1)),
+        allowed_capabilities=set(invocation.allowed_capabilities or invocation.allowed_tools or []),
+        approved_scope=dict(invocation.approved_scope or {}),
+        related_artifacts=dict(invocation.related_artifacts or {}),
+        active_agent=invocation.active_agent,
+        handoff_envelope=dict(invocation.handoff_envelope or {}),
+        handoff_history=[
+            dict(item)
+            for item in invocation.handoff_history
+            if isinstance(item, dict)
+        ],
+    )
+    if isinstance(invocation.branch_synthesis, dict):
+        session.branch_synthesis = BranchSynthesis(**invocation.branch_synthesis)
+    if isinstance(invocation.section_draft, dict):
+        session.section_draft = ReportSectionDraft(**invocation.section_draft)
+    session.answer_units = [
+        AnswerUnit(**item) for item in invocation.answer_units if isinstance(item, dict)
+    ]
+    session.claim_units = [
+        ClaimUnit(**item) for item in invocation.claim_units if isinstance(item, dict)
+    ]
+    session.source_candidates = [
+        SourceCandidate(**item)
+        for item in invocation.source_candidates
+        if isinstance(item, dict)
+    ]
+    session.fetched_documents = [
+        FetchedDocument(**item)
+        for item in invocation.fetched_documents
+        if isinstance(item, dict)
+    ]
+    session.evidence_passages = [
+        EvidencePassage(**item)
+        for item in invocation.evidence_passages
+        if isinstance(item, dict)
+    ]
+    session.evidence_cards = [
+        EvidenceCard(**item)
+        for item in invocation.evidence_cards
+        if isinstance(item, dict)
+    ]
+    return session
+
+
+def _assert_execution_submission(role: str, bundle: ExecutionSubagentBundle) -> None:
+    if role == "researcher":
+        if bundle.branch_synthesis is None or not bundle.submissions:
+            raise RuntimeError("researcher subagent did not submit a research bundle")
+        return
+    if role == "verifier":
+        if not bundle.verification_results or not bundle.submissions:
+            raise RuntimeError("verifier subagent did not submit a verification bundle")
+        return
+    if role == "reporter":
+        if bundle.final_report is None or not bundle.submissions:
+            raise RuntimeError("reporter subagent did not submit a report bundle")
+
+
+def _run_execution_subagent(
+    *,
+    runtime: Any,
+    role: str,
+    config: dict[str, Any],
+    runner: Any,
+    invocation: ExecutionSubagentInvocation,
+) -> dict[str, Any]:
+    session = _hydrate_execution_session(runtime=runtime, role=role, invocation=invocation)
+    result = runner(
+        session,
+        model=invocation.model,
+        allowed_tools=list(invocation.allowed_tools or []),
+        system_prompt=invocation.system_prompt,
+        user_prompt=invocation.user_prompt,
+        config=config,
+    )
+    bundle = ExecutionSubagentBundle.from_session(
+        session,
+        response_text=str(result.get("text") or ""),
+        tool_names=[str(item) for item in result.get("tool_names", []) if str(item)],
+    )
+    _assert_execution_submission(role, bundle)
+    return bundle.to_payload()
+
+
+def _build_execution_subagent_tool(
+    *,
+    tool_name: str,
+    description: str,
+    role: str,
+    runtime: Any,
+    config: dict[str, Any],
+    runner: Any,
+) -> BaseTool:
+    def _invoke(**kwargs: Any) -> dict[str, Any]:
+        invocation = ExecutionSubagentInvocation(**kwargs)
+        return _run_execution_subagent(
+            runtime=runtime,
+            role=role,
+            config=config,
+            runner=runner,
+            invocation=invocation,
+        )
+
+    return StructuredTool(
+        name=tool_name,
+        description=description,
+        func=_invoke,
+        args_schema=ExecutionSubagentInvocation,
+    )
+
+
+def build_researcher_subagent_tool(*, runtime: Any, config: dict[str, Any], runner: Any) -> BaseTool:
+    return _build_execution_subagent_tool(
+        tool_name="deep_research_researcher_subagent",
+        description="Run the Deep Research researcher subagent and return a structured research bundle.",
+        role="researcher",
+        runtime=runtime,
+        config=config,
+        runner=runner,
+    )
+
+
+def build_verifier_subagent_tool(*, runtime: Any, config: dict[str, Any], runner: Any) -> BaseTool:
+    return _build_execution_subagent_tool(
+        tool_name="deep_research_verifier_subagent",
+        description="Run the Deep Research verifier subagent and return a structured verification bundle.",
+        role="verifier",
+        runtime=runtime,
+        config=config,
+        runner=runner,
+    )
+
+
+def build_reporter_subagent_tool(*, runtime: Any, config: dict[str, Any], runner: Any) -> BaseTool:
+    return _build_execution_subagent_tool(
+        tool_name="deep_research_reporter_subagent",
+        description="Run the Deep Research reporter subagent and return a structured final report bundle.",
+        role="reporter",
+        runtime=runtime,
+        config=config,
+        runner=runner,
+    )
 
 
 def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> list[BaseTool]:
@@ -1369,134 +1681,6 @@ def build_deep_research_fabric_tools(session: DeepResearchToolAgentSession) -> l
         )
 
     return base_tools
-
-
-def materialize_session_from_text(session: DeepResearchToolAgentSession, text: str) -> None:
-    payload = _extract_json_object(text)
-    if not payload:
-        return
-    if session.role == "clarify" and not session.control_plane_result:
-        intake_summary = payload.get("intake_summary") if isinstance(payload.get("intake_summary"), dict) else {}
-        if intake_summary or "needs_clarification" in payload:
-            session.submit_control_plane_result(
-                {
-                    "needs_clarification": bool(payload.get("needs_clarification")),
-                    "question": str(payload.get("question") or "").strip(),
-                    "missing_information": _normalize_ids(payload.get("missing_information")),
-                    "intake_summary": {
-                        "research_goal": str(intake_summary.get("research_goal") or session.topic).strip()
-                        or session.topic,
-                        "background": str(intake_summary.get("background") or "").strip(),
-                        "constraints": _normalize_ids(intake_summary.get("constraints")),
-                        "time_range": str(intake_summary.get("time_range") or "").strip(),
-                        "source_preferences": _normalize_ids(intake_summary.get("source_preferences")),
-                        "exclusions": _normalize_ids(intake_summary.get("exclusions")),
-                    },
-                }
-            )
-    elif session.role == "scope" and not session.control_plane_result:
-        if any(
-            key in payload
-            for key in (
-                "research_goal",
-                "research_steps",
-                "core_questions",
-                "in_scope",
-                "out_of_scope",
-            )
-        ):
-            session.submit_control_plane_result(
-                {
-                    "research_goal": str(payload.get("research_goal") or session.topic).strip() or session.topic,
-                    "research_steps": _normalize_ids(payload.get("research_steps")),
-                    "core_questions": _normalize_ids(payload.get("core_questions")),
-                    "in_scope": _normalize_ids(payload.get("in_scope")),
-                    "out_of_scope": _normalize_ids(payload.get("out_of_scope")),
-                    "constraints": _normalize_ids(payload.get("constraints")),
-                    "source_preferences": _normalize_ids(payload.get("source_preferences")),
-                    "deliverable_preferences": _normalize_ids(payload.get("deliverable_preferences")),
-                    "assumptions": _normalize_ids(payload.get("assumptions")),
-                }
-            )
-    elif session.role == "supervisor":
-        if not session.plan_items and isinstance(payload.get("plan_items"), list):
-            session.submit_plan_items(payload.get("plan_items"))
-        if not session.supervisor_decision:
-            action = str(payload.get("action") or payload.get("decision_type") or "").strip()
-            reasoning = str(payload.get("reasoning") or payload.get("summary") or "").strip()
-            if action and reasoning:
-                session.submit_supervisor_decision(
-                    action=action,
-                    reasoning=reasoning,
-                    priority_topics=_normalize_ids(payload.get("priority_topics")),
-                    retry_task_ids=_normalize_ids(payload.get("retry_task_ids")),
-                    request_ids=_normalize_ids(payload.get("request_ids")),
-                    issue_ids=_normalize_ids(payload.get("issue_ids")),
-                    target_branch_ids=_normalize_ids(payload.get("target_branch_ids")),
-                )
-    elif session.role == "researcher" and not session.submissions:
-        summary = str(payload.get("summary") or payload.get("result_summary") or "").strip()
-        if summary:
-            session.submit_research_bundle(
-                summary=summary,
-                findings=list(payload.get("findings") or []),
-                result_status=str(payload.get("result_status") or "completed"),
-            )
-    elif session.role == "verifier" and not session.submissions:
-        summary = str(payload.get("summary") or "").strip()
-        outcome = str(payload.get("outcome") or "").strip()
-        validation_stage = str(payload.get("validation_stage") or "coverage_check").strip()
-        if summary and outcome:
-            session.submit_verification_bundle(
-                validation_stage=validation_stage,
-                outcome=outcome,
-                summary=summary,
-                recommended_action=str(payload.get("recommended_action") or "report"),
-                gap_ids=list(payload.get("gap_ids") or []),
-                evidence_urls=list(payload.get("evidence_urls") or []),
-                evidence_passage_ids=[item.id for item in session.evidence_passages],
-                answer_unit_ids=(
-                    [item.id for item in session.answer_units]
-                    if validation_stage == "claim_check"
-                    else None
-                ),
-                claim_ids=list(payload.get("claim_ids") or []),
-                obligation_ids=list(payload.get("obligation_ids") or []),
-                consistency_result_ids=list(payload.get("consistency_result_ids") or []),
-                issue_ids=list(payload.get("issue_ids") or []),
-            )
-    elif session.role == "reporter" and session.final_report is None:
-        report_markdown = str(payload.get("report_markdown") or "").strip()
-        executive_summary = str(payload.get("executive_summary") or "").strip()
-        if report_markdown:
-            session.submit_report_bundle(
-                report_markdown=report_markdown,
-                executive_summary=executive_summary,
-                citation_urls=list(payload.get("citation_urls") or []),
-            )
-    if (
-        session.role_kind == "control_plane"
-        and not session.handoff_envelope
-        and payload.get("to_agent")
-        and payload.get("reason")
-    ):
-        try:
-            session.submit_control_plane_handoff(
-                to_agent=str(payload.get("to_agent") or "").strip(),
-                reason=str(payload.get("reason") or "").strip(),
-                context_refs=_normalize_ids(payload.get("context_refs")),
-                scope_snapshot=(
-                    dict(payload.get("scope_snapshot"))
-                    if isinstance(payload.get("scope_snapshot"), dict)
-                    else {}
-                ),
-                review_state=str(payload.get("review_state") or "").strip(),
-                metadata=dict(payload.get("metadata") or {}),
-            )
-        except Exception:
-            return
-
-
 def run_bounded_tool_agent(
     session: DeepResearchToolAgentSession,
     *,
@@ -1524,7 +1708,6 @@ def run_bounded_tool_agent(
         config=config,
     )
     text = _extract_agent_text(response)
-    materialize_session_from_text(session, text)
     return {
         "response": response,
         "text": text,
@@ -1533,8 +1716,12 @@ def run_bounded_tool_agent(
 
 
 __all__ = [
+    "ExecutionSubagentBundle",
+    "ExecutionSubagentInvocation",
     "DeepResearchToolAgentSession",
+    "build_researcher_subagent_tool",
+    "build_reporter_subagent_tool",
+    "build_verifier_subagent_tool",
     "build_deep_research_fabric_tools",
-    "materialize_session_from_text",
     "run_bounded_tool_agent",
 ]

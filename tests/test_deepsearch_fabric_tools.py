@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import agent.runtime.deep.support.tool_agents as tool_agents_module
 from agent.contracts.claim_verifier import ClaimVerifier
 from agent.runtime.deep.schema import (
     AnswerUnit,
@@ -16,6 +17,8 @@ from agent.runtime.deep.store import ArtifactStore, ResearchTaskQueue
 from agent.runtime.deep.support.tool_agents import (
     DeepResearchToolAgentSession,
     build_deep_research_fabric_tools,
+    build_researcher_subagent_tool,
+    run_bounded_tool_agent,
 )
 
 
@@ -229,6 +232,126 @@ def test_verifier_submission_requires_contract_addressable_ids():
             recommended_action="report",
             claim_ids=["claim-1"],
         )
+
+
+def test_researcher_subagent_tool_returns_structured_bundle_without_text_materialization():
+    runtime = _FakeRuntime()
+    task = _make_task()
+
+    def _fake_runner(session, **_kwargs):
+        tools = _tool_map(session)
+        search_results = tools["fabric_search"].invoke({"query": "AI chips", "max_results": 1})
+        tools["fabric_extract"].invoke({"url": search_results[0]["url"]})
+        tools["fabric_submit_research_bundle"].invoke(
+            {
+                "summary": "AI chips demand remains strong.",
+                "findings": ["Demand remains strong."],
+            }
+        )
+        return {
+            "response": {},
+            "text": "{\"summary\": \"this text should not be materialized\"}",
+            "tool_names": ["fabric_search", "fabric_submit_research_bundle"],
+        }
+
+    tool = build_researcher_subagent_tool(runtime=runtime, config={}, runner=_fake_runner)
+    payload = tool.invoke(
+        {
+            "model": "gpt-test",
+            "topic": "AI chips",
+            "graph_run_id": "graph-1",
+            "branch_id": task.branch_id,
+            "task": task.to_dict(),
+            "iteration": 1,
+            "attempt": 1,
+            "allowed_tools": ["search", "read", "extract"],
+            "allowed_capabilities": ["search", "read", "extract"],
+            "approved_scope": {"id": "scope-1"},
+            "related_artifacts": {},
+            "active_agent": "supervisor",
+            "handoff_envelope": {},
+            "handoff_history": [],
+            "system_prompt": "research",
+            "user_prompt": "do the work",
+        }
+    )
+
+    assert payload["branch_synthesis"]["summary"] == "AI chips demand remains strong."
+    assert payload["submissions"][0]["submission_kind"] == "research_bundle"
+    assert payload["response_text"] == "{\"summary\": \"this text should not be materialized\"}"
+
+
+def test_researcher_subagent_tool_requires_structured_submission():
+    runtime = _FakeRuntime()
+    task = _make_task()
+
+    def _fake_runner(session, **_kwargs):
+        return {
+            "response": {},
+            "text": "{\"summary\": \"text only\"}",
+            "tool_names": [],
+        }
+
+    tool = build_researcher_subagent_tool(runtime=runtime, config={}, runner=_fake_runner)
+
+    with pytest.raises(RuntimeError, match="researcher subagent did not submit a research bundle"):
+        tool.invoke(
+            {
+                "model": "gpt-test",
+                "topic": "AI chips",
+                "graph_run_id": "graph-1",
+                "branch_id": task.branch_id,
+                "task": task.to_dict(),
+                "iteration": 1,
+                "attempt": 1,
+                "allowed_tools": ["search", "read", "extract"],
+                "allowed_capabilities": ["search", "read", "extract"],
+                "approved_scope": {"id": "scope-1"},
+                "related_artifacts": {},
+                "active_agent": "supervisor",
+                "handoff_envelope": {},
+                "handoff_history": [],
+                "system_prompt": "research",
+                "user_prompt": "do the work",
+            }
+        )
+
+
+def test_run_bounded_tool_agent_does_not_materialize_text_only_response(monkeypatch):
+    runtime = _FakeRuntime()
+    task = _make_task()
+    session = DeepResearchToolAgentSession(
+        runtime=runtime,
+        role="researcher",
+        topic="AI chips",
+        graph_run_id="graph-1",
+        branch_id=task.branch_id,
+        task=task,
+        allowed_capabilities={"search", "read", "extract"},
+    )
+
+    class _FakeAgent:
+        def invoke(self, *_args, **_kwargs):
+            return {"messages": [SimpleNamespace(content='{"summary":"text only"}')]}
+
+    monkeypatch.setattr(
+        tool_agents_module,
+        "build_deep_research_tool_agent",
+        lambda **_kwargs: (_FakeAgent(), []),
+    )
+
+    result = run_bounded_tool_agent(
+        session,
+        model="gpt-test",
+        allowed_tools=["search", "read", "extract"],
+        system_prompt="research",
+        user_prompt="do the work",
+        config={},
+    )
+
+    assert result["text"] == '{"summary":"text only"}'
+    assert session.branch_synthesis is None
+    assert session.submissions == []
 
 
 def test_verifier_submission_does_not_broadcast_to_unreferenced_answer_units():

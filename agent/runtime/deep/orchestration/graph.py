@@ -72,6 +72,10 @@ from agent.runtime.deep.schema import (
 from agent.runtime.deep.store import ArtifactStore, ResearchTaskQueue
 from agent.runtime.deep.support.tool_agents import (
     DeepResearchToolAgentSession,
+    ExecutionSubagentBundle,
+    build_reporter_subagent_tool,
+    build_researcher_subagent_tool,
+    build_verifier_subagent_tool,
     run_bounded_tool_agent,
 )
 import agent.runtime.deep.support.runtime_support as support
@@ -3452,22 +3456,7 @@ class MultiAgentDeepResearchRuntime:
     ) -> WorkerExecutionResult | None:
         if not self.enable_tool_agents:
             return None
-        session = DeepResearchToolAgentSession(
-            runtime=view,
-            role="researcher",
-            topic=self.topic,
-            graph_run_id=view.graph_run_id,
-            branch_id=task.branch_id,
-            task=task,
-            iteration=iteration,
-            attempt=attempt,
-            allowed_capabilities=set(task.allowed_tools or []),
-            approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
-            related_artifacts=view.artifact_store.get_related_artifacts(task.id, branch_id=task.branch_id),
-            active_agent=view.active_agent,
-            handoff_envelope=copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
-            handoff_history=copy.deepcopy(view.runtime_state.get("handoff_history") or []),
-        )
+        related_artifacts = view.artifact_store.get_related_artifacts(task.id, branch_id=task.branch_id)
         system_prompt = (
             "You are the Deep Research branch researcher.\n"
             "You must stay inside the active branch scope and only use the provided tools.\n"
@@ -3489,36 +3478,54 @@ class MultiAgentDeepResearchRuntime:
             f"Revision brief id: {task.revision_brief_id or 'n/a'}\n"
             f"Target issue ids: {task.target_issue_ids}\n"
         )
+        tool = self._deps.build_researcher_subagent_tool(
+            runtime=view,
+            config=self.config,
+            runner=self._deps.run_bounded_tool_agent,
+        )
         try:
-            run_bounded_tool_agent(
-                session,
-                model=self.researcher_model,
-                allowed_tools=task.allowed_tools,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                config=self.config,
+            bundle_payload = tool.invoke(
+                {
+                    "model": self.researcher_model,
+                    "topic": self.topic,
+                    "graph_run_id": view.graph_run_id,
+                    "branch_id": task.branch_id,
+                    "task": task.to_dict(),
+                    "iteration": iteration,
+                    "attempt": attempt,
+                    "allowed_tools": list(task.allowed_tools or []),
+                    "allowed_capabilities": list(task.allowed_tools or []),
+                    "approved_scope": copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
+                    "related_artifacts": related_artifacts,
+                    "active_agent": view.active_agent,
+                    "handoff_envelope": copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
+                    "handoff_history": copy.deepcopy(view.runtime_state.get("handoff_history") or []),
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                }
             )
         except Exception:
             return None
-        if not session.submissions or session.branch_synthesis is None:
+        bundle = self._deps.ExecutionSubagentBundle.from_payload(bundle_payload)
+        if not bundle.submissions or bundle.branch_synthesis is None:
             return None
         answer_units = derive_answer_units(
             claim_verifier=self.claim_verifier,
             task=task,
-            synthesis=session.branch_synthesis,
+            synthesis=bundle.branch_synthesis,
             created_by=record.agent_id,
-            existing_answer_units=session.answer_units,
-            existing_claim_units=session.claim_units,
+            existing_answer_units=bundle.answer_units,
+            existing_claim_units=bundle.claim_units,
         )
         claim_units = [item.to_claim_unit() for item in answer_units]
-        session.answer_units = answer_units
-        session.claim_units = claim_units
-        session.branch_synthesis.answer_unit_ids = [item.id for item in answer_units]
-        session.branch_synthesis.claim_ids = [item.id for item in claim_units]
-        session.branch_synthesis.revision_brief_id = task.revision_brief_id
-        session.branch_synthesis.metadata.setdefault("addressed_issue_ids", list(task.target_issue_ids))
+        bundle.answer_units = answer_units
+        bundle.claim_units = claim_units
+        bundle.branch_synthesis.answer_unit_ids = [item.id for item in answer_units]
+        bundle.branch_synthesis.claim_ids = [item.id for item in claim_units]
+        bundle.branch_synthesis.revision_brief_id = task.revision_brief_id
+        bundle.branch_synthesis.metadata.setdefault("addressed_issue_ids", list(task.target_issue_ids))
 
-        worker_context.summary_notes.append(session.branch_synthesis.summary)
+        worker_context.summary_notes.append(bundle.branch_synthesis.summary)
         worker_context.scraped_content.append(
             {
                 "query": task.query,
@@ -3526,7 +3533,7 @@ class MultiAgentDeepResearchRuntime:
                 "objective": objective_summary,
                 "task_kind": task.task_kind,
                 "stage": "submit",
-                "results": list(session.search_results),
+                "results": list(bundle.search_results),
                 "timestamp": _now_iso(),
                 "task_id": task.id,
                 "agent_id": record.agent_id,
@@ -3535,23 +3542,23 @@ class MultiAgentDeepResearchRuntime:
                 "tool_agent": True,
             }
         )
-        worker_context.sources.extend(support._compact_sources(session.search_results, limit=10))
+        worker_context.sources.extend(support._compact_sources(bundle.search_results, limit=10))
         worker_context.artifacts_created.extend(
-            [item.to_dict() for item in session.source_candidates]
-            + [item.to_dict() for item in session.fetched_documents]
-            + [item.to_dict() for item in session.evidence_passages]
-            + [item.to_dict() for item in session.evidence_cards]
-            + ([session.branch_synthesis.to_dict()] if session.branch_synthesis else [])
-            + ([session.section_draft.to_dict()] if session.section_draft else [])
-            + [item.to_dict() for item in session.coordination_requests]
-            + [item.to_dict() for item in session.submissions]
+            [item.to_dict() for item in bundle.source_candidates]
+            + [item.to_dict() for item in bundle.fetched_documents]
+            + [item.to_dict() for item in bundle.evidence_passages]
+            + [item.to_dict() for item in bundle.evidence_cards]
+            + ([bundle.branch_synthesis.to_dict()] if bundle.branch_synthesis else [])
+            + ([bundle.section_draft.to_dict()] if bundle.section_draft else [])
+            + [item.to_dict() for item in bundle.coordination_requests]
+            + [item.to_dict() for item in bundle.submissions]
         )
         worker_context.is_complete = True
         task.stage = "submit"
         view.finish_agent_run(
             record,
             status="completed",
-            summary=session.branch_synthesis.summary[:240],
+            summary=bundle.branch_synthesis.summary[:240],
             iteration=iteration,
             branch_id=task.branch_id,
             stage="submit",
@@ -3559,24 +3566,24 @@ class MultiAgentDeepResearchRuntime:
         return WorkerExecutionResult(
             task=task,
             context=worker_context,
-            source_candidates=session.source_candidates,
-            fetched_documents=session.fetched_documents,
-            evidence_passages=session.evidence_passages,
-            branch_synthesis=session.branch_synthesis,
-            evidence_cards=session.evidence_cards,
-            section_draft=session.section_draft,
-            coordination_requests=session.coordination_requests,
-            submission=session.submissions[-1],
-            raw_results=list(session.search_results),
-            tokens_used=max(session.tokens_used, support._estimate_tokens_from_text(session.branch_synthesis.summary)),
-            searches_used=session.searches_used,
+            source_candidates=bundle.source_candidates,
+            fetched_documents=bundle.fetched_documents,
+            evidence_passages=bundle.evidence_passages,
+            branch_synthesis=bundle.branch_synthesis,
+            evidence_cards=bundle.evidence_cards,
+            section_draft=bundle.section_draft,
+            coordination_requests=bundle.coordination_requests,
+            submission=bundle.submissions[-1],
+            raw_results=list(bundle.search_results),
+            tokens_used=max(bundle.tokens_used, support._estimate_tokens_from_text(bundle.branch_synthesis.summary)),
+            searches_used=bundle.searches_used,
             branch_id=task.branch_id,
             task_stage="submit",
-            result_status=session.submissions[-1].result_status,
+            result_status=bundle.submissions[-1].result_status,
             agent_run=record,
             answer_units=answer_units,
             claim_units=claim_units,
-            resolved_issue_ids=list(session.submissions[-1].resolved_issue_ids),
+            resolved_issue_ids=list(bundle.submissions[-1].resolved_issue_ids),
         )
 
     def _try_verifier_tool_agent(
@@ -3591,7 +3598,7 @@ class MultiAgentDeepResearchRuntime:
         verified_knowledge: str = "",
         claim_units: list[ClaimUnit] | None = None,
         obligations: list[CoverageObligation] | None = None,
-    ) -> DeepResearchToolAgentSession | None:
+    ) -> ExecutionSubagentBundle | None:
         if not self.enable_tool_agents:
             return None
         related_artifacts = view.artifact_store.get_related_artifacts(task.id, branch_id=synthesis.branch_id)
@@ -3605,50 +3612,6 @@ class MultiAgentDeepResearchRuntime:
         session_task = copy.deepcopy(task)
         if validation_stage in {"claim_check", "coverage_check"}:
             session_task.stage = validation_stage
-        session = DeepResearchToolAgentSession(
-            runtime=view,
-            role="verifier",
-            topic=self.topic,
-            graph_run_id=view.graph_run_id,
-            branch_id=synthesis.branch_id,
-            task=session_task,
-            iteration=view.current_iteration,
-            attempt=max(1, int(task.attempts or 1)),
-            allowed_capabilities={"search", "read", "extract"},
-            approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
-            related_artifacts=related_artifacts,
-            active_agent=view.active_agent,
-            handoff_envelope=copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
-            handoff_history=copy.deepcopy(view.runtime_state.get("handoff_history") or []),
-        )
-        session.branch_synthesis = copy.deepcopy(synthesis)
-        session.answer_units = [
-            AnswerUnit(**item)
-            for item in related_artifacts.get("answer_units", [])
-            if isinstance(item, dict)
-        ]
-        session.claim_units = [copy.deepcopy(item) for item in (claim_units or [])]
-        session.source_candidates = [
-            SourceCandidate(**item)
-            for item in related_artifacts.get("source_candidates", [])
-            if isinstance(item, dict)
-        ]
-        session.fetched_documents = [
-            FetchedDocument(**item)
-            for item in related_artifacts.get("fetched_documents", [])
-            if isinstance(item, dict)
-        ]
-        session.evidence_passages = [
-            EvidencePassage(**item)
-            for item in related_artifacts.get("evidence_passages", [])
-            if isinstance(item, dict)
-        ]
-        session.evidence_cards = [
-            EvidenceCard(**item)
-            for item in related_artifacts.get("evidence_cards", [])
-            if isinstance(item, dict)
-        ]
-
         system_prompt = (
             "You are the Deep Research verifier.\n"
             "Work only inside the active branch and only use the provided tools.\n"
@@ -3683,25 +3646,50 @@ class MultiAgentDeepResearchRuntime:
             f"Suggested follow-up queries: {(gap_result.suggested_queries if gap_result else [])}\n"
             f"Verified knowledge so far: {verified_knowledge[:1200]}\n"
         )
+        tool = self._deps.build_verifier_subagent_tool(
+            runtime=view,
+            config=self.config,
+            runner=self._deps.run_bounded_tool_agent,
+        )
         try:
-            run_bounded_tool_agent(
-                session,
-                model=self.verifier_model,
-                allowed_tools=None,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                config=self.config,
+            bundle_payload = tool.invoke(
+                {
+                    "model": self.verifier_model,
+                    "topic": self.topic,
+                    "graph_run_id": view.graph_run_id,
+                    "branch_id": synthesis.branch_id,
+                    "task": session_task.to_dict(),
+                    "iteration": view.current_iteration,
+                    "attempt": max(1, int(task.attempts or 1)),
+                    "allowed_tools": [],
+                    "allowed_capabilities": ["search", "read", "extract"],
+                    "approved_scope": copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
+                    "related_artifacts": related_artifacts,
+                    "active_agent": view.active_agent,
+                    "handoff_envelope": copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
+                    "handoff_history": copy.deepcopy(view.runtime_state.get("handoff_history") or []),
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "branch_synthesis": synthesis.to_dict(),
+                    "answer_units": list(related_artifacts.get("answer_units", [])),
+                    "claim_units": [item.to_dict() for item in (claim_units or [])],
+                    "source_candidates": list(related_artifacts.get("source_candidates", [])),
+                    "fetched_documents": list(related_artifacts.get("fetched_documents", [])),
+                    "evidence_passages": list(related_artifacts.get("evidence_passages", [])),
+                    "evidence_cards": list(related_artifacts.get("evidence_cards", [])),
+                }
             )
         except Exception:
             return None
-        if not session.verification_results or not session.submissions:
+        bundle = self._deps.ExecutionSubagentBundle.from_payload(bundle_payload)
+        if not bundle.verification_results or not bundle.submissions:
             return None
-        result = session.verification_results[-1]
+        result = bundle.verification_results[-1]
         if result.validation_stage != validation_stage:
             return None
         if validation_stage == "coverage_check" and gap_result and "gap_analysis" not in result.metadata:
             result.metadata["gap_analysis"] = gap_result.analysis
-        return session
+        return bundle
 
     def _persist_verifier_tool_agent_session(
         self,
@@ -3894,58 +3882,44 @@ class MultiAgentDeepResearchRuntime:
         verified_syntheses: list[BranchSynthesis],
         citation_urls: list[str],
         outline_artifact: OutlineArtifact,
-    ) -> DeepResearchToolAgentSession | None:
+    ) -> ExecutionSubagentBundle | None:
         if not self.enable_tool_agents:
             return None
-        session = DeepResearchToolAgentSession(
-            runtime=view,
-            role="reporter",
-            topic=self.topic,
-            graph_run_id=view.graph_run_id,
-            branch_id=view.root_branch_id,
-            iteration=view.current_iteration,
-            attempt=view.graph_attempt,
-            allowed_capabilities=set(),
-            approved_scope=copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
-            related_artifacts={
-                "outline": outline_artifact.to_dict(),
-                "branch_syntheses": [item.to_dict() for item in verified_syntheses],
-                "branch_validation_summaries": [
-                    item.to_dict()
-                    for item in _latest_branch_validation_summaries(
-                        view.artifact_store.branch_validation_summaries(),
-                        view.artifact_store.branch_briefs(),
-                    )
-                ],
-                "verification_results": [
-                    item.to_dict()
-                    for item in view.artifact_store.verification_results()
-                ],
-                "coverage_matrix": (
-                    view.artifact_store.coverage_matrix().to_dict()
-                    if view.artifact_store.coverage_matrix()
-                    else {}
-                ),
-                "contradiction_registry": (
-                    view.artifact_store.contradiction_registry().to_dict()
-                    if view.artifact_store.contradiction_registry()
-                    else {}
-                ),
-                "missing_evidence_list": (
-                    view.artifact_store.missing_evidence_list().to_dict()
-                    if view.artifact_store.missing_evidence_list()
-                    else {}
-                ),
-                "research_brief": (
-                    view.artifact_store.research_brief().to_dict()
-                    if view.artifact_store.research_brief()
-                    else {}
-                ),
-            },
-            active_agent=view.active_agent,
-            handoff_envelope=copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
-            handoff_history=copy.deepcopy(view.runtime_state.get("handoff_history") or []),
-        )
+        related_artifacts = {
+            "outline": outline_artifact.to_dict(),
+            "branch_syntheses": [item.to_dict() for item in verified_syntheses],
+            "branch_validation_summaries": [
+                item.to_dict()
+                for item in _latest_branch_validation_summaries(
+                    view.artifact_store.branch_validation_summaries(),
+                    view.artifact_store.branch_briefs(),
+                )
+            ],
+            "verification_results": [
+                item.to_dict()
+                for item in view.artifact_store.verification_results()
+            ],
+            "coverage_matrix": (
+                view.artifact_store.coverage_matrix().to_dict()
+                if view.artifact_store.coverage_matrix()
+                else {}
+            ),
+            "contradiction_registry": (
+                view.artifact_store.contradiction_registry().to_dict()
+                if view.artifact_store.contradiction_registry()
+                else {}
+            ),
+            "missing_evidence_list": (
+                view.artifact_store.missing_evidence_list().to_dict()
+                if view.artifact_store.missing_evidence_list()
+                else {}
+            ),
+            "research_brief": (
+                view.artifact_store.research_brief().to_dict()
+                if view.artifact_store.research_brief()
+                else {}
+            ),
+        }
         outline_lines = "\n".join(
             f"- {section.get('title')}: {section.get('summary', '')[:180]}"
             for section in outline_artifact.sections[:8]
@@ -3976,20 +3950,37 @@ class MultiAgentDeepResearchRuntime:
             f"Verified synthesis previews:\n{synthesis_lines}\n"
             f"Citation map:\n{citation_lines}\n"
         )
+        tool = self._deps.build_reporter_subagent_tool(
+            runtime=view,
+            config=self.config,
+            runner=self._deps.run_bounded_tool_agent,
+        )
         try:
-            run_bounded_tool_agent(
-                session,
-                model=self.reporter_model,
-                allowed_tools=None,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                config=self.config,
+            bundle_payload = tool.invoke(
+                {
+                    "model": self.reporter_model,
+                    "topic": self.topic,
+                    "graph_run_id": view.graph_run_id,
+                    "branch_id": view.root_branch_id,
+                    "iteration": view.current_iteration,
+                    "attempt": view.graph_attempt,
+                    "allowed_tools": [],
+                    "allowed_capabilities": [],
+                    "approved_scope": copy.deepcopy(view.runtime_state.get("approved_scope_draft") or {}),
+                    "related_artifacts": related_artifacts,
+                    "active_agent": view.active_agent,
+                    "handoff_envelope": copy.deepcopy(view.runtime_state.get("handoff_envelope") or {}),
+                    "handoff_history": copy.deepcopy(view.runtime_state.get("handoff_history") or []),
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                }
             )
         except Exception:
             return None
-        if session.final_report is None or not session.submissions:
+        bundle = self._deps.ExecutionSubagentBundle.from_payload(bundle_payload)
+        if bundle.final_report is None or not bundle.submissions:
             return None
-        return session
+        return bundle
 
     def _researcher_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         view = self._view(graph_state, "researcher")
@@ -4910,7 +4901,7 @@ class MultiAgentDeepResearchRuntime:
                 synthesis.claim_ids = [item.id for item in claim_units]
                 synthesis.revision_brief_id = synthesis.revision_brief_id or task.revision_brief_id
                 view.artifact_store.add_branch_synthesis(synthesis)
-                claim_tool_session: DeepResearchToolAgentSession | None = None
+                claim_tool_session: ExecutionSubagentBundle | None = None
                 if self.enable_tool_agents:
                     try:
                         claim_tool_session = self._try_verifier_tool_agent(
@@ -5288,7 +5279,7 @@ class MultiAgentDeepResearchRuntime:
                 branch_claim_units = view.artifact_store.claim_units(task_id=task.id)
                 branch_groundings = view.artifact_store.claim_grounding_results(task_id=task.id)
                 claim_result = claim_outcomes_by_task.get(task.id)
-                coverage_tool_session: DeepResearchToolAgentSession | None = None
+                coverage_tool_session: ExecutionSubagentBundle | None = None
                 if self.enable_tool_agents:
                     try:
                         coverage_tool_session = self._try_verifier_tool_agent(
