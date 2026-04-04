@@ -436,9 +436,55 @@ class SessionManager:
         restored["resumed_at"] = datetime.utcnow().isoformat()
         return restored
 
+    def _checkpoint_entry(self, cp_info: Any) -> Tuple[Any, Any]:
+        """
+        Normalize checkpoint list entries across LangGraph backends.
+
+        LangGraph's real checkpointers yield `CheckpointTuple`, while some tests
+        and in-memory fallbacks still expose plain `(config, checkpoint)` pairs
+        or dicts.
+        """
+        if hasattr(cp_info, "config") and hasattr(cp_info, "checkpoint"):
+            return cp_info.config, cp_info
+
+        if isinstance(cp_info, tuple) and len(cp_info) == 2:
+            return cp_info
+
+        if isinstance(cp_info, dict):
+            return cp_info.get("config", {}), cp_info.get("checkpoint", cp_info)
+
+        raise TypeError(f"Unsupported checkpoint entry type: {type(cp_info)!r}")
+
+    def _thread_id_from_config(self, config: Any) -> Optional[str]:
+        if isinstance(config, dict):
+            configurable = config.get("configurable", {})
+            if isinstance(configurable, dict):
+                thread_id = configurable.get("thread_id")
+                if isinstance(thread_id, str) and thread_id.strip():
+                    return thread_id.strip()
+
+        configurable = getattr(config, "configurable", None)
+        if isinstance(configurable, dict):
+            thread_id = configurable.get("thread_id")
+            if isinstance(thread_id, str) and thread_id.strip():
+                return thread_id.strip()
+
+        return None
+
+    def _checkpoint_state(self, checkpoint: Any) -> Dict[str, Any]:
+        if hasattr(checkpoint, "checkpoint") and isinstance(checkpoint.checkpoint, dict):
+            state = checkpoint.checkpoint.get("channel_values", {})
+            return state if isinstance(state, dict) else {}
+
+        if isinstance(checkpoint, dict):
+            state = checkpoint.get("channel_values", {})
+            return state if isinstance(state, dict) else {}
+
+        return {}
+
     def _list_checkpoints_sync(self) -> List[Any]:
         if hasattr(self.checkpointer, "list"):
-            return list(self.checkpointer.list({"configurable": {}}))
+            return list(self.checkpointer.list(None))
         if hasattr(self.checkpointer, "storage"):
             checkpoints = []
             for config, checkpoint in self.checkpointer.storage.items():
@@ -449,7 +495,7 @@ class SessionManager:
 
     async def _list_checkpoints_async(self) -> List[Any]:
         if hasattr(self.checkpointer, "alist") or hasattr(self.checkpointer, "list"):
-            return await alist_checkpoints(self.checkpointer, {"configurable": {}})
+            return await alist_checkpoints(self.checkpointer, None)
         if hasattr(self.checkpointer, "storage"):
             checkpoints = []
             for config, checkpoint in self.checkpointer.storage.items():
@@ -469,30 +515,17 @@ class SessionManager:
         sessions = []
         seen_threads = set()
 
-        for cp_info in checkpoints[:limit * 2]:
+        for cp_info in checkpoints:
             try:
-                if isinstance(cp_info, tuple):
-                    config, checkpoint = cp_info
-                else:
-                    config = cp_info.get("config", {})
-                    checkpoint = cp_info.get("checkpoint", cp_info)
-
-                thread_id = None
-                if isinstance(config, dict):
-                    thread_id = config.get("configurable", {}).get("thread_id")
-                elif hasattr(config, "configurable"):
-                    thread_id = config.configurable.get("thread_id")
+                config, checkpoint = self._checkpoint_entry(cp_info)
+                thread_id = self._thread_id_from_config(config)
 
                 if not thread_id or thread_id in seen_threads:
                     continue
 
                 seen_threads.add(thread_id)
 
-                state = {}
-                if hasattr(checkpoint, "checkpoint"):
-                    state = checkpoint.checkpoint.get("channel_values", {})
-                elif isinstance(checkpoint, dict):
-                    state = checkpoint.get("channel_values", {})
+                state = self._checkpoint_state(checkpoint)
 
                 if user_id_filter:
                     owner = state.get("user_id")
@@ -535,12 +568,19 @@ class SessionManager:
 
         created_at = state.get("started_at", "")
         updated_at = state.get("ended_at", "")
+        checkpoint_ts = ""
+
+        if hasattr(checkpoint_tuple, "checkpoint") and isinstance(checkpoint_tuple.checkpoint, dict):
+            checkpoint_ts = str(checkpoint_tuple.checkpoint.get("ts") or "").strip()
 
         # Try to get timestamps from checkpoint metadata
         if hasattr(checkpoint_tuple, "metadata"):
             metadata = checkpoint_tuple.metadata or {}
             if not created_at:
-                created_at = metadata.get("created_at", "")
+                created_at = str(metadata.get("created_at") or checkpoint_ts or "").strip()
+
+        if not updated_at:
+            updated_at = checkpoint_ts or created_at
 
         return SessionInfo(
             thread_id=thread_id,
