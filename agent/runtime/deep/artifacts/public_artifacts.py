@@ -286,6 +286,8 @@ def _normalize_public_branch_results(items: Any) -> list[dict[str, Any]]:
                 "objective": str(item.get("objective") or "").strip(),
                 "summary": str(item.get("summary") or "").strip(),
                 "key_findings": list(item.get("key_findings") or []),
+                "open_questions": list(item.get("open_questions") or []),
+                "confidence_note": str(item.get("confidence_note") or "").strip(),
                 "source_urls": [
                     canonicalize_source_url(url)
                     for url in item.get("source_urls", []) or []
@@ -485,9 +487,18 @@ def _normalize_lightweight_fetched_pages(artifact_store: dict[str, Any]) -> list
                     "task_id": bundle.get("task_id"),
                     "branch_id": bundle.get("branch_id"),
                     "url": url,
+                    "raw_url": item.get("raw_url"),
                     "title": str(item.get("title") or "").strip(),
                     "excerpt": str(item.get("excerpt") or "").strip(),
                     "content": str(item.get("content") or ""),
+                    "text": item.get("content"),
+                    "method": item.get("method"),
+                    "published_date": item.get("published_date"),
+                    "retrieved_at": item.get("retrieved_at"),
+                    "markdown": item.get("markdown"),
+                    "http_status": item.get("http_status"),
+                    "error": item.get("error"),
+                    "attempts": item.get("attempts"),
                 }
             )
     return pages
@@ -510,6 +521,7 @@ def _normalize_lightweight_passages(artifact_store: dict[str, Any]) -> list[dict
                     "id": item.get("id"),
                     "task_id": bundle.get("task_id"),
                     "branch_id": bundle.get("branch_id"),
+                    "document_id": item.get("document_id"),
                     "url": url,
                     "text": str(item.get("text") or ""),
                     "quote": str(item.get("quote") or "").strip(),
@@ -517,8 +529,16 @@ def _normalize_lightweight_passages(artifact_store: dict[str, Any]) -> list[dict
                     "snippet_hash": str(item.get("snippet_hash") or "").strip(),
                     "heading": (list(item.get("heading_path") or []) or [None])[0],
                     "heading_path": list(item.get("heading_path") or []),
-                    "admissible": True,
-                    "authoritative": True,
+                    "page_title": item.get("page_title"),
+                    "start_char": item.get("start_char"),
+                    "end_char": item.get("end_char"),
+                    "retrieved_at": item.get("retrieved_at"),
+                    "method": item.get("method"),
+                    "locator": dict(item.get("locator") or {}),
+                    "source_published_date": item.get("source_published_date"),
+                    "passage_kind": str(item.get("passage_kind") or "quote").strip(),
+                    "admissible": bool(item.get("admissible", True)),
+                    "authoritative": bool(item.get("authoritative", item.get("admissible", True))),
                 }
             )
     return passages

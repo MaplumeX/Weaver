@@ -316,6 +316,50 @@ DEEP_RESEARCHER_SUMMARIZE_PROMPT = """
 """.strip()
 
 
+DEEP_RESEARCHER_EVIDENCE_SYNTHESIS_PROMPT = """
+# 角色
+你是一名证据优先的研究员，负责为单个研究 branch 生成结构化综合结果。
+
+# 研究主题
+{topic}
+
+# Branch 标题
+{branch_title}
+
+# Branch 目标
+{branch_objective}
+
+# 验收标准
+{acceptance_criteria}
+
+# 已有上下文摘要
+{existing_summary}
+
+# 可用证据
+{evidence}
+
+# 任务
+仅基于提供的证据，输出该 branch 的结构化综合结果。
+
+# 输出要求
+1. 不要引入证据中没有出现的事实。
+2. 如果证据不足、互相冲突或主要是非权威材料，要在 `summary` 中明确说明不确定性。
+3. `key_findings` 保持 2-5 条，每条一句话。
+4. `open_questions` 保持 0-3 条，仅列出当前证据尚未解决的重要问题。
+5. 返回 JSON 对象，不要输出任何额外解释。
+
+# 输出格式
+```json
+{{
+  "summary": "基于当前证据的 branch 摘要",
+  "key_findings": ["发现 1", "发现 2"],
+  "open_questions": ["待补充问题 1"],
+  "confidence_note": "关于证据质量/覆盖面的简短说明"
+}}
+```
+""".strip()
+
+
 DEEP_REPORTER_PROMPT = """
 # 角色
 你是一名专业的研究报告撰写者。基于已经过整理和验证的研究材料，撰写一份全面的深度研究报告。
@@ -407,6 +451,7 @@ RUNTIME_PROMPT_TEMPLATES = {
     "deep.supervisor.decision": DEEP_SUPERVISOR_DECISION_PROMPT,
     "deep.researcher.select_urls": DEEP_RESEARCHER_SELECT_URLS_PROMPT,
     "deep.researcher.summarize": DEEP_RESEARCHER_SUMMARIZE_PROMPT,
+    "deep.researcher.evidence_synthesis": DEEP_RESEARCHER_EVIDENCE_SYNTHESIS_PROMPT,
     "deep.reporter": DEEP_REPORTER_PROMPT,
     "deep.reporter.refine": DEEP_REPORTER_REFINE_PROMPT,
     "deep.reporter.executive_summary": DEEP_REPORTER_EXEC_SUMMARY_PROMPT,

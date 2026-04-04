@@ -128,9 +128,17 @@ def _branch_summary_payload(result: dict[str, Any]) -> dict[str, Any]:
         "branch_id": result.get("branch_id"),
         "title": result.get("title"),
         "summary": result.get("summary"),
+        "key_findings": list(result.get("key_findings") or []),
+        "open_questions": list(result.get("open_questions") or []),
         "validation_status": result.get("validation_status", "pending"),
         "source_urls": list(result.get("source_urls") or []),
     }
+
+
+def _branch_validation_text(result: dict[str, Any]) -> str:
+    summary = str(result.get("summary") or "").strip()
+    findings = [str(item).strip() for item in result.get("key_findings", []) or [] if str(item).strip()]
+    return "\n".join([summary, *findings]).strip()
 
 
 def _normalize_source_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -697,37 +705,27 @@ class MultiAgentDeepResearchRuntime:
         )
         return artifact.to_dict()
 
-    def _build_evidence_bundle(self, task: ResearchTask, results: list[dict[str, Any]], created_by: str) -> dict[str, Any]:
-        sources = support._compact_sources(results, limit=max(3, self.results_per_query))
-        documents = []
-        passages = []
-        for index, item in enumerate(results[: self.results_per_query], 1):
-            content = str(
-                item.get("raw_excerpt")
-                or item.get("summary")
-                or item.get("snippet")
-                or item.get("content")
-                or ""
-            ).strip()
-            documents.append(
-                {
-                    "id": support._new_id("document"),
-                    "url": str(item.get("url") or "").strip(),
-                    "title": str(item.get("title") or item.get("url") or "").strip(),
-                    "content": content[:2400],
-                    "excerpt": content[:700],
-                }
+    def _build_evidence_bundle(self, task: ResearchTask, outcome: dict[str, Any], created_by: str) -> dict[str, Any]:
+        sources = [
+            item
+            for item in copy.deepcopy(outcome.get("sources") or [])
+            if isinstance(item, dict) and str(item.get("url") or "").strip()
+        ]
+        if not sources:
+            sources = support._compact_sources(
+                list(outcome.get("search_results") or []),
+                limit=max(3, self.results_per_query),
             )
-            passages.append(
-                {
-                    "id": support._new_id("passage"),
-                    "url": str(item.get("url") or "").strip(),
-                    "text": content[:900],
-                    "quote": content[:240],
-                    "source_title": str(item.get("title") or item.get("url") or "").strip(),
-                    "snippet_hash": f"{task.id}-{index}-{task.attempts}",
-                }
-            )
+        documents = [
+            item
+            for item in copy.deepcopy(outcome.get("documents") or [])
+            if isinstance(item, dict) and str(item.get("url") or "").strip()
+        ]
+        passages = [
+            item
+            for item in copy.deepcopy(outcome.get("passages") or [])
+            if isinstance(item, dict) and str(item.get("url") or "").strip()
+        ]
         bundle = EvidenceBundle(
             id=support._new_id("bundle"),
             task_id=task.id,
@@ -744,9 +742,10 @@ class MultiAgentDeepResearchRuntime:
         self,
         task: ResearchTask,
         bundle: dict[str, Any],
-        summary: str,
+        outcome: dict[str, Any],
         created_by: str,
     ) -> dict[str, Any]:
+        summary = str(outcome.get("summary") or "").strip()
         result = BranchResult(
             id=support._new_id("branch_result"),
             task_id=task.id,
@@ -754,7 +753,9 @@ class MultiAgentDeepResearchRuntime:
             title=_branch_title(task),
             objective=task.objective or task.goal,
             summary=summary,
-            key_findings=_split_findings(summary) or [summary],
+            key_findings=list(outcome.get("key_findings") or _split_findings(summary) or [summary]),
+            open_questions=list(outcome.get("open_questions") or []),
+            confidence_note=str(outcome.get("confidence_note") or "").strip(),
             source_urls=[str(item.get("url") or "").strip() for item in bundle.get("sources", []) if item.get("url")],
             evidence_bundle_id=str(bundle.get("id") or "") or None,
             created_by=created_by,
@@ -767,7 +768,7 @@ class MultiAgentDeepResearchRuntime:
         branch_result: dict[str, Any],
         gap_result: GapAnalysisResult,
     ) -> dict[str, Any]:
-        acceptance_score = _score_acceptance_match(task, str(branch_result.get("summary") or ""))
+        acceptance_score = _score_acceptance_match(task, _branch_validation_text(branch_result))
         advisory_only = acceptance_score >= 1.0
         if gap_result.overall_coverage >= 0.6 or advisory_only:
             status = "passed"
@@ -1265,19 +1266,26 @@ class MultiAgentDeepResearchRuntime:
             attempt=max(1, task.attempts),
         )
         try:
+            task.stage = "search"
             self._emit_task_update(task, "in_progress", iteration=max(1, parts.current_iteration or 1), reason="search")
-            queries = _dedupe_texts(task.query_hints or [task.query])
-            results = self.researcher.execute_queries(queries, max_results_per_query=self.results_per_query)
+            outcome = self.researcher.research_branch(
+                task,
+                topic=self.topic,
+                existing_summary="\n".join(parts.shared_state.get("summary_notes", [])[:6]),
+                max_results_per_query=self.results_per_query,
+            )
+            results = list(outcome.get("search_results") or [])
             if not results:
                 raise RuntimeError("branch agent returned no evidence")
+            task.stage = "read"
+            self._emit_task_update(task, "in_progress", iteration=max(1, parts.current_iteration or 1), reason="read")
+            task.stage = "extract"
+            self._emit_task_update(task, "in_progress", iteration=max(1, parts.current_iteration or 1), reason="extract")
+            task.stage = "synthesize"
             self._emit_task_update(task, "in_progress", iteration=max(1, parts.current_iteration or 1), reason="synthesize")
-            summary = self.researcher.summarize_findings(
-                self.topic,
-                results,
-                existing_summary="\n".join(parts.shared_state.get("summary_notes", [])[:6]),
-            ).strip() or f"未能为 {_branch_title(task)} 形成有效摘要。"
-            bundle = self._build_evidence_bundle(task, results, str(record.get("agent_id") or "researcher"))
-            branch_result = self._build_branch_result(task, bundle, summary, str(record.get("agent_id") or "researcher"))
+            summary = str(outcome.get("summary") or "").strip() or f"未能为 {_branch_title(task)} 形成有效摘要。"
+            bundle = self._build_evidence_bundle(task, outcome, str(record.get("agent_id") or "researcher"))
+            branch_result = self._build_branch_result(task, bundle, outcome, str(record.get("agent_id") or "researcher"))
             self._finish_agent_run(parts, record, status="completed", summary=summary, stage="synthesize")
             return {
                 "worker_results": [
@@ -1287,8 +1295,16 @@ class MultiAgentDeepResearchRuntime:
                         "branch_result": branch_result,
                         "evidence_bundle": bundle,
                         "raw_results": copy.deepcopy(results),
-                        "tokens_used": support._estimate_tokens_from_results(results) + support._estimate_tokens_from_text(summary),
-                        "searches_used": len(queries),
+                        "tokens_used": (
+                            support._estimate_tokens_from_results(results)
+                            + sum(
+                                support._estimate_tokens_from_text(str(item.get("content") or "")[:800])
+                                for item in bundle.get("documents", [])[:3]
+                                if isinstance(item, dict)
+                            )
+                            + support._estimate_tokens_from_text(summary)
+                        ),
+                        "searches_used": len(outcome.get("queries") or task.query_hints or [task.query]),
                         "agent_run": copy.deepcopy(record),
                     }
                 ]
@@ -1336,15 +1352,22 @@ class MultiAgentDeepResearchRuntime:
                 updated_task = parts.task_queue.update_status(task.id, "completed")
                 if updated_task:
                     self._emit_task_update(updated_task, "completed", iteration=max(1, parts.current_iteration or 1))
-                parts.shared_state["summary_notes"] = list(parts.shared_state.get("summary_notes") or []) + [str(branch_result.get("summary") or "")]
-                parts.shared_state["sources"] = list(parts.shared_state.get("sources") or []) + list(bundle.get("sources") or [])
-                parts.shared_state["scraped_content"] = list(parts.shared_state.get("scraped_content") or []) + [
+                parts.shared_state["summary_notes"] = [
+                    *(parts.shared_state.get("summary_notes") or []),
+                    str(branch_result.get("summary") or ""),
+                ]
+                parts.shared_state["sources"] = [
+                    *(parts.shared_state.get("sources") or []),
+                    *(bundle.get("sources") or []),
+                ]
+                parts.shared_state["scraped_content"] = [
+                    *(parts.shared_state.get("scraped_content") or []),
                     {
                         "task_id": task.id,
                         "query": task.query,
                         "results": copy.deepcopy(payload.get("raw_results") or []),
                         "summary": branch_result.get("summary"),
-                    }
+                    },
                 ]
                 self._emit_artifact_update(
                     artifact_id=str(bundle.get("id") or support._new_id("bundle")),
@@ -1386,7 +1409,10 @@ class MultiAgentDeepResearchRuntime:
                     retry_task = parts.task_queue.update_stage(task.id, "planned", status="ready", reason=reason)
                     if retry_task:
                         self._emit_task_update(retry_task, "ready", iteration=max(1, parts.current_iteration or 1), reason=reason)
-                parts.shared_state["errors"] = list(parts.shared_state.get("errors") or []) + [reason]
+                parts.shared_state["errors"] = [
+                    *(parts.shared_state.get("errors") or []),
+                    reason,
+                ]
         return self._patch(
             parts,
             next_step="verify",
@@ -1409,7 +1435,7 @@ class MultiAgentDeepResearchRuntime:
             gap_result = self.verifier.analyze(
                 topic=task.objective or self.topic,
                 executed_queries=_dedupe_texts(task.query_hints or [task.query]),
-                collected_knowledge=str(result.get("summary") or ""),
+                collected_knowledge=_branch_validation_text(result),
             )
             validation_summary = self._build_validation_summary(task, result, gap_result)
             parts.artifact_store.set_validation_summary(validation_summary)

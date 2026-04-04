@@ -195,6 +195,8 @@ class BranchResult:
     objective: str = ""
     summary: str = ""
     key_findings: list[str] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
+    confidence_note: str = ""
     source_urls: list[str] = field(default_factory=list)
     evidence_bundle_id: str | None = None
     validation_summary_id: str | None = None
@@ -264,8 +266,8 @@ __all__ = [
     "AgentRunRecord",
     "ArtifactStatus",
     "BranchResult",
-    "ControlPlaneHandoff",
     "ControlPlaneAgent",
+    "ControlPlaneHandoff",
     "EvidenceBundle",
     "FinalReportArtifact",
     "REGISTERED_CONTROL_PLANE_AGENTS",

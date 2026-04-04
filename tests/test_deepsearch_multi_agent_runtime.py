@@ -146,22 +146,67 @@ class _FakeResearchAgent:
     def __init__(self, _llm, search_func, config=None):
         self.search_func = search_func
 
-    def execute_queries(self, queries, max_results_per_query=5):
-        results = []
-        for query in queries:
-            results.append(
+    def research_branch(self, task, *, topic, existing_summary="", max_results_per_query=5):
+        query = (list(task.query_hints or []) or [task.query])[0]
+        url = f"https://example.com/{query.replace(' ', '-')}"
+        return {
+            "queries": [query],
+            "search_results": [
                 {
                     "title": f"{query} result",
-                    "url": f"https://example.com/{query.replace(' ', '-')}",
+                    "url": url,
                     "summary": f"{query} summary",
                     "raw_excerpt": f"{query} raw excerpt",
                     "provider": "fake",
                 }
-            )
-        return results
-
-    def summarize_findings(self, topic, results, existing_summary=""):
-        return f"{topic} -> {results[0]['title']}"
+            ],
+            "sources": [
+                {
+                    "title": f"{query} result",
+                    "url": url,
+                    "provider": "fake",
+                    "authoritative": True,
+                }
+            ],
+            "documents": [
+                {
+                    "id": f"document_{query.replace(' ', '_')}",
+                    "url": url,
+                    "raw_url": f"{url}?utm=test",
+                    "title": f"{query} result",
+                    "excerpt": f"{query} authoritative excerpt",
+                    "content": f"# Overview\n\n{query} authoritative evidence",
+                    "method": "direct_http",
+                    "published_date": "2026-04-01",
+                    "retrieved_at": "2026-04-04T00:00:00+00:00",
+                    "http_status": 200,
+                    "attempts": 1,
+                    "authoritative": True,
+                    "admissible": True,
+                }
+            ],
+            "passages": [
+                {
+                    "id": f"passage_{query.replace(' ', '_')}",
+                    "document_id": f"document_{query.replace(' ', '_')}",
+                    "url": url,
+                    "text": f"{query} authoritative evidence",
+                    "quote": f"{query} authoritative evidence",
+                    "source_title": f"{query} result",
+                    "snippet_hash": f"hash_{query.replace(' ', '_')}",
+                    "heading_path": ["Overview"],
+                    "page_title": f"{query} result",
+                    "retrieved_at": "2026-04-04T00:00:00+00:00",
+                    "method": "direct_http",
+                    "authoritative": True,
+                    "admissible": True,
+                }
+            ],
+            "summary": f"{topic} -> {query} result",
+            "key_findings": [f"{query} authoritative evidence"],
+            "open_questions": [],
+            "confidence_note": "",
+        }
 
 
 class _FlakyResearchAgent(_FakeResearchAgent):
@@ -169,22 +214,53 @@ class _FlakyResearchAgent(_FakeResearchAgent):
         super().__init__(_llm, search_func, config=config)
         self.calls = {}
 
-    def execute_queries(self, queries, max_results_per_query=5):
-        query = queries[0]
+    def research_branch(self, task, *, topic, existing_summary="", max_results_per_query=5):
+        query = (list(task.query_hints or []) or [task.query])[0]
         self.calls[query] = self.calls.get(query, 0) + 1
         if self.calls[query] == 1:
-            return []
-        return super().execute_queries(queries, max_results_per_query=max_results_per_query)
+            return {
+                "queries": [query],
+                "search_results": [],
+                "sources": [],
+                "documents": [],
+                "passages": [],
+                "summary": "",
+                "key_findings": [],
+                "open_questions": [],
+                "confidence_note": "",
+            }
+        return super().research_branch(
+            task,
+            topic=topic,
+            existing_summary=existing_summary,
+            max_results_per_query=max_results_per_query,
+        )
 
 
 class _CompleteCriteriaResearchAgent(_FakeResearchAgent):
-    def summarize_findings(self, topic, results, existing_summary=""):
-        return f"Explain the current state of {topic} aspect 1"
+    def research_branch(self, task, *, topic, existing_summary="", max_results_per_query=5):
+        result = super().research_branch(
+            task,
+            topic=topic,
+            existing_summary=existing_summary,
+            max_results_per_query=max_results_per_query,
+        )
+        result["summary"] = f"Explain the current state of {topic} aspect 1"
+        result["key_findings"] = [result["summary"]]
+        return result
 
 
 class _IncompleteResearchAgent(_FakeResearchAgent):
-    def summarize_findings(self, topic, results, existing_summary=""):
-        return "Unrelated memo"
+    def research_branch(self, task, *, topic, existing_summary="", max_results_per_query=5):
+        result = super().research_branch(
+            task,
+            topic=topic,
+            existing_summary=existing_summary,
+            max_results_per_query=max_results_per_query,
+        )
+        result["summary"] = "Unrelated memo"
+        result["key_findings"] = ["Unrelated memo"]
+        return result
 
 
 class _FakeVerifier:
