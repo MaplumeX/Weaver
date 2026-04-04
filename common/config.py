@@ -298,7 +298,9 @@ class Settings(BaseSettings):
 
     # Deep Research Runtime Config
     deep_research_parallel_workers: int = 3  # Max concurrent branch workers
-    deep_research_max_searches: int = 30  # 0 = disabled (hard cap on search calls)
+    deep_research_max_searches: int = 800  # 0 = disabled (hard cap on search calls)
+    deep_research_max_gap_branches_per_iteration: int = 2  # Max follow-up coverage branches per loop
+    deep_research_max_total_tasks: int = 0  # 0 = derive from initial plan + max_epochs budget
 
     # Report Visualization Config
     enable_report_charts: bool = True  # Generate charts from data in reports
@@ -342,7 +344,7 @@ class Settings(BaseSettings):
     api_rate_limit: float = 0.5  # API 调用间隔（秒）
 
     # Deep Research Settings
-    deep_research_max_epochs: int = 8
+    deep_research_max_epochs: int = 15
     deep_research_query_num: int = 5
     deep_research_results_per_query: int = 5
     deep_research_max_seconds: float = 0.0  # 0 = disabled

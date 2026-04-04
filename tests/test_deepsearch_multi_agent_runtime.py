@@ -237,6 +237,29 @@ class _FlakyResearchAgent(_FakeResearchAgent):
         )
 
 
+class _OneBranchFailsResearchAgent(_FakeResearchAgent):
+    def research_branch(self, task, *, topic, existing_summary="", max_results_per_query=5):
+        query = (list(task.query_hints or []) or [task.query])[0]
+        if "aspect 2" in query:
+            return {
+                "queries": [query],
+                "search_results": [],
+                "sources": [],
+                "documents": [],
+                "passages": [],
+                "summary": "",
+                "key_findings": [],
+                "open_questions": [],
+                "confidence_note": "",
+            }
+        return super().research_branch(
+            task,
+            topic=topic,
+            existing_summary=existing_summary,
+            max_results_per_query=max_results_per_query,
+        )
+
+
 class _CompleteCriteriaResearchAgent(_FakeResearchAgent):
     def research_branch(self, task, *, topic, existing_summary="", max_results_per_query=5):
         result = super().research_branch(
@@ -429,7 +452,7 @@ def test_multi_agent_runtime_uses_default_max_epochs(monkeypatch):
         {"configurable": {"thread_id": "thread_default_max_epochs"}},
     )
 
-    assert runtime.max_epochs == 8
+    assert runtime.max_epochs == 15
 
 
 def test_run_multi_agent_deep_research_emits_lightweight_artifacts_and_events(monkeypatch):
@@ -479,7 +502,11 @@ def test_run_multi_agent_deep_research_emits_lightweight_artifacts_and_events(mo
     assert len(public_artifacts["tasks"]) == 2
     assert len(public_artifacts["branch_results"]) == 2
     assert public_artifacts["validation_summary"]["passed_branch_count"] == 2
+    assert public_artifacts["validation_summary"]["coverage_ready"] is True
     assert public_artifacts["quality_summary"]["passed_branch_count"] == 2
+    assert public_artifacts["quality_summary"]["coverage_ready"] is True
+    assert public_artifacts["coverage_summary"]["ready"] is True
+    assert public_artifacts["uncovered_questions"] == []
     assert public_artifacts["control_plane"]["active_agent"] == "supervisor"
     assert public_artifacts["final_report"] == result["final_report"]
     assert len(result["research_topology"]["children"]) == 2
@@ -893,6 +920,42 @@ def test_multi_agent_runtime_allows_advisory_gaps_without_blocking_report(monkey
     assert "report" in decision_types
 
 
+def test_multi_agent_runtime_spawns_gap_branch_for_uncovered_question(monkeypatch):
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(
+        monkeypatch,
+        emitter=emitter,
+        researcher=_OneBranchFailsResearchAgent,
+    )
+
+    result = run_multi_agent_deep_research(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_gap_branch",
+                "deep_research_query_num": 2,
+                "deep_research_parallel_workers": 2,
+                "deep_research_task_retry_limit": 1,
+                "deep_research_max_epochs": 3,
+            }
+        },
+    )
+
+    runtime = result["deep_runtime"]
+    tasks = runtime["task_queue"]["tasks"]
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    coverage_summary = runtime["runtime_state"]["last_verification_summary"]
+
+    assert len(tasks) == 3
+    assert sum(1 for task in tasks if task["status"] == "completed") == 2
+    assert sum(1 for task in tasks if task["status"] == "failed") == 1
+    assert coverage_summary["coverage_ready"] is True
+    assert coverage_summary["covered_question_count"] == 2
+    assert result["deep_research_artifacts"]["coverage_summary"]["ready"] is True
+    assert "spawn_gap_branches" in decision_types
+    assert "report" in decision_types
+
+
 def test_multi_agent_dispatch_records_budget_stop_reason_when_search_budget_exhausted(monkeypatch):
     emitter = _DummyEmitter()
     _patch_runtime_deps(monkeypatch, emitter=emitter)
@@ -916,8 +979,11 @@ def test_multi_agent_dispatch_records_budget_stop_reason_when_search_budget_exha
     assert runtime["task_queue"]["stats"]["completed"] == 1
     assert runtime["task_queue"]["stats"]["ready"] == 1
     assert result["deep_research_artifacts"]["quality_summary"]["budget_stop_reason"] == "search_budget_exceeded"
+    assert result["deep_research_artifacts"]["quality_summary"]["coverage_ready"] is False
+    assert result["terminal_status"] == "blocked"
     assert "budget_stop" in decision_types
-    assert "report" in decision_types
+    assert "report" not in decision_types
+    assert "stop" in decision_types
 
 
 def test_multi_agent_runtime_honors_max_epochs_even_with_ready_tasks(monkeypatch):
@@ -941,8 +1007,10 @@ def test_multi_agent_runtime_honors_max_epochs_even_with_ready_tasks(monkeypatch
     assert result["deep_runtime"]["runtime_state"]["current_iteration"] == 1
     assert result["deep_runtime"]["task_queue"]["stats"]["completed"] == 1
     assert result["deep_runtime"]["task_queue"]["stats"]["ready"] == 1
+    assert result["terminal_status"] == "blocked"
     assert "research" in decision_types
-    assert "report" in decision_types
+    assert "report" not in decision_types
+    assert "stop" in decision_types
 
 
 def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):

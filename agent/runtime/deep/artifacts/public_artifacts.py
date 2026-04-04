@@ -26,6 +26,8 @@ _PUBLIC_SIGNAL_KEYS = (
     "passages",
     "query_coverage",
     "freshness_summary",
+    "coverage_summary",
+    "uncovered_questions",
 )
 
 
@@ -309,6 +311,8 @@ def _normalize_validation_summary(payload: Any) -> dict[str, Any]:
         "retry_branch_count",
         "failed_branch_count",
         "advisory_gap_count",
+        "coverage_target_count",
+        "covered_question_count",
     )
     for key in integer_keys:
         value = payload.get(key)
@@ -329,11 +333,37 @@ def _normalize_validation_summary(payload: Any) -> dict[str, Any]:
         except (TypeError, ValueError):
             continue
 
+    if "coverage_ready" in payload:
+        summary["coverage_ready"] = bool(payload.get("coverage_ready"))
+
     string_keys = ("status_reason", "notes")
     for key in string_keys:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             summary[key] = value.strip()
+
+    list_keys = ("uncovered_questions", "recommended_gap_queries")
+    for key in list_keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            summary[key] = [str(item).strip() for item in value if str(item).strip()]
+
+    raw_coverage = payload.get("coverage_by_question")
+    if isinstance(raw_coverage, list):
+        summary["coverage_by_question"] = [
+            {
+                "question": str(item.get("question") or "").strip(),
+                "status": str(item.get("status") or "").strip(),
+                "task_ids": [str(task_id).strip() for task_id in item.get("task_ids", []) or [] if str(task_id).strip()],
+                "suggested_queries": [
+                    str(query).strip()
+                    for query in item.get("suggested_queries", []) or []
+                    if str(query).strip()
+                ],
+            }
+            for item in raw_coverage
+            if isinstance(item, dict) and str(item.get("question") or "").strip()
+        ]
 
     raw_summaries = payload.get("summaries")
     if isinstance(raw_summaries, list):
@@ -347,6 +377,14 @@ def _normalize_validation_summary(payload: Any) -> dict[str, Any]:
                 "missing_aspects": list(item.get("missing_aspects") or []),
                 "retry_queries": list(item.get("retry_queries") or []),
                 "notes": str(item.get("notes") or "").strip(),
+                "coverage_hits": [str(hit).strip() for hit in item.get("coverage_hits", []) or [] if str(hit).strip()],
+                "coverage_misses": [str(hit).strip() for hit in item.get("coverage_misses", []) or [] if str(hit).strip()],
+                "coverage_confidence": item.get("coverage_confidence", 0.0),
+                "suggested_follow_up_queries": [
+                    str(query).strip()
+                    for query in item.get("suggested_follow_up_queries", []) or []
+                    if str(query).strip()
+                ],
             }
             for item in raw_summaries
             if isinstance(item, dict)
@@ -420,6 +458,23 @@ def _build_public_payload(
         if isinstance(freshness_summary, dict)
         else dict(quality_summary.get("freshness_summary") or {})
     )
+    coverage_summary = dict(quality_summary.get("coverage_summary") or {})
+    if not coverage_summary:
+        coverage_summary = {
+            "ready": bool(validation_summary.get("coverage_ready", quality_summary.get("coverage_ready", False))),
+            "score": validation_summary.get("coverage_score", resolved_query_coverage.get("score")),
+            "covered_count": validation_summary.get("covered_question_count", resolved_query_coverage.get("covered")),
+            "target_count": validation_summary.get("coverage_target_count", resolved_query_coverage.get("total")),
+        }
+    uncovered_questions = [
+        str(item).strip()
+        for item in (
+            validation_summary.get("uncovered_questions")
+            or quality_summary.get("uncovered_questions")
+            or []
+        )
+        if str(item).strip()
+    ]
     return {
         "mode": mode,
         "engine": engine,
@@ -442,6 +497,8 @@ def _build_public_payload(
         "passages": list(passages),
         "query_coverage": resolved_query_coverage,
         "freshness_summary": resolved_freshness,
+        "coverage_summary": coverage_summary,
+        "uncovered_questions": uncovered_questions,
     }
 
 
@@ -569,6 +626,14 @@ def _normalize_lightweight_validation(artifact_store: dict[str, Any]) -> dict[st
                 "missing_aspects": list(item.get("missing_aspects") or []),
                 "retry_queries": list(item.get("retry_queries") or []),
                 "notes": str(item.get("notes") or "").strip(),
+                "coverage_hits": [str(hit).strip() for hit in item.get("coverage_hits", []) or [] if str(hit).strip()],
+                "coverage_misses": [str(hit).strip() for hit in item.get("coverage_misses", []) or [] if str(hit).strip()],
+                "coverage_confidence": item.get("coverage_confidence", 0.0),
+                "suggested_follow_up_queries": [
+                    str(query).strip()
+                    for query in item.get("suggested_follow_up_queries", []) or []
+                    if str(query).strip()
+                ],
             }
         )
     return {
@@ -592,13 +657,19 @@ def _build_lightweight_public_artifacts(
     queries = _build_queries(queue_snapshot)
     validation_summary = _normalize_lightweight_validation(store_snapshot)
     merged_quality = dict(quality_summary or {})
+    runtime_snapshot = runtime_state if isinstance(runtime_state, dict) else {}
+    runtime_validation = _normalize_validation_summary(runtime_snapshot.get("last_verification_summary"))
+    if runtime_validation:
+        validation_summary = {**validation_summary, **runtime_validation}
     if "query_coverage_score" not in merged_quality and queries:
-        passed = int(validation_summary.get("passed_branch_count") or 0)
-        merged_quality["query_coverage_score"] = round(passed / max(1, len(queries)), 3)
+        if validation_summary.get("coverage_score") is not None:
+            merged_quality["query_coverage_score"] = float(validation_summary.get("coverage_score") or 0.0)
+        else:
+            passed = int(validation_summary.get("passed_branch_count") or 0)
+            merged_quality["query_coverage_score"] = round(passed / max(1, len(queries)), 3)
 
     final_report = store_snapshot.get("final_report")
     final_report_payload = final_report if isinstance(final_report, dict) else {}
-    runtime_snapshot = runtime_state if isinstance(runtime_state, dict) else {}
 
     return _build_public_payload(
         mode=mode,

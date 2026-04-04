@@ -117,6 +117,15 @@ def _score_acceptance_match(task: ResearchTask, summary: str) -> float:
     return matched / max(1, len(criteria))
 
 
+def _text_overlap_score(left: str, right: str) -> float:
+    left_tokens = set(_coverage_tokens(left))
+    right_tokens = set(_coverage_tokens(right))
+    if not left_tokens or not right_tokens:
+        return 0.0
+    overlap = len(left_tokens & right_tokens)
+    return overlap / max(1, min(len(left_tokens), len(right_tokens)))
+
+
 def _branch_title(task: ResearchTask) -> str:
     return task.title or task.objective or task.goal or task.query
 
@@ -326,6 +335,21 @@ class MultiAgentDeepResearchRuntime:
             1,
             support._configurable_int(self.config, "deep_research_task_retry_limit", 2),
         )
+        self.max_gap_branches_per_iteration = max(
+            1,
+            support._configurable_int(
+                self.config,
+                "deep_research_max_gap_branches_per_iteration",
+                getattr(settings, "deep_research_max_gap_branches_per_iteration", 2),
+            ),
+        )
+        configured_max_total_tasks = support._configurable_int(
+            self.config,
+            "deep_research_max_total_tasks",
+            getattr(settings, "deep_research_max_total_tasks", 0),
+        )
+        default_max_total_tasks = max(1, self.query_num) + (self.max_epochs * self.max_gap_branches_per_iteration)
+        self.max_total_tasks = configured_max_total_tasks if configured_max_total_tasks > 0 else default_max_total_tasks
         self.max_clarify_rounds = max(
             1,
             support._configurable_int(self.config, "deep_research_clarify_round_limit", 2),
@@ -432,6 +456,9 @@ class MultiAgentDeepResearchRuntime:
             "scope_feedback_history": [],
             "last_validation_summary": {},
             "last_verification_summary": {},
+            "coverage_targets": [],
+            "coverage_target_source": "",
+            "task_coverage_map": {},
             "searches_used": 0,
             "tokens_used": 0,
             "budget_stop_reason": "",
@@ -637,6 +664,96 @@ class MultiAgentDeepResearchRuntime:
         )
         return str(reason or "")
 
+    def _derive_coverage_targets(
+        self,
+        scope: dict[str, Any],
+        tasks: list[ResearchTask],
+    ) -> tuple[list[str], str]:
+        scope_questions = _dedupe_texts(scope.get("core_questions") or []) if isinstance(scope, dict) else []
+        if scope_questions and len(scope_questions) <= max(1, len(tasks)):
+            return scope_questions, "scope_core_questions"
+
+        plan_objectives = _dedupe_texts(
+            [
+                task.objective or task.goal or task.title or task.query
+                for task in tasks
+                if isinstance(task, ResearchTask)
+            ]
+        )
+        if plan_objectives:
+            return plan_objectives, "planned_objectives"
+        return scope_questions, "scope_core_questions" if scope_questions else ""
+
+    def _assign_coverage_targets(
+        self,
+        tasks: list[ResearchTask],
+        coverage_targets: list[str],
+    ) -> dict[str, list[str]]:
+        normalized_targets = _dedupe_texts(coverage_targets)
+        if not normalized_targets:
+            return {}
+
+        assignments: dict[str, list[str]] = {}
+        remaining_targets = list(normalized_targets)
+        for task in sorted(tasks, key=lambda item: (item.priority, item.created_at, item.id)):
+            task_text = "\n".join(
+                _dedupe_texts(
+                    [
+                        task.title,
+                        task.objective,
+                        task.goal,
+                        task.query,
+                        *list(task.query_hints or []),
+                        *list(task.acceptance_criteria or []),
+                    ]
+                )
+            )
+            ranked_targets = sorted(
+                normalized_targets,
+                key=lambda item: (-_text_overlap_score(task_text, item), item),
+            )
+            selected = ""
+            for candidate in ranked_targets:
+                if candidate in remaining_targets:
+                    selected = candidate
+                    break
+            if not selected:
+                selected = ranked_targets[0] if ranked_targets else ""
+            if not selected:
+                continue
+            assignments[task.id] = [selected]
+            if selected in remaining_targets:
+                remaining_targets.remove(selected)
+        return assignments
+
+    def _ensure_coverage_state(self, parts: _RuntimeParts) -> None:
+        scope = parts.artifact_store.scope()
+        if not scope:
+            scope = copy.deepcopy(parts.runtime_state.get("approved_scope_draft") or {})
+        tasks = parts.task_queue.all_tasks()
+
+        coverage_targets = _dedupe_texts(parts.runtime_state.get("coverage_targets") or [])
+        if not coverage_targets:
+            coverage_targets, source = self._derive_coverage_targets(scope, tasks)
+            parts.runtime_state["coverage_targets"] = coverage_targets
+            parts.runtime_state["coverage_target_source"] = source
+        elif not str(parts.runtime_state.get("coverage_target_source") or "").strip():
+            parts.runtime_state["coverage_target_source"] = "scope_core_questions"
+
+        if not coverage_targets:
+            parts.runtime_state["task_coverage_map"] = dict(parts.runtime_state.get("task_coverage_map") or {})
+            return
+
+        task_coverage_map = {
+            str(task_id): _dedupe_texts(targets)
+            for task_id, targets in dict(parts.runtime_state.get("task_coverage_map") or {}).items()
+            if str(task_id).strip()
+        }
+        missing_tasks = [task for task in tasks if task.id not in task_coverage_map]
+        if missing_tasks:
+            task_coverage_map.update(self._assign_coverage_targets(missing_tasks, coverage_targets))
+        parts.runtime_state["task_coverage_map"] = task_coverage_map
+
     def _plan_items_to_tasks(
         self,
         *,
@@ -688,7 +805,14 @@ class MultiAgentDeepResearchRuntime:
             "updated_at": _now_iso(),
         }
 
-    def _build_plan_artifact(self, scope: dict[str, Any], tasks: list[ResearchTask]) -> dict[str, Any]:
+    def _build_plan_artifact(
+        self,
+        scope: dict[str, Any],
+        tasks: list[ResearchTask],
+        *,
+        coverage_targets: list[str] | None = None,
+        coverage_target_source: str = "",
+    ) -> dict[str, Any]:
         artifact = ResearchPlanArtifact(
             id=support._new_id("plan"),
             scope_id=str(scope.get("id") or "") or None,
@@ -703,7 +827,121 @@ class MultiAgentDeepResearchRuntime:
                 for task in tasks
             ],
         )
-        return artifact.to_dict()
+        payload = artifact.to_dict()
+        if coverage_targets:
+            payload["coverage_targets"] = _dedupe_texts(coverage_targets)
+        if coverage_target_source:
+            payload["coverage_target_source"] = coverage_target_source
+        return payload
+
+    def _append_tasks_to_plan_artifact(self, parts: _RuntimeParts, tasks: list[ResearchTask]) -> None:
+        if not tasks:
+            return
+        plan = parts.artifact_store.plan()
+        if not plan:
+            return
+        plan_tasks = [
+            item
+            for item in list(plan.get("tasks") or [])
+            if isinstance(item, dict)
+        ]
+        for task in tasks:
+            plan_tasks.append(
+                {
+                    "task_id": task.id,
+                    "title": task.title,
+                    "objective": task.objective,
+                    "query": task.query,
+                    "priority": task.priority,
+                }
+            )
+        plan["tasks"] = plan_tasks
+        if parts.runtime_state.get("coverage_targets"):
+            plan["coverage_targets"] = _dedupe_texts(parts.runtime_state.get("coverage_targets") or [])
+        if parts.runtime_state.get("coverage_target_source"):
+            plan["coverage_target_source"] = str(parts.runtime_state.get("coverage_target_source") or "")
+        parts.artifact_store.set_plan(plan)
+
+    def _build_gap_branch_tasks(
+        self,
+        parts: _RuntimeParts,
+        aggregate: dict[str, Any],
+    ) -> tuple[list[ResearchTask], dict[str, list[str]]]:
+        uncovered_questions = _dedupe_texts(aggregate.get("uncovered_questions") or [])
+        if not uncovered_questions:
+            return [], {}
+
+        all_tasks = parts.task_queue.all_tasks()
+        remaining_capacity = max(0, self.max_total_tasks - len(all_tasks))
+        if remaining_capacity <= 0:
+            return [], {}
+
+        task_coverage_map = {
+            str(task_id): _dedupe_texts(targets)
+            for task_id, targets in dict(parts.runtime_state.get("task_coverage_map") or {}).items()
+            if str(task_id).strip()
+        }
+        active_questions = {
+            target
+            for task in all_tasks
+            if task.status in {"ready", "in_progress"}
+            for target in task_coverage_map.get(task.id, [])
+        }
+        related_task_map = {
+            str(question): [
+                str(task_id).strip()
+                for task_id in task_ids
+                if str(task_id).strip()
+            ]
+            for question, task_ids in dict(aggregate.get("coverage_question_task_ids") or {}).items()
+        }
+        query_map = {
+            str(question): _dedupe_texts(queries)
+            for question, queries in dict(aggregate.get("recommended_gap_queries_by_question") or {}).items()
+        }
+        existing_queries = {
+            str(task.query or "").strip().lower()
+            for task in all_tasks
+            if str(task.query or "").strip()
+        }
+        scope = parts.artifact_store.scope()
+        base_priority = max((task.priority for task in all_tasks), default=0)
+        branch_limit = min(self.max_gap_branches_per_iteration, remaining_capacity)
+        new_tasks: list[ResearchTask] = []
+        assignments: dict[str, list[str]] = {}
+
+        for question in uncovered_questions:
+            if len(new_tasks) >= branch_limit:
+                break
+            if question in active_questions:
+                continue
+            candidate_queries = _dedupe_texts(query_map.get(question) or [question, f"{self.topic} {question}"])
+            query = next(
+                (item for item in candidate_queries if item.lower() not in existing_queries),
+                candidate_queries[0] if candidate_queries else question,
+            )
+            query_hints = _dedupe_texts([query, *candidate_queries, question])
+            task = ResearchTask(
+                id=support._new_id("task"),
+                goal=question,
+                query=query,
+                priority=base_priority + len(new_tasks) + 1,
+                objective=question,
+                task_kind="branch_research",
+                acceptance_criteria=[question],
+                allowed_tools=["search", "read", "extract", "synthesize"],
+                input_artifact_ids=[str(scope.get("id") or "")] if scope.get("id") else [],
+                query_hints=query_hints,
+                title=f"补齐覆盖: {question}",
+                aspect="coverage_gap",
+                branch_id=support._new_id("branch"),
+                parent_task_id=(related_task_map.get(question) or [None])[0],
+            )
+            new_tasks.append(task)
+            assignments[task.id] = [question]
+            existing_queries.update(item.lower() for item in query_hints if item)
+
+        return new_tasks, assignments
 
     def _build_evidence_bundle(self, task: ResearchTask, outcome: dict[str, Any], created_by: str) -> dict[str, Any]:
         sources = [
@@ -767,6 +1005,7 @@ class MultiAgentDeepResearchRuntime:
         task: ResearchTask,
         branch_result: dict[str, Any],
         gap_result: GapAnalysisResult,
+        runtime_state: dict[str, Any],
     ) -> dict[str, Any]:
         acceptance_score = _score_acceptance_match(task, _branch_validation_text(branch_result))
         advisory_only = acceptance_score >= 1.0
@@ -776,10 +1015,13 @@ class MultiAgentDeepResearchRuntime:
             status = "retry"
         else:
             status = "failed"
-        missing_aspects = [gap.aspect for gap in gap_result.gaps]
+        assigned_targets = _dedupe_texts((runtime_state.get("task_coverage_map") or {}).get(task.id) or [])
+        coverage_hits = assigned_targets if status == "passed" and bool(branch_result.get("source_urls")) else []
+        coverage_misses = [item for item in assigned_targets if item not in coverage_hits]
+        missing_aspects = _dedupe_texts([gap.aspect for gap in gap_result.gaps] + coverage_misses)
         notes = gap_result.analysis or ""
         if advisory_only and missing_aspects:
-            notes = f"{notes}；acceptance criteria 已满足，缺口作为 advisory hints 记录".strip("；")
+            notes = f"{notes}; acceptance criteria 已满足, 缺口作为 advisory hints 记录".strip("; ")
         summary = ValidationSummary(
             id=support._new_id("validation"),
             task_id=task.id,
@@ -791,9 +1033,19 @@ class MultiAgentDeepResearchRuntime:
             notes=notes,
             status_reason="advisory_only" if advisory_only and missing_aspects else "",
         )
-        return summary.to_dict()
+        payload = summary.to_dict()
+        payload["coverage_hits"] = coverage_hits
+        payload["coverage_misses"] = coverage_misses
+        payload["coverage_confidence"] = round(max(float(gap_result.overall_coverage), acceptance_score), 3)
+        payload["suggested_follow_up_queries"] = _dedupe_texts(gap_result.suggested_queries or [task.query])
+        return payload
 
-    def _aggregate_validation(self, queue: ResearchTaskQueue, store: LightweightArtifactStore) -> dict[str, Any]:
+    def _aggregate_validation(
+        self,
+        queue: ResearchTaskQueue,
+        store: LightweightArtifactStore,
+        runtime_state: dict[str, Any],
+    ) -> dict[str, Any]:
         validations = store.validation_summaries()
         passed = [item for item in validations if item.get("status") == "passed"]
         retry = [item for item in validations if item.get("status") == "retry"]
@@ -803,12 +1055,74 @@ class MultiAgentDeepResearchRuntime:
             for item in validations
             if item.get("status") == "passed" and item.get("status_reason") == "advisory_only"
         ]
+        coverage_targets = _dedupe_texts(runtime_state.get("coverage_targets") or [])
+        coverage_question_task_ids: dict[str, list[str]] = {}
+        recommended_gap_queries_by_question: dict[str, list[str]] = {}
+        covered_questions: list[str] = []
+
+        for item in validations:
+            if not isinstance(item, dict):
+                continue
+            task_id = str(item.get("task_id") or "").strip()
+            for question in _dedupe_texts(item.get("coverage_hits") or []):
+                if task_id:
+                    coverage_question_task_ids.setdefault(question, []).append(task_id)
+                if question not in covered_questions:
+                    covered_questions.append(question)
+            for question in _dedupe_texts(item.get("coverage_misses") or []):
+                if task_id:
+                    coverage_question_task_ids.setdefault(question, []).append(task_id)
+                suggested = _dedupe_texts(
+                    item.get("suggested_follow_up_queries") or item.get("retry_queries") or [question]
+                )
+                existing = recommended_gap_queries_by_question.setdefault(question, [])
+                recommended_gap_queries_by_question[question] = _dedupe_texts([*existing, *suggested])
+
+        uncovered_questions = [item for item in coverage_targets if item not in covered_questions]
+        for question in uncovered_questions:
+            recommended_gap_queries_by_question.setdefault(question, [question])
+
+        coverage_by_question = [
+            {
+                "question": question,
+                "status": "covered" if question in covered_questions else "uncovered",
+                "task_ids": coverage_question_task_ids.get(question, []),
+                "suggested_queries": recommended_gap_queries_by_question.get(question, []),
+            }
+            for question in coverage_targets
+        ]
+        coverage_target_count = len(coverage_targets)
+        covered_question_count = len(covered_questions)
+        coverage_score = (
+            round(covered_question_count / max(1, coverage_target_count), 3)
+            if coverage_target_count > 0
+            else round(len(passed) / max(1, len(store.branch_results())), 3)
+        )
+        coverage_ready = (
+            bool(passed) and not uncovered_questions
+            if coverage_target_count > 0
+            else bool(passed)
+        )
         return {
             "branch_count": len(store.branch_results()),
             "passed_branch_count": len(passed),
             "retry_branch_count": len(retry),
             "failed_branch_count": len(failed),
             "advisory_gap_count": len(advisory),
+            "coverage_ready": coverage_ready,
+            "coverage_target_count": coverage_target_count,
+            "covered_question_count": covered_question_count,
+            "coverage_score": coverage_score,
+            "coverage_by_question": coverage_by_question,
+            "uncovered_questions": uncovered_questions,
+            "recommended_gap_queries": _dedupe_texts(
+                query
+                for question in uncovered_questions
+                for query in recommended_gap_queries_by_question.get(question, [])
+            ),
+            "recommended_gap_queries_by_question": recommended_gap_queries_by_question,
+            "coverage_question_task_ids": coverage_question_task_ids,
+            "coverage_target_source": str(runtime_state.get("coverage_target_source") or ""),
             "retry_task_ids": [item.get("task_id") for item in retry if item.get("task_id")],
             "passed_task_ids": [item.get("task_id") for item in passed if item.get("task_id")],
             "validation_summary_ids": [item.get("id") for item in validations if item.get("id")],
@@ -817,19 +1131,39 @@ class MultiAgentDeepResearchRuntime:
         }
 
     def _quality_summary(self, queue: ResearchTaskQueue, store: LightweightArtifactStore, runtime_state: dict[str, Any]) -> dict[str, Any]:
-        aggregate = self._aggregate_validation(queue, store)
-        total_tasks = max(1, len(queue.all_tasks()))
+        aggregate = self._aggregate_validation(queue, store, runtime_state)
         passed_branch_count = int(aggregate.get("passed_branch_count") or 0)
         source_count = len(store.all_sources())
+        coverage_score = float(aggregate.get("coverage_score") or 0.0)
+        covered_question_count = int(aggregate.get("covered_question_count") or 0)
+        coverage_target_count = int(aggregate.get("coverage_target_count") or 0)
+        uncovered_questions = _dedupe_texts(aggregate.get("uncovered_questions") or [])
         return {
             "branch_count": int(aggregate.get("branch_count") or 0),
             "passed_branch_count": passed_branch_count,
             "retry_branch_count": int(aggregate.get("retry_branch_count") or 0),
             "failed_branch_count": int(aggregate.get("failed_branch_count") or 0),
             "advisory_gap_count": int(aggregate.get("advisory_gap_count") or 0),
+            "coverage_ready": bool(aggregate.get("coverage_ready")),
+            "covered_question_count": covered_question_count,
+            "coverage_target_count": coverage_target_count,
+            "uncovered_questions": uncovered_questions,
+            "coverage_summary": {
+                "ready": bool(aggregate.get("coverage_ready")),
+                "score": coverage_score,
+                "covered_count": covered_question_count,
+                "target_count": coverage_target_count,
+                "target_source": str(aggregate.get("coverage_target_source") or ""),
+            },
             "source_count": source_count,
-            "query_coverage_score": round(passed_branch_count / total_tasks, 3),
+            "query_coverage_score": coverage_score,
+            "query_coverage": {
+                "score": coverage_score,
+                "covered": covered_question_count,
+                "total": coverage_target_count,
+            },
             "citation_coverage": round(min(1.0, source_count / max(1, passed_branch_count)), 3),
+            "uncovered_questions_count": len(uncovered_questions),
             "budget_stop_reason": str(runtime_state.get("budget_stop_reason") or ""),
         }
 
@@ -902,12 +1236,16 @@ class MultiAgentDeepResearchRuntime:
         validations = artifact_store_snapshot.get("validation_summaries", [])
         if not validations:
             return "verify"
+        latest_validation = runtime_state_snapshot.get("last_validation_summary")
+        if not isinstance(latest_validation, dict):
+            latest_validation = runtime_state_snapshot.get("last_verification_summary")
+        coverage_ready = bool(latest_validation.get("coverage_ready")) if isinstance(latest_validation, dict) else False
         passed = [
             item
             for item in validations
             if isinstance(item, dict) and str(item.get("status") or "") == "passed"
         ]
-        if passed:
+        if passed and coverage_ready:
             return "report"
         return "supervisor_decide"
 
@@ -1172,6 +1510,7 @@ class MultiAgentDeepResearchRuntime:
         if not scope:
             return self._patch(parts, next_step="research_brief")
         if parts.task_queue.snapshot().get("stats", {}).get("total", 0):
+            self._ensure_coverage_state(parts)
             if parts.task_queue.ready_count() > 0:
                 return self._patch(parts, next_step="dispatch")
             return self._patch(parts, next_step="verify")
@@ -1192,8 +1531,17 @@ class MultiAgentDeepResearchRuntime:
             self._finish_agent_run(parts, record, status="completed", summary=parts.runtime_state["terminal_reason"])
             return self._patch(parts, next_step="finalize")
 
+        coverage_targets, coverage_target_source = self._derive_coverage_targets(scope, tasks)
+        parts.runtime_state["coverage_targets"] = coverage_targets
+        parts.runtime_state["coverage_target_source"] = coverage_target_source
+        parts.runtime_state["task_coverage_map"] = self._assign_coverage_targets(tasks, coverage_targets)
         parts.task_queue.enqueue(tasks)
-        plan_artifact = self._build_plan_artifact(scope, tasks)
+        plan_artifact = self._build_plan_artifact(
+            scope,
+            tasks,
+            coverage_targets=coverage_targets,
+            coverage_target_source=coverage_target_source,
+        )
         parts.artifact_store.set_plan(plan_artifact)
         parts.runtime_state["plan_id"] = str(plan_artifact.get("id") or "")
         parts.runtime_state["supervisor_phase"] = "initial_plan"
@@ -1423,6 +1771,7 @@ class MultiAgentDeepResearchRuntime:
     def _verify_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)
         parts.runtime_state["active_agent"] = "supervisor"
+        self._ensure_coverage_state(parts)
         record = self._start_agent_run(parts, role="verifier", phase="verify", attempt=self.graph_attempt)
         task_map = {task.id: task for task in parts.task_queue.all_tasks()}
         for result in parts.artifact_store.branch_results():
@@ -1437,7 +1786,7 @@ class MultiAgentDeepResearchRuntime:
                 executed_queries=_dedupe_texts(task.query_hints or [task.query]),
                 collected_knowledge=_branch_validation_text(result),
             )
-            validation_summary = self._build_validation_summary(task, result, gap_result)
+            validation_summary = self._build_validation_summary(task, result, gap_result, parts.runtime_state)
             parts.artifact_store.set_validation_summary(validation_summary)
             result["validation_summary_id"] = validation_summary.get("id")
             result["validation_status"] = validation_summary.get("status")
@@ -1454,10 +1803,10 @@ class MultiAgentDeepResearchRuntime:
                     "retry_queries": list(validation_summary.get("retry_queries") or []),
                 },
             )
-        aggregate = self._aggregate_validation(parts.task_queue, parts.artifact_store)
+        aggregate = self._aggregate_validation(parts.task_queue, parts.artifact_store, parts.runtime_state)
         parts.runtime_state["last_validation_summary"] = aggregate
         parts.runtime_state["last_verification_summary"] = copy.deepcopy(aggregate)
-        decision_type = "verification_passed" if aggregate["passed_branch_count"] else "verification_retry_requested"
+        decision_type = "verification_passed" if aggregate.get("coverage_ready") else "verification_retry_requested"
         self._emit_decision(decision_type, "validation updated", iteration=max(1, parts.current_iteration or 1), extra=aggregate)
         self._emit(ToolEventType.QUALITY_UPDATE, self._quality_summary(parts.task_queue, parts.artifact_store, parts.runtime_state))
         self._finish_agent_run(parts, record, status="completed", summary="validation updated")
@@ -1466,9 +1815,11 @@ class MultiAgentDeepResearchRuntime:
     def _supervisor_decide_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)
         parts.runtime_state["active_agent"] = "supervisor"
+        self._ensure_coverage_state(parts)
         aggregate = copy.deepcopy(parts.runtime_state.get("last_validation_summary") or {})
         retry_task_ids = _dedupe_texts(aggregate.get("retry_task_ids") or [])
         passed_branch_count = int(aggregate.get("passed_branch_count") or 0)
+        coverage_ready = bool(aggregate.get("coverage_ready"))
         budget_stop_reason = self._budget_stop_reason(parts.runtime_state)
         previous_budget_stop_reason = str(parts.runtime_state.get("budget_stop_reason") or "")
         parts.runtime_state["budget_stop_reason"] = budget_stop_reason
@@ -1496,12 +1847,38 @@ class MultiAgentDeepResearchRuntime:
         if parts.task_queue.ready_count() > 0 and parts.current_iteration < self.max_epochs and not budget_stop_reason:
             return self._patch(parts, next_step="dispatch")
 
-        if passed_branch_count > 0:
-            self._emit_decision("report", "validated branch results are sufficient", iteration=max(1, parts.current_iteration or 1))
+        if coverage_ready and passed_branch_count > 0:
+            self._emit_decision("report", "coverage requirements satisfied", iteration=max(1, parts.current_iteration or 1), extra={"coverage_ready": True})
             return self._patch(parts, next_step="outline_gate")
 
+        if parts.current_iteration < self.max_epochs and not budget_stop_reason:
+            gap_tasks, gap_assignments = self._build_gap_branch_tasks(parts, aggregate)
+            if gap_tasks:
+                parts.task_queue.enqueue(gap_tasks)
+                task_coverage_map = dict(parts.runtime_state.get("task_coverage_map") or {})
+                task_coverage_map.update(gap_assignments)
+                parts.runtime_state["task_coverage_map"] = task_coverage_map
+                self._append_tasks_to_plan_artifact(parts, gap_tasks)
+                for task in gap_tasks:
+                    self._emit_task_update(task, task.status, iteration=max(1, parts.current_iteration or 1), reason="coverage_gap")
+                self._emit_decision(
+                    "spawn_gap_branches",
+                    "spawned follow-up branches for uncovered coverage targets",
+                    iteration=max(1, parts.current_iteration or 1),
+                    extra={
+                        "uncovered_questions": _dedupe_texts(aggregate.get("uncovered_questions") or []),
+                        "spawned_task_ids": [task.id for task in gap_tasks],
+                    },
+                )
+                return self._patch(parts, next_step="dispatch")
+
         parts.runtime_state["terminal_status"] = "blocked"
-        parts.runtime_state["terminal_reason"] = budget_stop_reason or "no validated branch results available"
+        if budget_stop_reason:
+            parts.runtime_state["terminal_reason"] = budget_stop_reason
+        elif passed_branch_count > 0:
+            parts.runtime_state["terminal_reason"] = "coverage requirements not satisfied"
+        else:
+            parts.runtime_state["terminal_reason"] = "no validated branch results available"
         self._emit_decision("stop", parts.runtime_state["terminal_reason"], iteration=max(1, parts.current_iteration or 1))
         return self._patch(parts, next_step="finalize")
 
@@ -1517,6 +1894,11 @@ class MultiAgentDeepResearchRuntime:
         if not passed:
             parts.runtime_state["terminal_status"] = "blocked"
             parts.runtime_state["terminal_reason"] = "no passed branch results available for report"
+            return self._patch(parts, next_step="finalize")
+        aggregate = copy.deepcopy(parts.runtime_state.get("last_validation_summary") or {})
+        if not bool(aggregate.get("coverage_ready")):
+            parts.runtime_state["terminal_status"] = "blocked"
+            parts.runtime_state["terminal_reason"] = "coverage requirements not satisfied"
             return self._patch(parts, next_step="finalize")
         self._emit_decision("outline_ready", "branch results ready for final report", iteration=max(1, parts.current_iteration or 1))
         return self._patch(parts, next_step="report")
