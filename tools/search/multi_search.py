@@ -681,19 +681,19 @@ class MultiSearchOrchestrator:
             List of deduplicated search results
         """
         strategy = strategy or self.strategy
-        available = self.get_available_providers()
-        available = self._apply_provider_profile(available, provider_profile)
-
-        if not available:
-            logger.error("[MultiSearch] No available search providers")
-            return []
-
         cache = get_search_cache()
         cache_key = self._cache_query_key(query, max_results, strategy, provider_profile)
         cached = cache.get(cache_key)
         if cached is not None:
             logger.info(f"[MultiSearch] cache hit for query='{query[:80]}'")
             return self._from_cached_results(cached)
+
+        available = self.get_available_providers()
+        available = self._apply_provider_profile(available, provider_profile)
+
+        if not available:
+            logger.error("[MultiSearch] No available search providers")
+            return []
 
         results: List[SearchResult]
         if strategy == SearchStrategy.FALLBACK:
@@ -832,20 +832,37 @@ class MultiSearchOrchestrator:
         """Query all providers in parallel and merge results."""
         import concurrent.futures
 
-        all_results = []
+        all_results: List[SearchResult] = []
 
         max_workers = min(len(providers), int(getattr(self, "parallel_max_workers", len(providers))))
         max_workers = max(1, max_workers)
         timeout_s = float(getattr(self, "parallel_timeout_seconds", 30.0))
+        timed_out = False
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+        futures: Dict[concurrent.futures.Future[List[SearchResult]], SearchProvider] = {}
+        pending: set[concurrent.futures.Future[List[SearchResult]]] = set()
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        try:
             futures = {
                 executor.submit(self._call_provider, p, query, max_results): p
                 for p in providers
             }
+            pending = set(futures)
+            deadline = time.monotonic() + max(0.0, timeout_s)
 
-            try:
-                for future in concurrent.futures.as_completed(futures, timeout=timeout_s):
+            while pending:
+                remaining = max(0.0, deadline - time.monotonic())
+                done, pending = concurrent.futures.wait(
+                    pending,
+                    timeout=remaining,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+
+                if not done:
+                    timed_out = True
+                    break
+
+                for future in done:
                     provider = futures[future]
                     try:
                         results = future.result()
@@ -853,13 +870,13 @@ class MultiSearchOrchestrator:
                         logger.info(f"[MultiSearch] {provider.name} returned {len(results)} results")
                     except Exception as e:
                         logger.error(f"[MultiSearch] {provider.name} failed: {e}")
-            except concurrent.futures.TimeoutError:
-                # Best-effort: keep whatever results completed, cancel the rest.
-                logger.warning("[MultiSearch] parallel search timed out; returning partial results")
-            finally:
-                for f in futures:
-                    if not f.done():
-                        f.cancel()
+        finally:
+            for future in pending:
+                future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+
+        if timed_out:
+            logger.warning("[MultiSearch] parallel search timed out; returning partial results")
 
         # Deduplicate and rank
         return self._deduplicate_and_rank(all_results, max_results, query=query)
@@ -874,15 +891,17 @@ class MultiSearchOrchestrator:
         if not providers:
             return []
 
-        provider = providers[self._round_robin_index % len(providers)]
+        provider_index = self._round_robin_index % len(providers)
+        provider = providers[provider_index]
         self._round_robin_index += 1
 
         results = self._call_provider(provider, query, max_results)
         if results:
             return self._deduplicate_and_rank(results, max_results, query=query)
 
-        # Fallback to next provider if current fails
-        return self._search_fallback(query, max_results, providers)
+        # Fallback to the remaining providers without retrying the same one twice.
+        fallback_providers = providers[provider_index + 1:] + providers[:provider_index]
+        return self._search_fallback(query, max_results, fallback_providers)
 
     def _search_best_first(
         self,
@@ -914,46 +933,40 @@ class MultiSearchOrchestrator:
         if not results:
             return []
 
-        # URL-based deduplication
+        ranked = sorted(results, key=lambda r: self._ranking_score(r, query), reverse=True)
         seen_urls = set()
-        unique = []
+        deduplicated: List[SearchResult] = []
 
-        for r in results:
-            if r.url_hash not in seen_urls:
-                seen_urls.add(r.url_hash)
-                unique.append(r)
+        for result in ranked:
+            if result.url_hash in seen_urls:
+                continue
+            if self._is_content_duplicate(result, deduplicated):
+                continue
+            seen_urls.add(result.url_hash)
+            deduplicated.append(result)
+            if len(deduplicated) >= max_results:
+                break
 
-        # Content similarity deduplication
-        if len(unique) > max_results:
-            final = []
-            for r in unique:
-                is_duplicate = False
-                for existing in final:
-                    similarity = SequenceMatcher(
-                        None,
-                        r.snippet[:200].lower(),
-                        existing.snippet[:200].lower(),
-                    ).ratio()
-                    if similarity > self.similarity_threshold:
-                        is_duplicate = True
-                        # Keep higher scored result
-                        if self._ranking_score(r, query) > self._ranking_score(existing, query):
-                            final.remove(existing)
-                            final.append(r)
-                        break
+        return deduplicated[:max_results]
 
-                if not is_duplicate:
-                    final.append(r)
+    def _is_content_duplicate(
+        self,
+        candidate: SearchResult,
+        existing_results: List[SearchResult],
+    ) -> bool:
+        candidate_snippet = (candidate.snippet or "").strip().lower()[:200]
+        if not candidate_snippet:
+            return False
 
-                if len(final) >= max_results:
-                    break
+        for existing in existing_results:
+            existing_snippet = (existing.snippet or "").strip().lower()[:200]
+            if not existing_snippet:
+                continue
+            similarity = SequenceMatcher(None, candidate_snippet, existing_snippet).ratio()
+            if similarity > self.similarity_threshold:
+                return True
 
-            unique = final
-
-        # Rank by blended relevance + freshness score
-        unique.sort(key=lambda r: self._ranking_score(r, query), reverse=True)
-
-        return unique[:max_results]
+        return False
 
     def _is_time_sensitive_query(self, query: str) -> bool:
         q = (query or "").lower()
@@ -990,7 +1003,16 @@ class MultiSearchOrchestrator:
         try:
             dt = datetime.fromisoformat(text)
         except ValueError:
-            for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S"):
+            for fmt in (
+                "%Y-%m-%d",
+                "%Y/%m/%d",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%b-%d",
+                "%Y-%B-%d",
+                "%Y-%b",
+                "%Y-%B",
+                "%Y",
+            ):
                 try:
                     dt = datetime.strptime(text, fmt)
                     break

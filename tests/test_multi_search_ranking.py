@@ -1,10 +1,10 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from tools.search.multi_search import MultiSearchOrchestrator, SearchResult
 
 
 def _days_ago(days: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    return (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
 
 def test_freshness_ranking_boosts_recent_results_for_time_sensitive_queries(monkeypatch):
@@ -94,3 +94,84 @@ def test_deduplication_canonicalizes_tracking_urls():
 
     assert len(ranked) == 1
     assert ranked[0].url == "https://example.com/a"
+
+
+def test_content_similarity_deduplicates_even_when_under_result_limit():
+    orchestrator = MultiSearchOrchestrator(providers=[])
+    results = [
+        SearchResult(
+            title="Higher score",
+            url="https://example.com/a",
+            snippet="same snippet for duplicate detection",
+            score=0.9,
+            provider="test",
+        ),
+        SearchResult(
+            title="Lower score",
+            url="https://example.com/b",
+            snippet="same snippet for duplicate detection",
+            score=0.5,
+            provider="test",
+        ),
+    ]
+
+    ranked = orchestrator._deduplicate_and_rank(results, max_results=10, query="ai")
+
+    assert len(ranked) == 1
+    assert ranked[0].url == "https://example.com/a"
+
+
+def test_blank_snippets_do_not_collapse_distinct_results():
+    orchestrator = MultiSearchOrchestrator(providers=[])
+    results = [
+        SearchResult(
+            title="A",
+            url="https://example.com/a",
+            snippet="",
+            score=0.8,
+            provider="test",
+        ),
+        SearchResult(
+            title="B",
+            url="https://example.com/b",
+            snippet="",
+            score=0.7,
+            provider="test",
+        ),
+    ]
+
+    ranked = orchestrator._deduplicate_and_rank(results, max_results=10, query="ai")
+
+    assert len(ranked) == 2
+
+
+def test_pubmed_style_dates_participate_in_freshness_ranking(monkeypatch):
+    from common.config import settings
+
+    monkeypatch.setattr(settings, "search_enable_freshness_ranking", True, raising=False)
+    monkeypatch.setattr(settings, "search_freshness_half_life_days", 30.0, raising=False)
+    monkeypatch.setattr(settings, "search_freshness_weight", 0.4, raising=False)
+
+    orchestrator = MultiSearchOrchestrator(providers=[])
+    results = [
+        SearchResult(
+            title="Old",
+            url="https://example.com/old",
+            snippet="old",
+            score=0.9,
+            published_date="2024-Jan-01",
+            provider="pubmed",
+        ),
+        SearchResult(
+            title="Recent",
+            url="https://example.com/new",
+            snippet="new",
+            score=0.6,
+            published_date=_days_ago(1),
+            provider="pubmed",
+        ),
+    ]
+
+    ranked = orchestrator._deduplicate_and_rank(results, max_results=2, query="latest oncology update")
+
+    assert ranked[0].url == "https://example.com/new"

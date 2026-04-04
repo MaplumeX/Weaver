@@ -48,7 +48,6 @@ _CAPABILITY_TOOL_NAME_ALIASES: dict[str, frozenset[str]] = {
         {
             "browser_search",
             "fallback_search",
-            "multi_search",
             "sandbox_extract_search_results",
             "sandbox_search_and_click",
             "sandbox_web_search",
@@ -512,4 +511,3 @@ def build_default_tool_registry() -> ToolCapabilityRegistry:
 
 def resolve_tool_names_for_capabilities(allowed: Iterable[str]) -> set[str]:
     return _DEFAULT_TOOL_REGISTRY.resolve_concrete_tool_names(allowed)
-

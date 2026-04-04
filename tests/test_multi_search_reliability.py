@@ -1,4 +1,5 @@
 import concurrent.futures
+import time
 import warnings
 
 import tools.search.multi_search as multi_search_module
@@ -40,11 +41,13 @@ class FlakyProvider(SearchProvider):
 class _EmptyProvider(SearchProvider):
     def __init__(self, name: str):
         super().__init__(name=name, api_key="test")
+        self.calls = 0
 
     def is_available(self) -> bool:
         return True
 
     def search(self, query: str, max_results: int = 10):
+        self.calls += 1
         return []
 
 
@@ -52,11 +55,13 @@ class _FixedProvider(SearchProvider):
     def __init__(self, name: str, url: str = "https://example.com/a"):
         super().__init__(name=name, api_key="test")
         self._url = url
+        self.calls = 0
 
     def is_available(self) -> bool:
         return True
 
     def search(self, query: str, max_results: int = 10):
+        self.calls += 1
         return [
             SearchResult(
                 title="Result",
@@ -65,6 +70,27 @@ class _FixedProvider(SearchProvider):
                 content="",
                 score=0.7,
                 published_date="2026-02-01",
+                provider=self.name,
+            )
+        ]
+
+
+class _SlowProvider(SearchProvider):
+    def __init__(self, name: str, delay_seconds: float):
+        super().__init__(name=name, api_key="test")
+        self.delay_seconds = delay_seconds
+
+    def is_available(self) -> bool:
+        return True
+
+    def search(self, query: str, max_results: int = 10):
+        time.sleep(self.delay_seconds)
+        return [
+            SearchResult(
+                title="Slow result",
+                url=f"https://example.com/{self.name}",
+                snippet="slow",
+                score=0.4,
                 provider=self.name,
             )
         ]
@@ -214,10 +240,10 @@ def test_orchestrator_retries_when_provider_records_error_and_returns_empty():
 
 
 def test_orchestrator_parallel_search_timeout_is_handled(monkeypatch):
-    def fake_as_completed(_futures, timeout=None):
-        raise concurrent.futures.TimeoutError()
+    def fake_wait(pending, timeout=None, return_when=None):
+        return set(), pending
 
-    monkeypatch.setattr(concurrent.futures, "as_completed", fake_as_completed)
+    monkeypatch.setattr(concurrent.futures, "wait", fake_wait)
 
     orchestrator = MultiSearchOrchestrator(
         providers=[_FixedProvider("duckduckgo")],
@@ -227,6 +253,26 @@ def test_orchestrator_parallel_search_timeout_is_handled(monkeypatch):
     clear_search_cache()
     results = orchestrator.search(query="test parallel timeout", max_results=5)
     assert isinstance(results, list)
+
+
+def test_orchestrator_parallel_timeout_does_not_block_until_slow_provider_finishes():
+    orchestrator = MultiSearchOrchestrator(
+        providers=[
+            _FixedProvider("fast"),
+            _SlowProvider("slow", delay_seconds=0.2),
+        ],
+        strategy=SearchStrategy.PARALLEL,
+    )
+    orchestrator.parallel_timeout_seconds = 0.01
+
+    clear_search_cache()
+    started = time.perf_counter()
+    results = orchestrator.search(query="test real timeout", max_results=5)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.15
+    assert results
+    assert results[0].provider == "fast"
 
 
 def test_duckduckgo_provider_prefers_ddgs_module(monkeypatch):
@@ -312,3 +358,24 @@ def test_duckduckgo_provider_supports_legacy_module_without_runtime_warning(monk
 
     assert len(results) == 1
     assert not [item for item in captured if warning_message in str(item.message)]
+
+
+def test_round_robin_fallback_skips_failed_provider_on_second_try():
+    first = _EmptyProvider("first")
+    second = _FixedProvider("second")
+    orchestrator = MultiSearchOrchestrator(
+        providers=[first, second],
+        strategy=SearchStrategy.ROUND_ROBIN,
+    )
+
+    clear_search_cache()
+    results = orchestrator.search(
+        query="round robin fallback",
+        max_results=3,
+        strategy=SearchStrategy.ROUND_ROBIN,
+    )
+
+    assert results
+    assert results[0].provider == "second"
+    assert first.calls == 1
+    assert second.calls == 1

@@ -6,8 +6,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent.infrastructure.tools import build_agent_toolset
-from common.config import settings
+from agent.domain import ToolCapability  # noqa: E402
+from agent.infrastructure.tools import build_agent_toolset  # noqa: E402
+from agent.infrastructure.tools.capabilities import resolve_tool_names_for_capabilities  # noqa: E402
+from common.config import settings  # noqa: E402
 
 
 def _names(tools):
@@ -134,3 +136,11 @@ def test_agent_tools_include_task_list_tools_by_default():
     assert "update_task" in names
     assert "get_next_task" in names
     assert "plan_steps" in names
+
+
+def test_search_capability_aliases_only_include_exposed_search_tools():
+    names = resolve_tool_names_for_capabilities([ToolCapability.SEARCH.value])
+
+    assert "fallback_search" in names
+    assert "tavily_search" in names
+    assert "multi_search" not in names
