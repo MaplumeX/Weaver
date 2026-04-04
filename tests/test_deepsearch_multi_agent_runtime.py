@@ -344,6 +344,18 @@ def _disable_tool_agents_by_default(monkeypatch):
     monkeypatch.setattr(multi_agent_runtime.settings, "deep_research_use_tool_agents", False, raising=False)
 
 
+def test_multi_agent_runtime_uses_default_max_epochs(monkeypatch):
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(monkeypatch, emitter=emitter)
+
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_default_max_epochs"}},
+    )
+
+    assert runtime.max_epochs == 8
+
+
 def test_run_multi_agent_deep_research_emits_lightweight_artifacts_and_events(monkeypatch):
     emitter = _DummyEmitter()
     _patch_runtime_deps(monkeypatch, emitter=emitter)

@@ -342,7 +342,7 @@ class Settings(BaseSettings):
     api_rate_limit: float = 0.5  # API 调用间隔（秒）
 
     # Deep Research Settings
-    deep_research_max_epochs: int = 2
+    deep_research_max_epochs: int = 8
     deep_research_query_num: int = 5
     deep_research_results_per_query: int = 5
     deep_research_max_seconds: float = 0.0  # 0 = disabled
