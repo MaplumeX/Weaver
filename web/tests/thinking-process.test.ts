@@ -26,19 +26,19 @@ test('renders aggregated deep research thinking view with raw drilldown entry', 
     }),
     event('plan', 'research_artifact_update', 20, {
       artifact_id: 'plan-1',
-      artifact_type: 'plan',
+      artifact_type: 'outline',
       status: 'created',
-      branch_id: 'branch-1',
+      section_id: 'section-1',
       task_id: 'task-1',
-      task_kind: 'branch_research',
-      summary: 'Generated 1 branch task',
-      stage: 'planned',
+      task_kind: 'section_research',
+      summary: 'Generated 1 required section',
+      stage: 'outline_gate',
       iteration: 1,
     }),
     event('task-search', 'research_task_update', 23, {
       task_id: 'task-1',
-      branch_id: 'branch-1',
-      task_kind: 'branch_research',
+      section_id: 'section-1',
+      task_kind: 'section_research',
       title: 'Supply chain resilience',
       status: 'in_progress',
       stage: 'search',
@@ -48,13 +48,13 @@ test('renders aggregated deep research thinking view with raw drilldown entry', 
       query: 'ai chip supply chain',
     }),
     event('verify-passed', 'research_artifact_update', 33, {
-      artifact_id: 'verification-2',
-      artifact_type: 'validation_summary',
+      artifact_id: 'review-2',
+      artifact_type: 'section_review',
       status: 'completed',
       task_id: 'task-1',
-      branch_id: 'branch-1',
-      task_kind: 'branch_research',
-      validation_status: 'passed',
+      section_id: 'section-1',
+      task_kind: 'section_research',
+      review_verdict: 'accept_section',
       summary: 'Coverage check passed',
       iteration: 2,
     }),
@@ -70,11 +70,11 @@ test('renders aggregated deep research thinking view with raw drilldown entry', 
   )
 
   assert.match(html, /Thought for 3s/)
-  assert.match(html, /1 branch/)
+  assert.match(html, /1 section/)
   assert.doesNotMatch(html, /steps/)
   assert.match(html, /Clarification required/)
   assert.match(html, /Which aspects of the NIPS and CCF conflict should be prioritized\?/)
-  assert.match(html, /Branch Research/)
+  assert.match(html, /Section Research/)
   assert.match(html, /Supply chain resilience/)
   assert.match(html, /Original Stream Events/)
   assert.match(html, /full-fidelity events remain available for drilldown/)

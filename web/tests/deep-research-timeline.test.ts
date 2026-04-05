@@ -22,15 +22,15 @@ test('projects deep research events into stable phases and branch history', () =
       decision_type: 'clarify_required',
       reason: 'Which aspects of the NIPS and CCF conflict should be prioritized?',
     }),
-    event('plan', 'research_artifact_update', 20, {
-      artifact_id: 'plan-1',
-      artifact_type: 'plan',
+    event('outline', 'research_artifact_update', 20, {
+      artifact_id: 'outline-1',
+      artifact_type: 'outline',
       status: 'created',
-      branch_id: 'branch-1',
+      section_id: 'section-1',
       task_id: 'task-1',
-      task_kind: 'branch_research',
-      summary: 'Generated 1 branch task',
-      stage: 'planned',
+      task_kind: 'section_research',
+      summary: 'Generated 1 required section',
+      stage: 'outline_gate',
       iteration: 1,
     }),
     event('generic-task', 'task_update', 21, {
@@ -40,8 +40,8 @@ test('projects deep research events into stable phases and branch history', () =
     }),
     event('task-ready', 'research_task_update', 22, {
       task_id: 'task-1',
-      branch_id: 'branch-1',
-      task_kind: 'branch_research',
+      section_id: 'section-1',
+      task_kind: 'section_research',
       title: 'Supply chain resilience',
       status: 'ready',
       stage: 'planned',
@@ -49,8 +49,8 @@ test('projects deep research events into stable phases and branch history', () =
     }),
     event('task-search', 'research_task_update', 23, {
       task_id: 'task-1',
-      branch_id: 'branch-1',
-      task_kind: 'branch_research',
+      section_id: 'section-1',
+      task_kind: 'section_research',
       title: 'Supply chain resilience',
       status: 'in_progress',
       stage: 'search',
@@ -65,8 +65,8 @@ test('projects deep research events into stable phases and branch history', () =
       artifact_type: 'evidence_bundle',
       status: 'created',
       task_id: 'task-1',
-      branch_id: 'branch-1',
-      task_kind: 'branch_research',
+      section_id: 'section-1',
+      task_kind: 'section_research',
       source_count: 1,
       source_urls: ['https://example.com/source-1'],
       stage: 'search',
@@ -74,20 +74,20 @@ test('projects deep research events into stable phases and branch history', () =
     }),
     event('topology', 'deep_research_topology_update', 26, {}),
     event('verify-followup', 'research_artifact_update', 27, {
-      artifact_id: 'verification-1',
-      artifact_type: 'validation_summary',
+      artifact_id: 'review-1',
+      artifact_type: 'section_review',
       status: 'completed',
       task_id: 'task-1',
-      branch_id: 'branch-1',
-      task_kind: 'branch_research',
-      validation_status: 'retry',
+      section_id: 'section-1',
+      task_kind: 'section_research',
+      review_verdict: 'request_research',
       summary: 'Need more evidence',
       iteration: 1,
     }),
     event('retry-ready', 'research_task_update', 30, {
       task_id: 'task-1',
-      branch_id: 'branch-1',
-      task_kind: 'branch_research',
+      section_id: 'section-1',
+      task_kind: 'section_research',
       title: 'Supply chain resilience',
       status: 'ready',
       stage: 'dispatch',
@@ -96,41 +96,43 @@ test('projects deep research events into stable phases and branch history', () =
     }),
     event('retry-search', 'research_task_update', 31, {
       task_id: 'task-1',
-      branch_id: 'branch-1',
-      task_kind: 'branch_research',
+      section_id: 'section-1',
+      task_kind: 'section_research',
       title: 'Supply chain resilience',
       status: 'in_progress',
       stage: 'search',
       iteration: 2,
       attempt: 2,
     }),
-    event('branch-result', 'research_artifact_update', 32, {
-      artifact_id: 'branch-result-1',
-      artifact_type: 'branch_result',
+    event('section-draft', 'research_artifact_update', 32, {
+      artifact_id: 'section-draft-1',
+      artifact_type: 'section_draft',
       status: 'created',
       task_id: 'task-1',
-      branch_id: 'branch-1',
-      task_kind: 'branch_research',
+      section_id: 'section-1',
+      task_kind: 'section_research',
       stage: 'synthesize',
       source_urls: ['https://example.com/source-1', 'https://example.com/source-2'],
       title: 'Supply chain resilience',
       iteration: 2,
     }),
-    event('verify-passed', 'research_artifact_update', 33, {
-      artifact_id: 'verification-2',
-      artifact_type: 'validation_summary',
+    event('section-certified', 'research_artifact_update', 33, {
+      artifact_id: 'certification-1',
+      artifact_type: 'section_certification',
       status: 'completed',
       task_id: 'task-1',
-      branch_id: 'branch-1',
-      task_kind: 'branch_research',
-      validation_status: 'passed',
-      summary: 'Coverage check passed',
+      section_id: 'section-1',
+      task_kind: 'section_research',
+      summary: 'Section certified',
       iteration: 2,
     }),
     event('final-report', 'research_artifact_update', 35, {
       artifact_id: 'report-1',
       artifact_type: 'final_report',
       status: 'completed',
+    }),
+    event('claim-gate', 'research_decision', 36, {
+      decision_type: 'final_claim_gate_passed',
     }),
   ]
 
@@ -139,10 +141,11 @@ test('projects deep research events into stable phases and branch history', () =
   assert.ok(projection)
   assert.deepEqual(
     projection.phases.map((phase) => phase.key),
-    ['intake', 'scope', 'planning', 'branch_research', 'verify', 'report'],
+    ['intake', 'scope', 'outline', 'section_research', 'section_review', 'report', 'final_claim_gate'],
   )
-  assert.ok(projection.headerMetrics.includes('6 phases'))
-  assert.ok(projection.headerMetrics.includes('1 branch'))
+  assert.ok(projection.headerMetrics.includes('7 phases'))
+  assert.ok(projection.headerMetrics.includes('1 section'))
+  assert.ok(projection.headerMetrics.includes('1 certified'))
   assert.ok(projection.headerMetrics.includes('2 sources'))
   assert.ok(projection.headerMetrics.includes('Iteration 2'))
   assert.equal(projection.suppressedEventCount, 3)
@@ -155,15 +158,19 @@ test('projects deep research events into stable phases and branch history', () =
     /Which aspects of the NIPS and CCF conflict should be prioritized\?/,
   )
 
-  const branchPhase = projection.phases.find((phase) => phase.key === 'branch_research')
-  assert.ok(branchPhase)
-  assert.equal(branchPhase.branches.length, 1)
-  assert.equal(branchPhase.branches[0]?.label, 'Supply chain resilience')
-  assert.equal(branchPhase.branches[0]?.iterations.length, 2)
+  const researchPhase = projection.phases.find((phase) => phase.key === 'section_research')
+  assert.ok(researchPhase)
+  assert.equal(researchPhase.sections.length, 1)
+  assert.equal(researchPhase.sections[0]?.label, 'Supply chain resilience')
+  assert.equal(researchPhase.sections[0]?.iterations.length, 2)
   assert.deepEqual(
-    branchPhase.branches[0]?.iterations.map((item) => item.label),
+    researchPhase.sections[0]?.iterations.map((item) => item.label),
     ['Iteration 1', 'Iteration 2'],
   )
-  assert.ok(branchPhase.metrics.includes('2 iterations'))
-  assert.ok(branchPhase.metrics.includes('2 sources'))
+  assert.ok(researchPhase.metrics.includes('2 iterations'))
+  assert.ok(researchPhase.metrics.includes('2 sources'))
+
+  const reviewPhase = projection.phases.find((phase) => phase.key === 'section_review')
+  assert.ok(reviewPhase)
+  assert.ok(reviewPhase.metrics.includes('1 certified'))
 })

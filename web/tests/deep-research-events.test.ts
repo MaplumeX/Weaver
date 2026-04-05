@@ -14,7 +14,7 @@ test('maps research task updates to readable auto status', () => {
     query: 'latest AI chip roadmap',
   })
 
-  assert.equal(text, '多 Agent 调研：执行 branch · latest AI chip roadmap · 执行分支任务')
+  assert.equal(text, '多 Agent 调研：执行章节 · latest AI chip roadmap · 执行章节任务')
 })
 
 test('maps supervisor decisions to readable auto status', () => {
@@ -32,7 +32,7 @@ test('maps retry task updates to readable auto status', () => {
     attempt: 2,
   })
 
-  assert.equal(text, '多 Agent 调研：重试 branch · latest AI chip roadmap · 执行分支任务')
+  assert.equal(text, '多 Agent 调研：重试章节 · latest AI chip roadmap · 执行章节任务')
 })
 
 test('maps clarify lifecycle to readable auto status', () => {
@@ -66,7 +66,7 @@ test('maps resumed supervisor lifecycle to readable auto status', () => {
     resumed_from_checkpoint: true,
   })
 
-  assert.equal(text, '多 Agent 调研：已确认范围，正在继续评估并派发研究分支…')
+  assert.equal(text, '多 Agent 调研：已确认范围，正在继续评估大纲并派发章节任务…')
 })
 
 test('maps verifier claim-check lifecycle to readable auto status', () => {
@@ -78,13 +78,22 @@ test('maps verifier claim-check lifecycle to readable auto status', () => {
   assert.equal(text, '多 Agent 调研：正在核对 claim 与 citation…')
 })
 
-test('maps branch result artifact to readable auto status', () => {
+test('maps section review artifact to readable auto status', () => {
   const text = getDeepResearchAutoStatus('research_artifact_update', {
-    artifact_type: 'branch_result',
+    artifact_type: 'section_review',
     status: 'created',
+    review_verdict: 'accept_section',
   })
 
-  assert.equal(text, '多 Agent 调研：已生成章节草稿')
+  assert.equal(text, '多 Agent 调研：章节审查结果已更新')
+})
+
+test('maps final claim gate decision to readable auto status', () => {
+  const text = getDeepResearchAutoStatus('research_decision', {
+    decision_type: 'final_claim_gate_passed',
+  })
+
+  assert.equal(text, '多 Agent 调研：最终 claim gate 已通过')
 })
 
 test('continuation message keeps resumed process events in order', () => {

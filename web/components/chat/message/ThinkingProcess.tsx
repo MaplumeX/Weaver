@@ -207,7 +207,7 @@ function DeepResearchTimelineView({
         </div>
         {timeline.suppressedEventCount > 0 ? (
           <div className="text-xs text-muted-foreground">
-            Default view collapses {timeline.suppressedEventCount} low-level events into phase and branch summaries.
+            Default view collapses {timeline.suppressedEventCount} low-level events into phase and section summaries.
           </div>
         ) : null}
       </div>
@@ -285,25 +285,25 @@ function DeepResearchPhaseCard({ phase }: { phase: DeepResearchPhaseSummary }) {
         </div>
       ) : null}
 
-      {phase.branches.length > 0 ? (
+      {phase.sections.length > 0 ? (
         <div className="mt-3 space-y-3">
-          {phase.branches.map((branch) => (
-            <div key={branch.branchId} className="rounded-xl border border-border/60 bg-muted/20 px-3 py-3">
+          {phase.sections.map((section) => (
+            <div key={section.sectionId} className="rounded-xl border border-border/60 bg-muted/20 px-3 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="font-medium text-foreground/90">{branch.label}</div>
-                  <div className="mt-1 text-[13px] leading-6 text-muted-foreground">{branch.headline}</div>
+                  <div className="font-medium text-foreground/90">{section.label}</div>
+                  <div className="mt-1 text-[13px] leading-6 text-muted-foreground">{section.headline}</div>
                 </div>
-                {branch.latestIteration !== null ? (
+                {section.latestIteration !== null ? (
                   <span className="rounded-full bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                    Iteration {branch.latestIteration}
+                    Iteration {section.latestIteration}
                   </span>
                 ) : null}
               </div>
 
-              {branch.metrics.length > 0 ? (
+              {section.metrics.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {branch.metrics.map((metric) => (
+                  {section.metrics.map((metric) => (
                     <span
                       key={metric}
                       className="rounded-full bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
@@ -315,8 +315,8 @@ function DeepResearchPhaseCard({ phase }: { phase: DeepResearchPhaseSummary }) {
               ) : null}
 
               <div className="mt-3 space-y-2">
-                {branch.iterations.map((iteration) => (
-                  <div key={`${branch.branchId}-${iteration.label}`} className="rounded-lg bg-background/80 px-3 py-2">
+                {section.iterations.map((iteration) => (
+                  <div key={`${section.sectionId}-${iteration.label}`} className="rounded-lg bg-background/80 px-3 py-2">
                     <div className="font-medium text-foreground/80">{iteration.label}</div>
                     <div className="mt-1 text-[13px] leading-6 text-muted-foreground">{iteration.headline}</div>
                     {iteration.metrics.length > 0 ? (
@@ -407,7 +407,7 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const taskKind = String(ev.data?.task_kind || '').trim()
     const taskId = String(ev.data?.task_id || '').trim()
     const nodeId = String(ev.data?.node_id || '').trim()
-    const branchId = String(ev.data?.section_id || ev.data?.branch_id || '').trim()
+    const sectionId = String(ev.data?.section_id || ev.data?.branch_id || '').trim()
     const attempt = typeof ev.data?.attempt === 'number' ? ev.data.attempt : undefined
     const status = kind === 'research_agent_complete' ? String(ev.data?.status || '').trim() : 'running'
     const summary = String(ev.data?.summary || '').trim()
@@ -428,10 +428,10 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
 	              {[
 	                phase || null,
 	                stage ? `stage ${stage}` : null,
-	                validationStage ? `validation ${validationStage}` : null,
+                validationStage ? `validation ${validationStage}` : null,
                 taskKind ? `kind ${taskKind}` : null,
                 taskId ? `task ${taskId}` : null,
-	                branchId ? `branch ${branchId}` : null,
+	                sectionId ? `section ${sectionId}` : null,
 	                nodeId ? `node ${nodeId}` : null,
 	                attempt && attempt > 1 ? `attempt ${attempt}` : null,
 	              ]
@@ -453,7 +453,7 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const taskKind = String(ev.data?.task_kind || '').trim()
     const stage = String(ev.data?.stage || '').trim()
     const priority = ev.data?.priority
-    const branchId = String(ev.data?.section_id || ev.data?.branch_id || '').trim()
+    const sectionId = String(ev.data?.section_id || ev.data?.branch_id || '').trim()
     const attempt = typeof ev.data?.attempt === 'number' ? ev.data.attempt : undefined
 
     return (
@@ -461,7 +461,7 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
         <ListTodo className="mt-0.5 h-4 w-4 text-muted-foreground/60" />
         <div className="min-w-0">
           <div className="truncate">
-            <span className="font-medium text-foreground/80">Research task</span>
+            <span className="font-medium text-foreground/80">Section task</span>
             <span className="ml-2">{title}</span>
             {status ? (
               <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -475,7 +475,7 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
 	              taskKind ? `kind ${taskKind}` : null,
 	              stage ? `stage ${stage}` : null,
 	              typeof priority === 'number' ? `p${priority}` : null,
-	              branchId ? `branch ${branchId}` : null,
+	              sectionId ? `section ${sectionId}` : null,
 	              attempt && attempt > 1 ? `attempt ${attempt}` : null,
 	            ]
 	              .filter(Boolean)
@@ -491,7 +491,7 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const status = String(ev.data?.status || '').trim()
     const summary = String(ev.data?.summary || '').trim()
     const sourceUrl = String(ev.data?.source_url || '').trim()
-    const branchId = String(ev.data?.section_id || ev.data?.branch_id || '').trim()
+    const sectionId = String(ev.data?.section_id || ev.data?.branch_id || '').trim()
     const taskId = String(ev.data?.task_id || '').trim()
     const taskKind = String(ev.data?.task_kind || '').trim()
     const stage = String(ev.data?.stage || '').trim()
@@ -514,11 +514,11 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
               </span>
             ) : null}
           </div>
-	          {(taskId || branchId) ? (
+	          {(taskId || sectionId) ? (
 	            <div className="truncate text-xs text-muted-foreground">
 	              {[
 	                taskId ? `task ${taskId}` : null,
-	                branchId ? `branch ${branchId}` : null,
+	                sectionId ? `section ${sectionId}` : null,
 	                taskKind ? `kind ${taskKind}` : null,
 	                stage ? `stage ${stage}` : null,
 	                validationStage ? `validation ${validationStage}` : null,
@@ -546,9 +546,15 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const actorLabel =
       decision.startsWith('scope_') || decision.startsWith('clarify_')
         ? 'Intake'
-        : validationStage
+        : decision.startsWith('final_claim_gate')
+          ? 'Final Claim Gate'
+          : validationStage
           ? 'Verifier'
-          : 'Coordinator'
+          : decision.startsWith('review_')
+            ? 'Reviewer'
+            : decision === 'outline_plan'
+              ? 'Outline'
+              : 'Coordinator'
 
     return (
       <div className="flex items-start gap-2">

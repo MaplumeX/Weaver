@@ -3,25 +3,32 @@ import { ProcessEvent } from '@/types/chat'
 export type DeepResearchPhaseKey =
   | 'intake'
   | 'scope'
-  | 'planning'
-  | 'branch_research'
-  | 'verify'
+  | 'outline'
+  | 'section_research'
+  | 'section_review'
   | 'report'
+  | 'final_claim_gate'
 
-export interface DeepResearchBranchIterationSummary {
+export interface DeepResearchSectionIterationSummary {
   iteration: number | null
   label: string
   headline: string
   metrics: string[]
 }
 
-export interface DeepResearchBranchSummary {
-  branchId: string
+export interface DeepResearchSectionSummary {
+  sectionId: string
   label: string
   headline: string
   metrics: string[]
   latestIteration: number | null
-  iterations: DeepResearchBranchIterationSummary[]
+  iterations: DeepResearchSectionIterationSummary[]
+}
+
+export interface DeepResearchPhaseHighlight {
+  id: string
+  headline: string
+  detail?: string
 }
 
 export interface DeepResearchPhaseSummary {
@@ -30,7 +37,7 @@ export interface DeepResearchPhaseSummary {
   summary: string
   metrics: string[]
   highlights: DeepResearchPhaseHighlight[]
-  branches: DeepResearchBranchSummary[]
+  sections: DeepResearchSectionSummary[]
 }
 
 export interface DeepResearchTimelineProjection {
@@ -42,12 +49,6 @@ export interface DeepResearchTimelineProjection {
   currentIteration: number | null
 }
 
-export interface DeepResearchPhaseHighlight {
-  id: string
-  headline: string
-  detail?: string
-}
-
 type CanonicalEventType =
   | 'research_agent_start'
   | 'research_agent_complete'
@@ -56,7 +57,7 @@ type CanonicalEventType =
   | 'research_decision'
 
 interface TaskMeta {
-  branchId: string
+  sectionId: string
   label: string
   taskKind: string
 }
@@ -66,14 +67,14 @@ interface CanonicalEvent {
   type: CanonicalEventType
   payload: any
   phase: DeepResearchPhaseKey
-  branchId: string | null
+  sectionId: string | null
   taskId: string | null
   taskKind: string
   iteration: number | null
   headline: string
 }
 
-interface BranchIterationAccumulator {
+interface SectionIterationAccumulator {
   iteration: number | null
   latestTimestamp: number
   latestHeadline: string
@@ -83,42 +84,54 @@ interface BranchIterationAccumulator {
   documentIds: Set<string>
   evidenceIds: Set<string>
   synthesisIds: Set<string>
+  reviewIds: Set<string>
+  certificationIds: Set<string>
   attempt: number | null
   resumed: boolean
 }
 
-interface BranchAccumulator {
-  branchId: string
+interface SectionAccumulator {
+  sectionId: string
   order: number
   label: string
   latestTimestamp: number
   latestHeadline: string
   latestIteration: number | null
-  verificationState: string
+  reviewState: string
+  certified: boolean
   sourceUrls: Set<string>
   sourceIds: Set<string>
   documentIds: Set<string>
   evidenceIds: Set<string>
   synthesisIds: Set<string>
-  iterations: Map<string, BranchIterationAccumulator>
+  reviewIds: Set<string>
+  certificationIds: Set<string>
+  phaseActivity: Set<DeepResearchPhaseKey>
+  iterations: Map<string, SectionIterationAccumulator>
+}
+
+interface ComputedSectionSummary extends DeepResearchSectionSummary {
+  phaseKeys: Set<DeepResearchPhaseKey>
 }
 
 const PHASE_ORDER: DeepResearchPhaseKey[] = [
   'intake',
   'scope',
-  'planning',
-  'branch_research',
-  'verify',
+  'outline',
+  'section_research',
+  'section_review',
   'report',
+  'final_claim_gate',
 ]
 
 const PHASE_TITLES: Record<DeepResearchPhaseKey, string> = {
   intake: 'Intake',
   scope: 'Scope',
-  planning: 'Planning',
-  branch_research: 'Branch Research',
-  verify: 'Verify',
+  outline: 'Outline',
+  section_research: 'Section Research',
+  section_review: 'Section Review',
   report: 'Report',
+  final_claim_gate: 'Final Claim Gate',
 }
 
 const CANONICAL_EVENT_TYPES = new Set<CanonicalEventType>([
@@ -136,13 +149,15 @@ const STAGE_ORDER = [
   'Read',
   'Extract',
   'Synthesize',
-  'Claim Check',
-  'Coverage Check',
-  'Submit',
+  'Review',
+  'Revision',
+  'Certified',
+  'Report',
+  'Final Claim Gate',
   'Reported',
 ]
 
-const BRANCH_ARTIFACT_TYPES = new Set([
+const SECTION_ARTIFACT_TYPES = new Set([
   'evidence_bundle',
   'section_draft',
   'section_review',
@@ -187,6 +202,10 @@ function addUnique(list: string[], value: string): void {
   }
 }
 
+function formatCount(value: number, singular: string, plural: string): string {
+  return `${value} ${value === 1 ? singular : plural}`
+}
+
 function isDeepResearchEvent(event: ProcessEvent): boolean {
   return (
     CANONICAL_EVENT_TYPES.has(event.type as CanonicalEventType) ||
@@ -210,20 +229,18 @@ function formatStageLabel(stage: string): string {
       return 'Extract'
     case 'synthesize':
       return 'Synthesize'
-    case 'claim_check':
-      return 'Claim Check'
-    case 'coverage_check':
-      return 'Coverage Check'
-    case 'submit':
-      return 'Submit'
-    case 'reported':
-      return 'Reported'
-    case 'research_brief':
-      return 'Brief'
+    case 'review':
+    case 'reviewer':
+      return 'Review'
+    case 'revision':
+    case 'revisor':
+      return 'Revision'
     case 'outline_gate':
       return 'Outline'
-    case 'final_report':
-      return 'Report'
+    case 'final_claim_gate':
+      return 'Final Claim Gate'
+    case 'reported':
+      return 'Reported'
     default:
       return stage
         .split('_')
@@ -233,12 +250,22 @@ function formatStageLabel(stage: string): string {
     }
 }
 
-function formatVerificationOutcome(outcome: string, validationStage: string): string {
-  if (!outcome) return validationStage ? `${formatStageLabel(validationStage)} updated` : 'Verification updated'
-  if (outcome === 'passed') return `${formatStageLabel(validationStage || 'verify')} passed`
-  if (outcome === 'failed') return `${formatStageLabel(validationStage || 'verify')} failed`
-  if (outcome === 'needs_follow_up') return `${formatStageLabel(validationStage || 'verify')} needs follow-up`
-  return outcome
+function formatReviewOutcome(status: string): string {
+  switch (status) {
+    case 'accept_section':
+    case 'passed':
+      return 'Section review passed'
+    case 'request_research':
+    case 'retry':
+      return 'Section review requested more evidence'
+    case 'revise_section':
+      return 'Section review requested revision'
+    case 'block_section':
+    case 'failed':
+      return 'Section review failed'
+    default:
+      return 'Section review updated'
+  }
 }
 
 function describeDecision(decisionType: string, reason: string): string {
@@ -253,34 +280,41 @@ function describeDecision(decisionType: string, reason: string): string {
       return 'Scope approved'
     case 'research_brief_ready':
       return 'Research brief ready'
+    case 'outline_plan':
+      return 'Outline planned'
     case 'plan':
     case 'replan':
     case 'supervisor_plan':
     case 'supervisor_replan':
-      return 'Research branches planned'
+      return 'Outline planning updated'
     case 'research':
-      return 'Branch research dispatched'
+      return 'Section research dispatched'
     case 'retry_branch':
-      return 'Branch retry requested'
     case 'verification_retry_requested':
-      return 'Verification requested another pass'
+      return 'Section review requested another pass'
+    case 'review_updated':
+      return 'Section review updated'
+    case 'review_passed':
+      return 'Section review passed'
     case 'coverage_gap_detected':
       return 'Coverage gaps detected'
     case 'verification_passed':
-      return 'Verification passed'
+      return 'Legacy verification passed'
     case 'report':
       return 'Preparing final report'
-    case 'synthesize':
-    case 'complete':
-      return 'Preparing final report'
     case 'outline_ready':
-      return 'Outline ready'
-    case 'outline_gap_detected':
-      return 'Outline blocked by remaining gaps'
+      return 'Outline gate passed'
+    case 'final_claim_gate_passed':
+      return 'Final claim gate passed'
+    case 'final_claim_gate_blocked':
+      return 'Final claim gate blocked'
     case 'budget_stop':
       return 'Budget limit reached'
     case 'stop':
       return 'Research stopped'
+    case 'synthesize':
+    case 'complete':
+      return 'Preparing final report'
     default:
       return reason || 'Decision recorded'
   }
@@ -289,8 +323,7 @@ function describeDecision(decisionType: string, reason: string): string {
 function describeArtifact(payload: any): string {
   const artifactType = text(payload?.artifact_type)
   const status = text(payload?.status)
-  const validationStage = text(payload?.validation_stage)
-  const outcome = text(payload?.outcome)
+  const reviewVerdict = text(payload?.review_verdict || payload?.validation_status || payload?.status)
 
   switch (artifactType) {
     case 'scope_draft':
@@ -300,26 +333,22 @@ function describeArtifact(payload: any): string {
     case 'scope':
       return 'Scope locked'
     case 'plan':
-      return 'Research branches planned'
+      return 'Section plan ready'
     case 'outline':
       return 'Outline ready'
     case 'evidence_bundle': {
       const sourceCount = positiveNumber(payload?.source_count)
       return sourceCount !== null ? `Evidence bundle recorded (${sourceCount} sources)` : 'Evidence bundle recorded'
     }
-    case 'branch_result':
     case 'section_draft':
-      return 'Branch result ready'
-    case 'validation_summary':
-    case 'section_review': {
-      const validationStatus = text(payload?.validation_status || payload?.review_verdict || payload?.status)
-      if (validationStatus === 'passed' || validationStatus === 'accept_section') return 'Verification passed'
-      if (validationStatus === 'retry' || validationStatus === 'request_research') return 'Verification requested another pass'
-      if (validationStatus === 'failed' || validationStatus === 'block_section') return 'Verification failed'
-      return formatVerificationOutcome(outcome, validationStage)
-    }
+    case 'branch_result':
+      return 'Section draft ready'
+    case 'section_review':
+      return formatReviewOutcome(reviewVerdict)
     case 'section_certification':
       return 'Section certified'
+    case 'validation_summary':
+      return formatReviewOutcome(reviewVerdict)
     case 'final_report':
       return 'Final report generated'
     default:
@@ -344,19 +373,29 @@ function describeAgentLifecycle(eventType: CanonicalEventType, payload: any): st
       : 'Drafting scope'
   }
   if (role === 'supervisor') {
-    if (phase === 'loop_decision') return 'Reviewing verification results'
-    if (phase === 'research_brief_handoff') return 'Preparing research brief'
-    return 'Planning research branches'
+    if (phase === 'outline_plan') return 'Planning outline'
+    if (phase === 'supervisor_decide') return 'Reviewing section state'
+    return 'Coordinating deep research'
   }
   if (role === 'researcher') {
-    if (eventType === 'research_agent_complete' && status === 'completed') return 'Branch research complete'
-    return stage ? `${formatStageLabel(stage)} in progress` : 'Branch research running'
+    if (eventType === 'research_agent_complete' && status === 'completed') return 'Section research complete'
+    return stage ? `${formatStageLabel(stage)} in progress` : 'Section research running'
+  }
+  if (role === 'reviewer') {
+    return eventType === 'research_agent_complete' && status === 'completed'
+      ? 'Section review complete'
+      : 'Reviewing section draft'
+  }
+  if (role === 'revisor') {
+    return eventType === 'research_agent_complete' && status === 'completed'
+      ? 'Section revision complete'
+      : 'Revising section draft'
   }
   if (role === 'verifier') {
     if (eventType === 'research_agent_complete' && status === 'completed') {
-      return stage ? `${formatStageLabel(stage)} complete` : 'Verification complete'
+      return stage ? `${formatStageLabel(stage)} complete` : 'Final claim gate complete'
     }
-    return stage ? `${formatStageLabel(stage)} in progress` : 'Verification running'
+    return stage ? `${formatStageLabel(stage)} in progress` : 'Final claim gate running'
   }
   if (role === 'reporter') {
     return eventType === 'research_agent_complete' && status === 'completed'
@@ -368,10 +407,11 @@ function describeAgentLifecycle(eventType: CanonicalEventType, payload: any): st
 
 function describeTaskUpdate(payload: any): string {
   const status = text(payload?.status)
-  const stage = text(payload?.validation_stage || payload?.stage)
-  const stageLabel = stage ? formatStageLabel(stage) : 'Branch'
+  const stage = text(payload?.stage)
+  const taskKind = text(payload?.task_kind)
+  const stageLabel = stage ? formatStageLabel(stage) : taskKind === 'section_revision' ? 'Revision' : 'Section'
 
-  if (status === 'ready') return 'Branch queued'
+  if (status === 'ready') return taskKind === 'section_revision' ? 'Section revision queued' : 'Section queued'
   if (status === 'in_progress') return `${stageLabel} in progress`
   if (status === 'completed') return `${stageLabel} complete`
   if (status === 'failed') return `${stageLabel} failed`
@@ -380,15 +420,9 @@ function describeTaskUpdate(payload: any): string {
 }
 
 function describeCanonicalEvent(eventType: CanonicalEventType, payload: any): string {
-  if (eventType === 'research_decision') {
-    return describeDecision(text(payload?.decision_type), text(payload?.reason))
-  }
-  if (eventType === 'research_artifact_update') {
-    return describeArtifact(payload)
-  }
-  if (eventType === 'research_task_update') {
-    return describeTaskUpdate(payload)
-  }
+  if (eventType === 'research_decision') return describeDecision(text(payload?.decision_type), text(payload?.reason))
+  if (eventType === 'research_artifact_update') return describeArtifact(payload)
+  if (eventType === 'research_task_update') return describeTaskUpdate(payload)
   return describeAgentLifecycle(eventType, payload)
 }
 
@@ -398,25 +432,10 @@ function trimDetail(detail: string, maxLength: number = 220): string {
 }
 
 function describeCanonicalDetail(eventType: CanonicalEventType, payload: any): string {
-  if (eventType === 'research_decision') {
-    return trimDetail(text(payload?.reason))
-  }
-
-  if (eventType === 'research_artifact_update') {
-    const detail = text(payload?.summary || payload?.objective_summary)
-    return trimDetail(detail)
-  }
-
-  if (eventType === 'research_task_update') {
-    const detail = text(payload?.title || payload?.objective_summary || payload?.query)
-    return trimDetail(detail)
-  }
-
-  if (eventType === 'research_agent_complete') {
-    const detail = text(payload?.summary || payload?.objective_summary)
-    return trimDetail(detail)
-  }
-
+  if (eventType === 'research_decision') return trimDetail(text(payload?.reason))
+  if (eventType === 'research_artifact_update') return trimDetail(text(payload?.summary || payload?.objective_summary))
+  if (eventType === 'research_task_update') return trimDetail(text(payload?.title || payload?.objective_summary || payload?.query))
+  if (eventType === 'research_agent_complete') return trimDetail(text(payload?.summary || payload?.objective_summary))
   return ''
 }
 
@@ -424,34 +443,40 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
   const role = text(payload?.role)
   const decisionType = text(payload?.decision_type)
   const artifactType = text(payload?.artifact_type)
-  const status = text(payload?.status)
-  const phase = text(payload?.phase)
   const stage = text(payload?.stage)
-  const validationStage = text(payload?.validation_stage)
+  const taskKind = text(payload?.task_kind)
+  const phase = text(payload?.phase)
 
   if (eventType === 'research_agent_start' || eventType === 'research_agent_complete') {
     if (role === 'clarify') return 'intake'
     if (role === 'scope') return 'scope'
-    if (role === 'researcher') return 'branch_research'
-    if (role === 'verifier') return 'verify'
+    if (role === 'researcher') return 'section_research'
+    if (role === 'reviewer' || role === 'revisor') return 'section_review'
+    if (role === 'verifier') return 'final_claim_gate'
     if (role === 'reporter') return 'report'
-    if (role === 'supervisor') return phase === 'loop_decision' ? 'verify' : 'planning'
+    if (role === 'supervisor') {
+      if (phase === 'outline_plan' || phase === 'research_brief') return 'outline'
+      if (phase === 'supervisor_decide') return 'section_review'
+      return 'outline'
+    }
   }
 
   if (eventType === 'research_task_update') {
-    if (validationStage || stage === 'claim_check' || stage === 'coverage_check') return 'verify'
-    if (status === 'ready' && (stage === 'planned' || stage === 'dispatch')) return 'planning'
-    return 'branch_research'
+    if (stage === 'final_claim_gate') return 'final_claim_gate'
+    if (taskKind === 'section_revision' || stage === 'revision') return 'section_review'
+    return 'section_research'
   }
 
   if (eventType === 'research_artifact_update') {
     if (artifactType === 'scope_draft' || artifactType === 'scope') return 'scope'
-    if (artifactType === 'plan' || artifactType === 'outline') return 'planning'
-    if (artifactType === 'validation_summary' || artifactType === 'section_review' || artifactType === 'section_certification') return 'verify'
+    if (artifactType === 'outline' || artifactType === 'plan') return 'outline'
+    if (artifactType === 'evidence_bundle' || artifactType === 'section_draft' || artifactType === 'branch_result') {
+      return 'section_research'
+    }
+    if (artifactType === 'section_review' || artifactType === 'section_certification' || artifactType === 'validation_summary') {
+      return 'section_review'
+    }
     if (artifactType === 'final_report') return 'report'
-    if (artifactType === 'evidence_bundle' || artifactType === 'branch_result' || artifactType === 'section_draft') return 'branch_research'
-    if (validationStage || stage === 'claim_check' || stage === 'coverage_check') return 'verify'
-    return 'branch_research'
   }
 
   if (eventType === 'research_decision') {
@@ -462,71 +487,60 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
       decisionType === 'outline_plan' ||
       decisionType === 'plan' ||
       decisionType === 'replan' ||
-      decisionType === 'supervisor_plan' ||
-      decisionType === 'supervisor_replan'
+      decisionType === 'supervisor_plan'
     ) {
-      return 'planning'
+      return 'outline'
     }
+    if (decisionType === 'research') return 'section_research'
     if (
-      decisionType === 'retry_branch' ||
-      decisionType === 'verification_retry_requested' ||
       decisionType === 'review_updated' ||
       decisionType === 'review_passed' ||
-      decisionType === 'coverage_gap_detected' ||
-      decisionType === 'verification_passed'
+      decisionType === 'retry_branch' ||
+      decisionType === 'verification_retry_requested' ||
+      decisionType === 'verification_passed' ||
+      decisionType === 'coverage_gap_detected'
     ) {
-      return 'verify'
+      return 'section_review'
     }
-    if (
-      decisionType === 'report' ||
-      decisionType === 'synthesize' ||
-      decisionType === 'complete' ||
-      decisionType === 'outline_ready' ||
-      decisionType === 'final_claim_gate_passed' ||
-      decisionType === 'final_claim_gate_blocked' ||
-      decisionType === 'outline_gap_detected' ||
-      decisionType === 'budget_stop' ||
-      decisionType === 'stop'
-    ) {
+    if (decisionType === 'report' || decisionType === 'outline_ready' || decisionType === 'budget_stop' || decisionType === 'stop') {
       return 'report'
     }
-    if (decisionType === 'research') return 'branch_research'
-    return 'planning'
+    if (decisionType === 'final_claim_gate_passed' || decisionType === 'final_claim_gate_blocked') {
+      return 'final_claim_gate'
+    }
+    if (decisionType === 'synthesize' || decisionType === 'complete') return 'report'
+    return 'outline'
   }
 
   return null
 }
 
-function branchLabelHint(payload: any): string {
+function sectionLabelHint(payload: any): string {
   return text(payload?.title || payload?.objective_summary || payload?.query)
 }
 
-function resolveBranchId(payload: any, taskMetaById: Map<string, TaskMeta>): string | null {
-  const directBranchId = text(payload?.section_id || payload?.branch_id)
-  if (directBranchId) return directBranchId
+function resolveSectionId(payload: any, taskMetaById: Map<string, TaskMeta>): string | null {
+  const directSectionId = text(payload?.section_id || payload?.branch_id)
+  if (directSectionId) return directSectionId
   const taskId = text(payload?.task_id)
   if (taskId && taskMetaById.has(taskId)) {
-    return taskMetaById.get(taskId)?.branchId || null
+    return taskMetaById.get(taskId)?.sectionId || null
   }
   return null
 }
 
 function resolveIteration(
   payload: any,
-  branchId: string | null,
+  sectionId: string | null,
   taskId: string | null,
   taskIterationById: Map<string, number>,
-  branchIterationById: Map<string, number>,
+  sectionIterationById: Map<string, number>,
   latestIteration: number | null,
 ): number | null {
   const directIteration = positiveNumber(payload?.iteration)
   if (directIteration !== null) return directIteration
-  if (taskId && taskIterationById.has(taskId)) {
-    return taskIterationById.get(taskId) || null
-  }
-  if (branchId && branchIterationById.has(branchId)) {
-    return branchIterationById.get(branchId) || null
-  }
+  if (taskId && taskIterationById.has(taskId)) return taskIterationById.get(taskId) || null
+  if (sectionId && sectionIterationById.has(sectionId)) return sectionIterationById.get(sectionId) || null
   return latestIteration
 }
 
@@ -538,6 +552,8 @@ function updateSourceStats(
   documentIds: Set<string>,
   evidenceIds: Set<string>,
   synthesisIds: Set<string>,
+  reviewIds: Set<string>,
+  certificationIds: Set<string>,
 ): void {
   const artifactId = text(payload?.artifact_id)
   const sourceUrl = text(payload?.source_url)
@@ -545,13 +561,8 @@ function updateSourceStats(
   const citationUrls = stringList(payload?.citation_urls)
 
   if (sourceUrl) sourceUrls.add(sourceUrl)
-  for (const url of sourceUrlsList) {
-    sourceUrls.add(url)
-  }
-  for (const url of citationUrls) {
-    sourceUrls.add(url)
-  }
-
+  for (const url of sourceUrlsList) sourceUrls.add(url)
+  for (const url of citationUrls) sourceUrls.add(url)
   if (!artifactId) return
 
   if (artifactType === 'evidence_bundle') {
@@ -559,53 +570,63 @@ function updateSourceStats(
     documentIds.add(artifactId)
     return
   }
-  if (artifactType === 'branch_result' || artifactType === 'section_draft') {
+  if (artifactType === 'section_draft' || artifactType === 'branch_result') {
     synthesisIds.add(artifactId)
     return
   }
+  if (artifactType === 'section_review' || artifactType === 'validation_summary') {
+    reviewIds.add(artifactId)
+    return
+  }
+  if (artifactType === 'section_certification') {
+    certificationIds.add(artifactId)
+  }
 }
 
-function shouldTrackBranchHistory(
+function shouldTrackSectionHistory(
   phase: DeepResearchPhaseKey,
   payload: any,
-  branchId: string | null,
+  sectionId: string | null,
   taskId: string | null,
   taskKind: string,
 ): boolean {
-  if (!branchId) return false
-  if (taskKind === 'branch_research') return true
+  if (!sectionId) return false
+  if (phase === 'section_research' || phase === 'section_review') return true
+  if (taskKind === 'section_research' || taskKind === 'section_revision') return true
   if (taskId) return true
-  const artifactType = text(payload?.artifact_type)
-  if (BRANCH_ARTIFACT_TYPES.has(artifactType)) return true
-  return phase === 'branch_research'
+  return SECTION_ARTIFACT_TYPES.has(text(payload?.artifact_type))
 }
 
-function createBranchAccumulator(branchId: string, order: number, label: string): BranchAccumulator {
+function createSectionAccumulator(sectionId: string, order: number, label: string): SectionAccumulator {
   return {
-    branchId,
+    sectionId,
     order,
     label,
     latestTimestamp: 0,
-    latestHeadline: 'Branch updated',
+    latestHeadline: 'Section updated',
     latestIteration: null,
-    verificationState: '',
+    reviewState: '',
+    certified: false,
     sourceUrls: new Set<string>(),
     sourceIds: new Set<string>(),
     documentIds: new Set<string>(),
     evidenceIds: new Set<string>(),
     synthesisIds: new Set<string>(),
-    iterations: new Map<string, BranchIterationAccumulator>(),
+    reviewIds: new Set<string>(),
+    certificationIds: new Set<string>(),
+    phaseActivity: new Set<DeepResearchPhaseKey>(),
+    iterations: new Map<string, SectionIterationAccumulator>(),
   }
 }
 
 function stageLabelForEvent(phase: DeepResearchPhaseKey, payload: any): string {
-  const validationStage = text(payload?.validation_stage)
-  if (validationStage) return formatStageLabel(validationStage)
-  const stage = text(payload?.stage)
+  const stage = text(payload?.validation_stage || payload?.stage)
   if (stage) return formatStageLabel(stage)
-  if (phase === 'verify') return 'Verify'
-  if (phase === 'planning') return 'Planned'
-  if (phase === 'branch_research') return 'Research'
+  if (phase === 'outline') return 'Outline'
+  if (phase === 'section_research') return 'Research'
+  if (phase === 'section_review') return 'Review'
+  if (phase === 'report') return 'Report'
+  if (phase === 'final_claim_gate') return 'Final Claim Gate'
   return ''
 }
 
@@ -618,34 +639,36 @@ function compareStageLabels(left: string, right: string): number {
   return left.localeCompare(right)
 }
 
-function formatCount(value: number, singular: string, plural: string): string {
-  return `${value} ${value === 1 ? singular : plural}`
-}
-
 function buildPhaseSummary(
   key: DeepResearchPhaseKey,
   events: CanonicalEvent[],
-  branches: DeepResearchBranchSummary[],
+  sections: ComputedSectionSummary[],
   sourceCount: number,
   currentIteration: number | null,
 ): DeepResearchPhaseSummary | null {
-  if (key === 'branch_research') {
-    if (branches.length === 0) return null
+  const phaseSections = sections
+    .filter((section) => section.phaseKeys.has(key))
+    .map(({ phaseKeys: _phaseKeys, ...rest }) => rest)
+
+  if ((key === 'section_research' || key === 'section_review') && phaseSections.length > 0) {
     const uniqueIterations = new Set(
-      branches.flatMap((branch) => branch.iterations.map((iteration) => iteration.iteration).filter(Boolean)),
+      phaseSections.flatMap((section) => section.iterations.map((iteration) => iteration.iteration).filter((value) => value !== null)),
     )
+    const certifiedCount = phaseSections.filter((section) => section.metrics.some((metric) => metric === 'Certified')).length
     const metrics = [
-      formatCount(branches.length, 'branch', 'branches'),
+      formatCount(phaseSections.length, 'section', 'sections'),
       uniqueIterations.size > 0 ? formatCount(uniqueIterations.size, 'iteration', 'iterations') : '',
+      key === 'section_review' && certifiedCount > 0 ? formatCount(certifiedCount, 'certified', 'certified') : '',
       sourceCount > 0 ? formatCount(sourceCount, 'source', 'sources') : '',
     ].filter(Boolean)
+    const latestHeadline = events[events.length - 1]?.headline || (key === 'section_review' ? 'Section review updated' : 'Section research updated')
     return {
       key,
       title: PHASE_TITLES[key],
-      summary: 'Continuous branch histories combine planning, research, retries, and verification updates.',
+      summary: latestHeadline,
       metrics,
       highlights: [],
-      branches,
+      sections: phaseSections,
     }
   }
 
@@ -654,30 +677,18 @@ function buildPhaseSummary(
   const latestHeadline = events[events.length - 1]?.headline || 'Updated'
   const metrics: string[] = []
 
-  if (key === 'planning') {
-    const branchIds = new Set(events.map((event) => event.branchId).filter(Boolean))
-    if (branchIds.size > 0) metrics.push(formatCount(branchIds.size, 'branch', 'branches'))
+  if (key === 'outline') {
+    if (sections.length > 0) metrics.push(formatCount(sections.length, 'section', 'sections'))
     if (currentIteration !== null) metrics.push(`Iteration ${currentIteration}`)
   }
 
-  if (key === 'verify') {
-    let passed = 0
-    let retry = 0
-    let failed = 0
-    for (const event of events) {
-      if (event.type !== 'research_artifact_update') continue
-      const artifactType = text(event.payload?.artifact_type)
-      if (artifactType !== 'validation_summary' && artifactType !== 'section_review' && artifactType !== 'section_certification') continue
-      const validationStatus = text(
-        event.payload?.validation_status || event.payload?.review_verdict || event.payload?.status || (artifactType === 'section_certification' ? 'passed' : ''),
-      )
-      if (validationStatus === 'passed') passed += 1
-      else if (validationStatus === 'failed') failed += 1
-      else if (validationStatus === 'retry') retry += 1
-    }
-    if (passed > 0) metrics.push(formatCount(passed, 'verified branch', 'verified branches'))
-    if (retry > 0) metrics.push(formatCount(retry, 'retry', 'retries'))
-    if (failed > 0) metrics.push(formatCount(failed, 'failed branch', 'failed branches'))
+  if (key === 'report' && sourceCount > 0) {
+    metrics.push(formatCount(sourceCount, 'source', 'sources'))
+  }
+
+  if (key === 'final_claim_gate') {
+    const blocked = events.some((event) => text(event.payload?.decision_type) === 'final_claim_gate_blocked')
+    metrics.push(blocked ? 'Blocked' : 'Passed')
   }
 
   const highlights = events
@@ -699,37 +710,35 @@ function buildPhaseSummary(
     summary: latestHeadline,
     metrics,
     highlights,
-    branches: [],
+    sections: [],
   }
 }
 
 export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearchTimelineProjection | null {
   const rawEvents = events.filter((event) => event.type !== 'done')
   const relevantEvents = rawEvents.filter(isDeepResearchEvent)
-  const canonicalEvents = relevantEvents.filter((event) =>
-    CANONICAL_EVENT_TYPES.has(event.type as CanonicalEventType),
-  )
+  const canonicalEvents = relevantEvents.filter((event) => CANONICAL_EVENT_TYPES.has(event.type as CanonicalEventType))
 
   if (canonicalEvents.length === 0) return null
 
   const taskMetaById = new Map<string, TaskMeta>()
   const taskIterationById = new Map<string, number>()
-  const branchIterationById = new Map<string, number>()
-  const branchOrderById = new Map<string, number>()
-  const branchLabelById = new Map<string, string>()
+  const sectionIterationById = new Map<string, number>()
+  const sectionOrderById = new Map<string, number>()
+  const sectionLabelById = new Map<string, string>()
   let latestIteration: number | null = null
 
   canonicalEvents.forEach((event, index) => {
     const payload = event.data || {}
     const taskId = text(payload?.task_id)
-    const branchId = text(payload?.section_id || payload?.branch_id)
+    const sectionId = text(payload?.section_id || payload?.branch_id)
     const taskKind = text(payload?.task_kind)
-    const labelHint = branchLabelHint(payload)
+    const labelHint = sectionLabelHint(payload)
     const iteration = positiveNumber(payload?.iteration)
 
-    if (taskId && branchId) {
+    if (taskId && sectionId) {
       taskMetaById.set(taskId, {
-        branchId,
+        sectionId,
         label: labelHint,
         taskKind,
       })
@@ -743,38 +752,32 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
       }
     }
 
-    if (branchId) {
-      if (!branchOrderById.has(branchId)) branchOrderById.set(branchId, index)
-      if (labelHint && !branchLabelById.has(branchId)) branchLabelById.set(branchId, labelHint)
+    if (sectionId) {
+      if (!sectionOrderById.has(sectionId)) sectionOrderById.set(sectionId, index)
+      if (labelHint && !sectionLabelById.has(sectionId)) sectionLabelById.set(sectionId, labelHint)
     }
 
     if (iteration !== null) {
       latestIteration = Math.max(latestIteration ?? 0, iteration)
       if (taskId) taskIterationById.set(taskId, iteration)
-      if (branchId) branchIterationById.set(branchId, iteration)
+      if (sectionId) sectionIterationById.set(sectionId, iteration)
     }
   })
 
   const phaseBuckets = new Map<DeepResearchPhaseKey, CanonicalEvent[]>()
   PHASE_ORDER.forEach((phase) => phaseBuckets.set(phase, []))
 
-  const branchBuckets = new Map<string, BranchAccumulator>()
+  const sectionBuckets = new Map<string, SectionAccumulator>()
   const globalSourceUrls = new Set<string>()
   const globalSourceIds = new Set<string>()
-  let suppressedEventCount = 0
-
-  for (const event of rawEvents) {
-    if (SUPPRESSED_DEFAULT_VIEW_TYPES.has(event.type)) {
-      suppressedEventCount += 1
-    }
-  }
+  const suppressedEventCount = rawEvents.filter((event) => SUPPRESSED_DEFAULT_VIEW_TYPES.has(event.type)).length
 
   for (const event of canonicalEvents) {
     const payload = event.data || {}
     const type = event.type as CanonicalEventType
     const taskId = text(payload?.task_id) || null
     const taskMeta = taskId ? taskMetaById.get(taskId) : undefined
-    const branchId = resolveBranchId(payload, taskMetaById)
+    const sectionId = resolveSectionId(payload, taskMetaById)
     const taskKind = text(payload?.task_kind) || taskMeta?.taskKind || ''
     const phase = resolvePhase(type, payload)
 
@@ -782,17 +785,17 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
 
     const iteration = resolveIteration(
       payload,
-      branchId,
+      sectionId,
       taskId,
       taskIterationById,
-      branchIterationById,
+      sectionIterationById,
       latestIteration,
     )
 
     if (iteration !== null) {
       latestIteration = Math.max(latestIteration ?? 0, iteration)
       if (taskId) taskIterationById.set(taskId, iteration)
-      if (branchId) branchIterationById.set(branchId, iteration)
+      if (sectionId) sectionIterationById.set(sectionId, iteration)
     }
 
     const canonicalEvent: CanonicalEvent = {
@@ -800,7 +803,7 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
       type,
       payload,
       phase,
-      branchId,
+      sectionId,
       taskId,
       taskKind,
       iteration,
@@ -809,35 +812,29 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
 
     phaseBuckets.get(phase)?.push(canonicalEvent)
 
-    const artifactType = text(payload?.artifact_type)
     updateSourceStats(
       payload,
-      artifactType,
+      text(payload?.artifact_type),
       globalSourceUrls,
       globalSourceIds,
       new Set<string>(),
       new Set<string>(),
       new Set<string>(),
+      new Set<string>(),
+      new Set<string>(),
     )
 
-    if (!shouldTrackBranchHistory(phase, payload, branchId, taskId, taskKind)) {
+    if (!shouldTrackSectionHistory(phase, payload, sectionId, taskId, taskKind) || !sectionId) {
       continue
     }
 
-    if (!branchId) {
-      continue
-    }
+    const sectionOrder = sectionOrderById.get(sectionId) ?? sectionBuckets.size
+    const label = sectionLabelById.get(sectionId) || taskMeta?.label || ''
+    const bucket = sectionBuckets.get(sectionId) || createSectionAccumulator(sectionId, sectionOrder, label)
+    if (!sectionBuckets.has(sectionId)) sectionBuckets.set(sectionId, bucket)
 
-    const branchOrder = branchOrderById.get(branchId) ?? branchBuckets.size
-    const label = branchLabelById.get(branchId) || taskMeta?.label || ''
-    const bucket = branchBuckets.get(branchId) || createBranchAccumulator(branchId, branchOrder, label)
-    if (!branchBuckets.has(branchId)) {
-      branchBuckets.set(branchId, bucket)
-    }
-
-    if (label && !bucket.label) {
-      bucket.label = label
-    }
+    if (label && !bucket.label) bucket.label = label
+    bucket.phaseActivity.add(phase)
 
     if (event.timestamp >= bucket.latestTimestamp) {
       bucket.latestTimestamp = event.timestamp
@@ -847,16 +844,23 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
 
     updateSourceStats(
       payload,
-      artifactType,
+      text(payload?.artifact_type),
       bucket.sourceUrls,
       bucket.sourceIds,
       bucket.documentIds,
       bucket.evidenceIds,
       bucket.synthesisIds,
+      bucket.reviewIds,
+      bucket.certificationIds,
     )
 
-    if (artifactType === 'validation_summary' || artifactType === 'section_review' || artifactType === 'section_certification') {
-      bucket.verificationState = describeArtifact(payload)
+    const artifactType = text(payload?.artifact_type)
+    if (artifactType === 'section_review' || artifactType === 'validation_summary') {
+      bucket.reviewState = describeArtifact(payload)
+    }
+    if (artifactType === 'section_certification') {
+      bucket.reviewState = 'Section certified'
+      bucket.certified = true
     }
 
     const iterationKey = canonicalEvent.iteration !== null ? String(canonicalEvent.iteration) : 'legacy'
@@ -872,13 +876,13 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
         documentIds: new Set<string>(),
         evidenceIds: new Set<string>(),
         synthesisIds: new Set<string>(),
+        reviewIds: new Set<string>(),
+        certificationIds: new Set<string>(),
         attempt: positiveNumber(payload?.attempt),
         resumed: Boolean(payload?.resumed_from_checkpoint),
       }
 
-    if (!bucket.iterations.has(iterationKey)) {
-      bucket.iterations.set(iterationKey, iterationBucket)
-    }
+    if (!bucket.iterations.has(iterationKey)) bucket.iterations.set(iterationKey, iterationBucket)
 
     const stageLabel = stageLabelForEvent(phase, payload)
     if (stageLabel) addUnique(iterationBucket.stageLabels, stageLabel)
@@ -890,9 +894,7 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
     }
 
     const attempt = positiveNumber(payload?.attempt)
-    if (attempt !== null) {
-      iterationBucket.attempt = Math.max(iterationBucket.attempt ?? 0, attempt)
-    }
+    if (attempt !== null) iterationBucket.attempt = Math.max(iterationBucket.attempt ?? 0, attempt)
     iterationBucket.resumed = iterationBucket.resumed || Boolean(payload?.resumed_from_checkpoint)
 
     updateSourceStats(
@@ -903,10 +905,12 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
       iterationBucket.documentIds,
       iterationBucket.evidenceIds,
       iterationBucket.synthesisIds,
+      iterationBucket.reviewIds,
+      iterationBucket.certificationIds,
     )
   }
 
-  const branchSummaries = [...branchBuckets.values()]
+  const computedSectionSummaries: ComputedSectionSummary[] = [...sectionBuckets.values()]
     .sort((left, right) => left.order - right.order || left.latestTimestamp - right.latestTimestamp)
     .map((bucket, index) => {
       const iterations = [...bucket.iterations.values()]
@@ -917,22 +921,13 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
           return left.iteration - right.iteration
         })
         .map((iterationBucket) => {
+          const sourceCount = iterationBucket.sourceUrls.size > 0 ? iterationBucket.sourceUrls.size : iterationBucket.sourceIds.size
           const metrics = [
             iterationBucket.stageLabels.sort(compareStageLabels).join(' -> '),
-            iterationBucket.sourceUrls.size > 0
-              ? formatCount(iterationBucket.sourceUrls.size, 'source', 'sources')
-              : iterationBucket.sourceIds.size > 0
-                ? formatCount(iterationBucket.sourceIds.size, 'source', 'sources')
-                : '',
-            iterationBucket.documentIds.size > 0
-              ? formatCount(iterationBucket.documentIds.size, 'document', 'documents')
-              : '',
-            iterationBucket.evidenceIds.size > 0
-              ? formatCount(iterationBucket.evidenceIds.size, 'evidence item', 'evidence items')
-              : '',
-            iterationBucket.synthesisIds.size > 0
-              ? formatCount(iterationBucket.synthesisIds.size, 'synthesis', 'syntheses')
-              : '',
+            sourceCount > 0 ? formatCount(sourceCount, 'source', 'sources') : '',
+            iterationBucket.documentIds.size > 0 ? formatCount(iterationBucket.documentIds.size, 'document', 'documents') : '',
+            iterationBucket.reviewIds.size > 0 ? formatCount(iterationBucket.reviewIds.size, 'review', 'reviews') : '',
+            iterationBucket.certificationIds.size > 0 ? 'Certified' : '',
             iterationBucket.attempt && iterationBucket.attempt > 1 ? `Attempt ${iterationBucket.attempt}` : '',
             iterationBucket.resumed ? 'Resumed' : '',
           ].filter(Boolean)
@@ -950,18 +945,19 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
         formatCount(iterations.length, 'iteration', 'iterations'),
         sourceCount > 0 ? formatCount(sourceCount, 'source', 'sources') : '',
         bucket.documentIds.size > 0 ? formatCount(bucket.documentIds.size, 'document', 'documents') : '',
-        bucket.evidenceIds.size > 0 ? formatCount(bucket.evidenceIds.size, 'evidence item', 'evidence items') : '',
-        bucket.synthesisIds.size > 0 ? formatCount(bucket.synthesisIds.size, 'synthesis', 'syntheses') : '',
-        bucket.verificationState,
+        bucket.reviewIds.size > 0 ? formatCount(bucket.reviewIds.size, 'review', 'reviews') : '',
+        bucket.certified ? 'Certified' : '',
+        bucket.reviewState,
       ].filter(Boolean)
 
       return {
-        branchId: bucket.branchId,
-        label: bucket.label || `Branch ${index + 1}`,
+        sectionId: bucket.sectionId,
+        label: bucket.label || `Section ${index + 1}`,
         headline: bucket.latestHeadline,
         metrics,
         latestIteration: bucket.latestIteration,
         iterations,
+        phaseKeys: bucket.phaseActivity,
       }
     })
 
@@ -970,15 +966,17 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
     buildPhaseSummary(
       phase,
       phaseBuckets.get(phase) || [],
-      branchSummaries,
+      computedSectionSummaries,
       sourceCount,
       latestIteration,
     ),
   ).filter((phase): phase is DeepResearchPhaseSummary => phase !== null)
 
+  const certifiedCount = computedSectionSummaries.filter((section) => section.metrics.includes('Certified')).length
   const headerMetrics = [
     formatCount(phaseSummaries.length, 'phase', 'phases'),
-    branchSummaries.length > 0 ? formatCount(branchSummaries.length, 'branch', 'branches') : '',
+    computedSectionSummaries.length > 0 ? formatCount(computedSectionSummaries.length, 'section', 'sections') : '',
+    certifiedCount > 0 ? formatCount(certifiedCount, 'certified', 'certified') : '',
     sourceCount > 0 ? formatCount(sourceCount, 'source', 'sources') : '',
     latestIteration !== null ? `Iteration ${latestIteration}` : '',
   ].filter(Boolean)
