@@ -3906,13 +3906,33 @@ async def export_report_endpoint(
             if not isinstance(sources_payload, list):
                 sources_payload = extracted_sources
 
+            outline_payload = deep_research_artifacts.get("outline")
+            if not isinstance(outline_payload, dict):
+                outline_payload = {}
+
+            section_drafts_payload = deep_research_artifacts.get("section_drafts")
+            if not isinstance(section_drafts_payload, list):
+                section_drafts_payload = []
+
+            section_reviews_payload = deep_research_artifacts.get("section_reviews")
+            if not isinstance(section_reviews_payload, list):
+                section_reviews_payload = []
+
+            section_certifications_payload = deep_research_artifacts.get("section_certifications")
+            if not isinstance(section_certifications_payload, list):
+                section_certifications_payload = []
+
+            outline_gate_payload = deep_research_artifacts.get("outline_gate_summary")
+            if not isinstance(outline_gate_payload, dict):
+                outline_gate_payload = {}
+
             branch_results_payload = deep_research_artifacts.get("branch_results")
             if not isinstance(branch_results_payload, list):
-                branch_results_payload = []
+                branch_results_payload = section_drafts_payload
 
             validation_payload = deep_research_artifacts.get("validation_summary")
             if not isinstance(validation_payload, dict):
-                validation_payload = {}
+                validation_payload = outline_gate_payload
 
             quality_payload = deep_research_artifacts.get("quality_summary")
             if not isinstance(quality_payload, dict):
@@ -3927,6 +3947,11 @@ async def export_report_endpoint(
                     "title": report_title,
                     "report": final_report,
                     "sources": sources_payload,
+                    "outline": outline_payload,
+                    "section_drafts": section_drafts_payload,
+                    "section_reviews": section_reviews_payload,
+                    "section_certifications": section_certifications_payload,
+                    "outline_gate_summary": outline_gate_payload,
                     "branch_results": branch_results_payload,
                     "validation_summary": validation_payload,
                     "quality": quality_payload,
@@ -4175,6 +4200,7 @@ class EvidenceSource(BaseModel):
 class EvidenceBranchResult(BaseModel):
     id: str = ""
     task_id: str = ""
+    section_id: str = ""
     branch_id: str = ""
     title: str = ""
     objective: str = ""
@@ -4188,6 +4214,7 @@ class FetchedPageItem(BaseModel):
     url: str
     id: Optional[str] = None
     task_id: Optional[str] = None
+    section_id: Optional[str] = None
     branch_id: Optional[str] = None
     raw_url: Optional[str] = None
     method: Optional[str] = None
@@ -4209,6 +4236,7 @@ class EvidencePassageItem(BaseModel):
     text: str
     id: Optional[str] = None
     task_id: Optional[str] = None
+    section_id: Optional[str] = None
     branch_id: Optional[str] = None
     document_id: Optional[str] = None
     start_char: Optional[int] = None
@@ -4230,6 +4258,11 @@ class EvidencePassageItem(BaseModel):
 
 class EvidenceResponse(BaseModel):
     sources: List[EvidenceSource] = []
+    outline: Dict[str, Any] = {}
+    section_drafts: List[EvidenceBranchResult] = []
+    section_reviews: List[Dict[str, Any]] = []
+    section_certifications: List[Dict[str, Any]] = []
+    outline_gate_summary: Dict[str, Any] = {}
     branch_results: List[EvidenceBranchResult] = []
     validation_summary: Dict[str, Any] = {}
     quality_summary: Dict[str, Any] = {}
@@ -4357,7 +4390,7 @@ async def get_session_state(thread_id: str, request: Request):
 @app.get("/api/sessions/{thread_id}/evidence", response_model=EvidenceResponse)
 async def get_session_evidence(thread_id: str, request: Request):
     """
-    Get evidence artifacts (sources + branch results + quality summary) for a session.
+        Get evidence artifacts (sources + section drafts + quality summary) for a session.
     """
     if not checkpointer:
         raise HTTPException(status_code=400, detail="No checkpointer configured")
@@ -4382,14 +4415,24 @@ async def get_session_evidence(thread_id: str, request: Request):
             artifacts = {}
 
         sources = artifacts.get("sources", [])
-        branch_results = artifacts.get("branch_results", [])
-        validation_summary = artifacts.get("validation_summary", {})
+        outline = artifacts.get("outline", {})
+        section_drafts = artifacts.get("section_drafts", [])
+        section_reviews = artifacts.get("section_reviews", [])
+        section_certifications = artifacts.get("section_certifications", [])
+        outline_gate_summary = artifacts.get("outline_gate_summary", {})
+        branch_results = artifacts.get("branch_results", section_drafts)
+        validation_summary = artifacts.get("validation_summary", outline_gate_summary)
         quality_summary = artifacts.get("quality_summary", {})
         fetched_pages = artifacts.get("fetched_pages", [])
         passages = artifacts.get("passages", [])
 
         return {
             "sources": sources if isinstance(sources, list) else [],
+            "outline": outline if isinstance(outline, dict) else {},
+            "section_drafts": section_drafts if isinstance(section_drafts, list) else [],
+            "section_reviews": section_reviews if isinstance(section_reviews, list) else [],
+            "section_certifications": section_certifications if isinstance(section_certifications, list) else [],
+            "outline_gate_summary": outline_gate_summary if isinstance(outline_gate_summary, dict) else {},
             "branch_results": branch_results if isinstance(branch_results, list) else [],
             "validation_summary": validation_summary if isinstance(validation_summary, dict) else {},
             "quality_summary": quality_summary if isinstance(quality_summary, dict) else {},

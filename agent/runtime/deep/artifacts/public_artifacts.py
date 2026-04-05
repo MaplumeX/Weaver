@@ -12,10 +12,15 @@ from agent.research.source_url_utils import canonicalize_source_url, compact_uni
 _PUBLIC_SIGNAL_KEYS = (
     "queries",
     "scope",
+    "outline",
     "plan",
     "tasks",
     "research_topology",
     "sources",
+    "section_drafts",
+    "section_reviews",
+    "section_certifications",
+    "outline_gate_summary",
     "branch_results",
     "validation_summary",
     "quality_summary",
@@ -36,7 +41,17 @@ def _has_lightweight_snapshot(artifact_store: dict[str, Any]) -> bool:
         return False
     return any(
         key in artifact_store
-        for key in ("scope", "plan", "evidence_bundles", "branch_results", "validation_summaries")
+        for key in (
+            "scope",
+            "outline",
+            "plan",
+            "evidence_bundles",
+            "section_drafts",
+            "section_reviews",
+            "section_certifications",
+            "branch_results",
+            "validation_summaries",
+        )
     )
 
 
@@ -158,6 +173,7 @@ def _normalize_public_fetched_pages(items: Any) -> list[dict[str, Any]]:
         page = {
             "id": item.get("id"),
             "task_id": item.get("task_id"),
+            "section_id": item.get("section_id"),
             "branch_id": item.get("branch_id"),
             "url": url,
             "raw_url": str(item.get("raw_url") or item.get("rawUrl") or item.get("url") or ""),
@@ -191,6 +207,7 @@ def _normalize_legacy_fetched_pages(artifact_store: dict[str, Any]) -> list[dict
             {
                 "id": item.get("id"),
                 "task_id": item.get("task_id"),
+                "section_id": item.get("section_id"),
                 "branch_id": item.get("branch_id"),
                 "url": url,
                 "title": str(item.get("title") or "").strip(),
@@ -216,6 +233,7 @@ def _normalize_public_passages(items: Any) -> list[dict[str, Any]]:
             {
                 "id": item.get("id"),
                 "task_id": item.get("task_id"),
+                "section_id": item.get("section_id"),
                 "branch_id": item.get("branch_id"),
                 "document_id": item.get("document_id"),
                 "url": url,
@@ -255,6 +273,7 @@ def _normalize_legacy_passages(artifact_store: dict[str, Any]) -> list[dict[str,
             {
                 "id": item.get("id"),
                 "task_id": item.get("task_id"),
+                "section_id": item.get("section_id"),
                 "branch_id": item.get("branch_id"),
                 "document_id": item.get("document_id"),
                 "url": url,
@@ -301,6 +320,85 @@ def _normalize_public_branch_results(items: Any) -> list[dict[str, Any]]:
     return results
 
 
+def _normalize_public_section_drafts(items: Any) -> list[dict[str, Any]]:
+    drafts: list[dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        drafts.append(
+            {
+                "id": item.get("id"),
+                "task_id": item.get("task_id"),
+                "section_id": item.get("section_id"),
+                "branch_id": item.get("branch_id"),
+                "title": str(item.get("title") or "").strip(),
+                "objective": str(item.get("objective") or "").strip(),
+                "core_question": str(item.get("core_question") or "").strip(),
+                "summary": str(item.get("summary") or "").strip(),
+                "key_findings": list(item.get("key_findings") or []),
+                "open_questions": list(item.get("open_questions") or []),
+                "confidence_note": str(item.get("confidence_note") or "").strip(),
+                "source_urls": [
+                    canonicalize_source_url(url)
+                    for url in item.get("source_urls", []) or []
+                    if canonicalize_source_url(url)
+                ],
+                "claim_units": list(item.get("claim_units") or []),
+                "limitations": list(item.get("limitations") or []),
+                "review_status": str(item.get("review_status") or "pending").strip(),
+                "certified": bool(item.get("certified", False)),
+            }
+        )
+    return drafts
+
+
+def _normalize_public_section_reviews(items: Any) -> list[dict[str, Any]]:
+    reviews: list[dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        reviews.append(
+            {
+                "id": item.get("id"),
+                "task_id": item.get("task_id"),
+                "section_id": item.get("section_id"),
+                "branch_id": item.get("branch_id"),
+                "verdict": str(item.get("verdict") or "").strip(),
+                "objective_score": item.get("objective_score", 0.0),
+                "grounding_score": item.get("grounding_score", 0.0),
+                "freshness_score": item.get("freshness_score", 0.0),
+                "contradiction_score": item.get("contradiction_score", 0.0),
+                "blocking_issues": list(item.get("blocking_issues") or []),
+                "advisory_issues": list(item.get("advisory_issues") or []),
+                "follow_up_queries": list(item.get("follow_up_queries") or []),
+                "notes": str(item.get("notes") or "").strip(),
+            }
+        )
+    return reviews
+
+
+def _normalize_public_section_certifications(items: Any) -> list[dict[str, Any]]:
+    certifications: list[dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        certifications.append(
+            {
+                "id": item.get("id"),
+                "section_id": item.get("section_id"),
+                "certified": bool(item.get("certified", False)),
+                "key_claims_grounded_ratio": item.get("key_claims_grounded_ratio", 0.0),
+                "objective_met": bool(item.get("objective_met", False)),
+                "has_primary_sources": bool(item.get("has_primary_sources", False)),
+                "freshness_warning": str(item.get("freshness_warning") or "").strip(),
+                "limitations": list(item.get("limitations") or []),
+                "blocking_issue_count": int(item.get("blocking_issue_count", 0) or 0),
+                "advisory_issue_count": int(item.get("advisory_issue_count", 0) or 0),
+            }
+        )
+    return certifications
+
+
 def _normalize_validation_summary(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
@@ -313,6 +411,12 @@ def _normalize_validation_summary(payload: Any) -> dict[str, Any]:
         "advisory_gap_count",
         "coverage_target_count",
         "covered_question_count",
+        "required_section_count",
+        "certified_section_count",
+        "pending_section_count",
+        "blocked_section_count",
+        "advisory_issue_count",
+        "blocking_issue_count",
     )
     for key in integer_keys:
         value = payload.get(key)
@@ -335,6 +439,15 @@ def _normalize_validation_summary(payload: Any) -> dict[str, Any]:
 
     if "coverage_ready" in payload:
         summary["coverage_ready"] = bool(payload.get("coverage_ready"))
+    elif "outline_ready" in payload:
+        summary["coverage_ready"] = bool(payload.get("outline_ready"))
+
+    if "certified_section_count" in summary and "passed_branch_count" not in summary:
+        summary["passed_branch_count"] = int(summary.get("certified_section_count") or 0)
+    if "pending_section_count" in summary and "retry_branch_count" not in summary:
+        summary["retry_branch_count"] = int(summary.get("pending_section_count") or 0)
+    if "blocked_section_count" in summary and "failed_branch_count" not in summary:
+        summary["failed_branch_count"] = int(summary.get("blocked_section_count") or 0)
 
     string_keys = ("status_reason", "notes")
     for key in string_keys:
@@ -436,10 +549,15 @@ def _build_public_payload(
     engine: str,
     queries: list[str],
     scope: dict[str, Any],
+    outline: dict[str, Any],
     plan: dict[str, Any],
     tasks: list[dict[str, Any]],
     research_topology: dict[str, Any],
     sources: list[dict[str, Any]],
+    section_drafts: list[dict[str, Any]],
+    section_reviews: list[dict[str, Any]],
+    section_certifications: list[dict[str, Any]],
+    outline_gate_summary: dict[str, Any],
     branch_results: list[dict[str, Any]],
     validation_summary: dict[str, Any],
     quality_summary: dict[str, Any],
@@ -470,6 +588,7 @@ def _build_public_payload(
         str(item).strip()
         for item in (
             validation_summary.get("uncovered_questions")
+            or quality_summary.get("missing_section_ids")
             or quality_summary.get("uncovered_questions")
             or []
         )
@@ -481,10 +600,15 @@ def _build_public_payload(
         "query": queries[0] if queries else "",
         "queries": queries,
         "scope": dict(scope),
+        "outline": dict(outline),
         "plan": dict(plan),
         "tasks": list(tasks),
         "research_topology": dict(research_topology),
         "sources": list(sources),
+        "section_drafts": list(section_drafts),
+        "section_reviews": list(section_reviews),
+        "section_certifications": list(section_certifications),
+        "outline_gate_summary": dict(outline_gate_summary),
         "branch_results": list(branch_results),
         "validation_summary": dict(validation_summary),
         "quality_summary": dict(quality_summary),
@@ -542,6 +666,7 @@ def _normalize_lightweight_fetched_pages(artifact_store: dict[str, Any]) -> list
                 {
                     "id": item.get("id"),
                     "task_id": bundle.get("task_id"),
+                    "section_id": bundle.get("section_id"),
                     "branch_id": bundle.get("branch_id"),
                     "url": url,
                     "raw_url": item.get("raw_url"),
@@ -577,6 +702,7 @@ def _normalize_lightweight_passages(artifact_store: dict[str, Any]) -> list[dict
                 {
                     "id": item.get("id"),
                     "task_id": bundle.get("task_id"),
+                    "section_id": bundle.get("section_id"),
                     "branch_id": bundle.get("branch_id"),
                     "document_id": item.get("document_id"),
                     "url": url,
@@ -602,45 +728,63 @@ def _normalize_lightweight_passages(artifact_store: dict[str, Any]) -> list[dict
 
 
 def _normalize_lightweight_branch_results(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    items = artifact_store.get("branch_results", []) if isinstance(artifact_store, dict) else []
-    return _normalize_public_branch_results(items)
+    items = artifact_store.get("section_drafts", []) if isinstance(artifact_store, dict) else []
+    if not isinstance(items, list):
+        items = artifact_store.get("branch_results", []) if isinstance(artifact_store, dict) else []
+    results = _normalize_public_section_drafts(items)
+    return [
+        {
+            "id": item.get("id"),
+            "task_id": item.get("task_id"),
+            "branch_id": item.get("branch_id"),
+            "title": item.get("title"),
+            "objective": item.get("objective"),
+            "summary": item.get("summary"),
+            "key_findings": item.get("key_findings", []),
+            "open_questions": item.get("open_questions", []),
+            "confidence_note": item.get("confidence_note", ""),
+            "source_urls": item.get("source_urls", []),
+            "validation_status": "passed" if item.get("certified") else item.get("review_status", "pending"),
+        }
+        for item in results
+    ]
 
 
 def _normalize_lightweight_validation(artifact_store: dict[str, Any]) -> dict[str, Any]:
-    items = artifact_store.get("validation_summaries", []) if isinstance(artifact_store, dict) else []
-    status_counts = {"passed": 0, "retry": 0, "failed": 0}
-    summaries: list[dict[str, Any]] = []
-    for item in items if isinstance(items, list) else []:
-        if not isinstance(item, dict):
-            continue
-        status = str(item.get("status") or "").strip().lower()
-        if status in status_counts:
-            status_counts[status] += 1
-        summaries.append(
+    review_items = artifact_store.get("section_reviews", []) if isinstance(artifact_store, dict) else []
+    certification_items = artifact_store.get("section_certifications", []) if isinstance(artifact_store, dict) else []
+    if not isinstance(review_items, list):
+        review_items = artifact_store.get("validation_summaries", []) if isinstance(artifact_store, dict) else []
+    reviews = _normalize_public_section_reviews(review_items)
+    certifications = _normalize_public_section_certifications(certification_items)
+    certified_ids = {
+        str(item.get("section_id") or "").strip()
+        for item in certifications
+        if bool(item.get("certified"))
+    }
+    required_ids = {
+        str(item.get("section_id") or "").strip()
+        for item in reviews
+        if str(item.get("section_id") or "").strip()
+    } | certified_ids
+    return {
+        "passed_branch_count": len(certified_ids),
+        "retry_branch_count": sum(1 for item in reviews if str(item.get("verdict") or "") == "request_research"),
+        "failed_branch_count": sum(1 for item in reviews if str(item.get("verdict") or "") == "block_section"),
+        "coverage_ready": bool(required_ids) and len(certified_ids) == len(required_ids),
+        "summaries": [
             {
                 "id": item.get("id"),
                 "task_id": item.get("task_id"),
+                "section_id": item.get("section_id"),
                 "branch_id": item.get("branch_id"),
-                "status": status or "pending",
-                "score": item.get("score", 0.0),
-                "missing_aspects": list(item.get("missing_aspects") or []),
-                "retry_queries": list(item.get("retry_queries") or []),
-                "notes": str(item.get("notes") or "").strip(),
-                "coverage_hits": [str(hit).strip() for hit in item.get("coverage_hits", []) or [] if str(hit).strip()],
-                "coverage_misses": [str(hit).strip() for hit in item.get("coverage_misses", []) or [] if str(hit).strip()],
-                "coverage_confidence": item.get("coverage_confidence", 0.0),
-                "suggested_follow_up_queries": [
-                    str(query).strip()
-                    for query in item.get("suggested_follow_up_queries", []) or []
-                    if str(query).strip()
-                ],
+                "status": str(item.get("verdict") or "pending"),
+                "score": item.get("grounding_score", 0.0),
+                "notes": item.get("notes", ""),
+                "retry_queries": list(item.get("follow_up_queries") or []),
             }
-        )
-    return {
-        "passed_branch_count": status_counts["passed"],
-        "retry_branch_count": status_counts["retry"],
-        "failed_branch_count": status_counts["failed"],
-        "summaries": summaries,
+            for item in reviews
+        ],
     }
 
 
@@ -658,7 +802,9 @@ def _build_lightweight_public_artifacts(
     validation_summary = _normalize_lightweight_validation(store_snapshot)
     merged_quality = dict(quality_summary or {})
     runtime_snapshot = runtime_state if isinstance(runtime_state, dict) else {}
-    runtime_validation = _normalize_validation_summary(runtime_snapshot.get("last_verification_summary"))
+    runtime_validation = _normalize_validation_summary(
+        runtime_snapshot.get("outline_gate_summary") or runtime_snapshot.get("last_review_summary")
+    )
     if runtime_validation:
         validation_summary = {**validation_summary, **runtime_validation}
     if "query_coverage_score" not in merged_quality and queries:
@@ -676,10 +822,19 @@ def _build_lightweight_public_artifacts(
         engine=engine,
         queries=queries,
         scope=dict(store_snapshot.get("scope")) if isinstance(store_snapshot.get("scope"), dict) else {},
+        outline=dict(store_snapshot.get("outline")) if isinstance(store_snapshot.get("outline"), dict) else {},
         plan=dict(store_snapshot.get("plan")) if isinstance(store_snapshot.get("plan"), dict) else {},
         tasks=_sorted_tasks(queue_snapshot),
         research_topology=research_topology if isinstance(research_topology, dict) else {},
         sources=_normalize_lightweight_sources(store_snapshot),
+        section_drafts=_normalize_public_section_drafts(store_snapshot.get("section_drafts")),
+        section_reviews=_normalize_public_section_reviews(store_snapshot.get("section_reviews")),
+        section_certifications=_normalize_public_section_certifications(store_snapshot.get("section_certifications")),
+        outline_gate_summary=(
+            dict(runtime_snapshot.get("outline_gate_summary"))
+            if isinstance(runtime_snapshot.get("outline_gate_summary"), dict)
+            else {}
+        ),
         branch_results=_normalize_lightweight_branch_results(store_snapshot),
         validation_summary=validation_summary,
         quality_summary=merged_quality,
@@ -711,10 +866,15 @@ def _build_legacy_public_artifacts(
         engine=engine,
         queries=_build_queries(queue_snapshot),
         scope={},
+        outline={},
         plan={},
         tasks=_sorted_tasks(queue_snapshot),
         research_topology=research_topology if isinstance(research_topology, dict) else {},
         sources=_normalize_legacy_sources(store_snapshot),
+        section_drafts=[],
+        section_reviews=[],
+        section_certifications=[],
+        outline_gate_summary={},
         branch_results=[],
         validation_summary=validation_summary,
         quality_summary=dict(quality_summary or {}),
@@ -779,11 +939,24 @@ def _filter_public_artifacts(
         engine=str(artifacts.get("engine") or artifacts.get("mode") or default_engine or default_mode or "multi_agent"),
         queries=queries,
         scope=dict(artifacts.get("scope")) if isinstance(artifacts.get("scope"), dict) else {},
+        outline=dict(artifacts.get("outline")) if isinstance(artifacts.get("outline"), dict) else {},
         plan=dict(artifacts.get("plan")) if isinstance(artifacts.get("plan"), dict) else {},
         tasks=_sorted_tasks({"tasks": artifacts.get("tasks")}) if isinstance(artifacts.get("tasks"), list) else [],
         research_topology=dict(artifacts.get("research_topology")) if isinstance(artifacts.get("research_topology"), dict) else {},
         sources=_normalize_public_sources(artifacts.get("sources")),
-        branch_results=_normalize_public_branch_results(artifacts.get("branch_results")),
+        section_drafts=_normalize_public_section_drafts(
+            artifacts.get("section_drafts") if isinstance(artifacts.get("section_drafts"), list) else []
+        ),
+        section_reviews=_normalize_public_section_reviews(
+            artifacts.get("section_reviews") if isinstance(artifacts.get("section_reviews"), list) else []
+        ),
+        section_certifications=_normalize_public_section_certifications(
+            artifacts.get("section_certifications") if isinstance(artifacts.get("section_certifications"), list) else []
+        ),
+        outline_gate_summary=dict(artifacts.get("outline_gate_summary")) if isinstance(artifacts.get("outline_gate_summary"), dict) else {},
+        branch_results=_normalize_public_branch_results(
+            artifacts.get("branch_results") if isinstance(artifacts.get("branch_results"), list) else artifacts.get("section_drafts")
+        ),
         validation_summary=_normalize_validation_summary(artifacts.get("validation_summary")),
         quality_summary=quality_summary,
         final_report=final_report,

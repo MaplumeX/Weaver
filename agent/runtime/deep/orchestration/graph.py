@@ -5,8 +5,8 @@ This module keeps the public entrypoints stable while dramatically reducing the
 number of persisted runtime artifacts. The loop is intentionally compact:
 
 clarify -> scope -> scope_review -> research_brief -> supervisor_plan
--> dispatch -> researcher -> merge -> verify -> supervisor_decide
--> outline_gate -> report -> finalize
+-> dispatch -> researcher/revisor -> merge -> reviewer -> supervisor_decide
+-> outline_gate -> report -> final_claim_gate -> finalize
 """
 
 from __future__ import annotations
@@ -42,13 +42,16 @@ from agent.runtime.deep.roles.supervisor import (
 )
 from agent.runtime.deep.schema import (
     AgentRunRecord,
-    BranchResult,
     EvidenceBundle,
     FinalReportArtifact,
+    OutlineArtifact,
+    OutlineSection,
     ResearchPlanArtifact,
     ResearchTask,
+    SectionCertificationArtifact,
+    SectionDraftArtifact,
+    SectionReviewArtifact,
     ScopeDraft,
-    ValidationSummary,
     _now_iso,
 )
 from agent.runtime.deep.services.knowledge_gap import GapAnalysisResult, KnowledgeGapAnalyzer
@@ -150,6 +153,73 @@ def _branch_validation_text(result: dict[str, Any]) -> str:
     return "\n".join([summary, *findings]).strip()
 
 
+def _section_title(payload: dict[str, Any]) -> str:
+    return str(
+        payload.get("title")
+        or payload.get("objective")
+        or payload.get("core_question")
+        or payload.get("query")
+        or "研究章节"
+    ).strip()
+
+
+def _section_draft_text(payload: dict[str, Any]) -> str:
+    summary = str(payload.get("summary") or "").strip()
+    findings = [str(item).strip() for item in payload.get("key_findings", []) or [] if str(item).strip()]
+    limitations = [str(item).strip() for item in payload.get("limitations", []) or [] if str(item).strip()]
+    return "\n".join([summary, *findings, *limitations]).strip()
+
+
+def _primary_claim_units(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    claim_units = [
+        item
+        for item in payload.get("claim_units", []) or []
+        if isinstance(item, dict)
+    ]
+    primary = [
+        item
+        for item in claim_units
+        if str(item.get("importance") or "secondary").strip().lower() == "primary"
+    ]
+    return primary or claim_units[:1]
+
+
+def _claim_grounding_ratio(payload: dict[str, Any]) -> float:
+    primary = _primary_claim_units(payload)
+    if not primary:
+        return 0.0
+    grounded = 0
+    for item in primary:
+        if bool(item.get("grounded")) or list(item.get("evidence_passage_ids") or []):
+            grounded += 1
+    return grounded / max(1, len(primary))
+
+
+def _needs_freshness_advisory(text: str) -> bool:
+    normalized = str(text or "").strip().lower()
+    if not normalized:
+        return False
+    freshness_markers = (
+        "latest",
+        "current",
+        "recent",
+        "today",
+        "newest",
+        "最新",
+        "当前",
+        "近期",
+        "最近",
+        "今年",
+        "本月",
+    )
+    return any(marker in normalized for marker in freshness_markers)
+
+
+_SECTION_OBJECTIVE_HARD_GATE_THRESHOLD = 0.7
+_SECTION_OBJECTIVE_SOURCE_FALLBACK_THRESHOLD = 0.0
+_SECTION_GROUNDING_HARD_GATE_THRESHOLD = 0.6
+
+
 def _normalize_source_item(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": str(item.get("title") or item.get("url") or "").strip(),
@@ -163,21 +233,33 @@ class LightweightArtifactStore:
     def __init__(self, snapshot: dict[str, Any] | None = None) -> None:
         snapshot = snapshot if isinstance(snapshot, dict) else {}
         self._scope = dict(snapshot.get("scope") or {})
+        self._outline = dict(snapshot.get("outline") or {})
         self._plan = dict(snapshot.get("plan") or {})
         self._evidence_bundles = {
             str(item.get("task_id") or item.get("id")): dict(item)
             for item in snapshot.get("evidence_bundles", []) or []
             if isinstance(item, dict) and (item.get("task_id") or item.get("id"))
         }
-        self._branch_results = {
-            str(item.get("task_id") or item.get("id")): dict(item)
-            for item in snapshot.get("branch_results", []) or []
-            if isinstance(item, dict) and (item.get("task_id") or item.get("id"))
+        section_draft_items = snapshot.get("section_drafts")
+        if not isinstance(section_draft_items, list):
+            section_draft_items = snapshot.get("branch_results", [])
+        self._section_drafts = {
+            str(item.get("section_id") or item.get("task_id") or item.get("id")): dict(item)
+            for item in section_draft_items or []
+            if isinstance(item, dict) and (item.get("section_id") or item.get("task_id") or item.get("id"))
         }
-        self._validation_summaries = {
-            str(item.get("task_id") or item.get("id")): dict(item)
-            for item in snapshot.get("validation_summaries", []) or []
-            if isinstance(item, dict) and (item.get("task_id") or item.get("id"))
+        section_review_items = snapshot.get("section_reviews")
+        if not isinstance(section_review_items, list):
+            section_review_items = snapshot.get("validation_summaries", [])
+        self._section_reviews = {
+            str(item.get("section_id") or item.get("task_id") or item.get("id")): dict(item)
+            for item in section_review_items or []
+            if isinstance(item, dict) and (item.get("section_id") or item.get("task_id") or item.get("id"))
+        }
+        self._section_certifications = {
+            str(item.get("section_id") or item.get("id")): dict(item)
+            for item in snapshot.get("section_certifications", []) or []
+            if isinstance(item, dict) and (item.get("section_id") or item.get("id"))
         }
         self._final_report = dict(snapshot.get("final_report") or {})
 
@@ -186,6 +268,12 @@ class LightweightArtifactStore:
 
     def set_scope(self, scope: dict[str, Any]) -> None:
         self._scope = copy.deepcopy(scope)
+
+    def outline(self) -> dict[str, Any]:
+        return copy.deepcopy(self._outline)
+
+    def set_outline(self, outline: dict[str, Any]) -> None:
+        self._outline = copy.deepcopy(outline)
 
     def plan(self) -> dict[str, Any]:
         return copy.deepcopy(self._plan)
@@ -204,41 +292,94 @@ class LightweightArtifactStore:
         if key:
             self._evidence_bundles[key] = copy.deepcopy(bundle)
 
-    def branch_results(self) -> list[dict[str, Any]]:
-        return [
-            copy.deepcopy(item)
-            for item in sorted(self._branch_results.values(), key=lambda value: str(value.get("task_id") or ""))
-        ]
+    def evidence_bundle(self, task_id: str) -> dict[str, Any]:
+        return copy.deepcopy(self._evidence_bundles.get(task_id, {}))
 
-    def set_branch_result(self, result: dict[str, Any]) -> None:
-        key = str(result.get("task_id") or result.get("id") or "").strip()
-        if key:
-            self._branch_results[key] = copy.deepcopy(result)
-
-    def branch_result(self, task_id: str) -> dict[str, Any]:
-        return copy.deepcopy(self._branch_results.get(task_id, {}))
-
-    def validation_summaries(self) -> list[dict[str, Any]]:
+    def section_drafts(self) -> list[dict[str, Any]]:
         return [
             copy.deepcopy(item)
             for item in sorted(
-                self._validation_summaries.values(),
-                key=lambda value: str(value.get("task_id") or ""),
+                self._section_drafts.values(),
+                key=lambda value: (
+                    int(value.get("section_order", 0) or 0),
+                    str(value.get("section_id") or value.get("task_id") or ""),
+                ),
             )
         ]
 
+    def set_section_draft(self, draft: dict[str, Any]) -> None:
+        key = str(draft.get("section_id") or draft.get("task_id") or draft.get("id") or "").strip()
+        if key:
+            self._section_drafts[key] = copy.deepcopy(draft)
+
+    def section_draft(self, section_id: str) -> dict[str, Any]:
+        return copy.deepcopy(self._section_drafts.get(section_id, {}))
+
+    def branch_results(self) -> list[dict[str, Any]]:
+        return self.section_drafts()
+
+    def set_branch_result(self, result: dict[str, Any]) -> None:
+        self.set_section_draft(result)
+
+    def branch_result(self, task_or_section_id: str) -> dict[str, Any]:
+        return self.section_draft(task_or_section_id)
+
+    def section_reviews(self) -> list[dict[str, Any]]:
+        return [
+            copy.deepcopy(item)
+            for item in sorted(
+                self._section_reviews.values(),
+                key=lambda value: (
+                    int(value.get("section_order", 0) or 0),
+                    str(value.get("section_id") or value.get("task_id") or ""),
+                ),
+            )
+        ]
+
+    def set_section_review(self, review: dict[str, Any]) -> None:
+        key = str(review.get("section_id") or review.get("task_id") or review.get("id") or "").strip()
+        if key:
+            self._section_reviews[key] = copy.deepcopy(review)
+
+    def section_review(self, section_id: str) -> dict[str, Any]:
+        return copy.deepcopy(self._section_reviews.get(section_id, {}))
+
+    def validation_summaries(self) -> list[dict[str, Any]]:
+        return self.section_reviews()
+
     def set_validation_summary(self, summary: dict[str, Any]) -> None:
-        key = str(summary.get("task_id") or summary.get("id") or "").strip()
-        if key:
-            self._validation_summaries[key] = copy.deepcopy(summary)
+        self.set_section_review(summary)
 
-    def validation_summary(self, task_id: str) -> dict[str, Any]:
-        return copy.deepcopy(self._validation_summaries.get(task_id, {}))
+    def validation_summary(self, task_or_section_id: str) -> dict[str, Any]:
+        return self.section_review(task_or_section_id)
 
-    def clear_validation_summary(self, task_id: str) -> None:
-        key = str(task_id or "").strip()
+    def clear_section_review(self, section_id: str) -> None:
+        key = str(section_id or "").strip()
         if key:
-            self._validation_summaries.pop(key, None)
+            self._section_reviews.pop(key, None)
+
+    def clear_validation_summary(self, task_or_section_id: str) -> None:
+        self.clear_section_review(task_or_section_id)
+
+    def section_certifications(self) -> list[dict[str, Any]]:
+        return [
+            copy.deepcopy(item)
+            for item in sorted(
+                self._section_certifications.values(),
+                key=lambda value: (
+                    int(value.get("section_order", 0) or 0),
+                    str(value.get("section_id") or ""),
+                ),
+            )
+        ]
+
+    def set_section_certification(self, certification: dict[str, Any]) -> None:
+        key = str(certification.get("section_id") or certification.get("id") or "").strip()
+        if key:
+            self._section_certifications[key] = copy.deepcopy(certification)
+
+    def section_certification(self, section_id: str) -> dict[str, Any]:
+        return copy.deepcopy(self._section_certifications.get(section_id, {}))
 
     def final_report(self) -> dict[str, Any]:
         return copy.deepcopy(self._final_report)
@@ -246,12 +387,15 @@ class LightweightArtifactStore:
     def set_final_report(self, report: dict[str, Any]) -> None:
         self._final_report = copy.deepcopy(report)
 
-    def passed_branch_results(self) -> list[dict[str, Any]]:
+    def certified_section_drafts(self) -> list[dict[str, Any]]:
         return [
             item
-            for item in self.branch_results()
-            if str(item.get("validation_status") or "").strip().lower() == "passed"
+            for item in self.section_drafts()
+            if bool(item.get("certified"))
         ]
+
+    def passed_branch_results(self) -> list[dict[str, Any]]:
+        return self.certified_section_drafts()
 
     def all_sources(self) -> list[dict[str, Any]]:
         sources: list[dict[str, Any]] = []
@@ -271,10 +415,12 @@ class LightweightArtifactStore:
     def snapshot(self) -> dict[str, Any]:
         return {
             "scope": copy.deepcopy(self._scope),
+            "outline": copy.deepcopy(self._outline),
             "plan": copy.deepcopy(self._plan),
             "evidence_bundles": self.evidence_bundles(),
-            "branch_results": self.branch_results(),
-            "validation_summaries": self.validation_summaries(),
+            "section_drafts": self.section_drafts(),
+            "section_reviews": self.section_reviews(),
+            "section_certifications": self.section_certifications(),
             "final_report": copy.deepcopy(self._final_report),
         }
 
@@ -367,7 +513,6 @@ class MultiAgentDeepResearchRuntime:
         supervisor_model = support._model_for_task("planning", self.config)
         researcher_model = support._model_for_task("research", self.config)
         reporter_model = support._model_for_task("writing", self.config)
-        verifier_model = support._model_for_task("gap_analysis", self.config)
 
         self.clarifier = self._deps.DeepResearchClarifyAgent(
             self._deps.create_chat_model(supervisor_model, temperature=0),
@@ -386,13 +531,13 @@ class MultiAgentDeepResearchRuntime:
             self._search_with_tracking,
             self.config,
         )
-        self.verifier = self._deps.KnowledgeGapAnalyzer(
-            self._deps.create_chat_model(verifier_model, temperature=0),
-            self.config,
-        )
         self.reporter = self._deps.ResearchReporter(
             self._deps.create_chat_model(reporter_model, temperature=0),
             self.config,
+        )
+        self.section_revision_limit = max(
+            1,
+            support._configurable_int(self.config, "deep_research_section_revision_limit", 1),
         )
 
     def _search_with_tracking(self, payload: dict[str, Any], config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -454,11 +599,12 @@ class MultiAgentDeepResearchRuntime:
             "approved_scope_draft": {},
             "scope_revision_count": 0,
             "scope_feedback_history": [],
-            "last_validation_summary": {},
-            "last_verification_summary": {},
-            "coverage_targets": [],
-            "coverage_target_source": "",
-            "task_coverage_map": {},
+            "outline_gate_summary": {},
+            "last_review_summary": {},
+            "final_claim_gate_summary": {},
+            "section_status_map": {},
+            "section_revision_counts": {},
+            "section_research_retry_counts": {},
             "searches_used": 0,
             "tokens_used": 0,
             "budget_stop_reason": "",
@@ -528,6 +674,7 @@ class MultiAgentDeepResearchRuntime:
         role: str,
         phase: str,
         task_id: str | None = None,
+        section_id: str | None = None,
         branch_id: str | None = None,
         stage: str = "",
         objective_summary: str = "",
@@ -543,6 +690,7 @@ class MultiAgentDeepResearchRuntime:
             graph_run_id=self.graph_run_id,
             node_id=phase,
             task_id=task_id,
+            section_id=section_id,
             branch_id=branch_id,
             stage=stage,
             objective_summary=objective_summary,
@@ -555,6 +703,7 @@ class MultiAgentDeepResearchRuntime:
                 "role": role,
                 "phase": phase,
                 "task_id": task_id,
+                "section_id": section_id,
                 "branch_id": branch_id,
                 "iteration": max(1, parts.current_iteration or 1),
                 "attempt": attempt,
@@ -586,6 +735,7 @@ class MultiAgentDeepResearchRuntime:
                 "role": record.get("role"),
                 "phase": record.get("phase"),
                 "task_id": record.get("task_id"),
+                "section_id": record.get("section_id"),
                 "branch_id": record.get("branch_id"),
                 "iteration": max(1, parts.current_iteration or 1),
                 "attempt": record.get("attempt", 1),
@@ -605,6 +755,7 @@ class MultiAgentDeepResearchRuntime:
             "stage": task.stage,
             "query": task.query,
             "query_hints": list(task.query_hints or []),
+            "section_id": task.section_id,
             "branch_id": task.branch_id,
             "priority": task.priority,
             "iteration": max(1, iteration),
@@ -626,6 +777,7 @@ class MultiAgentDeepResearchRuntime:
         summary: str,
         status: str = "completed",
         task_id: str | None = None,
+        section_id: str | None = None,
         branch_id: str | None = None,
         iteration: int = 1,
         extra: dict[str, Any] | None = None,
@@ -635,6 +787,7 @@ class MultiAgentDeepResearchRuntime:
             "artifact_type": artifact_type,
             "status": status,
             "task_id": task_id,
+            "section_id": section_id,
             "branch_id": branch_id,
             "summary": summary[:180],
             "iteration": max(1, iteration),
@@ -805,6 +958,543 @@ class MultiAgentDeepResearchRuntime:
             "updated_at": _now_iso(),
         }
 
+    def _outline_sections(self, outline: dict[str, Any]) -> list[dict[str, Any]]:
+        sections = [
+            item
+            for item in list(outline.get("sections") or [])
+            if isinstance(item, dict) and str(item.get("id") or "").strip()
+        ]
+        return sorted(
+            sections,
+            key=lambda item: (
+                int(item.get("section_order", 0) or 0),
+                str(item.get("id") or ""),
+            ),
+        )
+
+    def _build_outline_tasks(
+        self,
+        *,
+        outline: dict[str, Any],
+        scope: dict[str, Any],
+    ) -> list[ResearchTask]:
+        tasks: list[ResearchTask] = []
+        for index, section in enumerate(self._outline_sections(outline), 1):
+            core_question = str(section.get("core_question") or section.get("objective") or "").strip()
+            title = _section_title(section)
+            query_hints = _dedupe_texts([
+                core_question,
+                f"{self.topic} {core_question}".strip(),
+                title,
+            ])
+            query = query_hints[0] if query_hints else core_question or title
+            task = ResearchTask(
+                id=support._new_id("task"),
+                goal=core_question or title,
+                query=query,
+                priority=max(1, int(section.get("section_order", index) or index)),
+                objective=str(section.get("objective") or core_question or title).strip(),
+                task_kind="section_research",
+                acceptance_criteria=_dedupe_texts(section.get("acceptance_checks") or [core_question]),
+                allowed_tools=["search", "read", "extract", "synthesize"],
+                input_artifact_ids=[
+                    str(item).strip()
+                    for item in [
+                        str(scope.get("id") or "").strip(),
+                        str(outline.get("id") or "").strip(),
+                    ]
+                    if str(item).strip()
+                ],
+                output_artifact_types=["section_draft", "evidence_bundle"],
+                query_hints=query_hints or [core_question or title],
+                title=title,
+                aspect="section",
+                section_id=str(section.get("id") or "").strip(),
+            )
+            tasks.append(task)
+        return tasks
+
+    def _fallback_outline_plan(self, scope: dict[str, Any]) -> dict[str, Any]:
+        questions = _dedupe_texts(scope.get("core_questions") or [scope.get("research_goal") or self.topic])
+        sections = [
+            OutlineSection(
+                id=support._new_id("section"),
+                title=f"问题 {index}: {question}",
+                objective=question,
+                core_question=question,
+                acceptance_checks=[question],
+                source_requirements=[
+                    "至少 1 个可引用来源",
+                    "至少 1 段可定位 passage 支撑主结论",
+                ],
+                freshness_policy="default_advisory",
+                section_order=index,
+                status="planned",
+            ).to_dict()
+            for index, question in enumerate(questions, 1)
+        ]
+        return OutlineArtifact(
+            id=support._new_id("outline"),
+            topic=self.topic,
+            outline_version=1,
+            sections=sections,
+            required_section_ids=[str(item.get("id") or "") for item in sections if str(item.get("id") or "")],
+            question_section_map={
+                str(item.get("core_question") or "").strip(): str(item.get("id") or "").strip()
+                for item in sections
+                if str(item.get("core_question") or "").strip() and str(item.get("id") or "").strip()
+            },
+        ).to_dict()
+
+    def _fallback_section_decision(
+        self,
+        *,
+        outline: dict[str, Any],
+        section_status_map: dict[str, Any],
+        budget_stop_reason: str = "",
+    ) -> dict[str, Any]:
+        if budget_stop_reason:
+            return {"action": "stop", "reasoning": budget_stop_reason}
+        required_ids = [
+            str(item).strip()
+            for item in (outline.get("required_section_ids") or [])
+            if str(item).strip()
+        ]
+        if not required_ids:
+            required_ids = [
+                str(item.get("id") or "").strip()
+                for item in self._outline_sections(outline)
+                if str(item.get("id") or "").strip()
+            ]
+        if not required_ids:
+            required_ids = [
+                str(section_id).strip()
+                for section_id in dict(section_status_map or {}).keys()
+                if str(section_id).strip()
+            ]
+        blocked = [
+            section_id
+            for section_id in required_ids
+            if str((section_status_map or {}).get(section_id) or "").strip() == "blocked"
+        ]
+        if blocked:
+            return {"action": "stop", "reasoning": "存在阻塞的 required section"}
+        pending = [
+            section_id
+            for section_id in required_ids
+            if str((section_status_map or {}).get(section_id) or "planned").strip() not in {"certified", "blocked", "failed"}
+        ]
+        if pending:
+            return {"action": "dispatch", "reasoning": "仍有未认证的 section"}
+        return {"action": "report", "reasoning": "所有 required section 已认证"}
+
+    def _section_map(self, outline: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        return {
+            str(item.get("id") or "").strip(): item
+            for item in self._outline_sections(outline)
+            if str(item.get("id") or "").strip()
+        }
+
+    def _build_section_draft(
+        self,
+        task: ResearchTask,
+        section: dict[str, Any],
+        bundle: dict[str, Any],
+        outcome: dict[str, Any],
+        created_by: str,
+    ) -> dict[str, Any]:
+        summary = str(outcome.get("summary") or "").strip()
+        claim_units = [
+            item
+            for item in list(outcome.get("claim_units") or [])
+            if isinstance(item, dict) and str(item.get("text") or "").strip()
+        ]
+        if not claim_units:
+            fallback_passage_ids = [
+                str(item.get("id") or "").strip()
+                for item in bundle.get("passages", []) or []
+                if str(item.get("id") or "").strip()
+            ]
+            fallback_source_urls = [
+                str(item.get("url") or "").strip()
+                for item in bundle.get("sources", []) or []
+                if str(item.get("url") or "").strip()
+            ]
+            fallback_claim_texts = _dedupe_texts([summary, *(outcome.get("key_findings") or [])])
+            claim_units = [
+                {
+                    "id": f"claim_{index}",
+                    "text": text,
+                    "importance": "primary" if index <= 2 else "secondary",
+                    "evidence_passage_ids": fallback_passage_ids[:1],
+                    "evidence_urls": fallback_source_urls[:1],
+                    "grounded": bool(fallback_passage_ids),
+                }
+                for index, text in enumerate(fallback_claim_texts, 1)
+                if text
+            ]
+        draft = SectionDraftArtifact(
+            id=support._new_id("section_draft"),
+            task_id=task.id,
+            section_id=str(task.section_id or ""),
+            branch_id=task.branch_id,
+            title=_section_title(section) or _branch_title(task),
+            objective=str(section.get("objective") or task.objective or task.goal).strip(),
+            core_question=str(section.get("core_question") or task.objective or task.goal).strip(),
+            summary=summary,
+            key_findings=list(outcome.get("key_findings") or _split_findings(summary) or [summary]),
+            open_questions=list(outcome.get("open_questions") or []),
+            confidence_note=str(outcome.get("confidence_note") or "").strip(),
+            source_urls=[str(item.get("url") or "").strip() for item in bundle.get("sources", []) if item.get("url")],
+            claim_units=claim_units,
+            limitations=list(outcome.get("limitations") or []),
+            evidence_bundle_id=str(bundle.get("id") or "") or None,
+            created_by=created_by,
+        ).to_dict()
+        draft["section_order"] = int(section.get("section_order", 0) or 0)
+        return draft
+
+    def _build_review_issue(self, issue_type: str, message: str, *, blocking: bool) -> dict[str, Any]:
+        return {
+            "id": support._new_id("issue"),
+            "issue_type": issue_type,
+            "message": message,
+            "blocking": blocking,
+            "status": "open",
+            "created_at": _now_iso(),
+        }
+
+    def _review_section_draft(
+        self,
+        *,
+        section: dict[str, Any],
+        draft: dict[str, Any],
+        bundle: dict[str, Any],
+        revision_count: int,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        draft_text = _section_draft_text(draft)
+        objective = str(section.get("objective") or section.get("core_question") or draft.get("objective") or "").strip()
+        objective_overlap = _text_overlap_score(objective, draft_text)
+        objective_score = 1.0 if objective_overlap >= 0.15 else (0.8 if objective_overlap >= 0.05 else 0.55)
+
+        grounding_ratio = _claim_grounding_ratio(draft)
+        grounding_score = round(grounding_ratio, 3)
+        source_count = len(bundle.get("sources") or [])
+        has_primary_sources = source_count > 0 and len(bundle.get("passages") or []) > 0
+        objective_met = bool(str(draft.get("summary") or "").strip()) and (
+            objective_score >= _SECTION_OBJECTIVE_HARD_GATE_THRESHOLD
+            or source_count > 0
+        )
+
+        blocking_issues: list[dict[str, Any]] = []
+        advisory_issues: list[dict[str, Any]] = []
+        follow_up_queries: list[str] = []
+
+        if not draft_text:
+            blocking_issues.append(
+                self._build_review_issue("objective_not_met", "章节草稿为空，尚未回答核心问题", blocking=True)
+            )
+        elif not objective_met:
+            blocking_issues.append(
+                self._build_review_issue("objective_not_met", "章节尚未稳定回答核心问题", blocking=True)
+            )
+
+        if not has_primary_sources:
+            blocking_issues.append(
+                self._build_review_issue("insufficient_sources", "缺少可定位来源或 passage，无法支撑主结论", blocking=True)
+            )
+
+        if grounding_ratio < _SECTION_GROUNDING_HARD_GATE_THRESHOLD:
+            blocking_issues.append(
+                self._build_review_issue(
+                    "primary_claim_ungrounded",
+                    f"主结论的证据绑定比例不足 {int(_SECTION_GROUNDING_HARD_GATE_THRESHOLD * 100)}%",
+                    blocking=True,
+                )
+            )
+            follow_up_queries.extend(
+                _dedupe_texts(draft.get("open_questions") or [objective, str(section.get("core_question") or "")])
+            )
+        elif grounding_ratio < 1.0:
+            advisory_issues.append(
+                self._build_review_issue(
+                    "secondary_claim_ungrounded",
+                    "仍有部分结论未完全绑定证据，建议在报告中保留限制说明",
+                    blocking=False,
+                )
+            )
+
+        if _needs_freshness_advisory(f"{self.topic} {objective}"):
+            published_dates = [
+                str(item.get("published_date") or "").strip()
+                for item in bundle.get("sources", []) or []
+                if str(item.get("published_date") or "").strip()
+            ]
+            if not published_dates:
+                advisory_issues.append(
+                    self._build_review_issue(
+                        "freshness_risk",
+                        "该章节关注最新信息，但来源缺少明确发布时间，默认作为 advisory 处理",
+                        blocking=False,
+                    )
+                )
+
+        if advisory_issues and not blocking_issues and revision_count < self.section_revision_limit and not str(draft.get("summary") or "").strip():
+            verdict = "revise_section"
+        elif blocking_issues:
+            verdict = "request_research"
+        else:
+            verdict = "accept_section"
+
+        review = SectionReviewArtifact(
+            id=support._new_id("section_review"),
+            task_id=str(draft.get("task_id") or ""),
+            section_id=str(draft.get("section_id") or ""),
+            branch_id=draft.get("branch_id"),
+            verdict=verdict,
+            objective_score=round(objective_score, 3),
+            grounding_score=grounding_score,
+            freshness_score=0.65 if advisory_issues else 0.8,
+            contradiction_score=1.0,
+            blocking_issues=blocking_issues,
+            advisory_issues=advisory_issues,
+            follow_up_queries=_dedupe_texts(follow_up_queries or [objective]),
+            notes="; ".join(
+                [str(item.get("message") or "").strip() for item in [*blocking_issues, *advisory_issues] if str(item.get("message") or "").strip()]
+            ),
+        ).to_dict()
+        review["section_order"] = int(section.get("section_order", 0) or 0)
+
+        certification: dict[str, Any] | None = None
+        if verdict == "accept_section":
+            certification = SectionCertificationArtifact(
+                id=support._new_id("section_certification"),
+                section_id=str(draft.get("section_id") or ""),
+                certified=True,
+                key_claims_grounded_ratio=round(grounding_ratio, 3),
+                objective_met=objective_met,
+                has_primary_sources=has_primary_sources,
+                freshness_warning=(
+                    "freshness_risk"
+                    if any(str(item.get("issue_type") or "") == "freshness_risk" for item in advisory_issues)
+                    else ""
+                ),
+                limitations=[
+                    str(item.get("message") or "").strip()
+                    for item in advisory_issues
+                    if str(item.get("message") or "").strip()
+                ],
+                blocking_issue_count=0,
+                advisory_issue_count=len(advisory_issues),
+            ).to_dict()
+            certification["section_order"] = int(section.get("section_order", 0) or 0)
+
+        return review, certification
+
+    def _build_revision_task(
+        self,
+        *,
+        section: dict[str, Any],
+        draft: dict[str, Any],
+        review: dict[str, Any],
+        scope: dict[str, Any],
+        revision_count: int,
+    ) -> ResearchTask:
+        core_question = str(section.get("core_question") or section.get("objective") or draft.get("objective") or "").strip()
+        return ResearchTask(
+            id=support._new_id("task"),
+            goal=core_question,
+            query=str(draft.get("summary") or core_question).strip() or core_question,
+            priority=max(1, int(section.get("section_order", 1) or 1)),
+            objective=str(section.get("objective") or core_question).strip(),
+            task_kind="section_revision",
+            acceptance_criteria=_dedupe_texts(section.get("acceptance_checks") or [core_question]),
+            allowed_tools=["synthesize"],
+            input_artifact_ids=[
+                str(item).strip()
+                for item in [
+                    str(scope.get("id") or "").strip(),
+                    str(section.get("id") or "").strip(),
+                    str(draft.get("id") or "").strip(),
+                    str(review.get("id") or "").strip(),
+                ]
+                if str(item).strip()
+            ],
+            output_artifact_types=["section_draft"],
+            query_hints=[core_question],
+            title=f"修订章节: {_section_title(section)}",
+            aspect="section_revision",
+            section_id=str(section.get("id") or "").strip(),
+            parent_task_id=str(draft.get("task_id") or "") or None,
+            revision_kind="reviewer_revision",
+            target_issue_ids=[
+                str(item.get("id") or "").strip()
+                for item in review.get("advisory_issues", []) or []
+                if str(item.get("id") or "").strip()
+            ],
+        )
+
+    def _build_research_retry_task(
+        self,
+        *,
+        section: dict[str, Any],
+        draft: dict[str, Any],
+        review: dict[str, Any],
+        scope: dict[str, Any],
+    ) -> ResearchTask:
+        follow_up_queries = _dedupe_texts(review.get("follow_up_queries") or [section.get("core_question")])
+        query = follow_up_queries[0] if follow_up_queries else str(section.get("core_question") or "").strip()
+        return ResearchTask(
+            id=support._new_id("task"),
+            goal=str(section.get("core_question") or section.get("objective") or "").strip(),
+            query=query,
+            priority=max(1, int(section.get("section_order", 1) or 1)),
+            objective=str(section.get("objective") or section.get("core_question") or "").strip(),
+            task_kind="section_research",
+            acceptance_criteria=_dedupe_texts(section.get("acceptance_checks") or [section.get("core_question")]),
+            allowed_tools=["search", "read", "extract", "synthesize"],
+            input_artifact_ids=[
+                str(item).strip()
+                for item in [
+                    str(scope.get("id") or "").strip(),
+                    str(section.get("id") or "").strip(),
+                    str(draft.get("id") or "").strip(),
+                    str(review.get("id") or "").strip(),
+                ]
+                if str(item).strip()
+            ],
+            output_artifact_types=["section_draft", "evidence_bundle"],
+            query_hints=follow_up_queries or [query],
+            title=f"补充研究: {_section_title(section)}",
+            aspect="section_retry",
+            section_id=str(section.get("id") or "").strip(),
+            parent_task_id=str(draft.get("task_id") or "") or None,
+            target_issue_ids=[
+                str(item.get("id") or "").strip()
+                for item in review.get("blocking_issues", []) or []
+                if str(item.get("id") or "").strip()
+            ],
+        )
+
+    def _aggregate_sections(
+        self,
+        queue: ResearchTaskQueue,
+        store: LightweightArtifactStore,
+        runtime_state: dict[str, Any],
+    ) -> dict[str, Any]:
+        outline = store.outline()
+        required_section_ids = [
+            str(item).strip()
+            for item in outline.get("required_section_ids", []) or []
+            if str(item).strip()
+        ]
+        if not required_section_ids:
+            required_section_ids = [
+                str(item.get("id") or "").strip()
+                for item in self._outline_sections(outline)
+                if str(item.get("id") or "").strip()
+            ]
+        certifications = {
+            str(item.get("section_id") or "").strip(): item
+            for item in store.section_certifications()
+            if str(item.get("section_id") or "").strip()
+        }
+        if not required_section_ids and certifications:
+            required_section_ids = list(certifications.keys())
+        reviews = {
+            str(item.get("section_id") or "").strip(): item
+            for item in store.section_reviews()
+            if str(item.get("section_id") or "").strip()
+        }
+        if not required_section_ids and reviews:
+            required_section_ids = list(reviews.keys())
+        if not required_section_ids:
+            required_section_ids = [
+                str(section_id).strip()
+                for section_id in dict(runtime_state.get("section_status_map") or {}).keys()
+                if str(section_id).strip()
+            ]
+        if not required_section_ids:
+            required_section_ids = [
+                str(item.get("section_id") or "").strip()
+                for item in store.section_drafts()
+                if str(item.get("section_id") or "").strip()
+            ]
+        status_map = {
+            str(section_id): str((runtime_state.get("section_status_map") or {}).get(section_id) or "planned").strip()
+            for section_id in required_section_ids
+        }
+        certified_section_ids = [
+            section_id
+            for section_id in required_section_ids
+            if bool(certifications.get(section_id, {}).get("certified"))
+        ]
+        blocked_section_ids = [
+            section_id
+            for section_id in required_section_ids
+            if status_map.get(section_id) == "blocked"
+        ]
+        pending_section_ids = [
+            section_id
+            for section_id in required_section_ids
+            if section_id not in certified_section_ids and section_id not in blocked_section_ids
+        ]
+        advisory_issue_count = sum(
+            len(item.get("advisory_issues") or [])
+            for item in reviews.values()
+            if isinstance(item, dict)
+        )
+        blocking_issue_count = sum(
+            len(item.get("blocking_issues") or [])
+            for item in reviews.values()
+            if isinstance(item, dict)
+        )
+        ready = bool(required_section_ids) and not pending_section_ids and not blocked_section_ids
+        return {
+            "required_section_count": len(required_section_ids),
+            "certified_section_count": len(certified_section_ids),
+            "pending_section_count": len(pending_section_ids),
+            "blocked_section_count": len(blocked_section_ids),
+            "required_section_ids": required_section_ids,
+            "certified_section_ids": certified_section_ids,
+            "missing_section_ids": pending_section_ids,
+            "blocked_section_ids": blocked_section_ids,
+            "advisory_issue_count": advisory_issue_count,
+            "blocking_issue_count": blocking_issue_count,
+            "outline_ready": ready,
+            "ready_task_count": queue.ready_count(),
+            "source_count": len(store.all_sources()),
+        }
+
+    def _normalize_passages_for_claim_gate(self, store: LightweightArtifactStore) -> list[dict[str, Any]]:
+        passages: list[dict[str, Any]] = []
+        for bundle in store.evidence_bundles():
+            task_id = str(bundle.get("task_id") or "").strip()
+            section_id = ""
+            draft = self.artifact_store_section_draft_by_task(store, task_id)
+            if draft:
+                section_id = str(draft.get("section_id") or "").strip()
+            for item in bundle.get("passages", []) or []:
+                if not isinstance(item, dict):
+                    continue
+                passages.append(
+                    {
+                        **copy.deepcopy(item),
+                        "task_id": task_id,
+                        "section_id": section_id,
+                    }
+                )
+        return passages
+
+    def artifact_store_section_draft_by_task(self, store: LightweightArtifactStore, task_id: str) -> dict[str, Any]:
+        task_key = str(task_id or "").strip()
+        if not task_key:
+            return {}
+        for draft in store.section_drafts():
+            if str(draft.get("task_id") or "").strip() == task_key:
+                return copy.deepcopy(draft)
+        return {}
+
     def _build_plan_artifact(
         self,
         scope: dict[str, Any],
@@ -819,6 +1509,7 @@ class MultiAgentDeepResearchRuntime:
             tasks=[
                 {
                     "task_id": task.id,
+                    "section_id": task.section_id,
                     "title": task.title,
                     "objective": task.objective,
                     "query": task.query,
@@ -967,6 +1658,7 @@ class MultiAgentDeepResearchRuntime:
         bundle = EvidenceBundle(
             id=support._new_id("bundle"),
             task_id=task.id,
+            section_id=task.section_id,
             branch_id=task.branch_id,
             sources=sources,
             documents=documents,
@@ -1131,40 +1823,44 @@ class MultiAgentDeepResearchRuntime:
         }
 
     def _quality_summary(self, queue: ResearchTaskQueue, store: LightweightArtifactStore, runtime_state: dict[str, Any]) -> dict[str, Any]:
-        aggregate = self._aggregate_validation(queue, store, runtime_state)
-        passed_branch_count = int(aggregate.get("passed_branch_count") or 0)
-        source_count = len(store.all_sources())
-        coverage_score = float(aggregate.get("coverage_score") or 0.0)
-        covered_question_count = int(aggregate.get("covered_question_count") or 0)
-        coverage_target_count = int(aggregate.get("coverage_target_count") or 0)
-        uncovered_questions = _dedupe_texts(aggregate.get("uncovered_questions") or [])
+        aggregate = self._aggregate_sections(queue, store, runtime_state)
+        certified_section_count = int(aggregate.get("certified_section_count") or 0)
+        required_section_count = int(aggregate.get("required_section_count") or 0)
+        source_count = int(aggregate.get("source_count") or 0)
+        coverage_score = round(certified_section_count / max(1, required_section_count), 3) if required_section_count else 0.0
+        missing_section_ids = _dedupe_texts(aggregate.get("missing_section_ids") or [])
+        final_claim_gate_summary = runtime_state.get("final_claim_gate_summary")
+        claim_gate = final_claim_gate_summary if isinstance(final_claim_gate_summary, dict) else {}
         return {
-            "branch_count": int(aggregate.get("branch_count") or 0),
-            "passed_branch_count": passed_branch_count,
-            "retry_branch_count": int(aggregate.get("retry_branch_count") or 0),
-            "failed_branch_count": int(aggregate.get("failed_branch_count") or 0),
-            "advisory_gap_count": int(aggregate.get("advisory_gap_count") or 0),
-            "coverage_ready": bool(aggregate.get("coverage_ready")),
-            "covered_question_count": covered_question_count,
-            "coverage_target_count": coverage_target_count,
-            "uncovered_questions": uncovered_questions,
+            "section_count": required_section_count,
+            "certified_section_count": certified_section_count,
+            "pending_section_count": int(aggregate.get("pending_section_count") or 0),
+            "blocked_section_count": int(aggregate.get("blocked_section_count") or 0),
+            "advisory_issue_count": int(aggregate.get("advisory_issue_count") or 0),
+            "blocking_issue_count": int(aggregate.get("blocking_issue_count") or 0),
+            "coverage_ready": bool(aggregate.get("outline_ready")),
+            "missing_section_ids": missing_section_ids,
             "coverage_summary": {
-                "ready": bool(aggregate.get("coverage_ready")),
+                "ready": bool(aggregate.get("outline_ready")),
                 "score": coverage_score,
-                "covered_count": covered_question_count,
-                "target_count": coverage_target_count,
-                "target_source": str(aggregate.get("coverage_target_source") or ""),
+                "covered_count": certified_section_count,
+                "target_count": required_section_count,
+                "target_source": "outline_required_sections",
             },
             "source_count": source_count,
             "query_coverage_score": coverage_score,
             "query_coverage": {
                 "score": coverage_score,
-                "covered": covered_question_count,
-                "total": coverage_target_count,
+                "covered": certified_section_count,
+                "total": required_section_count,
             },
-            "citation_coverage": round(min(1.0, source_count / max(1, passed_branch_count)), 3),
-            "uncovered_questions_count": len(uncovered_questions),
+            "citation_coverage": round(min(1.0, source_count / max(1, certified_section_count)), 3),
+            "uncovered_questions_count": len(missing_section_ids),
             "budget_stop_reason": str(runtime_state.get("budget_stop_reason") or ""),
+            "claim_verifier_total": int(claim_gate.get("claim_verifier_total") or 0),
+            "claim_verifier_verified": int(claim_gate.get("claim_verifier_verified") or 0),
+            "claim_verifier_unsupported": int(claim_gate.get("claim_verifier_unsupported") or 0),
+            "claim_verifier_contradicted": int(claim_gate.get("claim_verifier_contradicted") or 0),
         }
 
     def _research_topology_snapshot(
@@ -1173,10 +1869,10 @@ class MultiAgentDeepResearchRuntime:
         store: LightweightArtifactStore,
         runtime_state: dict[str, Any],
     ) -> dict[str, Any]:
-        validations_by_task = {
-            str(item.get("task_id") or ""): item
-            for item in store.validation_summaries()
-            if str(item.get("task_id") or "")
+        certifications_by_section = {
+            str(item.get("section_id") or ""): item
+            for item in store.section_certifications()
+            if str(item.get("section_id") or "")
         }
         return {
             "id": "deep_research",
@@ -1188,14 +1884,16 @@ class MultiAgentDeepResearchRuntime:
             "children": [
                 {
                     "id": task.id,
-                    "title": _branch_title(task),
+                    "section_id": task.section_id,
+                    "title": task.title or task.objective or task.goal,
                     "query": task.query,
                     "status": task.status,
                     "stage": task.stage,
                     "attempts": task.attempts,
-                    "branch_id": task.branch_id,
-                    "validation_status": str(
-                        validations_by_task.get(task.id, {}).get("status") or "pending"
+                    "validation_status": "certified"
+                    if bool(certifications_by_section.get(str(task.section_id or ""), {}).get("certified"))
+                    else str(
+                        (runtime_state.get("section_status_map") or {}).get(str(task.section_id or "")) or "pending"
                     ),
                 }
                 for task in queue.all_tasks()
@@ -1215,7 +1913,10 @@ class MultiAgentDeepResearchRuntime:
             return existing
         final_report = artifact_store_snapshot.get("final_report")
         if isinstance(final_report, dict) and final_report.get("report_markdown"):
-            return "finalize"
+            final_claim_gate_summary = runtime_state_snapshot.get("final_claim_gate_summary")
+            if isinstance(final_claim_gate_summary, dict) and final_claim_gate_summary:
+                return "finalize"
+            return "final_claim_gate"
         approved_scope = runtime_state_snapshot.get("approved_scope_draft")
         current_scope = runtime_state_snapshot.get("current_scope_draft")
         intake_status = str(runtime_state_snapshot.get("intake_status") or "pending").strip().lower()
@@ -1228,24 +1929,29 @@ class MultiAgentDeepResearchRuntime:
         scope = artifact_store_snapshot.get("scope")
         if not isinstance(scope, dict) or not scope:
             return "research_brief"
+        outline = artifact_store_snapshot.get("outline")
+        if not isinstance(outline, dict) or not outline:
+            return "outline_plan"
         stats = task_queue_snapshot.get("stats", {}) if isinstance(task_queue_snapshot, dict) else {}
         if int(stats.get("total", 0) or 0) == 0:
-            return "supervisor_plan"
+            return "outline_plan"
         if int(stats.get("ready", 0) or 0) > 0 or int(stats.get("in_progress", 0) or 0) > 0:
             return "dispatch"
-        validations = artifact_store_snapshot.get("validation_summaries", [])
-        if not validations:
-            return "verify"
-        latest_validation = runtime_state_snapshot.get("last_validation_summary")
-        if not isinstance(latest_validation, dict):
-            latest_validation = runtime_state_snapshot.get("last_verification_summary")
-        coverage_ready = bool(latest_validation.get("coverage_ready")) if isinstance(latest_validation, dict) else False
-        passed = [
-            item
-            for item in validations
-            if isinstance(item, dict) and str(item.get("status") or "") == "passed"
-        ]
-        if passed and coverage_ready:
+        section_drafts = artifact_store_snapshot.get("section_drafts")
+        if isinstance(section_drafts, list) and section_drafts:
+            certifications = artifact_store_snapshot.get("section_certifications")
+            certified_ids = {
+                str(item.get("section_id") or "").strip()
+                for item in certifications if isinstance(certifications, list) and isinstance(item, dict)
+            }
+            for draft in section_drafts:
+                if not isinstance(draft, dict):
+                    continue
+                section_id = str(draft.get("section_id") or "").strip()
+                if section_id and section_id not in certified_ids:
+                    return "reviewer"
+        outline_gate_summary = runtime_state_snapshot.get("outline_gate_summary")
+        if isinstance(outline_gate_summary, dict) and bool(outline_gate_summary.get("outline_ready")):
             return "report"
         return "supervisor_decide"
 
@@ -1271,7 +1977,7 @@ class MultiAgentDeepResearchRuntime:
             "next_step": next_step,
             "latest_gap_result": {},
             "latest_decision": {},
-            "latest_verification_summary": copy.deepcopy(runtime_state.get("last_validation_summary") or {}),
+            "latest_verification_summary": copy.deepcopy(runtime_state.get("last_review_summary") or {}),
             "pending_worker_tasks": [],
             "worker_results": [],
             "final_result": {},
@@ -1298,12 +2004,13 @@ class MultiAgentDeepResearchRuntime:
             "scope",
             "scope_review",
             "research_brief",
-            "supervisor_plan",
+            "outline_plan",
             "dispatch",
-            "verify",
+            "reviewer",
             "supervisor_decide",
             "outline_gate",
             "report",
+            "final_claim_gate",
             "finalize",
         }:
             return next_step
@@ -1499,9 +2206,9 @@ class MultiAgentDeepResearchRuntime:
             iteration=max(1, parts.current_iteration or 1),
         )
         self._emit_decision("research_brief_ready", "approved scope normalized into runtime scope", iteration=max(1, parts.current_iteration or 1))
-        return self._patch(parts, next_step="supervisor_plan")
+        return self._patch(parts, next_step="outline_plan")
 
-    def _supervisor_plan_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+    def _outline_plan_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)
         approved_scope = copy.deepcopy(parts.runtime_state.get("approved_scope_draft") or {})
         if not approved_scope:
@@ -1509,57 +2216,67 @@ class MultiAgentDeepResearchRuntime:
         scope = parts.artifact_store.scope()
         if not scope:
             return self._patch(parts, next_step="research_brief")
-        if parts.task_queue.snapshot().get("stats", {}).get("total", 0):
-            self._ensure_coverage_state(parts)
+        if parts.artifact_store.outline():
             if parts.task_queue.ready_count() > 0:
                 return self._patch(parts, next_step="dispatch")
-            return self._patch(parts, next_step="verify")
+            return self._patch(parts, next_step="reviewer")
 
         parts.runtime_state["active_agent"] = "supervisor"
-        record = self._start_agent_run(parts, role="supervisor", phase="supervisor_plan", attempt=self.graph_attempt)
-        plan_items = self.supervisor.create_plan(
-            self.topic,
-            num_queries=self.query_num,
-            existing_knowledge="\n".join(parts.shared_state.get("summary_notes", [])),
-            existing_queries=[],
-            approved_scope=scope,
-        )
-        tasks = self._plan_items_to_tasks(plan_items=plan_items, scope=scope)
+        record = self._start_agent_run(parts, role="supervisor", phase="outline_plan", attempt=self.graph_attempt)
+        if hasattr(self.supervisor, "create_outline_plan"):
+            outline = self.supervisor.create_outline_plan(self.topic, approved_scope=scope)
+        else:
+            outline = self._fallback_outline_plan(scope)
+        sections = self._outline_sections(outline)
+        tasks = self._build_outline_tasks(outline=outline, scope=scope)
         if not tasks:
             parts.runtime_state["terminal_status"] = "blocked"
-            parts.runtime_state["terminal_reason"] = "research plan produced no executable tasks"
+            parts.runtime_state["terminal_reason"] = "outline plan produced no executable tasks"
             self._finish_agent_run(parts, record, status="completed", summary=parts.runtime_state["terminal_reason"])
             return self._patch(parts, next_step="finalize")
 
-        coverage_targets, coverage_target_source = self._derive_coverage_targets(scope, tasks)
-        parts.runtime_state["coverage_targets"] = coverage_targets
-        parts.runtime_state["coverage_target_source"] = coverage_target_source
-        parts.runtime_state["task_coverage_map"] = self._assign_coverage_targets(tasks, coverage_targets)
+        parts.artifact_store.set_outline(outline)
+        parts.runtime_state["outline_id"] = str(outline.get("id") or "")
+        parts.runtime_state["section_status_map"] = {
+            str(section.get("id") or ""): "planned"
+            for section in sections
+            if str(section.get("id") or "")
+        }
         parts.task_queue.enqueue(tasks)
-        plan_artifact = self._build_plan_artifact(
-            scope,
-            tasks,
-            coverage_targets=coverage_targets,
-            coverage_target_source=coverage_target_source,
-        )
+        plan_artifact = self._build_plan_artifact(scope, tasks)
+        plan_artifact["outline_id"] = str(outline.get("id") or "")
+        plan_artifact["required_section_ids"] = list(outline.get("required_section_ids") or [])
         parts.artifact_store.set_plan(plan_artifact)
         parts.runtime_state["plan_id"] = str(plan_artifact.get("id") or "")
-        parts.runtime_state["supervisor_phase"] = "initial_plan"
+        parts.runtime_state["supervisor_phase"] = "outline_plan"
+        self._emit_artifact_update(
+            artifact_id=str(outline.get("id") or support._new_id("outline")),
+            artifact_type="outline",
+            summary=f"generated {len(sections)} required sections",
+            iteration=max(1, parts.current_iteration or 1),
+            extra={
+                "required_section_ids": list(outline.get("required_section_ids") or []),
+                "section_count": len(sections),
+            },
+        )
         self._emit_artifact_update(
             artifact_id=str(plan_artifact.get("id") or support._new_id("plan")),
             artifact_type="plan",
-            summary=f"generated {len(tasks)} branch tasks",
+            summary=f"generated {len(tasks)} section tasks",
             iteration=max(1, parts.current_iteration or 1),
         )
         for task in tasks:
             self._emit_task_update(task, task.status, iteration=max(1, parts.current_iteration or 1))
-        self._emit_decision("supervisor_plan", f"generated {len(tasks)} branch tasks", iteration=max(1, parts.current_iteration or 1))
-        self._finish_agent_run(parts, record, status="completed", summary=f"generated {len(tasks)} tasks")
+        self._emit_decision("outline_plan", f"generated {len(sections)} required sections", iteration=max(1, parts.current_iteration or 1))
+        self._finish_agent_run(parts, record, status="completed", summary=f"generated {len(sections)} sections")
         return self._patch(parts, next_step="dispatch")
+
+    def _supervisor_plan_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+        return self._outline_plan_node(graph_state)
 
     def _route_after_supervisor_plan(self, graph_state: MultiAgentGraphState) -> str:
         next_step = str(graph_state.get("next_step") or "dispatch").strip().lower()
-        if next_step in {"scope_review", "research_brief", "dispatch", "finalize", "verify"}:
+        if next_step in {"scope_review", "research_brief", "dispatch", "reviewer", "finalize"}:
             return next_step
         return "dispatch"
 
@@ -1570,10 +2287,10 @@ class MultiAgentDeepResearchRuntime:
         if budget_stop_reason:
             parts.runtime_state["budget_stop_reason"] = budget_stop_reason
             self._emit_decision("budget_stop", budget_stop_reason, iteration=max(1, parts.current_iteration or 1))
-            return self._patch(parts, next_step="verify")
+            return self._patch(parts, next_step="reviewer")
 
         if parts.task_queue.ready_count() == 0:
-            return self._patch(parts, next_step="verify")
+            return self._patch(parts, next_step="reviewer")
 
         parts.current_iteration += 1
         parts.runtime_state["current_iteration"] = parts.current_iteration
@@ -1583,10 +2300,10 @@ class MultiAgentDeepResearchRuntime:
         )
         for task in claimed:
             self._emit_task_update(task, "in_progress", iteration=parts.current_iteration)
-        self._emit_decision("research", "dispatch ready branch tasks", iteration=parts.current_iteration)
+        self._emit_decision("research", "dispatch ready section tasks", iteration=parts.current_iteration)
         return self._patch(
             parts,
-            next_step="verify",
+            next_step="reviewer",
             pending_worker_tasks=[task.to_dict() for task in claimed],
             worker_results=[{"__reset__": True}],
         )
@@ -1594,8 +2311,16 @@ class MultiAgentDeepResearchRuntime:
     def _route_after_dispatch(self, graph_state: MultiAgentGraphState) -> list[Send] | str:
         payloads = graph_state.get("pending_worker_tasks") or []
         if not payloads:
-            return "verify"
-        return [Send("researcher", {"worker_task": payload}) for payload in payloads]
+            return "reviewer"
+        sends: list[Send] = []
+        for payload in payloads:
+            if not isinstance(payload, dict):
+                continue
+            task_payload = payload.get("task") if isinstance(payload.get("task"), dict) else payload
+            task_kind = str(task_payload.get("task_kind") or "").strip()
+            target = "revisor" if task_kind == "section_revision" else "researcher"
+            sends.append(Send(target, {"worker_task": payload}))
+        return sends or "reviewer"
 
     def _researcher_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         payload = graph_state.get("worker_task") or {}
@@ -1603,11 +2328,14 @@ class MultiAgentDeepResearchRuntime:
         task = ResearchTask(**task_payload) if isinstance(task_payload, dict) else ResearchTask(**payload)
         parts = self._unpack(graph_state)
         parts.runtime_state["active_agent"] = "supervisor"
+        outline = parts.artifact_store.outline()
+        section = self._section_map(outline).get(str(task.section_id or ""), {})
         record = self._start_agent_run(
             parts,
             role="researcher",
             phase="researcher",
             task_id=task.id,
+            section_id=task.section_id,
             branch_id=task.branch_id,
             stage="search",
             objective_summary=task.objective or task.goal,
@@ -1624,23 +2352,29 @@ class MultiAgentDeepResearchRuntime:
             )
             results = list(outcome.get("search_results") or [])
             if not results:
-                raise RuntimeError("branch agent returned no evidence")
+                raise RuntimeError("section researcher returned no evidence")
             task.stage = "read"
             self._emit_task_update(task, "in_progress", iteration=max(1, parts.current_iteration or 1), reason="read")
             task.stage = "extract"
             self._emit_task_update(task, "in_progress", iteration=max(1, parts.current_iteration or 1), reason="extract")
             task.stage = "synthesize"
             self._emit_task_update(task, "in_progress", iteration=max(1, parts.current_iteration or 1), reason="synthesize")
-            summary = str(outcome.get("summary") or "").strip() or f"未能为 {_branch_title(task)} 形成有效摘要。"
+            summary = str(outcome.get("summary") or "").strip() or f"未能为 {_branch_title(task)} 形成有效章节摘要。"
             bundle = self._build_evidence_bundle(task, outcome, str(record.get("agent_id") or "researcher"))
-            branch_result = self._build_branch_result(task, bundle, outcome, str(record.get("agent_id") or "researcher"))
+            section_draft = self._build_section_draft(
+                task,
+                section,
+                bundle,
+                outcome,
+                str(record.get("agent_id") or "researcher"),
+            )
             self._finish_agent_run(parts, record, status="completed", summary=summary, stage="synthesize")
             return {
                 "worker_results": [
                     {
                         "task": task.to_dict(),
                         "result_status": "completed",
-                        "branch_result": branch_result,
+                        "section_draft": section_draft,
                         "evidence_bundle": bundle,
                         "raw_results": copy.deepcopy(results),
                         "tokens_used": (
@@ -1659,6 +2393,99 @@ class MultiAgentDeepResearchRuntime:
             }
         except Exception as exc:
             self._finish_agent_run(parts, record, status="failed", summary=str(exc), stage=task.stage or "search")
+            return {
+                "worker_results": [
+                    {
+                        "task": task.to_dict(),
+                        "result_status": "failed",
+                        "error": str(exc),
+                        "raw_results": [],
+                        "tokens_used": 0,
+                        "searches_used": 0,
+                        "agent_run": copy.deepcopy(record),
+                    }
+                ]
+            }
+
+    def _revisor_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+        payload = graph_state.get("worker_task") or {}
+        task_payload = payload.get("task") if isinstance(payload, dict) else None
+        task = ResearchTask(**task_payload) if isinstance(task_payload, dict) else ResearchTask(**payload)
+        parts = self._unpack(graph_state)
+        parts.runtime_state["active_agent"] = "supervisor"
+        outline = parts.artifact_store.outline()
+        section = self._section_map(outline).get(str(task.section_id or ""), {})
+        current_draft = parts.artifact_store.section_draft(str(task.section_id or ""))
+        review = parts.artifact_store.section_review(str(task.section_id or ""))
+        record = self._start_agent_run(
+            parts,
+            role="revisor",
+            phase="revisor",
+            task_id=task.id,
+            section_id=task.section_id,
+            branch_id=task.branch_id,
+            stage="revision",
+            objective_summary=task.objective or task.goal,
+            attempt=max(1, task.attempts),
+        )
+        try:
+            if not current_draft:
+                raise RuntimeError("section revision requires an existing draft")
+            claim_units = [
+                item
+                for item in current_draft.get("claim_units", []) or []
+                if isinstance(item, dict)
+            ]
+            retained_claims = [
+                item
+                for item in claim_units
+                if str(item.get("importance") or "").strip().lower() == "primary" or bool(item.get("grounded"))
+            ] or claim_units[:1]
+            revised_findings = [
+                str(item.get("text") or "").strip()
+                for item in retained_claims
+                if str(item.get("text") or "").strip()
+            ]
+            revised_summary = (
+                revised_findings[0]
+                if revised_findings
+                else str(current_draft.get("summary") or task.objective or task.goal).strip()
+            )
+            advisory_messages = [
+                str(item.get("message") or "").strip()
+                for item in review.get("advisory_issues", []) or []
+                if str(item.get("message") or "").strip()
+            ]
+            revised_draft = copy.deepcopy(current_draft)
+            revised_draft["id"] = support._new_id("section_draft")
+            revised_draft["task_id"] = task.id
+            revised_draft["summary"] = revised_summary
+            revised_draft["key_findings"] = _dedupe_texts(revised_findings or current_draft.get("key_findings") or [])
+            revised_draft["claim_units"] = retained_claims
+            revised_draft["limitations"] = _dedupe_texts(
+                [*list(current_draft.get("limitations") or []), *advisory_messages]
+            )
+            revised_draft["review_status"] = "pending"
+            revised_draft["certified"] = False
+            revised_draft["section_order"] = int(section.get("section_order", current_draft.get("section_order", 0)) or 0)
+            task.stage = "revision"
+            self._emit_task_update(task, "in_progress", iteration=max(1, parts.current_iteration or 1), reason="revision")
+            self._finish_agent_run(parts, record, status="completed", summary=revised_summary, stage="revision")
+            return {
+                "worker_results": [
+                    {
+                        "task": task.to_dict(),
+                        "result_status": "completed",
+                        "section_draft": revised_draft,
+                        "raw_results": [],
+                        "tokens_used": support._estimate_tokens_from_text(revised_summary),
+                        "searches_used": 0,
+                        "agent_run": copy.deepcopy(record),
+                    }
+                ]
+            }
+        except Exception as exc:
+            self._finish_agent_run(parts, record, status="failed", summary=str(exc), stage=task.stage or "revision")
             return {
                 "worker_results": [
                     {
@@ -1694,66 +2521,85 @@ class MultiAgentDeepResearchRuntime:
             task = ResearchTask(**payload["task"])
             if payload.get("result_status") == "completed":
                 bundle = copy.deepcopy(payload.get("evidence_bundle") or {})
-                branch_result = copy.deepcopy(payload.get("branch_result") or {})
-                parts.artifact_store.set_evidence_bundle(bundle)
-                parts.artifact_store.set_branch_result(branch_result)
+                section_draft = copy.deepcopy(payload.get("section_draft") or {})
+                if bundle:
+                    parts.artifact_store.set_evidence_bundle(bundle)
+                if section_draft:
+                    parts.artifact_store.set_section_draft(section_draft)
                 updated_task = parts.task_queue.update_status(task.id, "completed")
                 if updated_task:
                     self._emit_task_update(updated_task, "completed", iteration=max(1, parts.current_iteration or 1))
+                if task.section_id:
+                    parts.runtime_state["section_status_map"] = {
+                        **dict(parts.runtime_state.get("section_status_map") or {}),
+                        str(task.section_id): "drafted",
+                    }
                 parts.shared_state["summary_notes"] = [
                     *(parts.shared_state.get("summary_notes") or []),
-                    str(branch_result.get("summary") or ""),
+                    str(section_draft.get("summary") or ""),
                 ]
-                parts.shared_state["sources"] = [
-                    *(parts.shared_state.get("sources") or []),
-                    *(bundle.get("sources") or []),
-                ]
+                if bundle:
+                    parts.shared_state["sources"] = [
+                        *(parts.shared_state.get("sources") or []),
+                        *(bundle.get("sources") or []),
+                    ]
                 parts.shared_state["scraped_content"] = [
                     *(parts.shared_state.get("scraped_content") or []),
                     {
                         "task_id": task.id,
+                        "section_id": task.section_id,
                         "query": task.query,
                         "results": copy.deepcopy(payload.get("raw_results") or []),
-                        "summary": branch_result.get("summary"),
+                        "summary": section_draft.get("summary"),
                     },
                 ]
-                self._emit_artifact_update(
-                    artifact_id=str(bundle.get("id") or support._new_id("bundle")),
-                    artifact_type="evidence_bundle",
-                    summary=f"{len(bundle.get('sources', []))} sources",
-                    task_id=task.id,
-                    branch_id=task.branch_id,
-                    iteration=max(1, parts.current_iteration or 1),
-                    extra={
-                        "source_count": len(bundle.get("sources", []) or []),
-                        "document_count": len(bundle.get("documents", []) or []),
-                        "passage_count": len(bundle.get("passages", []) or []),
-                        "source_urls": [
-                            str(item.get("url") or "").strip()
-                            for item in bundle.get("sources", []) or []
-                            if str(item.get("url") or "").strip()
-                        ],
-                    },
-                )
-                self._emit_artifact_update(
-                    artifact_id=str(branch_result.get("id") or support._new_id("branch_result")),
-                    artifact_type="branch_result",
-                    summary=str(branch_result.get("summary") or ""),
-                    task_id=task.id,
-                    branch_id=task.branch_id,
-                    iteration=max(1, parts.current_iteration or 1),
-                    extra={
-                        "title": str(branch_result.get("title") or ""),
-                        "source_urls": list(branch_result.get("source_urls") or []),
-                        "finding_count": len(branch_result.get("key_findings") or []),
-                    },
-                )
+                if bundle:
+                    self._emit_artifact_update(
+                        artifact_id=str(bundle.get("id") or support._new_id("bundle")),
+                        artifact_type="evidence_bundle",
+                        summary=f"{len(bundle.get('sources', []))} sources",
+                        task_id=task.id,
+                        section_id=task.section_id,
+                        branch_id=task.branch_id,
+                        iteration=max(1, parts.current_iteration or 1),
+                        extra={
+                            "source_count": len(bundle.get("sources", []) or []),
+                            "document_count": len(bundle.get("documents", []) or []),
+                            "passage_count": len(bundle.get("passages", []) or []),
+                            "source_urls": [
+                                str(item.get("url") or "").strip()
+                                for item in bundle.get("sources", []) or []
+                                if str(item.get("url") or "").strip()
+                            ],
+                        },
+                    )
+                if section_draft:
+                    self._emit_artifact_update(
+                        artifact_id=str(section_draft.get("id") or support._new_id("section_draft")),
+                        artifact_type="section_draft",
+                        summary=str(section_draft.get("summary") or ""),
+                        task_id=task.id,
+                        section_id=task.section_id,
+                        branch_id=task.branch_id,
+                        iteration=max(1, parts.current_iteration or 1),
+                        extra={
+                            "title": str(section_draft.get("title") or ""),
+                            "source_urls": list(section_draft.get("source_urls") or []),
+                            "finding_count": len(section_draft.get("key_findings") or []),
+                        },
+                    )
             else:
                 reason = str(payload.get("error") or "researcher returned no results")
                 failed_task = parts.task_queue.update_stage(task.id, task.stage or "search", status="failed", reason=reason)
                 if failed_task:
                     self._emit_task_update(failed_task, "failed", iteration=max(1, parts.current_iteration or 1), reason=reason)
-                if task.attempts < self.task_retry_limit and not parts.runtime_state.get("budget_stop_reason"):
+                if task.task_kind == "section_revision":
+                    if task.section_id:
+                        parts.runtime_state["section_status_map"] = {
+                            **dict(parts.runtime_state.get("section_status_map") or {}),
+                            str(task.section_id): "drafted",
+                        }
+                elif task.attempts < self.task_retry_limit and not parts.runtime_state.get("budget_stop_reason"):
                     retry_task = parts.task_queue.update_stage(task.id, "planned", status="ready", reason=reason)
                     if retry_task:
                         self._emit_task_update(retry_task, "ready", iteration=max(1, parts.current_iteration or 1), reason=reason)
@@ -1763,122 +2609,188 @@ class MultiAgentDeepResearchRuntime:
                 ]
         return self._patch(
             parts,
-            next_step="verify",
+            next_step="reviewer",
             pending_worker_tasks=[],
             worker_results=[{"__reset__": True}],
         )
 
-    def _verify_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+    def _reviewer_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)
-        parts.runtime_state["active_agent"] = "supervisor"
-        self._ensure_coverage_state(parts)
-        record = self._start_agent_run(parts, role="verifier", phase="verify", attempt=self.graph_attempt)
-        task_map = {task.id: task for task in parts.task_queue.all_tasks()}
-        for result in parts.artifact_store.branch_results():
-            task_id = str(result.get("task_id") or "")
-            if not task_id or parts.artifact_store.validation_summary(task_id):
+        parts.runtime_state["active_agent"] = "reviewer"
+        outline = parts.artifact_store.outline()
+        section_map = self._section_map(outline)
+        record = self._start_agent_run(parts, role="reviewer", phase="reviewer", attempt=self.graph_attempt)
+        active_task_keys = {
+            (str(task.section_id or "").strip(), str(task.task_kind or "").strip())
+            for task in parts.task_queue.all_tasks()
+            if task.status in {"ready", "in_progress"}
+        }
+        for draft in parts.artifact_store.section_drafts():
+            section_id = str(draft.get("section_id") or "").strip()
+            if not section_id:
                 continue
-            task = task_map.get(task_id)
-            if task is None:
+            certification = parts.artifact_store.section_certification(section_id)
+            if bool(certification.get("certified")):
                 continue
-            gap_result = self.verifier.analyze(
-                topic=task.objective or self.topic,
-                executed_queries=_dedupe_texts(task.query_hints or [task.query]),
-                collected_knowledge=_branch_validation_text(result),
+            review = parts.artifact_store.section_review(section_id)
+            if review and str(review.get("task_id") or "") == str(draft.get("task_id") or "") and str(draft.get("review_status") or "").strip() != "pending":
+                continue
+            section = section_map.get(section_id, {})
+            bundle = parts.artifact_store.evidence_bundle(str(draft.get("task_id") or ""))
+            revision_count = int((parts.runtime_state.get("section_revision_counts") or {}).get(section_id, 0) or 0)
+            research_retry_count = int((parts.runtime_state.get("section_research_retry_counts") or {}).get(section_id, 0) or 0)
+            review, certification = self._review_section_draft(
+                section=section,
+                draft=draft,
+                bundle=bundle,
+                revision_count=revision_count,
             )
-            validation_summary = self._build_validation_summary(task, result, gap_result, parts.runtime_state)
-            parts.artifact_store.set_validation_summary(validation_summary)
-            result["validation_summary_id"] = validation_summary.get("id")
-            result["validation_status"] = validation_summary.get("status")
-            parts.artifact_store.set_branch_result(result)
+            draft["review_artifact_id"] = review.get("id")
+            draft["review_status"] = review.get("verdict")
+            parts.artifact_store.set_section_review(review)
             self._emit_artifact_update(
-                artifact_id=str(validation_summary.get("id") or support._new_id("validation")),
-                artifact_type="validation_summary",
-                summary=str(validation_summary.get("notes") or validation_summary.get("status") or ""),
-                task_id=task.id,
-                branch_id=task.branch_id,
+                artifact_id=str(review.get("id") or support._new_id("section_review")),
+                artifact_type="section_review",
+                summary=str(review.get("notes") or review.get("verdict") or ""),
+                task_id=str(draft.get("task_id") or ""),
+                section_id=section_id,
+                branch_id=draft.get("branch_id"),
                 iteration=max(1, parts.current_iteration or 1),
                 extra={
-                    "validation_status": validation_summary.get("status"),
-                    "retry_queries": list(validation_summary.get("retry_queries") or []),
+                    "review_verdict": review.get("verdict"),
+                    "blocking_issue_count": len(review.get("blocking_issues") or []),
+                    "advisory_issue_count": len(review.get("advisory_issues") or []),
                 },
             )
-        aggregate = self._aggregate_validation(parts.task_queue, parts.artifact_store, parts.runtime_state)
-        parts.runtime_state["last_validation_summary"] = aggregate
-        parts.runtime_state["last_verification_summary"] = copy.deepcopy(aggregate)
-        decision_type = "verification_passed" if aggregate.get("coverage_ready") else "verification_retry_requested"
-        self._emit_decision(decision_type, "validation updated", iteration=max(1, parts.current_iteration or 1), extra=aggregate)
+            verdict = str(review.get("verdict") or "").strip()
+            if certification:
+                draft["certified"] = True
+                draft["certification_artifact_id"] = certification.get("id")
+                draft["limitations"] = _dedupe_texts(
+                    [*list(draft.get("limitations") or []), *list(certification.get("limitations") or [])]
+                )
+                parts.artifact_store.set_section_certification(certification)
+                self._emit_artifact_update(
+                    artifact_id=str(certification.get("id") or support._new_id("section_certification")),
+                    artifact_type="section_certification",
+                    summary="section certified",
+                    task_id=str(draft.get("task_id") or ""),
+                    section_id=section_id,
+                    branch_id=draft.get("branch_id"),
+                    iteration=max(1, parts.current_iteration or 1),
+                    extra={
+                        "certified": True,
+                        "limitations": list(certification.get("limitations") or []),
+                    },
+                )
+                parts.runtime_state["section_status_map"] = {
+                    **dict(parts.runtime_state.get("section_status_map") or {}),
+                    section_id: "certified",
+                }
+            elif verdict == "revise_section":
+                parts.runtime_state["section_status_map"] = {
+                    **dict(parts.runtime_state.get("section_status_map") or {}),
+                    section_id: "revising",
+                }
+                if (section_id, "section_revision") not in active_task_keys:
+                    revision_task = self._build_revision_task(
+                        section=section,
+                        draft=draft,
+                        review=review,
+                        scope=parts.artifact_store.scope(),
+                        revision_count=revision_count,
+                    )
+                    parts.task_queue.enqueue([revision_task])
+                    parts.runtime_state["section_revision_counts"] = {
+                        **dict(parts.runtime_state.get("section_revision_counts") or {}),
+                        section_id: revision_count + 1,
+                    }
+                    active_task_keys.add((section_id, "section_revision"))
+                    self._emit_task_update(revision_task, revision_task.status, iteration=max(1, parts.current_iteration or 1), reason="review_revision")
+            elif verdict == "request_research":
+                if research_retry_count < self.task_retry_limit and not parts.runtime_state.get("budget_stop_reason"):
+                    parts.runtime_state["section_status_map"] = {
+                        **dict(parts.runtime_state.get("section_status_map") or {}),
+                        section_id: "research_retry",
+                    }
+                    if (section_id, "section_research") not in active_task_keys:
+                        retry_task = self._build_research_retry_task(
+                            section=section,
+                            draft=draft,
+                            review=review,
+                            scope=parts.artifact_store.scope(),
+                        )
+                        parts.task_queue.enqueue([retry_task])
+                        parts.runtime_state["section_research_retry_counts"] = {
+                            **dict(parts.runtime_state.get("section_research_retry_counts") or {}),
+                            section_id: research_retry_count + 1,
+                        }
+                        active_task_keys.add((section_id, "section_research"))
+                        self._emit_task_update(retry_task, retry_task.status, iteration=max(1, parts.current_iteration or 1), reason="review_research_retry")
+                else:
+                    parts.runtime_state["section_status_map"] = {
+                        **dict(parts.runtime_state.get("section_status_map") or {}),
+                        section_id: "blocked",
+                    }
+            elif verdict == "block_section":
+                parts.runtime_state["section_status_map"] = {
+                    **dict(parts.runtime_state.get("section_status_map") or {}),
+                    section_id: "blocked",
+                }
+            parts.artifact_store.set_section_draft(draft)
+
+        aggregate = self._aggregate_sections(parts.task_queue, parts.artifact_store, parts.runtime_state)
+        parts.runtime_state["last_review_summary"] = aggregate
+        parts.runtime_state["outline_gate_summary"] = copy.deepcopy(aggregate)
+        decision_type = "review_passed" if aggregate.get("outline_ready") else "review_updated"
+        self._emit_decision(decision_type, "section review updated", iteration=max(1, parts.current_iteration or 1), extra=aggregate)
         self._emit(ToolEventType.QUALITY_UPDATE, self._quality_summary(parts.task_queue, parts.artifact_store, parts.runtime_state))
-        self._finish_agent_run(parts, record, status="completed", summary="validation updated")
+        self._finish_agent_run(parts, record, status="completed", summary="section review updated")
         return self._patch(parts, next_step="supervisor_decide")
+
+    def _verify_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+        return self._reviewer_node(graph_state)
 
     def _supervisor_decide_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)
         parts.runtime_state["active_agent"] = "supervisor"
-        self._ensure_coverage_state(parts)
-        aggregate = copy.deepcopy(parts.runtime_state.get("last_validation_summary") or {})
-        retry_task_ids = _dedupe_texts(aggregate.get("retry_task_ids") or [])
-        passed_branch_count = int(aggregate.get("passed_branch_count") or 0)
-        coverage_ready = bool(aggregate.get("coverage_ready"))
+        aggregate = self._aggregate_sections(parts.task_queue, parts.artifact_store, parts.runtime_state)
         budget_stop_reason = self._budget_stop_reason(parts.runtime_state)
         previous_budget_stop_reason = str(parts.runtime_state.get("budget_stop_reason") or "")
         parts.runtime_state["budget_stop_reason"] = budget_stop_reason
         if budget_stop_reason and budget_stop_reason != previous_budget_stop_reason:
             self._emit_decision("budget_stop", budget_stop_reason, iteration=max(1, parts.current_iteration or 1))
-
-        if retry_task_ids and parts.current_iteration < self.max_epochs and not budget_stop_reason:
-            for task_id in retry_task_ids:
-                task = parts.task_queue.get(task_id)
-                if task is None:
-                    continue
-                validation = parts.artifact_store.validation_summary(task_id)
-                parts.artifact_store.clear_validation_summary(task_id)
-                retry_queries = _dedupe_texts(validation.get("retry_queries") or [])
-                if retry_queries:
-                    task.query_hints = retry_queries
-                    task.query = retry_queries[0]
-                parts.task_queue.enqueue([task])
-                updated = parts.task_queue.update_stage(task.id, "planned", status="ready", reason=str(validation.get("notes") or "retry requested"))
-                if updated:
-                    self._emit_task_update(updated, "ready", iteration=max(1, parts.current_iteration or 1), reason="validation retry")
-            self._emit_decision("retry_branch", "retry requested by validation", iteration=max(1, parts.current_iteration or 1), extra={"retry_task_ids": retry_task_ids})
-            return self._patch(parts, next_step="dispatch")
-
         if parts.task_queue.ready_count() > 0 and parts.current_iteration < self.max_epochs and not budget_stop_reason:
             return self._patch(parts, next_step="dispatch")
-
-        if coverage_ready and passed_branch_count > 0:
-            self._emit_decision("report", "coverage requirements satisfied", iteration=max(1, parts.current_iteration or 1), extra={"coverage_ready": True})
+        if hasattr(self.supervisor, "decide_section_action"):
+            decision = self.supervisor.decide_section_action(
+                outline=parts.artifact_store.outline(),
+                section_status_map=dict(parts.runtime_state.get("section_status_map") or {}),
+                budget_stop_reason=budget_stop_reason,
+            )
+            raw_action = getattr(decision, "action", "")
+            decision_action = str(getattr(raw_action, "value", raw_action) or "").strip().lower()
+            decision_reason = str(getattr(decision, "reasoning", "") or "").strip()
+        else:
+            decision = self._fallback_section_decision(
+                outline=parts.artifact_store.outline(),
+                section_status_map=dict(parts.runtime_state.get("section_status_map") or {}),
+                budget_stop_reason=budget_stop_reason,
+            )
+            decision_action = str(decision.get("action") or "").strip().lower()
+            decision_reason = str(decision.get("reasoning") or "").strip()
+        if decision_action == "report" and bool(aggregate.get("outline_ready")):
+            self._emit_decision("report", decision_reason, iteration=max(1, parts.current_iteration or 1), extra=aggregate)
             return self._patch(parts, next_step="outline_gate")
-
-        if parts.current_iteration < self.max_epochs and not budget_stop_reason:
-            gap_tasks, gap_assignments = self._build_gap_branch_tasks(parts, aggregate)
-            if gap_tasks:
-                parts.task_queue.enqueue(gap_tasks)
-                task_coverage_map = dict(parts.runtime_state.get("task_coverage_map") or {})
-                task_coverage_map.update(gap_assignments)
-                parts.runtime_state["task_coverage_map"] = task_coverage_map
-                self._append_tasks_to_plan_artifact(parts, gap_tasks)
-                for task in gap_tasks:
-                    self._emit_task_update(task, task.status, iteration=max(1, parts.current_iteration or 1), reason="coverage_gap")
-                self._emit_decision(
-                    "spawn_gap_branches",
-                    "spawned follow-up branches for uncovered coverage targets",
-                    iteration=max(1, parts.current_iteration or 1),
-                    extra={
-                        "uncovered_questions": _dedupe_texts(aggregate.get("uncovered_questions") or []),
-                        "spawned_task_ids": [task.id for task in gap_tasks],
-                    },
-                )
-                return self._patch(parts, next_step="dispatch")
-
         parts.runtime_state["terminal_status"] = "blocked"
         if budget_stop_reason:
             parts.runtime_state["terminal_reason"] = budget_stop_reason
-        elif passed_branch_count > 0:
-            parts.runtime_state["terminal_reason"] = "coverage requirements not satisfied"
+        elif aggregate.get("blocked_section_count"):
+            parts.runtime_state["terminal_reason"] = "required sections remain blocked"
+        elif aggregate.get("pending_section_count"):
+            parts.runtime_state["terminal_reason"] = "required sections are not yet certified"
         else:
-            parts.runtime_state["terminal_reason"] = "no validated branch results available"
+            parts.runtime_state["terminal_reason"] = decision_reason or "no certified sections available"
         self._emit_decision("stop", parts.runtime_state["terminal_reason"], iteration=max(1, parts.current_iteration or 1))
         return self._patch(parts, next_step="finalize")
 
@@ -1890,26 +2802,22 @@ class MultiAgentDeepResearchRuntime:
 
     def _outline_gate_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)
-        passed = parts.artifact_store.passed_branch_results()
-        if not passed:
+        aggregate = self._aggregate_sections(parts.task_queue, parts.artifact_store, parts.runtime_state)
+        parts.runtime_state["outline_gate_summary"] = aggregate
+        if not bool(aggregate.get("outline_ready")):
             parts.runtime_state["terminal_status"] = "blocked"
-            parts.runtime_state["terminal_reason"] = "no passed branch results available for report"
+            parts.runtime_state["terminal_reason"] = "required sections are not fully certified"
             return self._patch(parts, next_step="finalize")
-        aggregate = copy.deepcopy(parts.runtime_state.get("last_validation_summary") or {})
-        if not bool(aggregate.get("coverage_ready")):
-            parts.runtime_state["terminal_status"] = "blocked"
-            parts.runtime_state["terminal_reason"] = "coverage requirements not satisfied"
-            return self._patch(parts, next_step="finalize")
-        self._emit_decision("outline_ready", "branch results ready for final report", iteration=max(1, parts.current_iteration or 1))
+        self._emit_decision("outline_ready", "certified sections ready for final report", iteration=max(1, parts.current_iteration or 1), extra=aggregate)
         return self._patch(parts, next_step="report")
 
     def _report_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)
         parts.runtime_state["active_agent"] = "supervisor"
         record = self._start_agent_run(parts, role="reporter", phase="report", attempt=self.graph_attempt)
-        passed_results = parts.artifact_store.passed_branch_results()
-        if not passed_results:
-            self._finish_agent_run(parts, record, status="failed", summary="no passed branch results")
+        certified_sections = parts.artifact_store.certified_section_drafts()
+        if not certified_sections:
+            self._finish_agent_run(parts, record, status="failed", summary="no certified sections")
             return self._patch(parts, next_step="finalize")
 
         sources = [
@@ -1924,12 +2832,17 @@ class MultiAgentDeepResearchRuntime:
         ]
         sections = [
             ReportSectionContext(
-                title=str(item.get("title") or "研究分支"),
+                title=str(item.get("title") or "研究章节"),
                 summary=str(item.get("summary") or ""),
+                branch_summaries=[
+                    f"限制: {message}"
+                    for message in list(item.get("limitations") or [])
+                    if str(message).strip()
+                ],
                 findings=list(item.get("key_findings") or []),
                 citation_urls=list(item.get("source_urls") or []),
             )
-            for item in passed_results
+            for item in certified_sections
         ]
         report_context = ReportContext(topic=self.topic, sections=sections, sources=sources)
         report_markdown = self.reporter.generate_report(report_context)
@@ -1950,6 +2863,53 @@ class MultiAgentDeepResearchRuntime:
             iteration=max(1, parts.current_iteration or 1),
         )
         self._finish_agent_run(parts, record, status="completed", summary=executive_summary or "final report ready")
+        return self._patch(parts, next_step="final_claim_gate")
+
+    def _final_claim_gate_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
+        parts = self._unpack(graph_state)
+        parts.runtime_state["active_agent"] = "verifier"
+        record = self._start_agent_run(parts, role="verifier", phase="final_claim_gate", attempt=self.graph_attempt)
+        final_artifact = parts.artifact_store.final_report()
+        report = str(final_artifact.get("report_markdown") or "")
+        if not report.strip():
+            self._finish_agent_run(parts, record, status="completed", summary="no final report to verify")
+            return self._patch(parts, next_step="finalize")
+
+        try:
+            from agent.contracts.claim_verifier import ClaimStatus, ClaimVerifier
+
+            verifier = ClaimVerifier()
+            passages = [
+                item
+                for item in self._normalize_passages_for_claim_gate(parts.artifact_store)
+                if isinstance(item, dict)
+            ]
+            checks = verifier.verify_report(
+                report,
+                list(parts.shared_state.get("scraped_content") or []),
+                passages=passages,
+            )
+            contradicted = [item for item in checks if item.status == ClaimStatus.CONTRADICTED]
+            unsupported = [item for item in checks if item.status == ClaimStatus.UNSUPPORTED]
+            verified = [item for item in checks if item.status == ClaimStatus.VERIFIED]
+            gate_summary = {
+                "claim_verifier_total": len(checks),
+                "claim_verifier_verified": len(verified),
+                "claim_verifier_unsupported": len(unsupported),
+                "claim_verifier_contradicted": len(contradicted),
+                "passed": len(contradicted) == 0,
+            }
+            parts.runtime_state["final_claim_gate_summary"] = gate_summary
+            if contradicted:
+                parts.runtime_state["terminal_status"] = "blocked"
+                parts.runtime_state["terminal_reason"] = "final claim gate found contradicted claims"
+                self._emit_decision("final_claim_gate_blocked", parts.runtime_state["terminal_reason"], iteration=max(1, parts.current_iteration or 1), extra=gate_summary)
+            else:
+                self._emit_decision("final_claim_gate_passed", "final claim gate passed", iteration=max(1, parts.current_iteration or 1), extra=gate_summary)
+            self._finish_agent_run(parts, record, status="completed", summary="final claim gate completed")
+        except Exception as exc:
+            parts.runtime_state["final_claim_gate_summary"] = {"error": str(exc), "passed": False}
+            self._finish_agent_run(parts, record, status="failed", summary=str(exc))
         return self._patch(parts, next_step="finalize")
 
     def _finalize_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
@@ -2014,14 +2974,16 @@ class MultiAgentDeepResearchRuntime:
         workflow.add_node("scope", self._scope_node)
         workflow.add_node("scope_review", self._scope_review_node)
         workflow.add_node("research_brief", self._research_brief_node)
-        workflow.add_node("supervisor_plan", self._supervisor_plan_node)
+        workflow.add_node("outline_plan", self._outline_plan_node)
         workflow.add_node("dispatch", self._dispatch_node)
         workflow.add_node("researcher", self._researcher_node)
+        workflow.add_node("revisor", self._revisor_node)
         workflow.add_node("merge", self._merge_node)
-        workflow.add_node("verify", self._verify_node)
+        workflow.add_node("reviewer", self._reviewer_node)
         workflow.add_node("supervisor_decide", self._supervisor_decide_node)
         workflow.add_node("outline_gate", self._outline_gate_node)
         workflow.add_node("report", self._report_node)
+        workflow.add_node("final_claim_gate", self._final_claim_gate_node)
         workflow.add_node("finalize", self._finalize_node)
 
         workflow.set_entry_point("bootstrap")
@@ -2033,35 +2995,38 @@ class MultiAgentDeepResearchRuntime:
                 "scope",
                 "scope_review",
                 "research_brief",
-                "supervisor_plan",
+                "outline_plan",
                 "dispatch",
-                "verify",
+                "reviewer",
                 "supervisor_decide",
                 "outline_gate",
                 "report",
+                "final_claim_gate",
                 "finalize",
             ],
         )
         workflow.add_conditional_edges("clarify", self._route_after_clarify, ["clarify", "scope"])
         workflow.add_edge("scope", "scope_review")
         workflow.add_conditional_edges("scope_review", self._route_after_scope_review, ["scope", "research_brief"])
-        workflow.add_edge("research_brief", "supervisor_plan")
+        workflow.add_edge("research_brief", "outline_plan")
         workflow.add_conditional_edges(
-            "supervisor_plan",
+            "outline_plan",
             self._route_after_supervisor_plan,
-            ["scope_review", "research_brief", "dispatch", "verify", "finalize"],
+            ["scope_review", "research_brief", "dispatch", "reviewer", "finalize"],
         )
-        workflow.add_conditional_edges("dispatch", self._route_after_dispatch, ["researcher", "verify"])
+        workflow.add_conditional_edges("dispatch", self._route_after_dispatch, ["researcher", "revisor", "reviewer"])
         workflow.add_edge("researcher", "merge")
-        workflow.add_edge("merge", "verify")
-        workflow.add_edge("verify", "supervisor_decide")
+        workflow.add_edge("revisor", "merge")
+        workflow.add_edge("merge", "reviewer")
+        workflow.add_edge("reviewer", "supervisor_decide")
         workflow.add_conditional_edges(
             "supervisor_decide",
             self._route_after_supervisor_decide,
             ["dispatch", "outline_gate", "report", "finalize"],
         )
         workflow.add_edge("outline_gate", "report")
-        workflow.add_edge("report", "finalize")
+        workflow.add_edge("report", "final_claim_gate")
+        workflow.add_edge("final_claim_gate", "finalize")
         workflow.add_edge("finalize", END)
         return workflow.compile(checkpointer=checkpointer, interrupt_before=interrupt_before)
 

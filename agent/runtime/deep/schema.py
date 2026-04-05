@@ -11,7 +11,7 @@ from typing import Any, Literal
 TaskStatus = Literal["ready", "in_progress", "blocked", "completed", "failed", "cancelled"]
 ArtifactStatus = Literal["created", "updated", "completed", "discarded"]
 ScopeDraftStatus = Literal["awaiting_review", "revision_requested", "approved"]
-AgentRole = Literal["clarify", "scope", "supervisor", "researcher", "verifier", "reporter"]
+AgentRole = Literal["clarify", "scope", "supervisor", "researcher", "reviewer", "revisor", "verifier", "reporter"]
 ControlPlaneAgent = Literal["clarify", "scope", "supervisor"]
 TaskStage = Literal[
     "planned",
@@ -91,7 +91,7 @@ class ResearchTask:
     query: str
     priority: int
     objective: str = ""
-    task_kind: str = "branch_research"
+    task_kind: str = "section_research"
     acceptance_criteria: list[str] = field(default_factory=list)
     allowed_tools: list[str] = field(default_factory=list)
     input_artifact_ids: list[str] = field(default_factory=list)
@@ -101,6 +101,7 @@ class ResearchTask:
     stage: TaskStage = "planned"
     title: str = ""
     aspect: str = ""
+    section_id: str | None = None
     branch_id: str | None = None
     parent_task_id: str | None = None
     parent_context_id: str | None = None
@@ -150,9 +151,45 @@ class ResearchPlanArtifact:
 
 
 @dataclass
+class OutlineSection:
+    id: str
+    title: str
+    objective: str
+    core_question: str
+    acceptance_checks: list[str] = field(default_factory=list)
+    source_requirements: list[str] = field(default_factory=list)
+    freshness_policy: str = "default_advisory"
+    section_order: int = 1
+    status: str = "planned"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class OutlineArtifact:
+    id: str
+    topic: str
+    outline_version: int = 1
+    sections: list[dict[str, Any]] = field(default_factory=list)
+    required_section_ids: list[str] = field(default_factory=list)
+    question_section_map: dict[str, str] = field(default_factory=dict)
+    status: ArtifactStatus = "completed"
+    created_by: str = "supervisor"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class EvidenceBundle:
     id: str
     task_id: str
+    section_id: str | None
     branch_id: str | None
     sources: list[dict[str, Any]] = field(default_factory=list)
     documents: list[dict[str, Any]] = field(default_factory=list)
@@ -168,17 +205,34 @@ class EvidenceBundle:
 
 
 @dataclass
-class ValidationSummary:
+class ClaimUnit:
+    id: str
+    text: str
+    importance: str = "secondary"
+    evidence_passage_ids: list[str] = field(default_factory=list)
+    evidence_urls: list[str] = field(default_factory=list)
+    grounded: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class SectionReviewArtifact:
     id: str
     task_id: str
+    section_id: str
     branch_id: str | None
-    status: str
-    score: float = 0.0
-    missing_aspects: list[str] = field(default_factory=list)
-    retry_queries: list[str] = field(default_factory=list)
+    verdict: str
+    objective_score: float = 0.0
+    grounding_score: float = 0.0
+    freshness_score: float = 0.0
+    contradiction_score: float = 0.0
+    blocking_issues: list[dict[str, Any]] = field(default_factory=list)
+    advisory_issues: list[dict[str, Any]] = field(default_factory=list)
+    follow_up_queries: list[str] = field(default_factory=list)
     notes: str = ""
-    status_reason: str = ""
-    created_by: str = "verifier"
+    created_by: str = "reviewer"
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
@@ -187,20 +241,46 @@ class ValidationSummary:
 
 
 @dataclass
-class BranchResult:
+class SectionCertificationArtifact:
+    id: str
+    section_id: str
+    certified: bool
+    key_claims_grounded_ratio: float = 0.0
+    objective_met: bool = False
+    has_primary_sources: bool = False
+    freshness_warning: str = ""
+    limitations: list[str] = field(default_factory=list)
+    blocking_issue_count: int = 0
+    advisory_issue_count: int = 0
+    created_by: str = "reviewer"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class SectionDraftArtifact:
     id: str
     task_id: str
+    section_id: str
     branch_id: str | None
     title: str
     objective: str = ""
+    core_question: str = ""
     summary: str = ""
     key_findings: list[str] = field(default_factory=list)
     open_questions: list[str] = field(default_factory=list)
     confidence_note: str = ""
     source_urls: list[str] = field(default_factory=list)
+    claim_units: list[dict[str, Any]] = field(default_factory=list)
+    limitations: list[str] = field(default_factory=list)
+    review_artifact_id: str | None = None
+    certification_artifact_id: str | None = None
     evidence_bundle_id: str | None = None
-    validation_summary_id: str | None = None
-    validation_status: str = "pending"
+    review_status: str = "pending"
+    certified: bool = False
     status: ArtifactStatus = "completed"
     created_by: str = "researcher"
     created_at: str = field(default_factory=_now_iso)
@@ -245,6 +325,7 @@ class AgentRunRecord:
     graph_run_id: str = ""
     node_id: str = ""
     task_id: str | None = None
+    section_id: str | None = None
     branch_id: str | None = None
     task_kind: str = ""
     stage: str = ""
@@ -252,6 +333,7 @@ class AgentRunRecord:
     objective_summary: str = ""
     attempt: int = 1
     parent_task_id: str | None = None
+    parent_section_id: str | None = None
     parent_branch_id: str | None = None
     started_at: str = field(default_factory=_now_iso)
     ended_at: str = ""
@@ -265,19 +347,23 @@ __all__ = [
     "AgentRole",
     "AgentRunRecord",
     "ArtifactStatus",
-    "BranchResult",
+    "ClaimUnit",
     "ControlPlaneAgent",
     "ControlPlaneHandoff",
     "EvidenceBundle",
     "FinalReportArtifact",
+    "OutlineArtifact",
+    "OutlineSection",
     "REGISTERED_CONTROL_PLANE_AGENTS",
     "ResearchPlanArtifact",
     "ResearchTask",
+    "SectionCertificationArtifact",
+    "SectionDraftArtifact",
+    "SectionReviewArtifact",
     "ScopeDraft",
     "ScopeDraftStatus",
     "TaskStage",
     "TaskStatus",
-    "ValidationSummary",
     "_now_iso",
     "is_control_plane_agent",
     "validate_control_plane_agent",

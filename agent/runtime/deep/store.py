@@ -49,12 +49,14 @@ class ResearchTaskQueue:
                 (task for task in self._tasks.values() if task.status == "ready"),
                 key=lambda task: (task.priority, task.created_at),
             )
-            claimed_branch_ids: set[str] = set()
+            claimed_scope_keys: set[str] = set()
             for task in ready:
                 if len(claimed) >= max(0, limit):
                     break
+                section_id = str(getattr(task, "section_id", "") or "").strip()
                 branch_id = str(task.branch_id or "").strip()
-                if branch_id and branch_id in claimed_branch_ids:
+                scope_key = section_id or branch_id
+                if scope_key and scope_key in claimed_scope_keys:
                     continue
                 task.status = "in_progress"
                 task.stage = "dispatch"
@@ -62,8 +64,8 @@ class ResearchTaskQueue:
                 task.attempts += 1
                 task.updated_at = _now_iso()
                 claimed.append(copy.deepcopy(task))
-                if branch_id:
-                    claimed_branch_ids.add(branch_id)
+                if scope_key:
+                    claimed_scope_keys.add(scope_key)
         return claimed
 
     def update_status(self, task_id: str, status: str, *, reason: str = "") -> ResearchTask | None:

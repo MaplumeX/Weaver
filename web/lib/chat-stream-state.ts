@@ -8,6 +8,8 @@ const KEY_AGENT_ROLES = new Set([
   'clarify',
   'scope',
   'supervisor',
+  'reviewer',
+  'revisor',
   'verifier',
   'reporter',
 ])
@@ -18,8 +20,11 @@ const KEY_DECISIONS = new Set([
   'scope_revision_requested',
   'scope_approved',
   'research_brief_ready',
+  'outline_plan',
   'retry_branch',
   'verification_retry_requested',
+  'review_updated',
+  'review_passed',
   'coverage_gap_detected',
   'verification_passed',
   'plan',
@@ -28,6 +33,8 @@ const KEY_DECISIONS = new Set([
   'research',
   'report',
   'outline_ready',
+  'final_claim_gate_passed',
+  'final_claim_gate_blocked',
   'synthesize',
   'complete',
   'budget_stop',
@@ -96,9 +103,18 @@ function isKeyDeepResearchEvent(ev: ProcessEvent): boolean {
   }
 
   if (ev.type === 'research_artifact_update') {
-    return ['scope_draft', 'plan', 'evidence_bundle', 'branch_result', 'validation_summary', 'final_report'].includes(
-      String(ev.data?.artifact_type || '').trim(),
-    )
+    return [
+      'scope_draft',
+      'plan',
+      'outline',
+      'evidence_bundle',
+      'section_draft',
+      'section_review',
+      'section_certification',
+      'branch_result',
+      'validation_summary',
+      'final_report',
+    ].includes(String(ev.data?.artifact_type || '').trim())
   }
 
   if (ev.type === 'research_decision') {

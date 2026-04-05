@@ -58,8 +58,14 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
       if (resumed) return `多 Agent 调研：恢复 branch · ${target} · ${researcherStageLabel}`
       return `多 Agent 调研：开始 branch · ${target} · ${researcherStageLabel}`
     }
+    if (role === 'reviewer') {
+      return resumed ? '多 Agent 调研：已恢复执行，正在审查章节草稿…' : '多 Agent 调研：正在审查章节草稿…'
+    }
+    if (role === 'revisor') {
+      return resumed ? '多 Agent 调研：已恢复执行，正在修订章节草稿…' : '多 Agent 调研：正在修订章节草稿…'
+    }
     if (role === 'verifier') {
-      if (validationStage === 'claim_check') {
+      if (validationStage === 'claim_check' || stage === 'final_claim_gate') {
         return resumed ? '多 Agent 调研：已恢复执行，正在核对 claim 与 citation…' : '多 Agent 调研：正在核对 claim 与 citation…'
       }
       if (validationStage === 'coverage_check') {
@@ -74,6 +80,8 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
     if (role === 'clarify' && status === 'completed') return '多 Agent 调研：需求澄清完成'
     if (role === 'scope' && status === 'completed') return '多 Agent 调研：范围草案已生成'
     if (role === 'reporter' && status === 'completed') return '多 Agent 调研：最终报告已生成'
+    if (role === 'reviewer' && status === 'completed') return '多 Agent 调研：章节审查完成'
+    if (role === 'revisor' && status === 'completed') return '多 Agent 调研：章节修订完成'
     if (role === 'verifier' && status === 'completed') {
       if (validationStage === 'claim_check') return '多 Agent 调研：claim/citation 检查完成'
       if (validationStage === 'coverage_check') return '多 Agent 调研：coverage/gap 检查完成'
@@ -101,14 +109,17 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
       return '多 Agent 调研：新的研究范围草案已生成'
     }
     if (artifactType === 'scope') return '多 Agent 调研：研究范围已固化，准备拆分研究分支'
-    if (artifactType === 'plan') return '多 Agent 调研：已生成研究分支计划'
+    if (artifactType === 'plan') return '多 Agent 调研：已生成章节研究计划'
+    if (artifactType === 'outline') return '多 Agent 调研：已生成研究大纲与必需章节'
     if (artifactType === 'evidence_bundle') {
       const sourceCount = typeof payload?.source_count === 'number' ? payload.source_count : 0
       return sourceCount > 0
         ? `多 Agent 调研：已记录分支证据包 · ${sourceCount} 个来源`
         : '多 Agent 调研：已记录分支证据包'
     }
-    if (artifactType === 'branch_result') return '多 Agent 调研：已生成分支结论'
+    if (artifactType === 'section_draft' || artifactType === 'branch_result') return '多 Agent 调研：已生成章节草稿'
+    if (artifactType === 'section_review') return '多 Agent 调研：章节审查结果已更新'
+    if (artifactType === 'section_certification') return '多 Agent 调研：章节已认证，可进入汇总'
     if (artifactType === 'validation_summary') {
       const validationStatus = String(payload?.validation_status || '').trim()
       if (validationStatus === 'passed') return '多 Agent 调研：分支验证通过'
@@ -125,7 +136,10 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
     if (decisionType === 'scope_revision_requested') return '多 Agent 调研：根据反馈重写研究范围'
     if (decisionType === 'scope_approved') return '多 Agent 调研：研究范围已确认，开始正式规划'
     if (decisionType === 'research_brief_ready') return '多 Agent 调研：研究范围已固化，准备生成研究计划'
+    if (decisionType === 'outline_plan') return '多 Agent 调研：已生成研究大纲与章节计划'
     if (decisionType === 'retry_branch' || decisionType === 'verification_retry_requested') return '多 Agent 调研：验证要求重试当前 branch'
+    if (decisionType === 'review_updated') return '多 Agent 调研：章节审查已更新，正在决定下一步'
+    if (decisionType === 'review_passed') return '多 Agent 调研：章节审查已收敛，准备汇总'
     if (decisionType === 'coverage_gap_detected') return '多 Agent 调研：验证发现 coverage gap，准备补充规划'
     if (decisionType === 'verification_passed') return '多 Agent 调研：分支验证通过，准备汇总'
     if (decisionType === 'plan' || decisionType === 'replan' || decisionType === 'supervisor_plan') {
@@ -133,6 +147,8 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
     }
     if (decisionType === 'research') return '多 Agent 调研：supervisor 决定继续研究'
     if (decisionType === 'report' || decisionType === 'outline_ready') return '多 Agent 调研：验证通过，准备生成最终报告'
+    if (decisionType === 'final_claim_gate_passed') return '多 Agent 调研：最终 claim gate 已通过'
+    if (decisionType === 'final_claim_gate_blocked') return '多 Agent 调研：最终 claim gate 检出冲突，流程已阻塞'
     if (decisionType === 'synthesize' || decisionType === 'complete') return '多 Agent 调研：supervisor 决定进入汇总阶段'
     if (decisionType === 'budget_stop') return '多 Agent 调研：触发预算停止条件'
     if (decisionType === 'stop') return '多 Agent 调研：调研流程已停止'

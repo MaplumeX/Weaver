@@ -84,7 +84,7 @@ test('maps branch result artifact to readable auto status', () => {
     status: 'created',
   })
 
-  assert.equal(text, '多 Agent 调研：已生成分支结论')
+  assert.equal(text, '多 Agent 调研：已生成章节草稿')
 })
 
 test('continuation message keeps resumed process events in order', () => {

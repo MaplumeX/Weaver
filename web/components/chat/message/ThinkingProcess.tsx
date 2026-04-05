@@ -407,7 +407,7 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const taskKind = String(ev.data?.task_kind || '').trim()
     const taskId = String(ev.data?.task_id || '').trim()
     const nodeId = String(ev.data?.node_id || '').trim()
-    const branchId = String(ev.data?.branch_id || '').trim()
+    const branchId = String(ev.data?.section_id || ev.data?.branch_id || '').trim()
     const attempt = typeof ev.data?.attempt === 'number' ? ev.data.attempt : undefined
     const status = kind === 'research_agent_complete' ? String(ev.data?.status || '').trim() : 'running'
     const summary = String(ev.data?.summary || '').trim()
@@ -453,7 +453,7 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const taskKind = String(ev.data?.task_kind || '').trim()
     const stage = String(ev.data?.stage || '').trim()
     const priority = ev.data?.priority
-    const branchId = String(ev.data?.branch_id || '').trim()
+    const branchId = String(ev.data?.section_id || ev.data?.branch_id || '').trim()
     const attempt = typeof ev.data?.attempt === 'number' ? ev.data.attempt : undefined
 
     return (
@@ -491,7 +491,7 @@ function EventRow({ ev }: { ev: ProcessEvent }) {
     const status = String(ev.data?.status || '').trim()
     const summary = String(ev.data?.summary || '').trim()
     const sourceUrl = String(ev.data?.source_url || '').trim()
-    const branchId = String(ev.data?.branch_id || '').trim()
+    const branchId = String(ev.data?.section_id || ev.data?.branch_id || '').trim()
     const taskId = String(ev.data?.task_id || '').trim()
     const taskKind = String(ev.data?.task_kind || '').trim()
     const stage = String(ev.data?.stage || '').trim()

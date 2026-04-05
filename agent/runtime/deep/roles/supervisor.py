@@ -15,6 +15,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from agent.prompts.runtime_templates import (
     DEEP_SUPERVISOR_DECISION_PROMPT as SUPERVISOR_DECISION_PROMPT,
 )
+import agent.runtime.deep.support.runtime_support as support
+from agent.runtime.deep.schema import OutlineArtifact, OutlineSection
 
 from .planner import ResearchPlanner
 
@@ -85,6 +87,97 @@ class ResearchSupervisor:
             existing_queries=existing_queries,
             num_queries=num_queries,
             approved_scope=research_brief or approved_scope,
+        )
+
+    def create_outline_plan(
+        self,
+        topic: str,
+        *,
+        approved_scope: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        scope = approved_scope or {}
+        questions = [
+            str(item).strip()
+            for item in (scope.get("core_questions") or [])
+            if str(item).strip()
+        ]
+        if not questions:
+            fallback_goal = str(scope.get("research_goal") or topic).strip() or topic
+            questions = [fallback_goal]
+
+        sections: list[dict[str, Any]] = []
+        question_map: dict[str, str] = {}
+        for index, question in enumerate(questions, 1):
+            section = OutlineSection(
+                id=support._new_id("section"),
+                title=f"问题 {index}: {question}",
+                objective=question,
+                core_question=question,
+                acceptance_checks=[question],
+                source_requirements=[
+                    "至少 1 个可引用来源",
+                    "至少 1 段可定位 passage 支撑主结论",
+                ],
+                freshness_policy="default_advisory",
+                section_order=index,
+                status="planned",
+            )
+            sections.append(section.to_dict())
+            question_map[question] = section.id
+
+        return OutlineArtifact(
+            id=support._new_id("outline"),
+            topic=topic,
+            outline_version=1,
+            sections=sections,
+            required_section_ids=[str(item["id"]) for item in sections],
+            question_section_map=question_map,
+        ).to_dict()
+
+    def decide_section_action(
+        self,
+        *,
+        outline: dict[str, Any],
+        section_status_map: dict[str, Any],
+        budget_stop_reason: str = "",
+    ) -> SupervisorDecision:
+        if budget_stop_reason:
+            return SupervisorDecision(
+                action=SupervisorAction.STOP,
+                reasoning=budget_stop_reason,
+            )
+
+        required_ids = [
+            str(item).strip()
+            for item in (outline.get("required_section_ids") or [])
+            if str(item).strip()
+        ]
+        pending = [
+            section_id
+            for section_id in required_ids
+            if str((section_status_map or {}).get(section_id) or "planned").strip()
+            not in {"certified", "blocked", "failed"}
+        ]
+        blocked = [
+            section_id
+            for section_id in required_ids
+            if str((section_status_map or {}).get(section_id) or "").strip() == "blocked"
+        ]
+        if blocked:
+            return SupervisorDecision(
+                action=SupervisorAction.STOP,
+                reasoning="存在阻塞的 required section，当前无法继续汇总",
+                request_ids=blocked,
+            )
+        if pending:
+            return SupervisorDecision(
+                action=SupervisorAction.DISPATCH,
+                reasoning="仍有未认证的 section，需要继续研究或修订",
+                request_ids=pending,
+            )
+        return SupervisorDecision(
+            action=SupervisorAction.REPORT,
+            reasoning="所有 required section 已认证，可以进入最终报告生成",
         )
 
     def decide_next_action(

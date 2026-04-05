@@ -144,6 +144,9 @@ const STAGE_ORDER = [
 
 const BRANCH_ARTIFACT_TYPES = new Set([
   'evidence_bundle',
+  'section_draft',
+  'section_review',
+  'section_certification',
   'branch_result',
   'validation_summary',
 ])
@@ -298,19 +301,25 @@ function describeArtifact(payload: any): string {
       return 'Scope locked'
     case 'plan':
       return 'Research branches planned'
+    case 'outline':
+      return 'Outline ready'
     case 'evidence_bundle': {
       const sourceCount = positiveNumber(payload?.source_count)
       return sourceCount !== null ? `Evidence bundle recorded (${sourceCount} sources)` : 'Evidence bundle recorded'
     }
     case 'branch_result':
+    case 'section_draft':
       return 'Branch result ready'
-    case 'validation_summary': {
-      const validationStatus = text(payload?.validation_status)
-      if (validationStatus === 'passed') return 'Verification passed'
-      if (validationStatus === 'retry') return 'Verification requested another pass'
-      if (validationStatus === 'failed') return 'Verification failed'
+    case 'validation_summary':
+    case 'section_review': {
+      const validationStatus = text(payload?.validation_status || payload?.review_verdict || payload?.status)
+      if (validationStatus === 'passed' || validationStatus === 'accept_section') return 'Verification passed'
+      if (validationStatus === 'retry' || validationStatus === 'request_research') return 'Verification requested another pass'
+      if (validationStatus === 'failed' || validationStatus === 'block_section') return 'Verification failed'
       return formatVerificationOutcome(outcome, validationStage)
     }
+    case 'section_certification':
+      return 'Section certified'
     case 'final_report':
       return 'Final report generated'
     default:
@@ -437,10 +446,10 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
 
   if (eventType === 'research_artifact_update') {
     if (artifactType === 'scope_draft' || artifactType === 'scope') return 'scope'
-    if (artifactType === 'plan') return 'planning'
-    if (artifactType === 'validation_summary') return 'verify'
+    if (artifactType === 'plan' || artifactType === 'outline') return 'planning'
+    if (artifactType === 'validation_summary' || artifactType === 'section_review' || artifactType === 'section_certification') return 'verify'
     if (artifactType === 'final_report') return 'report'
-    if (artifactType === 'evidence_bundle' || artifactType === 'branch_result') return 'branch_research'
+    if (artifactType === 'evidence_bundle' || artifactType === 'branch_result' || artifactType === 'section_draft') return 'branch_research'
     if (validationStage || stage === 'claim_check' || stage === 'coverage_check') return 'verify'
     return 'branch_research'
   }
@@ -450,6 +459,7 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
     if (decisionType.startsWith('scope_')) return 'scope'
     if (
       decisionType === 'research_brief_ready' ||
+      decisionType === 'outline_plan' ||
       decisionType === 'plan' ||
       decisionType === 'replan' ||
       decisionType === 'supervisor_plan' ||
@@ -460,6 +470,8 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
     if (
       decisionType === 'retry_branch' ||
       decisionType === 'verification_retry_requested' ||
+      decisionType === 'review_updated' ||
+      decisionType === 'review_passed' ||
       decisionType === 'coverage_gap_detected' ||
       decisionType === 'verification_passed'
     ) {
@@ -470,6 +482,8 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
       decisionType === 'synthesize' ||
       decisionType === 'complete' ||
       decisionType === 'outline_ready' ||
+      decisionType === 'final_claim_gate_passed' ||
+      decisionType === 'final_claim_gate_blocked' ||
       decisionType === 'outline_gap_detected' ||
       decisionType === 'budget_stop' ||
       decisionType === 'stop'
@@ -488,7 +502,7 @@ function branchLabelHint(payload: any): string {
 }
 
 function resolveBranchId(payload: any, taskMetaById: Map<string, TaskMeta>): string | null {
-  const directBranchId = text(payload?.branch_id)
+  const directBranchId = text(payload?.section_id || payload?.branch_id)
   if (directBranchId) return directBranchId
   const taskId = text(payload?.task_id)
   if (taskId && taskMetaById.has(taskId)) {
@@ -545,7 +559,7 @@ function updateSourceStats(
     documentIds.add(artifactId)
     return
   }
-  if (artifactType === 'branch_result') {
+  if (artifactType === 'branch_result' || artifactType === 'section_draft') {
     synthesisIds.add(artifactId)
     return
   }
@@ -653,8 +667,10 @@ function buildPhaseSummary(
     for (const event of events) {
       if (event.type !== 'research_artifact_update') continue
       const artifactType = text(event.payload?.artifact_type)
-      if (artifactType !== 'validation_summary') continue
-      const validationStatus = text(event.payload?.validation_status || event.payload?.status)
+      if (artifactType !== 'validation_summary' && artifactType !== 'section_review' && artifactType !== 'section_certification') continue
+      const validationStatus = text(
+        event.payload?.validation_status || event.payload?.review_verdict || event.payload?.status || (artifactType === 'section_certification' ? 'passed' : ''),
+      )
       if (validationStatus === 'passed') passed += 1
       else if (validationStatus === 'failed') failed += 1
       else if (validationStatus === 'retry') retry += 1
@@ -706,7 +722,7 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
   canonicalEvents.forEach((event, index) => {
     const payload = event.data || {}
     const taskId = text(payload?.task_id)
-    const branchId = text(payload?.branch_id)
+    const branchId = text(payload?.section_id || payload?.branch_id)
     const taskKind = text(payload?.task_kind)
     const labelHint = branchLabelHint(payload)
     const iteration = positiveNumber(payload?.iteration)
@@ -839,7 +855,7 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
       bucket.synthesisIds,
     )
 
-    if (artifactType === 'validation_summary') {
+    if (artifactType === 'validation_summary' || artifactType === 'section_review' || artifactType === 'section_certification') {
       bucket.verificationState = describeArtifact(payload)
     }
 

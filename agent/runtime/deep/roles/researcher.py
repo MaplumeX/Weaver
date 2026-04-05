@@ -18,7 +18,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from agent.prompts.runtime_templates import DEEP_RESEARCHER_EVIDENCE_SYNTHESIS_PROMPT
 from agent.research.evidence_passages import split_into_passages
-from agent.runtime.deep.schema import ResearchTask
+from agent.runtime.deep.schema import ClaimUnit, ResearchTask
 from tools.research.content_fetcher import ContentFetcher
 
 logger = logging.getLogger(__name__)
@@ -104,6 +104,7 @@ class BranchResearchOutcome:
     key_findings: list[str] = field(default_factory=list)
     open_questions: list[str] = field(default_factory=list)
     confidence_note: str = ""
+    claim_units: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -179,6 +180,12 @@ class ResearchAgent:
             key_findings=synthesis["key_findings"],
             open_questions=synthesis["open_questions"],
             confidence_note=synthesis["confidence_note"],
+            claim_units=self._build_claim_units(
+                summary=synthesis["summary"],
+                key_findings=synthesis["key_findings"],
+                passages=passages,
+                sources=sources,
+            ),
         )
         return outcome.to_dict()
 
@@ -558,3 +565,70 @@ class ResearchAgent:
             if text:
                 findings.append(text)
         return _dedupe_strings(findings, limit=3)
+
+    def _build_claim_units(
+        self,
+        *,
+        summary: str,
+        key_findings: list[str],
+        passages: list[dict[str, Any]],
+        sources: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        claims: list[tuple[str, str]] = []
+        summary_text = str(summary or "").strip()
+        if summary_text:
+            claims.append((summary_text, "primary"))
+        for index, finding in enumerate(_dedupe_strings(key_findings or [], limit=4), 1):
+            importance = "primary" if index <= 2 else "secondary"
+            claims.append((finding, importance))
+
+        source_urls = [
+            str(item.get("url") or "").strip()
+            for item in sources or []
+            if str(item.get("url") or "").strip()
+        ]
+        built: list[dict[str, Any]] = []
+        for index, (claim_text, importance) in enumerate(claims, 1):
+            claim_tokens = _tokenize(claim_text)
+            matched_passages: list[dict[str, Any]] = []
+            for passage in passages or []:
+                passage_text = str(passage.get("text") or passage.get("quote") or "").strip()
+                if not passage_text:
+                    continue
+                overlap = len(claim_tokens & _tokenize(passage_text))
+                if overlap <= 0:
+                    continue
+                matched_passages.append(
+                    {
+                        "overlap": overlap,
+                        "id": str(passage.get("id") or "").strip(),
+                        "url": str(passage.get("url") or "").strip(),
+                    }
+                )
+            matched_passages.sort(key=lambda item: (-int(item["overlap"]), item["id"]))
+            evidence_passage_ids = [
+                str(item["id"]).strip()
+                for item in matched_passages[:2]
+                if str(item["id"]).strip()
+            ]
+            evidence_urls = list(
+                dict.fromkeys(
+                    [
+                        str(item["url"]).strip()
+                        for item in matched_passages[:2]
+                        if str(item["url"]).strip()
+                    ]
+                    or source_urls[:1]
+                )
+            )
+            built.append(
+                ClaimUnit(
+                    id=f"claim_{index}",
+                    text=claim_text,
+                    importance=importance,
+                    evidence_passage_ids=evidence_passage_ids,
+                    evidence_urls=evidence_urls,
+                    grounded=bool(evidence_passage_ids),
+                ).to_dict()
+            )
+        return built
