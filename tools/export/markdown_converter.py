@@ -14,6 +14,11 @@ from typing import Any, Dict, Optional, Union
 
 logger = logging.getLogger(__name__)
 
+_SOURCE_HEADING_RE = re.compile(
+    r"(?i)^(?:#+\s*)?(?:\d+[\.\)、]\s*|[一二三四五六七八九十]+[、\.]\s*)?"
+    r"(?:参考来源|参考资料|参考文献|来源|sources?|references?)\s*[:：]?\s*$"
+)
+
 # Check for optional dependencies
 try:
     import markdown
@@ -419,6 +424,12 @@ class MarkdownConverter:
         )
         return md.convert(markdown_text)
 
+    def _has_embedded_sources_section(self, markdown_text: str) -> bool:
+        for line in str(markdown_text or "").splitlines():
+            if _SOURCE_HEADING_RE.match(line.strip()):
+                return True
+        return False
+
     def to_html(
         self,
         markdown_text: str,
@@ -442,6 +453,7 @@ class MarkdownConverter:
         """
         html_content = self.markdown_to_html_content(markdown_text)
         css = self.custom_css or DEFAULT_CSS
+        effective_sources = [] if self._has_embedded_sources_section(markdown_text) else (sources or [])
 
         context = {
             "title": title,
@@ -449,7 +461,7 @@ class MarkdownConverter:
             "css": css,
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "thread_id": thread_id,
-            "sources": sources or [],
+            "sources": effective_sources,
             **(metadata or {}),
         }
 
@@ -470,11 +482,17 @@ class MarkdownConverter:
         html = html.replace("{{ thread_id }}", thread_id or "")
 
         # Handle sources
-        if sources:
-            sources_html = "".join(f'<li><a href="{s}">{s}</a></li>' for s in sources)
-            html = html.replace("{% for source in sources %}", "")
-            html = html.replace("{% endfor %}", "")
-            html = re.sub(r'\{\{ source \}\}', "", html)
+        if effective_sources:
+            sources_html = "".join(f'<li><a href="{s}">{s}</a></li>' for s in effective_sources)
+            html = re.sub(
+                r"\{% for source in sources %\}.*?\{% endfor %\}",
+                sources_html,
+                html,
+                flags=re.DOTALL,
+            )
+            html = html.replace("{% if sources %}", "").replace("{% endif %}", "")
+        else:
+            html = re.sub(r"\{% if sources %\}.*?\{% endif %\}", "", html, flags=re.DOTALL)
 
         return html
 
@@ -566,7 +584,7 @@ class MarkdownConverter:
         self._add_markdown_to_docx(doc, markdown_text)
 
         # Add sources if available
-        if sources:
+        if sources and not self._has_embedded_sources_section(markdown_text):
             doc.add_heading("Sources", level=1)
             for source in sources:
                 p = doc.add_paragraph(style="List Bullet")

@@ -18,6 +18,7 @@ import { CodeBlock } from './message/CodeBlock'
 import { CitationBadge } from './message/CitationBadge'
 import { useArtifacts } from '@/hooks/useArtifacts'
 import { getApiBaseUrl } from '@/lib/api'
+import { extractCitationNumber, splitInlineCitations } from '@/lib/report-markdown'
 
 // Lazy load MermaidBlock as it's a heavy dependency
 const MermaidBlock = dynamic(() => import('./MermaidBlock').then(mod => mod.MermaidBlock), {
@@ -67,6 +68,22 @@ const MessageItemBase = ({ message, onEdit, footer }: MessageItemProps) => {
 
   // Preprocess content for Math rendering
   const displayContent = preprocessContent(message.content || '')
+
+  const renderInlineTextWithCitations = (value: string) =>
+    splitInlineCitations(value).map((part, index) =>
+      part.type === 'citation' ? <CitationBadge key={`${part.value}-${index}`} num={part.value} /> : part.value,
+    )
+
+  const flattenChildrenText = (children: React.ReactNode): string =>
+    React.Children.toArray(children)
+      .map((child) => {
+        if (typeof child === 'string') return child
+        if (React.isValidElement(child)) {
+          return flattenChildrenText((child.props as { children?: React.ReactNode }).children)
+        }
+        return ''
+      })
+      .join('')
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -244,18 +261,36 @@ const MessageItemBase = ({ message, onEdit, footer }: MessageItemProps) => {
                              <p className="mb-2 last:mb-0 leading-7" {...props}>
                                 {React.Children.map(children, child => {
                                     if (typeof child === 'string') {
-                                        const parts = child.split(/(\[\d+\])/g)
-                                        return parts.map((part, i) => {
-                                            const match = part.match(/^\[(\d+)\]$/)
-                                            if (match) {
-                                                return <CitationBadge key={i} num={match[1]} />
-                                            }
-                                            return part
-                                        })
+                                        return renderInlineTextWithCitations(child)
                                     }
                                     return child
                                 })}
                              </p>
+                        ),
+                        li: ({children, ...props}) => (
+                            <li {...props}>
+                              {React.Children.map(children, child => {
+                                if (typeof child === 'string') {
+                                  return renderInlineTextWithCitations(child)
+                                }
+                                return child
+                              })}
+                            </li>
+                        ),
+                        h1: ({children, ...props}) => (
+                            <h1 className="mb-4 mt-6 text-2xl font-semibold" {...props}>
+                              {children}
+                            </h1>
+                        ),
+                        h2: ({children, ...props}) => (
+                            <h2 className="mb-3 mt-5 text-xl font-semibold" {...props}>
+                              {children}
+                            </h2>
+                        ),
+                        h3: ({children, ...props}) => (
+                            <h3 className="mb-2 mt-4 text-lg font-semibold" {...props}>
+                              {children}
+                            </h3>
                         ),
                         code: ({node, className, children, ...props}: any) => {
                             const match = /language-(\w+)/.exec(className || '')
@@ -295,9 +330,22 @@ const MessageItemBase = ({ message, onEdit, footer }: MessageItemProps) => {
                                 <CodeBlock language={match ? match[1] : 'text'} value={content} />
                             )
                         },
-                        a: ({node, ...props}) => (
-                            <a className={cn("underline underline-offset-2 font-medium", isUser ? "text-white" : "text-primary hover:text-primary/80")} {...props} />
-                        )
+                        a: ({children, href, ...props}) => {
+                            const text = flattenChildrenText(children)
+                            const citationNum = extractCitationNumber(text)
+                            if (citationNum) {
+                                return <CitationBadge num={citationNum} href={href} />
+                            }
+                            return (
+                                <a
+                                  className={cn("underline underline-offset-2 font-medium", isUser ? "text-white" : "text-primary hover:text-primary/80")}
+                                  href={href}
+                                  {...props}
+                                >
+                                  {children}
+                                </a>
+                            )
+                        }
                     }}
                 >
                   {displayContent}

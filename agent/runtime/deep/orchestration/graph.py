@@ -66,6 +66,7 @@ from agent.runtime.deep.support.graph_helpers import (
     scope_draft_from_payload as _scope_draft_from_payload,
     split_findings as _split_findings,
 )
+from agent.research.source_url_utils import canonicalize_source_url
 import agent.runtime.deep.support.runtime_support as support
 from common.cancellation import check_cancellation as _check_cancel_token
 from common.config import settings
@@ -2808,7 +2809,7 @@ class MultiAgentDeepResearchRuntime:
             self._finish_agent_run(parts, record, status="failed", summary="no certified sections")
             return self._patch(parts, next_step="finalize")
 
-        sources = [
+        all_sources = [
             ReportSource(
                 url=str(item.get("url") or ""),
                 title=str(item.get("title") or item.get("url") or ""),
@@ -2832,6 +2833,29 @@ class MultiAgentDeepResearchRuntime:
             )
             for item in certified_sections
         ]
+        referenced_urls: list[str] = []
+        seen_referenced_urls: set[str] = set()
+        for section in sections:
+            for raw_url in section.citation_urls:
+                normalized_url = canonicalize_source_url(raw_url)
+                if not normalized_url or normalized_url in seen_referenced_urls:
+                    continue
+                seen_referenced_urls.add(normalized_url)
+                referenced_urls.append(normalized_url)
+
+        if referenced_urls:
+            source_by_url = {
+                canonicalize_source_url(source.url): source
+                for source in all_sources
+                if canonicalize_source_url(source.url)
+            }
+            sources = [
+                source_by_url.get(url) or ReportSource(url=url, title=url)
+                for url in referenced_urls
+            ]
+        else:
+            sources = all_sources
+
         report_context = ReportContext(topic=self.topic, sections=sections, sources=sources)
         report_markdown = self.reporter.generate_report(report_context)
         normalized_report, citation_urls = self.reporter.normalize_report(report_markdown, sources, title=self.topic)

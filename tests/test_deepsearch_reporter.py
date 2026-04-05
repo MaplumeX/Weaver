@@ -50,7 +50,7 @@ def test_normalize_report_rewrites_source_section_and_dedupes_urls():
 
 According to [Annual Report](https://example.com/report?utm_source=test), demand improved.
 
-## 参考来源
+5. 来源
 
 - [99] old source
 """
@@ -62,15 +62,53 @@ According to [Annual Report](https://example.com/report?utm_source=test), demand
             ReportSource(url="https://example.com/report?utm_medium=x", title="Duplicate"),
             ReportSource(url="https://example.com/blog", title="Industry Blog"),
         ],
-        title="AI chips",
+        title="分析 AI chips 市场趋势",
+    )
+
+    assert normalized_report.startswith("# AI chips overview")
+    assert "Annual Report [\\[1\\]](https://example.com/report)" in normalized_report
+    assert "## 来源" in normalized_report
+    assert "- [1] [Annual Report](https://example.com/report)" in normalized_report
+    assert "- [2] [Industry Blog](https://example.com/blog)" not in normalized_report
+    assert citation_urls == ["https://example.com/report"]
+
+
+def test_normalize_report_strips_prompt_echo_and_promotes_numbered_headings():
+    reporter = ResearchReporter(_RecordingLLM(), {})
+    report = (
+        "AI chips\n"
+        "好的\uFF0C作为一名专业的研究报告撰写者\uFF0C我将基于您提供的经过整理和验证的研究材料\uFF0C"
+        "为您撰写一份全面深度研究报告。\n\n"
+        "1. 背景\n"
+        "AI chips demand is accelerating. [1]\n\n"
+        "## 结论\n"
+        "Capacity remains constrained. [1]\n"
+    )
+
+    normalized_report, citation_urls = reporter.normalize_report(
+        report,
+        [
+            ReportSource(url="https://example.com/report", title="Annual Report"),
+        ],
+        title="分析 AI chips 的供需变化",
     )
 
     assert normalized_report.startswith("# AI chips")
-    assert "Annual Report [1]" in normalized_report
-    assert "## 来源" in normalized_report
-    assert "- [1] Annual Report: https://example.com/report" in normalized_report
-    assert "- [2] Industry Blog: https://example.com/blog" in normalized_report
-    assert citation_urls == [
-        "https://example.com/report",
-        "https://example.com/blog",
-    ]
+    assert "研究报告撰写者" not in normalized_report
+    assert "## 背景" in normalized_report
+    assert "## 结论" in normalized_report
+    assert "[\\[1\\]](https://example.com/report)" in normalized_report
+    assert citation_urls == ["https://example.com/report"]
+
+
+def test_normalize_report_uses_sanitized_fallback_title_when_query_is_instructional():
+    reporter = ResearchReporter(_RecordingLLM(), {})
+
+    normalized_report, _ = reporter.normalize_report(
+        "正文第一段。\n\n## 影响\n细节说明。",
+        [ReportSource(url="https://example.com/report", title="Annual Report")],
+        title="分析2026年NIPS和CCF的冲突，NIPS禁止部分中国机构投稿",
+    )
+
+    assert normalized_report.startswith("# 2026年NIPS和CCF的冲突")
+    assert "## 影响" in normalized_report

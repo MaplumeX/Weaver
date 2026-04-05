@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Artifact } from '@/types/chat'
 import { CodeBlock } from './message/CodeBlock'
+import { CitationBadge } from './message/CitationBadge'
+import { extractCitationNumber, splitInlineCitations } from '@/lib/report-markdown'
 
 interface ArtifactsPanelProps {
   artifacts: Artifact[]
@@ -98,6 +100,22 @@ export function ArtifactsPanel({ artifacts, isOpen = true, onToggle }: Artifacts
 }
 
 function ArtifactCard({ artifact, isFullscreen }: { artifact: Artifact, isFullscreen?: boolean }) {
+  const renderInlineTextWithCitations = (value: string) =>
+    splitInlineCitations(value).map((part, index) =>
+      part.type === 'citation' ? <CitationBadge key={`${part.value}-${index}`} num={part.value} /> : part.value,
+    )
+
+  const flattenChildrenText = (children: React.ReactNode): string =>
+    React.Children.toArray(children)
+      .map((child) => {
+        if (typeof child === 'string') return child
+        if (React.isValidElement(child)) {
+          return flattenChildrenText((child.props as { children?: React.ReactNode }).children)
+        }
+        return ''
+      })
+      .join('')
+
   const getIcon = () => {
     switch (artifact.type) {
       case 'report': return <FileText className="h-4 w-4 text-orange-500" />
@@ -148,6 +166,41 @@ function ArtifactCard({ artifact, isFullscreen }: { artifact: Artifact, isFullsc
                 remarkPlugins={[remarkGfm]}
                 components={{
                     pre: ({children}) => <>{children}</>,
+                    p: ({children, ...props}) => (
+                        <p {...props}>
+                          {React.Children.map(children, child => {
+                            if (typeof child === 'string') {
+                              return renderInlineTextWithCitations(child)
+                            }
+                            return child
+                          })}
+                        </p>
+                    ),
+                    li: ({children, ...props}) => (
+                        <li {...props}>
+                          {React.Children.map(children, child => {
+                            if (typeof child === 'string') {
+                              return renderInlineTextWithCitations(child)
+                            }
+                            return child
+                          })}
+                        </li>
+                    ),
+                    h1: ({children, ...props}) => (
+                        <h1 className="mb-4 mt-6 text-2xl font-semibold" {...props}>
+                          {children}
+                        </h1>
+                    ),
+                    h2: ({children, ...props}) => (
+                        <h2 className="mb-3 mt-5 text-xl font-semibold" {...props}>
+                          {children}
+                        </h2>
+                    ),
+                    h3: ({children, ...props}) => (
+                        <h3 className="mb-2 mt-4 text-lg font-semibold" {...props}>
+                          {children}
+                        </h3>
+                    ),
                     code: ({node, className, children, ...props}: any) => {
                         const match = /language-(\w+)/.exec(className || '')
                         const isInline = !match && !String(children).includes('\n')
@@ -162,7 +215,19 @@ function ArtifactCard({ artifact, isFullscreen }: { artifact: Artifact, isFullsc
                         return (
                             <CodeBlock language={match ? match[1] : 'text'} value={content} />
                         )
-                    }
+                    },
+                    a: ({children, href, ...props}) => {
+                        const text = flattenChildrenText(children)
+                        const citationNum = extractCitationNumber(text)
+                        if (citationNum) {
+                          return <CitationBadge num={citationNum} href={href} />
+                        }
+                        return (
+                          <a href={href} className="underline underline-offset-2 text-primary hover:text-primary/80" {...props}>
+                            {children}
+                          </a>
+                        )
+                    },
                 }}
             >
               {artifact.content}
