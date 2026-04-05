@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import * as assert from 'node:assert/strict'
+import * as sessionUtils from '../lib/session-utils'
 
 import {
   buildArtifactsFromSessionState,
@@ -100,4 +101,44 @@ test('replaceSessionPreservingOrder updates an existing session without moving i
     ['1', '2', '3'],
   )
   assert.equal(sessions[1]?.title, 'b2')
+})
+
+test('resolveRequestedSessionRestore suppresses stale session restore while clearing a chat', () => {
+  assert.equal(typeof sessionUtils.resolveRequestedSessionRestore, 'function')
+
+  const suppressed = sessionUtils.resolveRequestedSessionRestore({
+    activeSessionId: null,
+    requestedSessionId: 'thread_123',
+    isHistoryLoading: false,
+    clearingSessionId: 'thread_123',
+  })
+
+  assert.deepEqual(suppressed, {
+    shouldOpen: false,
+    nextClearingSessionId: 'thread_123',
+  })
+
+  const released = sessionUtils.resolveRequestedSessionRestore({
+    activeSessionId: null,
+    requestedSessionId: null,
+    isHistoryLoading: false,
+    clearingSessionId: 'thread_123',
+  })
+
+  assert.deepEqual(released, {
+    shouldOpen: false,
+    nextClearingSessionId: null,
+  })
+
+  const normalRestore = sessionUtils.resolveRequestedSessionRestore({
+    activeSessionId: null,
+    requestedSessionId: 'thread_456',
+    isHistoryLoading: false,
+    clearingSessionId: null,
+  })
+
+  assert.deepEqual(normalRestore, {
+    shouldOpen: true,
+    nextClearingSessionId: null,
+  })
 })

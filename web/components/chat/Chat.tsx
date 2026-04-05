@@ -23,6 +23,7 @@ import { DEFAULT_MODEL, STORAGE_KEYS } from '@/lib/constants'
 import { filesToImageAttachments } from '@/lib/file-utils'
 import { getInterruptInputPlaceholder } from '@/lib/interrupt-review'
 import { resolveModelSelection } from '@/lib/model-selection'
+import { resolveRequestedSessionRestore } from '@/lib/session-utils'
 import { cn } from '@/lib/utils'
 import { Message } from '@/types/chat'
 
@@ -48,6 +49,7 @@ export function Chat() {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const lastAtBottom = useRef<boolean | null>(null)
   const openingSessionId = useRef<string | null>(null)
+  const clearingSessionIdRef = useRef<string | null>(null)
   const suppressAutosaveRef = useRef(false)
   const { models: publicModels } = usePublicModels()
 
@@ -223,10 +225,15 @@ export function Chat() {
   )
 
   useEffect(() => {
-    if (isHistoryLoading) return
-    if (!requestedSessionId) return
-    if (requestedSessionId === activeSessionId) return
+    const restoreDecision = resolveRequestedSessionRestore({
+      activeSessionId,
+      requestedSessionId,
+      isHistoryLoading,
+      clearingSessionId: clearingSessionIdRef.current,
+    })
+    clearingSessionIdRef.current = restoreDecision.nextClearingSessionId
 
+    if (!restoreDecision.shouldOpen || !requestedSessionId) return
     void openSessionById(requestedSessionId)
   }, [activeSessionId, isHistoryLoading, openSessionById, requestedSessionId])
 
@@ -249,6 +256,7 @@ export function Chat() {
       })
     }
 
+    clearingSessionIdRef.current = requestedSessionId || sessionId || null
     setCurrentView('dashboard')
     setActiveSessionId(null)
     updateSessionUrl(null)
@@ -262,6 +270,7 @@ export function Chat() {
     messages,
     pendingInterrupt,
     resetComposerState,
+    requestedSessionId,
     saveToHistory,
     searchMode,
     threadId,

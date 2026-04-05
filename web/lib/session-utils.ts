@@ -2,6 +2,18 @@ import { normalizeInterruptReview } from '@/lib/interrupt-review'
 import { ChatMode, normalizeChatMode } from '@/lib/chat-mode'
 import { Artifact, ChatSession, Message } from '@/types/chat'
 
+interface RequestedSessionRestoreOptions {
+  activeSessionId: string | null
+  requestedSessionId: string | null
+  isHistoryLoading: boolean
+  clearingSessionId: string | null
+}
+
+interface RequestedSessionRestoreDecision {
+  shouldOpen: boolean
+  nextClearingSessionId: string | null
+}
+
 function toTextContent(value: unknown): string {
   if (typeof value === 'string') return value
   if (Array.isArray(value)) {
@@ -48,6 +60,36 @@ export function createConversationId(): string {
 
 export function deriveSearchModeFromRoute(route?: string | null): ChatMode {
   return normalizeChatMode(route)
+}
+
+export function resolveRequestedSessionRestore({
+  activeSessionId,
+  requestedSessionId,
+  isHistoryLoading,
+  clearingSessionId,
+}: RequestedSessionRestoreOptions): RequestedSessionRestoreDecision {
+  const isWaitingForClearedUrl = Boolean(
+    clearingSessionId && requestedSessionId === clearingSessionId,
+  )
+
+  if (isWaitingForClearedUrl) {
+    return {
+      shouldOpen: false,
+      nextClearingSessionId: clearingSessionId,
+    }
+  }
+
+  if (isHistoryLoading || !requestedSessionId || requestedSessionId === activeSessionId) {
+    return {
+      shouldOpen: false,
+      nextClearingSessionId: null,
+    }
+  }
+
+  return {
+    shouldOpen: true,
+    nextClearingSessionId: null,
+  }
 }
 
 export function getDefaultSessionTitle(messages: Message[]): string {
