@@ -1049,13 +1049,13 @@ Made by the Weaver Team
 ### Key Configuration
 
 ```bash
-# Deep mode selection
-DEEPSEARCH_MODE=auto                     # auto|tree|linear
-TREE_EXPLORATION_ENABLED=true
-
-# Budget guards
-DEEPSEARCH_MAX_SECONDS=0                 # 0 = disabled
-DEEPSEARCH_MAX_TOKENS=0                  # 0 = disabled
+# Deep research concurrency / budgets
+DEEP_RESEARCH_PARALLEL_WORKERS=3
+DEEP_RESEARCH_MAX_SEARCHES=800           # 0 = disabled
+DEEP_RESEARCH_MAX_SECONDS=0              # 0 = disabled
+DEEP_RESEARCH_MAX_TOKENS=0               # 0 = disabled
+DEEP_RESEARCH_REPORT_SOURCES_LIMIT=20
+RESEARCH_FETCH_RENDER_MODE=auto          # optional: better JS/page fallback
 
 # Search orchestration
 SEARCH_STRATEGY=fallback                 # fallback|parallel|round_robin|best_first
@@ -1088,8 +1088,8 @@ python scripts/benchmark_deep_research.py \
 ### Rollback / Troubleshooting
 
 - Unstable deep research flow:
-  - set `DEEPSEARCH_MODE=linear`
-  - disable tree default with `TREE_EXPLORATION_ENABLED=false`
+  - reduce `DEEP_RESEARCH_PARALLEL_WORKERS` (for example `1`)
+  - lower `DEEP_RESEARCH_MAX_SEARCHES`
 - Stale results:
   - enable freshness ranking
   - reduce `SEARCH_FRESHNESS_HALF_LIFE_DAYS`

@@ -187,6 +187,6 @@ Inspector 的 Progress 面板使用 EventSource 连接：
 - `GET /api/sessions/{thread_id}/evidence`
 - Response: `EvidenceResponse`（包含 `sources / claims / fetched_pages / passages`）
 
-若希望看到更强的 `passages`（带 `heading_path / quote / snippet_hash`），建议在 `.env` 中启用：
+若希望看到更强的 `passages`（带 `heading_path / quote / snippet_hash`），建议在 `.env` 中增强正文抓取策略：
 
-- `DEEPSEARCH_ENABLE_RESEARCH_FETCHER=true`
+- `RESEARCH_FETCH_RENDER_MODE=auto`

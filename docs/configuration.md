@@ -180,12 +180,14 @@ webhook = WebhookTrigger(
 
 Deep Research 自 2026-04-01 起只保留 `multi_agent` runtime。仍保留的主要配置与迁移说明见：
 
-- `DEEPSEARCH_PARALLEL_WORKERS=<int>`
-- `DEEPSEARCH_MAX_SEARCHES=<int>`
+- `DEEP_RESEARCH_PARALLEL_WORKERS=<int>`
+- `DEEP_RESEARCH_MAX_SEARCHES=<int>`
+- `DEEP_RESEARCH_REPORT_SOURCES_LIMIT=<int>`
+- `RESEARCH_FETCH_RENDER_MODE=auto`（需要更强的正文/JS 页面抓取时）
 - 已移除：
   - `DEEPSEARCH_ENGINE`
   - `DEEPSEARCH_MODE`
   - `TREE_PARALLEL_BRANCHES`
   - `DEEPSEARCH_TREE_MAX_SEARCHES`
-- `docs/deep-research-rollout.md`
+- `docs/deep-research-multi-agent-architecture.md`
 - `docs/benchmarks/README.md`
