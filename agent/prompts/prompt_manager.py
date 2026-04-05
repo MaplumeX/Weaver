@@ -121,36 +121,3 @@ def get_prompt_registry() -> PromptRegistry:
 
 def render_prompt(prompt_id: str, context: Optional[Dict[str, Any]] = None) -> str:
     return get_prompt_manager().render(prompt_id, context=context)
-
-
-def get_agent_system_prompt(context: Optional[Dict[str, Any]] = None) -> str:
-    """
-    Get agent system prompt using global PromptManager.
-
-    Args:
-        context: Optional context dict
-
-    Returns:
-        Agent system prompt
-    """
-    return get_prompt_manager().get_agent_prompt(context=context)
-
-
-def get_writer_system_prompt() -> str:
-    """
-    Get writer system prompt using global PromptManager.
-
-    Returns:
-        Writer system prompt
-    """
-    return get_prompt_manager().get_writer_prompt()
-
-
-def get_planner_guidance() -> str:
-    """
-    Get planner guidance using global PromptManager.
-
-    Returns:
-        Planner guidance
-    """
-    return get_prompt_manager().get_planner_prompt()

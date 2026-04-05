@@ -14,7 +14,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from agent.prompts.runtime_templates import (
     DEEP_REPORTER_EXEC_SUMMARY_PROMPT,
     DEEP_REPORTER_PROMPT as REPORTER_PROMPT,
-    DEEP_REPORTER_REFINE_PROMPT,
 )
 from agent.research.source_url_utils import canonicalize_source_url
 
@@ -235,39 +234,6 @@ class ResearchReporter:
 
         logger.info(f"[Reporter] Generated report: {len(report)} chars")
         return report
-
-    def refine_report(
-        self,
-        report: str,
-        feedback: str,
-        topic: str,
-    ) -> str:
-        """
-        Refine a report based on feedback.
-
-        Args:
-            report: Original report
-            feedback: Evaluation feedback
-            topic: Research topic
-
-        Returns:
-            Refined report
-        """
-        prompt = ChatPromptTemplate.from_messages([
-            ("user", DEEP_REPORTER_REFINE_PROMPT)
-        ])
-
-        msg = prompt.format_messages(
-            topic=topic,
-            report=report,
-            feedback=feedback,
-        )
-
-        response = self.llm.invoke(msg, config=self.config)
-        refined = getattr(response, "content", "") or ""
-
-        logger.info(f"[Reporter] Refined report: {len(refined)} chars")
-        return refined if refined else report
 
     def generate_executive_summary(
         self,

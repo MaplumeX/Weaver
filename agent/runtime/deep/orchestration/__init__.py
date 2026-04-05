@@ -8,19 +8,13 @@ from typing import Any
 __all__ = [
     "GapAnalysisResult",
     "MultiAgentDeepResearchRuntime",
-    "create_deep_research_runtime_graph",
-    "create_multi_agent_deep_research_graph",
-    "run_deep_research_runtime",
     "run_multi_agent_deep_research",
 ]
 
 _SYMBOL_TO_MODULE = {
-    "GapAnalysisResult": "agent.runtime.deep.orchestration.runtime",
-    "MultiAgentDeepResearchRuntime": "agent.runtime.deep.orchestration.runtime",
-    "create_deep_research_runtime_graph": "agent.runtime.deep.orchestration.runtime",
-    "create_multi_agent_deep_research_graph": "agent.runtime.deep.orchestration.runtime",
-    "run_deep_research_runtime": "agent.runtime.deep.orchestration.runtime",
-    "run_multi_agent_deep_research": "agent.runtime.deep.orchestration.runtime",
+    "GapAnalysisResult": "agent.runtime.deep.orchestration.graph",
+    "MultiAgentDeepResearchRuntime": "agent.runtime.deep.orchestration.graph",
+    "run_multi_agent_deep_research": "agent.runtime.deep.orchestration.graph",
 }
 
 

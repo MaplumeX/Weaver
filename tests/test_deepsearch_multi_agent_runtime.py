@@ -4,7 +4,7 @@ from langgraph.types import Command
 
 import agent.runtime.deep.orchestration.graph as multi_agent_runtime
 from agent.core.state import build_deep_runtime_snapshot
-from agent.runtime.deep.orchestration import run_multi_agent_deep_research
+from agent.runtime.deep.entrypoints import run_deep_research
 
 
 class _DummyEmitter:
@@ -379,11 +379,11 @@ def test_multi_agent_runtime_uses_default_max_epochs(monkeypatch):
     assert runtime.max_epochs == 15
 
 
-def test_run_multi_agent_deep_research_emits_section_artifacts_and_events(monkeypatch):
+def test_run_deep_research_emits_section_artifacts_and_events(monkeypatch):
     emitter = _DummyEmitter()
     _patch_runtime_deps(monkeypatch, emitter=emitter, reporter=_ContextCheckingReporter)
 
-    result = run_multi_agent_deep_research(
+    result = run_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
@@ -510,7 +510,7 @@ def test_multi_agent_section_events_include_iteration_metadata(monkeypatch):
     emitter = _DummyEmitter()
     _patch_runtime_deps(monkeypatch, emitter=emitter, supervisor=_SingleTaskSupervisor)
 
-    run_multi_agent_deep_research(
+    run_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {"configurable": {"thread_id": "thread_iteration_metadata", "deep_research_query_num": 1}},
     )
@@ -658,7 +658,7 @@ def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch
         researcher=_FlakyResearchAgent,
     )
 
-    result = run_multi_agent_deep_research(
+    result = run_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {
@@ -695,7 +695,7 @@ def test_multi_agent_dispatch_records_budget_stop_reason_when_search_budget_exha
     emitter = _DummyEmitter()
     _patch_runtime_deps(monkeypatch, emitter=emitter)
 
-    result = run_multi_agent_deep_research(
+    result = run_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
         {
             "configurable": {

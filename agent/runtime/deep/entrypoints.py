@@ -9,15 +9,15 @@ from typing import Any
 from langgraph.errors import GraphBubbleUp
 
 from agent.runtime.deep.config import ensure_supported_runtime_inputs
-from agent.runtime.deep.orchestration.runtime import (
-    run_deep_research_runtime as _run_deep_research_runtime,
+from agent.runtime.deep.orchestration.graph import (
+    run_multi_agent_deep_research as _run_multi_agent_deep_research,
 )
 
 
 def run_deep_research(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     ensure_supported_runtime_inputs(config)
     try:
-        result = _run_deep_research_runtime(state, config)
+        result = _run_multi_agent_deep_research(state, config)
     except GraphBubbleUp:
         raise
     if isinstance(result, dict) and not bool(result.get("is_cancelled")):
@@ -25,8 +25,4 @@ def run_deep_research(state: dict[str, Any], config: dict[str, Any]) -> dict[str
     return result
 
 
-def run_multi_agent_deep_research(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-    return run_deep_research(state, config)
-
-
-__all__ = ["run_deep_research", "run_multi_agent_deep_research"]
+__all__ = ["run_deep_research"]

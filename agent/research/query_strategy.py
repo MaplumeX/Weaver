@@ -8,8 +8,8 @@ multiple evidence dimensions instead of relying only on LLM sampling.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from datetime import datetime
+from typing import Any, Dict, List, Set
 
 _QUERY_DIMENSIONS = (
     "freshness",
@@ -259,81 +259,3 @@ def backfill_diverse_queries(
             break
 
     return final_queries[:target]
-
-
-def _parse_datetime(value: Any) -> Optional[datetime]:
-    if value is None:
-        return None
-
-    if isinstance(value, datetime):
-        dt = value
-    else:
-        text = str(value).strip()
-        if not text:
-            return None
-
-        normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
-
-        try:
-            dt = datetime.fromisoformat(normalized)
-        except ValueError:
-            for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S"):
-                try:
-                    dt = datetime.strptime(text, fmt)
-                    break
-                except ValueError:
-                    continue
-            else:
-                return None
-
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
-def summarize_freshness(search_runs: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Summarize freshness distribution from collected search results."""
-    total_results = 0
-    known_count = 0
-    unknown_count = 0
-    fresh_7_count = 0
-    fresh_30_count = 0
-    stale_180_count = 0
-
-    now = datetime.now(timezone.utc)
-
-    for run in search_runs or []:
-        results = run.get("results") if isinstance(run, dict) else []
-        if not isinstance(results, list):
-            continue
-
-        for result in results:
-            total_results += 1
-            published_date = result.get("published_date") if isinstance(result, dict) else None
-            dt = _parse_datetime(published_date)
-            if dt is None:
-                unknown_count += 1
-                continue
-
-            known_count += 1
-            age_days = max(0.0, (now - dt).total_seconds() / 86400.0)
-            if age_days <= 7:
-                fresh_7_count += 1
-            if age_days <= 30:
-                fresh_30_count += 1
-            if age_days > 180:
-                stale_180_count += 1
-
-    fresh_30_ratio = round(fresh_30_count / known_count, 3) if known_count else 0.0
-    stale_180_ratio = round(stale_180_count / known_count, 3) if known_count else 0.0
-
-    return {
-        "total_results": total_results,
-        "known_count": known_count,
-        "unknown_count": unknown_count,
-        "fresh_7_count": fresh_7_count,
-        "fresh_30_count": fresh_30_count,
-        "stale_180_count": stale_180_count,
-        "fresh_30_ratio": fresh_30_ratio,
-        "stale_180_ratio": stale_180_ratio,
-    }

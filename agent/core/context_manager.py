@@ -578,33 +578,3 @@ def get_context_window_manager(
         _context_managers[key] = ContextWindowManager(model=model, config=config)
 
     return _context_managers[key]
-
-
-def truncate_for_model(
-    messages: List[BaseMessage],
-    model: str = "gpt-4",
-    max_tokens: Optional[int] = None,
-) -> List[BaseMessage]:
-    """
-    Convenience function to truncate messages for a model.
-
-    Args:
-        messages: Messages to truncate
-        model: Target model
-        max_tokens: Maximum tokens (auto-detected if not specified)
-
-    Returns:
-        Truncated messages
-    """
-    manager = get_context_window_manager(model)
-
-    if max_tokens is None:
-        # Use 80% of model's context window
-        max_tokens = int(manager.max_context_tokens * 0.8)
-
-    truncated, stats = manager.truncate_messages(messages, max_tokens=max_tokens)
-
-    if stats.truncated_count > 0:
-        logger.info(f"[context_manager] Truncated {stats.truncated_count} messages for {model}")
-
-    return truncated

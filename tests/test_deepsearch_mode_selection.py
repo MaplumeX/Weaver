@@ -2,8 +2,8 @@ import pytest
 from langgraph.errors import GraphInterrupt
 from langgraph.types import Interrupt
 
-from agent.runtime.deep import entrypoints as deep_entrypoints
 import agent.runtime.nodes.deep_research as nodes
+from agent.runtime.deep import entrypoints as deep_entrypoints
 
 
 def test_deep_research_node_uses_auto_runner(monkeypatch):
@@ -47,7 +47,7 @@ def test_deep_research_node_delegates_simple_factual_query_to_agent_node(monkeyp
 def test_run_deep_research_dispatches_supported_runtime(monkeypatch):
     monkeypatch.setattr(
         deep_entrypoints,
-        "_run_deep_research_runtime",
+        "_run_multi_agent_deep_research",
         lambda _state, _config: {"mode": "multi_agent", "is_cancelled": False},
     )
 
@@ -75,7 +75,7 @@ def test_run_deep_research_reraises_runtime_interrupt(monkeypatch):
     def fake_runtime(state, config):
         raise GraphInterrupt((Interrupt(value={"checkpoint": "deep_research_clarify"}),))
 
-    monkeypatch.setattr(deep_entrypoints, "_run_deep_research_runtime", fake_runtime)
+    monkeypatch.setattr(deep_entrypoints, "_run_multi_agent_deep_research", fake_runtime)
 
     with pytest.raises(GraphInterrupt):
         deep_entrypoints.run_deep_research({"input": "test"}, {"configurable": {}})
@@ -84,7 +84,7 @@ def test_run_deep_research_reraises_runtime_interrupt(monkeypatch):
 def test_run_deep_research_does_not_mark_cancelled_result(monkeypatch):
     monkeypatch.setattr(
         deep_entrypoints,
-        "_run_deep_research_runtime",
+        "_run_multi_agent_deep_research",
         lambda _state, _config: {"is_cancelled": True, "final_report": "cancelled"},
     )
 

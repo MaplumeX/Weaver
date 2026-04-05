@@ -9,6 +9,7 @@
 ## 一句话结论
 
 - 显式事实：当前 Deep Research 只有一个受支持运行时，即 `multi_agent`；旧的 runtime/mode 选择已在代码中标记为 2026-04-01 移除。
+- 显式事实：当前对外保留的 canonical Deep Research 入口是 `agent/runtime/deep/entrypoints.py` 中的 `run_deep_research()`；历史 runtime alias 已移除。
 - 显式事实：这里的“多智能体”不是多进程或多服务编排，而是在单个 LangGraph 状态机里，用多个角色化 LLM 代理加 `Send` 扇出多个 `researcher` 分支。
 - 推断：整体架构更接近“带控制平面的模块化单体 + 图工作流编排”，不是微服务式 agent swarm。这个推断置信度高。
 
@@ -16,7 +17,7 @@
 
 - 入口与总图：`main.py`、`agent/runtime/graph.py`、`agent/runtime/nodes/routing.py`
 - Deep Research 桥接节点：`agent/runtime/nodes/deep_research.py`
-- Deep Research 主运行时：`agent/runtime/deep/orchestration/graph.py`
+- Deep Research 公开入口与主运行时：`agent/runtime/deep/entrypoints.py`、`agent/runtime/deep/orchestration/graph.py`
 - 角色实现：`agent/runtime/deep/roles/clarify.py`、`scope.py`、`supervisor.py`、`researcher.py`、`reporter.py`
 - 状态与契约：`agent/runtime/deep/state.py`、`schema.py`、`store.py`、`support/graph_helpers.py`
 - 支撑能力：`agent/runtime/deep/config.py`、`support/runtime_support.py`
@@ -134,7 +135,7 @@ flowchart LR
 - `supervisor`
   - 初始职责是 `create_plan()`，把 scope 拆成多个 branch task。
   - 循环中承担调度决策，决定继续 `dispatch`、重试 branch、进入 `report` 或停止。
-  - 当前主图里 `supervisor_decide` 并没有调用 `ResearchSupervisor.decide_next_action()` 做复杂结构化裁决，而是直接依据 validation 聚合结果和预算规则做决策。这是显式事实。
+  - 当前主图里的调度决策直接在 runtime loop 内依据 validation 聚合结果和预算规则完成，不再保留独立的 `decide_next_action()` 备用路径。这是显式事实。
 
 - `researcher`
   - 每个 branch 对应一个 researcher 执行单元。
@@ -190,7 +191,7 @@ flowchart LR
 2. `deep_research_node` 负责桥接。
    - 先发 `RESEARCH_NODE_START`。
    - 若输入被 `_auto_mode_prefers_linear()` 判定为简单事实查询，会直接回退到普通 `agent_node`。
-   - 否则调用 `run_deep_research()`，真正进入多智能体 runtime。
+   - 否则调用 `agent/runtime/deep/entrypoints.py` 中的 `run_deep_research()`，真正进入多智能体 runtime。
 
 3. `bootstrap` 负责恢复。
    - 从 `deep_runtime` 快照恢复 `task_queue`、`artifact_store`、`runtime_state`、`agent_runs`。

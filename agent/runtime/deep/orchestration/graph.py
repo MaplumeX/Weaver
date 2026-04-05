@@ -318,9 +318,6 @@ class LightweightArtifactStore:
     def branch_results(self) -> list[dict[str, Any]]:
         return self.section_drafts()
 
-    def set_branch_result(self, result: dict[str, Any]) -> None:
-        self.set_section_draft(result)
-
     def branch_result(self, task_or_section_id: str) -> dict[str, Any]:
         return self.section_draft(task_or_section_id)
 
@@ -347,9 +344,6 @@ class LightweightArtifactStore:
     def validation_summaries(self) -> list[dict[str, Any]]:
         return self.section_reviews()
 
-    def set_validation_summary(self, summary: dict[str, Any]) -> None:
-        self.set_section_review(summary)
-
     def validation_summary(self, task_or_section_id: str) -> dict[str, Any]:
         return self.section_review(task_or_section_id)
 
@@ -357,9 +351,6 @@ class LightweightArtifactStore:
         key = str(section_id or "").strip()
         if key:
             self._section_reviews.pop(key, None)
-
-    def clear_validation_summary(self, task_or_section_id: str) -> None:
-        self.clear_section_review(task_or_section_id)
 
     def section_certifications(self) -> list[dict[str, Any]]:
         return [
@@ -393,9 +384,6 @@ class LightweightArtifactStore:
             for item in self.section_drafts()
             if bool(item.get("certified"))
         ]
-
-    def passed_branch_results(self) -> list[dict[str, Any]]:
-        return self.certified_section_drafts()
 
     def all_sources(self) -> list[dict[str, Any]]:
         sources: list[dict[str, Any]] = []
@@ -3038,17 +3026,6 @@ class MultiAgentDeepResearchRuntime:
         return output if isinstance(output, dict) else {}
 
 
-def create_multi_agent_deep_research_graph(
-    state: dict[str, Any],
-    config: dict[str, Any],
-    *,
-    checkpointer: Any = None,
-    interrupt_before: Any = None,
-):
-    runtime = MultiAgentDeepResearchRuntime(state, config)
-    return runtime.build_graph(checkpointer=checkpointer, interrupt_before=interrupt_before)
-
-
 def run_multi_agent_deep_research(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     runtime = MultiAgentDeepResearchRuntime(state, config)
     return runtime.run()
@@ -3058,6 +3035,5 @@ __all__ = [
     "GapAnalysisResult",
     "MultiAgentDeepResearchRuntime",
     "_format_scope_draft_markdown",
-    "create_multi_agent_deep_research_graph",
     "run_multi_agent_deep_research",
 ]

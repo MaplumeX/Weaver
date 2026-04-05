@@ -28,8 +28,6 @@ __all__ = [
     "revise_report_node",
     "route_node",
     "run_deep_research",
-    "run_deep_research_runtime",
-    "run_multi_agent_deep_research",
     "writer_node",
 ]
 
@@ -54,8 +52,6 @@ _SYMBOL_TO_MODULE: Dict[str, str] = {
     "revise_report_node": "agent.runtime.nodes",
     "route_node": "agent.runtime.nodes",
     "run_deep_research": "agent.runtime.deep",
-    "run_deep_research_runtime": "agent.runtime.deep",
-    "run_multi_agent_deep_research": "agent.runtime.deep",
     "writer_node": "agent.runtime.nodes",
 }
 

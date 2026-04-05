@@ -30,7 +30,7 @@ def test_public_contracts_are_importable():
 def test_runtime_entrypoint_dispatches_multi_agent(monkeypatch):
     monkeypatch.setattr(
         entrypoints,
-        "_run_deep_research_runtime",
+        "_run_multi_agent_deep_research",
         lambda _state, _config: {"engine": "multi_agent", "is_cancelled": False},
     )
 

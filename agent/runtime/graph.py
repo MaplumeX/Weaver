@@ -1,11 +1,11 @@
 import logging
-from pathlib import Path
 
 import psycopg
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, StateGraph
 from psycopg.rows import dict_row
 
+from agent.core.state import AgentState
 from agent.runtime.nodes import (
     agent_node,
     clarify_node,
@@ -24,8 +24,6 @@ from agent.runtime.nodes import (
     route_node,
     writer_node,
 )
-
-from agent.core.state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -189,19 +187,6 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     logger.info("Research graph compiled successfully")
 
     return graph
-
-
-def export_graph_mermaid(output_path: str = "graph_mermaid.md", xray: bool = True) -> Path:
-    """
-    Export the compiled graph to a mermaid markdown file for visualization.
-    """
-    graph = create_research_graph(checkpointer=None, interrupt_before=None)
-    mermaid = graph.get_graph(xray=xray).draw_mermaid()
-    path = Path(output_path)
-    path.write_text(f"```mermaid\n{mermaid}\n```", encoding="utf-8")
-    logger.info(f"Graph mermaid exported to {path}")
-    return path
-
 
 async def create_checkpointer(database_url: str):
     """

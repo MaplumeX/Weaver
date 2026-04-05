@@ -327,27 +327,6 @@ def convert_xml_to_openai_format(xml_calls: List[XMLToolCall]) -> List[Dict[str,
     return [call.to_openai_format() for call in xml_calls]
 
 
-def extract_tool_calls_from_response(
-    response_content: str, format_type: str = "auto"
-) -> tuple[Optional[str], List[XMLToolCall]]:
-    """
-    Extract tool calls from LLM response content.
-
-    Args:
-        response_content: Response content from LLM
-        format_type: "xml", "native", or "auto" (detect automatically)
-
-    Returns:
-        Tuple of (thinking_text, tool_calls)
-    """
-    if format_type == "xml" or (format_type == "auto" and "<function_calls>" in response_content):
-        parser = XMLToolParser()
-        return parser.extract_thinking_and_calls(response_content)
-
-    # Native format is handled by LLM API directly
-    return response_content, []
-
-
 # Example usage and tests
 if __name__ == "__main__":
     print("=" * 60)

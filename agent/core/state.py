@@ -212,15 +212,6 @@ class SearchResult(TypedDict):
     timestamp: str
 
 
-class CodeExecution(TypedDict):
-    """Code execution result structure."""
-
-    code: str
-    output: str
-    error: str | None
-    image: str | None  # Base64 encoded image if generated
-
-
 class QueryState(TypedDict):
     """State for a single parallel research query."""
 

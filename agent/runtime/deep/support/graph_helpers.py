@@ -7,7 +7,6 @@ import re
 from typing import Annotated, Any, TypedDict
 
 import agent.runtime.deep.support.runtime_support as support
-from agent.core.context import ResearchWorkerContext
 from agent.runtime.deep.schema import (
     AgentRunRecord,
     ControlPlaneHandoff,
@@ -126,10 +125,6 @@ def restore_agent_runs(items: list[dict[str, Any]]) -> list[AgentRunRecord]:
             continue
         restored.append(AgentRunRecord(**item))
     return restored
-
-
-def restore_worker_context(payload: dict[str, Any]) -> ResearchWorkerContext:
-    return ResearchWorkerContext(**payload)
 
 
 def gap_result_from_payload(payload: dict[str, Any] | None) -> GapAnalysisResult | None:
