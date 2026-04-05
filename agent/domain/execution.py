@@ -9,7 +9,6 @@ class ExecutionMode(str, Enum):
     DIRECT_ANSWER = "direct_answer"
     TOOL_ASSISTED = "tool_assisted"
     DEEP_RESEARCH = "deep_research"
-    CLARIFY = "clarify"
 
 
 class ToolCapability(str, Enum):
@@ -28,14 +27,12 @@ _PUBLIC_MODE_TO_EXECUTION: dict[str, ExecutionMode] = {
     "direct_answer": ExecutionMode.DIRECT_ANSWER,
     "deep": ExecutionMode.DEEP_RESEARCH,
     "deep_research": ExecutionMode.DEEP_RESEARCH,
-    "clarify": ExecutionMode.CLARIFY,
 }
 
 _EXECUTION_TO_ROUTE: dict[ExecutionMode, str] = {
     ExecutionMode.DIRECT_ANSWER: "agent",
     ExecutionMode.TOOL_ASSISTED: "agent",
     ExecutionMode.DEEP_RESEARCH: "deep",
-    ExecutionMode.CLARIFY: "clarify",
 }
 
 
@@ -126,4 +123,3 @@ class ExecutionResult:
     messages: list[Any] = field(default_factory=list)
     review: ReviewDecision | None = None
     artifacts: dict[str, Any] = field(default_factory=dict)
-

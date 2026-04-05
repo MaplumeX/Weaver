@@ -22,24 +22,17 @@ class ConversationState(TypedDict, total=False):
     messages: list[Any]
     final_report: str
     draft_report: str
-    needs_clarification: bool
-    clarification_question: str
 
 
 class ExecutionState(TypedDict, total=False):
     mode: str
     route: str
     status: str
-    current_step: int
     is_complete: bool
     started_at: str
     ended_at: str
     routing_reasoning: str
     routing_confidence: float
-    evaluation: str
-    verdict: str
-    revision_count: int
-    max_revisions: int
     tool_approved: bool
     pending_tool_calls: list[dict[str, Any]]
     tool_call_count: int
@@ -52,17 +45,12 @@ class ExecutionState(TypedDict, total=False):
 
 
 class ResearchState(TypedDict, total=False):
-    research_plan: list[str]
-    suggested_queries: list[str]
     scraped_content: list[dict[str, Any]]
     code_results: list[dict[str, Any]]
     summary_notes: list[str]
     sources: list[dict[str, str]]
-    eval_dimensions: dict[str, float]
-    missing_topics: list[str]
     research_topology: dict[str, Any]
     current_branch_id: str | None
-    compressed_knowledge: dict[str, Any]
     domain: str
     domain_config: dict[str, Any]
     sub_agent_contexts: dict[str, dict[str, Any]]
@@ -102,8 +90,6 @@ def build_conversation_state(state: Mapping[str, Any] | None) -> ConversationSta
         "messages": list(data.get("messages") or []),
         "final_report": str(data.get("final_report") or ""),
         "draft_report": str(data.get("draft_report") or ""),
-        "needs_clarification": bool(data.get("needs_clarification")),
-        "clarification_question": str(data.get("clarification_question") or "").strip(),
     }
 
 
@@ -115,16 +101,11 @@ def build_execution_state(state: Mapping[str, Any] | None) -> ExecutionState:
         "mode": mode,
         "route": route or "agent",
         "status": str(data.get("status") or "").strip(),
-        "current_step": int(data.get("current_step") or 0),
         "is_complete": bool(data.get("is_complete")),
         "started_at": str(data.get("started_at") or "").strip(),
         "ended_at": str(data.get("ended_at") or "").strip(),
         "routing_reasoning": str(data.get("routing_reasoning") or "").strip(),
         "routing_confidence": float(data.get("routing_confidence") or 0.0),
-        "evaluation": str(data.get("evaluation") or ""),
-        "verdict": str(data.get("verdict") or "").strip(),
-        "revision_count": int(data.get("revision_count") or 0),
-        "max_revisions": int(data.get("max_revisions") or 0),
         "tool_approved": bool(data.get("tool_approved")),
         "pending_tool_calls": list(data.get("pending_tool_calls") or []),
         "tool_call_count": int(data.get("tool_call_count") or 0),
@@ -140,17 +121,12 @@ def build_execution_state(state: Mapping[str, Any] | None) -> ExecutionState:
 def build_research_state(state: Mapping[str, Any] | None) -> ResearchState:
     data = state or {}
     return {
-        "research_plan": list(data.get("research_plan") or []),
-        "suggested_queries": list(data.get("suggested_queries") or []),
         "scraped_content": list(data.get("scraped_content") or []),
         "code_results": list(data.get("code_results") or []),
         "summary_notes": list(data.get("summary_notes") or []),
         "sources": list(data.get("sources") or []),
-        "eval_dimensions": dict(data.get("eval_dimensions") or {}),
-        "missing_topics": list(data.get("missing_topics") or []),
         "research_topology": dict(data.get("research_topology") or {}),
         "current_branch_id": data.get("current_branch_id"),
-        "compressed_knowledge": dict(data.get("compressed_knowledge") or {}),
         "domain": str(data.get("domain") or "").strip(),
         "domain_config": dict(data.get("domain_config") or {}),
         "sub_agent_contexts": dict(data.get("sub_agent_contexts") or {}),
@@ -204,4 +180,3 @@ def project_state_updates(
     projected = dict(updates or {})
     projected.update(build_state_slices(merged))
     return projected
-

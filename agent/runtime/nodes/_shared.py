@@ -13,7 +13,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
 from agent.core.middleware import retry_call
-from agent.core.state import AgentState, QueryState, project_state_updates
+from agent.core.state import AgentState, project_state_updates
 from agent.prompts import render_prompt
 from agent.runtime.deep.shared import _auto_mode_prefers_linear
 from agent.research.source_url_utils import compact_unique_sources
@@ -147,7 +147,7 @@ _NARROW_COMPARE_BROAD_CUES = (
 )
 
 
-def check_cancellation(state: Union[AgentState, QueryState, Dict[str, Any]]) -> None:
+def check_cancellation(state: Union[AgentState, Dict[str, Any]]) -> None:
     """
     检查取消状态，如果已取消则抛出 CancelledError
 

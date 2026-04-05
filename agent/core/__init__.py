@@ -16,8 +16,6 @@ __all__ = [
     "AgentState",
     "ConversationState",
     "ExecutionState",
-    "QueryState",
-    "ResearchPlan",
     "ResearchState",
     "RuntimeSnapshot",
     "Event",
@@ -46,8 +44,6 @@ _SYMBOL_TO_MODULE: Dict[str, str] = {
     "AgentState": "agent.core.state",
     "ConversationState": "agent.core.state",
     "ExecutionState": "agent.core.state",
-    "QueryState": "agent.core.state",
-    "ResearchPlan": "agent.core.state",
     "ResearchState": "agent.core.state",
     "RuntimeSnapshot": "agent.core.state",
     # Events / streaming

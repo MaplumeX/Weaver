@@ -376,7 +376,7 @@ def test_multi_agent_runtime_uses_default_max_epochs(monkeypatch):
         {"configurable": {"thread_id": "thread_default_max_epochs"}},
     )
 
-    assert runtime.max_epochs == 15
+    assert runtime.max_epochs == multi_agent_runtime.settings.deep_research_max_epochs
 
 
 def test_run_deep_research_emits_section_artifacts_and_events(monkeypatch):

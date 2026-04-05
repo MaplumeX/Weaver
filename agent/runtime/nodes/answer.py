@@ -1,5 +1,5 @@
 """
-Answer-generation and tool-agent graph nodes.
+Answer-generation graph nodes.
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from typing import Any, Dict, List
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
-import agent.runtime.nodes._shared as _shared
 import agent.infrastructure.agents.factory as _agent_factory
+import agent.runtime.nodes._shared as _shared
 from agent.infrastructure.agents.stuck_middleware import detect_stuck, inject_stuck_hint
 from agent.infrastructure.browser_context import build_browser_context_hint
 from agent.infrastructure.tools import build_agent_toolset
@@ -23,9 +23,7 @@ from agent.prompts import get_prompt_manager
 ENHANCED_TOOLS_AVAILABLE = _shared.ENHANCED_TOOLS_AVAILABLE
 _answer_simple_agent_query = _shared._answer_simple_agent_query
 _build_user_content = _shared._build_user_content
-_chat_model = _shared._chat_model
 _configurable = _shared._configurable
-_log_usage = _shared._log_usage
 _model_for_task = _shared._model_for_task
 _should_use_fast_agent_path = _shared._should_use_fast_agent_path
 project_state_updates = _shared.project_state_updates
@@ -34,7 +32,6 @@ handle_cancellation = _shared.handle_cancellation
 logger = _shared.logger
 settings = _shared.settings
 build_tool_agent = _agent_factory.build_tool_agent
-build_writer_agent = _agent_factory.build_writer_agent
 
 
 def _resolve_deps(explicit_deps: Any = None) -> Any:
@@ -195,130 +192,4 @@ You can also use XML format for tool calls:
         )
 
 
-def writer_node(
-    state: Dict[str, Any],
-    config: RunnableConfig,
-    *,
-    _deps: Any = None,
-) -> Dict[str, Any]:
-    """
-    Writer node: Synthesizes research into a comprehensive report.
-    """
-    from agent.contracts.result_aggregator import ResultAggregator
-
-    deps = _resolve_deps(_deps)
-    logger.info("Executing writer node (with ResultAggregator)")
-
-    try:
-        deps.check_cancellation(state)
-
-        route = str(state.get("route") or "").strip().lower()
-        model = deps._model_for_task("writing", config)
-        agent, writer_tools = deps.build_writer_agent(model)
-        t0 = time.time()
-        code_results: List[Dict[str, Any]] = []
-
-        scraped_content = state.get("scraped_content", [])
-        original_query = state.get("input", "")
-
-        aggregator = ResultAggregator(
-            similarity_threshold=0.7,
-            max_results_per_query=3,
-            tier_1_threshold=0.6,
-            tier_2_threshold=0.3,
-        )
-        aggregated = aggregator.aggregate(scraped_content, original_query)
-
-        research_context, sources_table = aggregated.to_context(
-            max_tier_1=5,
-            max_tier_2=3,
-            max_tier_3=2,
-            max_content_length=500,
-        )
-
-        logger.info(
-            f"[writer] Aggregated {aggregated.total_before} -> {aggregated.total_after} results, "
-            f"tiers: {len(aggregated.tier_1)}/{len(aggregated.tier_2)}/{len(aggregated.tier_3)}"
-        )
-
-        writer_system_prompt = get_prompt_manager().get_writer_prompt()
-
-        messages: List[Any] = [
-            SystemMessage(content=writer_system_prompt),
-            HumanMessage(content=deps._build_user_content(state["input"], state.get("images"))),
-        ]
-
-        human_guidance = state.get("human_guidance")
-        if isinstance(human_guidance, str) and human_guidance.strip():
-            messages.append(
-                HumanMessage(content=f"User guidance (HITL):\n{human_guidance.strip()}")
-            )
-        if research_context:
-            messages.append(
-                HumanMessage(
-                    content=f"Research context:\n{research_context}\n\nSources:\n{sources_table}"
-                )
-            )
-
-        if agent is not None:
-            response = agent.invoke({"messages": messages}, config=config)
-        else:
-            llm = deps._chat_model(model, temperature=0.7)
-            response = llm.invoke(messages)
-        logger.info(f"[timing] writer {(time.time() - t0):.3f}s")
-
-        report = ""
-        if isinstance(response, dict) and response.get("messages"):
-            last = response["messages"][-1]
-            report = getattr(last, "content", "") if hasattr(last, "content") else str(last)
-        else:
-            report = getattr(response, "content", None) or str(response)
-
-        compressed_knowledge = state.get("compressed_knowledge", {})
-        if compressed_knowledge and getattr(settings, "enable_report_charts", True):
-            try:
-                from agent.research.viz_planner import VizPlanner, embed_charts_in_report
-
-                viz_llm = deps._chat_model(deps._model_for_task("writing", config), temperature=0.3)
-                viz_planner = VizPlanner(viz_llm, config)
-
-                charts = viz_planner.generate_all_charts(
-                    compressed_knowledge,
-                    report_text=report,
-                    max_charts=3,
-                )
-
-                if charts:
-                    report = embed_charts_in_report(report, charts, format="markdown")
-                    logger.info(f"[writer] Embedded {len(charts)} charts in report")
-
-            except Exception as e:
-                logger.warning(f"[writer] Chart generation skipped: {e}")
-
-        return deps.project_state_updates(
-            state,
-            {
-                "draft_report": report,
-                "final_report": report,
-                "is_complete": False,
-                "messages": [AIMessage(content=report)],
-                "code_results": code_results,
-            },
-        )
-
-    except asyncio.CancelledError as e:
-        return deps.handle_cancellation(state, e)
-    except Exception as e:
-        logger.error(f"Writer error: {str(e)}", exc_info=True)
-        return deps.project_state_updates(
-            state,
-            {
-                "final_report": "Error generating report",
-                "is_complete": True,
-                "errors": [f"Writing error: {str(e)}"],
-                "messages": [AIMessage(content=f"Failed to generate report: {str(e)}")],
-            },
-        )
-
-
-__all__ = ["agent_node", "writer_node"]
+__all__ = ["agent_node"]

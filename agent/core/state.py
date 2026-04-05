@@ -88,10 +88,6 @@ class AgentState(TypedDict):
     # ============ Execution Control ============
     # Message history for LLM context (auto-trimmed via capped_add_messages)
     messages: Annotated[List[BaseMessage], capped_add_messages]
-    # Structured research plan (list of search queries/steps)
-    research_plan: List[str]
-    # Current step being executed
-    current_step: int
     # Execution status
     status: ExecutionStatus
     # Completion flag
@@ -102,20 +98,12 @@ class AgentState(TypedDict):
     ended_at: str
 
     # ============ Routing ============
-    # Routing decision: agent, deep, clarify
+    # Routing decision: agent or deep
     route: str
     # Routing reasoning (from smart router)
     routing_reasoning: str
     # Routing confidence (0-1)
     routing_confidence: float
-    # Suggested queries from router
-    suggested_queries: List[str]
-
-    # ============ Clarification ============
-    # Flag for clarify step
-    needs_clarification: bool
-    # Clarification question to ask user
-    clarification_question: str
 
     # ============ Research Data ============
     # All scraped content from searches
@@ -126,19 +114,6 @@ class AgentState(TypedDict):
     summary_notes: List[str]
     # Sources collected
     sources: List[Dict[str, str]]
-
-    # ============ Quality Control ============
-    # Evaluation feedback for optimizer
-    evaluation: str
-    # Evaluator verdict ("pass" / "revise" / "incomplete")
-    verdict: str
-    # Structured evaluation dimensions (coverage, accuracy, freshness, coherence)
-    eval_dimensions: Dict[str, float]
-    # Missing topics identified by evaluator
-    missing_topics: List[str]
-    # Revision control
-    revision_count: int
-    max_revisions: int
 
     # ============ Tool Control ============
     # Tool approval gating
@@ -167,10 +142,6 @@ class AgentState(TypedDict):
     # Current branch being explored
     current_branch_id: Optional[str]
 
-    # ============ Compressed Knowledge ============
-    # Structured compressed knowledge from research
-    compressed_knowledge: Dict[str, Any]
-
     # ============ Domain Routing ============
     # Detected research domain (scientific, legal, financial, etc.)
     domain: str
@@ -195,28 +166,6 @@ class AgentState(TypedDict):
     execution_state: ExecutionState
     research_state: ResearchState
     runtime_snapshot: RuntimeSnapshot
-
-
-class ResearchPlan(TypedDict):
-    """Structured research plan output."""
-
-    queries: List[str]
-    reasoning: str
-
-
-class SearchResult(TypedDict):
-    """Search result structure."""
-
-    query: str
-    results: List[Dict[str, Any]]
-    timestamp: str
-
-
-class QueryState(TypedDict):
-    """State for a single parallel research query."""
-
-    query: str
-
 
 def build_deep_runtime_snapshot(
     *,

@@ -8,7 +8,7 @@ into the most appropriate execution mode.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -20,24 +20,18 @@ from common.config import settings
 logger = logging.getLogger(__name__)
 
 # Route types
-RouteType = Literal["agent", "deep", "clarify"]
+RouteType = Literal["agent", "deep"]
 
 
 class RouteDecision(BaseModel):
     """Structured output for routing decisions."""
 
     route: RouteType = Field(
-        description="The execution route: 'agent' for the default tool-using path, 'deep' for comprehensive research, 'clarify' for ambiguous queries"
+        description="The execution route: 'agent' for the default tool-using path, 'deep' for comprehensive research"
     )
     reasoning: str = Field(description="Brief explanation of why this route was chosen")
     confidence: float = Field(
         default=0.8, ge=0.0, le=1.0, description="Confidence level of this routing decision (0-1)"
-    )
-    suggested_queries: List[str] = Field(
-        default_factory=list, description="For 'deep' routes, suggested search queries"
-    )
-    clarification_question: str = Field(
-        default="", description="For 'clarify' route, the question to ask the user"
     )
 
 
@@ -62,27 +56,18 @@ ROUTER_SYSTEM_PROMPT = """You are an intelligent query router. Analyze the user'
    - Multi-faceted queries
    - Examples: "Compare the AI strategies of...", "Analyze the market trends...", "Research the pros and cons of..."
 
-3. **clarify** - Ambiguous queries needing clarification
-   - Unclear or incomplete requests
-   - Multiple possible interpretations
-   - Missing key information
-   - Examples: "Help me with this", "Fix the bug", "Make it better"
-
 ## Decision Guidelines:
 
 - Default to 'agent'
 - Use 'agent' for straightforward answers, tool use, and current-information lookups
 - Use 'deep' for research-heavy queries requiring synthesis
-- Use 'clarify' only when truly ambiguous
 
 ## Response Format:
 
 Provide your decision as a JSON object with:
-- route: one of "agent", "deep", "clarify"
+- route: one of "agent", "deep"
 - reasoning: brief explanation
 - confidence: 0.0 to 1.0
-- suggested_queries: for deep routes, 2-3 search queries
-- clarification_question: for clarify route, the question to ask
 """
 
 
@@ -341,13 +326,5 @@ def smart_route(
         "routing_reasoning": decision.reasoning,
         "routing_confidence": decision.confidence,
     }
-
-    # Add suggested queries for deep research routes
-    if decision.route == "deep" and decision.suggested_queries:
-        result["suggested_queries"] = decision.suggested_queries
-
-    # Add clarification question
-    if decision.route == "clarify" and decision.clarification_question:
-        result["clarification_question"] = decision.clarification_question
 
     return result

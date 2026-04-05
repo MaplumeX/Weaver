@@ -31,9 +31,7 @@ async def test_resume_session_returns_deep_research_artifact_context(monkeypatch
         thread_id="thread-123",
         state={
             "route": "deep",
-            "revision_count": 1,
             "final_report": "",
-            "research_plan": ["q1", "q2"],
             "deep_research_artifacts": artifacts,
         },
         checkpoint_ts="",
@@ -74,7 +72,7 @@ async def test_resume_session_returns_deep_research_artifact_context(monkeypatch
     assert data["deep_research_resume"]["mode"] == "multi_agent"
     assert data["deep_research_resume"]["query_coverage_score"] == 0.8
     assert data["deep_research_resume"]["freshness_warning"] == ""
-    assert data["resume_state"]["research_plan_count"] == 2
+    assert "research_plan_count" not in data["resume_state"]
 
 
 @pytest.mark.asyncio
@@ -88,7 +86,6 @@ async def test_resume_session_uses_quality_summary_coverage_fallback(monkeypatch
         thread_id="thread-coverage-fallback",
         state={
             "route": "deep",
-            "revision_count": 0,
             "deep_research_artifacts": artifacts,
         },
         checkpoint_ts="",

@@ -853,7 +853,6 @@ _PUBLIC_SEARCH_MODE_OPTIONS = ("agent", "deep")
 _LEGACY_AGENT_SESSION_MODES = {
     "",
     "agent",
-    "clarify",
     "direct",
     "mcp",
     "search",
@@ -861,7 +860,6 @@ _LEGACY_AGENT_SESSION_MODES = {
     "web",
 }
 _REMOVED_PUBLIC_SEARCH_MODES = {
-    "clarify",
     "deep_agent",
     "deep-agent",
     "direct",
@@ -1765,12 +1763,7 @@ def _should_emit_main_text_for_node(node_name: str) -> bool:
 
     # Only allow "final writing" style nodes to stream tokens into the main answer.
     # Everything else should be represented via status/process events.
-    allow_tokens = (
-        "writer",
-        "direct_answer",
-        "agent",
-        "reviser",
-    )
+    allow_tokens = ("agent",)
     return any(token in name for token in allow_tokens)
 
 
@@ -1786,15 +1779,9 @@ def _should_emit_thinking_summary_for_node(node_name: str) -> bool:
     if not name:
         return False
 
-    # Only allow planning/clarification style nodes. Avoid writer/evaluator/deepsearch
-    # outputs which can be long or contain structured blobs that don't read well.
-    allow = (
-        "planner",
-        "web_plan",
-        "refine_plan",
-        "clarify",
-        "supervisor",
-    )
+    # Only allow deep-research control-plane summaries. Avoid agent answer tokens and
+    # legacy outer planning nodes.
+    allow = ("clarify", "supervisor")
     return any(token in name for token in allow)
 
 
@@ -1840,31 +1827,23 @@ def _thinking_intro_for_node(node_name: str, *, use_zh: bool) -> str:
 
     # Keep these as short, user-facing progress narratives (NOT chain-of-thought).
     if "clarify" in name:
-        return "我先确认是否需要你补充信息，避免跑偏。" if use_zh else "I'll check if any clarification is needed so we don't go off-track."
-    if "planner" in name or "web_plan" in name or "refine_plan" in name:
-        return "我会先拆解问题并生成一组检索关键词。" if use_zh else "I'll break the question down and generate targeted search queries."
+        return (
+            "我会先确认研究问题是否还缺关键上下文。"
+            if use_zh
+            else "I'll check whether the research request is missing any critical context."
+        )
     if "supervisor" in name:
         return (
             "我会先结合已批准 scope 决定要派发哪些研究分支。"
             if use_zh
             else "I'll use the approved scope to decide which research branches to dispatch."
         )
-    if "perform_parallel_search" in name or (("search" in name) and "research" not in name):
-        return "接下来我会检索并收集资料，多来源交叉验证。" if use_zh else "Next I'll search and collect sources, cross-checking across providers."
     if "deepsearch" in name:
         return (
             "我会进行迭代式深度检索（生成查询 → 搜索 → 阅读 → 汇总），直到覆盖充分。"
             if use_zh
             else "I'll run an iterative deep-search loop (query → search → read → summarize) until coverage is solid."
         )
-    if "compressor" in name:
-        return "我会去重并压缩信息，保留最相关证据。" if use_zh else "I'll deduplicate and compress sources, keeping the most relevant evidence."
-    if "writer" in name:
-        return "我会把证据整理成结构化的最终回答。" if use_zh else "I'll synthesize the evidence into a clear final answer."
-    if "evaluator" in name:
-        return "我会自检覆盖度/准确性，必要时补充检索或修订。" if use_zh else "I'll self-check coverage/accuracy and revise or research more if needed."
-    if "reviser" in name or "revise" in name:
-        return "我会根据自检结果修订答案，让表述更清晰。" if use_zh else "I'll revise the draft for clarity and completeness."
     if name == "agent":
         return "我会调用工具完成任务步骤，并记录关键过程。" if use_zh else "I'll call tools to execute steps and log key actions."
 
@@ -2100,7 +2079,6 @@ def _build_agent_graph_config(
         "allow_interrupts": bool(checkpointer),
         "tool_approval": settings.tool_approval or False,
         "human_review": settings.human_review or False,
-        "max_revisions": settings.max_revisions,
     }
     if resumed_from_checkpoint:
         configurable["resumed_from_checkpoint"] = True
@@ -2147,7 +2125,6 @@ def _build_initial_agent_state(
         images=images,
         agent_profile=agent_profile,
         options={
-            "max_revisions": settings.max_revisions,
             "tool_call_limit": settings.tool_call_limit,
         },
     )
@@ -2405,18 +2382,19 @@ async def _stream_graph_execution(
                         logger.debug(f"  Clarify node started | Thread: {thread_id}")
                         yield await format_stream_event(
                             "status",
-                            {"text": "Checking if clarification is needed...", "step": "clarifying"},
-                        )
-                    elif "planner" in node_name:
-                        logger.debug(f"  Planning node started | Thread: {thread_id}")
-                        yield await format_stream_event(
-                            "status", {"text": "Creating research plan...", "step": "planning"}
+                            {
+                                "text": "Checking whether more research context is needed",
+                                "step": "clarifying",
+                            },
                         )
                     elif "supervisor" in node_name:
                         logger.debug(f"  Supervisor node started | Thread: {thread_id}")
                         yield await format_stream_event(
                             "status",
-                            {"text": "Evaluating scope and dispatching research branches...", "step": "supervisor"},
+                            {
+                                "text": "Evaluating scope and dispatching research branches",
+                                "step": "supervisor",
+                            },
                         )
                     elif "deepsearch" in node_name:
                         logger.debug(f"  Deep research node started | Thread: {thread_id}")
@@ -2429,20 +2407,11 @@ async def _stream_graph_execution(
                             "status",
                             {"text": text, "step": "deep_research"},
                         )
-                    elif "perform_parallel_search" in node_name or "search" in node_name:
-                        logger.debug(f"  Search node started | Thread: {thread_id}")
-                        yield await format_stream_event(
-                            "status", {"text": "Conducting research...", "step": "researching"}
-                        )
-                    elif "writer" in node_name:
-                        logger.debug(f"  Writer node started | Thread: {thread_id}")
-                        yield await format_stream_event(
-                            "status", {"text": "Synthesizing findings...", "step": "writing"}
-                        )
                     elif node_name == "agent":
                         logger.debug(f"  Agent node started | Thread: {thread_id}")
                         yield await format_stream_event(
-                            "status", {"text": "Running agent (tool-calling)...", "step": "agent"}
+                            "status",
+                            {"text": "Running agent (tool-calling)", "step": "agent"},
                         )
 
             elif event_type in {"on_chain_end", "on_node_end", "on_graph_end"}:
@@ -4538,7 +4507,6 @@ async def resume_session(
             "message": f"Session {thread_id} is ready to resume. Use the streaming endpoint with this thread_id.",
             "current_state": {
                 "route": state.state.get("route"),
-                "revision_count": state.state.get("revision_count", 0),
                 "has_report": bool(state.state.get("final_report")),
                 "has_deep_research_artifacts": bool(deep_research_artifacts),
                 "deep_research_queries": len(queries) if isinstance(queries, list) else 0,
@@ -4553,8 +4521,6 @@ async def resume_session(
             },
             "resume_state": {
                 "route": restored_state.get("route"),
-                "revision_count": restored_state.get("revision_count", 0),
-                "research_plan_count": len(restored_state.get("research_plan", []) or []),
                 "resumed_from_checkpoint": bool(restored_state.get("resumed_from_checkpoint")),
             },
         }

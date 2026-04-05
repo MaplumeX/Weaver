@@ -29,7 +29,7 @@ async def test_interrupt_status_forbidden_for_other_user_when_internal_auth_enab
 
     fake_checkpointer = _FakeCheckpointer(
         by_thread_id={
-            "thread_alice": {"user_id": "alice", "research_plan": []},
+            "thread_alice": {"user_id": "alice"},
         }
     )
     monkeypatch.setattr(main, "checkpointer", fake_checkpointer)
@@ -79,4 +79,3 @@ async def test_session_resume_forbidden_for_other_user_when_internal_auth_enable
         )
 
     assert forbidden.status_code == 403
-
