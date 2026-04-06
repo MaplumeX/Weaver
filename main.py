@@ -1875,7 +1875,7 @@ def _thinking_intro_for_node(node_name: str, *, use_zh: bool) -> str:
             else "I'll run an iterative deep-search loop (query → search → read → summarize) until coverage is solid."
         )
     if name == "agent":
-        return "我会调用工具完成任务步骤，并记录关键过程。" if use_zh else "I'll call tools to execute steps and log key actions."
+        return ""
 
     return ""
 
@@ -2212,6 +2212,7 @@ async def _stream_graph_execution(
     final_output: Optional[Dict[str, Any]] = None
     use_zh = _contains_cjk(input_text)
     last_thinking_text = ""
+    seen_generic_progress_keys: set[tuple[str, str, str]] = set()
 
     # Optional per-thread log handler for easier debugging
     thread_handler = None
@@ -2394,6 +2395,23 @@ async def _stream_graph_execution(
                 metrics.mark_event(event_type, node_name)
                 emit_main_text = _should_emit_main_text_for_node(node_name)
                 if emit_generic_progress:
+                    progress_step = ""
+                    if "clarify" in node_name:
+                        progress_step = "clarifying"
+                    elif "supervisor" in node_name:
+                        progress_step = "supervisor"
+                    elif "deepsearch" in node_name:
+                        progress_step = "deep_research"
+                    elif node_name == "agent":
+                        progress_step = "agent"
+
+                    run_id = str(event.get("run_id", "") or "").strip()
+                    if run_id and progress_step:
+                        progress_key = (run_id, node_name, progress_step)
+                        if progress_key in seen_generic_progress_keys:
+                            continue
+                        seen_generic_progress_keys.add(progress_key)
+
                     try:
                         intro = _thinking_intro_for_node(node_name, use_zh=use_zh)
                         intro = _sanitize_thinking_text(intro, max_len=240)

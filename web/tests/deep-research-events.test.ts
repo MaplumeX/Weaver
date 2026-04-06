@@ -151,3 +151,24 @@ test('retained process events keep early deep research phase anchors', () => {
   assert.ok(retained.some((event) => event.id === 'scope-ready'))
   assert.ok(retained.some((event) => event.id === 'planner-start'))
 })
+
+test('appendProcessEvent replaces repeated status events for the same semantic step', () => {
+  let message = createStreamingAssistantMessage({ id: 'assistant-status' })
+
+  message = appendProcessEvent(
+    message,
+    'status',
+    { text: 'Preparing tools', step: 'agent' },
+    100,
+  )
+  message = appendProcessEvent(
+    message,
+    'status',
+    { text: 'Running agent (tool-calling)', step: 'agent' },
+    110,
+  )
+
+  assert.equal(message.processEvents?.length, 1)
+  assert.equal(message.processEvents?.[0]?.data?.step, 'agent')
+  assert.equal(message.processEvents?.[0]?.data?.text, 'Running agent (tool-calling)')
+})

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso'
-import { Loader2, ArrowDown, X, Monitor } from 'lucide-react'
+import { ArrowDown, X, Monitor } from 'lucide-react'
 
 import { ArtifactsPanel } from './ArtifactsPanel'
 import { BrowserViewer } from './BrowserViewer'
@@ -501,12 +501,6 @@ export function Chat() {
             components={{
               Footer: () => (
                 <div className="max-w-5xl mx-auto px-4 sm:px-0 pb-4">
-                  {currentStatus && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-2 animate-in fade-in slide-in-from-bottom-2">
-                      {isLoading && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
-                      <span className="font-medium animate-pulse">{currentStatus}</span>
-                    </div>
-                  )}
                   <div className="h-4" />
                 </div>
               ),

@@ -291,7 +291,6 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
 
         for (const data of events) {
           if (data.type === 'status') {
-            setCurrentStatus(data.data.text)
             pushProcessEvent('status', data.data)
             syncAssistantMessage()
           } else if (data.type === 'text') {

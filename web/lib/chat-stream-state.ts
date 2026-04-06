@@ -72,8 +72,22 @@ export function appendProcessEvent(
   const prevEvents = message.processEvents || []
   const last = prevEvents[prevEvents.length - 1]
 
+  const replaceLastEvent = (events: ProcessEvent[], event: ProcessEvent): ProcessEvent[] => {
+    return [...events.slice(0, -1), event]
+  }
+
   if (last?.type === type) {
-    if (type === 'status' && last.data?.text && last.data?.text === payload?.text) return message
+    if (type === 'status') {
+      const lastStep = String(last.data?.step || '').trim()
+      const nextStep = String(payload?.step || '').trim()
+      if (lastStep && nextStep && lastStep === nextStep) {
+        return {
+          ...message,
+          processEvents: replaceLastEvent(prevEvents, next),
+        }
+      }
+      if (last.data?.text && last.data?.text === payload?.text) return message
+    }
     if (type === 'search' && last.data?.query && last.data?.query === payload?.query) return message
     if (type === 'tool') {
       const lastName = String(last.data?.name || last.data?.tool || '').trim()
