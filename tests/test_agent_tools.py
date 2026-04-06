@@ -6,14 +6,34 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from langchain_core.tools import tool  # noqa: E402
+
 from agent.domain import ToolCapability  # noqa: E402
-from agent.infrastructure.tools import build_agent_toolset  # noqa: E402
+from agent.infrastructure.tools import StaticToolProvider, build_agent_toolset  # noqa: E402
+from agent.infrastructure.tools.assembly import build_tool_inventory  # noqa: E402
 from agent.infrastructure.tools.capabilities import resolve_tool_names_for_capabilities  # noqa: E402
 from common.config import settings  # noqa: E402
 
 
 def _names(tools):
     return sorted([getattr(t, "name", "") for t in tools if getattr(t, "name", "")])
+
+
+@tool
+def gamma(query: str) -> str:
+    """gamma"""
+    return query
+
+
+def test_build_tool_inventory_returns_unfiltered_provider_union(monkeypatch):
+    monkeypatch.setattr(
+        "agent.infrastructure.tools.assembly.build_default_tool_providers",
+        lambda: [StaticToolProvider("custom", lambda _ctx: [gamma])],
+    )
+
+    tools = build_tool_inventory({"configurable": {"thread_id": "inv-1", "agent_profile": {}}})
+
+    assert [tool.name for tool in tools] == ["gamma"]
 
 
 def test_agent_tools_lightweight_browser_selected_by_default():
@@ -136,6 +156,20 @@ def test_agent_tools_include_task_list_tools_by_default():
     assert "update_task" in names
     assert "get_next_task" in names
     assert "plan_steps" in names
+
+
+def test_build_agent_toolset_applies_whitelist_after_inventory():
+    cfg = {
+        "configurable": {
+            "thread_id": "t-white",
+            "agent_profile": {
+                "tool_whitelist": ["browser_navigate"],
+                "enabled_tools": {"browser": True},
+            },
+        }
+    }
+    names = _names(build_agent_toolset(cfg))
+    assert names == ["browser_navigate"]
 
 
 def test_search_capability_aliases_only_include_exposed_search_tools():

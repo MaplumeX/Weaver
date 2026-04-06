@@ -19,7 +19,7 @@ from langchain_openai import ChatOpenAI
 
 from agent.domain import ToolCapability
 from agent.infrastructure.agents.provider_safe_middleware import ProviderSafeToolSelectorMiddleware
-from agent.infrastructure.tools import resolve_tool_names_for_capabilities
+from agent.infrastructure.tools import build_tools_for_names, resolve_tool_names_for_capabilities
 from common.config import settings
 from tools.code.code_executor import execute_python_code
 from tools.core.registry import get_registered_tools
@@ -295,8 +295,8 @@ def build_deep_research_tool_agent(
         allowed_names = _resolve_deep_research_tool_names(allowed_tools)
     tools = list(extra_tools or [])
     existing_names = {tool.name for tool in tools if getattr(tool, "name", None)}
-    for tool in get_registered_tools():
-        if tool.name not in allowed_names or tool.name in existing_names:
+    for tool in build_tools_for_names(allowed_names):
+        if tool.name in existing_names:
             continue
         tools.append(tool)
     agent = build_tool_agent(model=model_name, tools=tools, temperature=temperature)

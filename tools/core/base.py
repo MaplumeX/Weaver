@@ -68,13 +68,12 @@ class ToolResult:
 
 class WeaverTool(ABC):
     """
-    Abstract base class for Weaver tools.
+    Authoring-time compatibility abstraction for Weaver-defined tools.
 
-    Features:
-    1. Decorator-driven schema registration
-    2. Automatic schema discovery
-    3. Unified result format (ToolResult)
-    4. Built-in error handling helpers
+    Runtime tool execution should prefer LangChain BaseTool instances assembled
+    through provider composition. WeaverTool remains available so existing tool
+    definitions can keep using decorator-driven schema registration and the
+    ToolResult helpers during the migration period.
 
     Usage:
         class MyTool(WeaverTool):

@@ -8,8 +8,15 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
 from agent.domain import ToolCapability
+from agent.infrastructure.tools.policy import filter_tools_by_name, is_tool_enabled
+from agent.infrastructure.tools.providers import (
+    ProviderContext,
+    StaticToolProvider,
+    compose_provider_tools,
+)
 from common.config import settings
 from tools import execute_python_code, tavily_search
+from tools.mcp import get_live_mcp_tools
 from tools.automation.ask_human_tool import ask_human
 from tools.automation.bash_tool import safe_bash
 from tools.automation.computer_use_tool import build_computer_use_tools
@@ -18,7 +25,6 @@ from tools.automation.task_list_tool import build_task_list_tools
 from tools.browser.browser_tools import build_browser_tools
 from tools.browser.browser_use_tool import build_browser_use_tools
 from tools.code.chart_viz_tool import chart_visualize
-from tools.core.registry import get_registered_tools
 from tools.crawl.crawl4ai_tool import crawl4ai
 from tools.crawl.crawl_tools import build_crawl_tools
 from tools.planning.planning_tool import plan_steps
@@ -116,10 +122,7 @@ def _configurable(config: RunnableConfig) -> dict[str, Any]:
 
 
 def _enabled(profile: dict[str, Any], key: str, default: bool = False) -> bool:
-    enabled_tools = profile.get("enabled_tools") or {}
-    if isinstance(enabled_tools, dict) and key in enabled_tools:
-        return bool(enabled_tools.get(key))
-    return default
+    return is_tool_enabled(profile, key, default)
 
 
 @dataclass(frozen=True)
@@ -273,7 +276,7 @@ def _build_planning_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
 
 
 def _build_mcp_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
-    return list(get_registered_tools())
+    return list(get_live_mcp_tools())
 
 
 def _build_daytona_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
@@ -445,49 +448,44 @@ class ToolCapabilityRegistry:
     def specs(self) -> tuple[ToolSpecification, ...]:
         return self._specs
 
-    def build_tools(self, config: RunnableConfig) -> list[BaseTool]:
-        configurable = _configurable(config)
-        profile = configurable.get("agent_profile") or {}
-        if not isinstance(profile, dict):
-            profile = {}
-
-        context = ToolBuildContext(
-            config=config,
-            configurable=configurable,
-            profile=profile,
-            thread_id=str(configurable.get("thread_id") or "default"),
-            e2b_ready=_e2b_api_key_configured(),
+    def build_tool_inventory(self, config: RunnableConfig) -> list[BaseTool]:
+        context = build_tool_context(config)
+        return compose_provider_tools(
+            self._providers_from_specs(self._specs),
+            _provider_context_from_tool_context(context),
         )
 
-        tools: list[BaseTool] = []
-        for spec in self._specs:
-            if not _enabled(profile, spec.key, default=spec.default_enabled):
-                continue
-            tools.extend(spec.factory(context))
+    def _providers_from_specs(
+        self, specs: Iterable[ToolSpecification]
+    ) -> tuple[StaticToolProvider, ...]:
+        providers: list[StaticToolProvider] = []
+        for spec in specs:
+            providers.append(
+                StaticToolProvider(
+                    key=spec.key,
+                    factory=lambda provider_context, current_spec=spec: current_spec.factory(
+                        _tool_context_from_provider_context(provider_context)
+                    ),
+                )
+            )
+        return tuple(providers)
 
-        for tool in tools:
-            if hasattr(tool, "thread_id"):
-                try:
-                    setattr(tool, "thread_id", context.thread_id)
-                except Exception:
-                    pass
-
-        deduped: dict[str, BaseTool] = {}
-        for tool in tools:
-            name = getattr(tool, "name", None)
-            if isinstance(name, str) and name:
-                deduped.setdefault(name, tool)
-
-        tool_list = list(deduped.values())
-        whitelist = profile.get("tool_whitelist") or []
-        blacklist = profile.get("tool_blacklist") or []
-        if whitelist:
-            allowed = {str(item).strip() for item in whitelist if str(item).strip()}
-            tool_list = [tool for tool in tool_list if getattr(tool, "name", "") in allowed]
-        if blacklist:
-            denied = {str(item).strip() for item in blacklist if str(item).strip()}
-            tool_list = [tool for tool in tool_list if getattr(tool, "name", "") not in denied]
-        return tool_list
+    def build_tools(self, config: RunnableConfig) -> list[BaseTool]:
+        context = build_tool_context(config)
+        enabled_specs = [
+            spec
+            for spec in self._specs
+            if _enabled(context.profile, spec.key, default=spec.default_enabled)
+        ]
+        tool_list = compose_provider_tools(
+            self._providers_from_specs(enabled_specs),
+            _provider_context_from_tool_context(context),
+        )
+        return filter_tools_by_name(
+            tool_list,
+            whitelist=context.profile.get("tool_whitelist") or [],
+            blacklist=context.profile.get("tool_blacklist") or [],
+        )
 
     def resolve_concrete_tool_names(self, allowed: Iterable[str]) -> set[str]:
         resolved: set[str] = set()
@@ -507,6 +505,50 @@ _DEFAULT_TOOL_REGISTRY = ToolCapabilityRegistry()
 
 def build_default_tool_registry() -> ToolCapabilityRegistry:
     return _DEFAULT_TOOL_REGISTRY
+
+
+def build_tool_context(config: RunnableConfig) -> ToolBuildContext:
+    configurable = _configurable(config)
+    profile = configurable.get("agent_profile") or {}
+    if not isinstance(profile, dict):
+        profile = {}
+    return ToolBuildContext(
+        config=config,
+        configurable=configurable,
+        profile=profile,
+        thread_id=str(configurable.get("thread_id") or "default"),
+        e2b_ready=_e2b_api_key_configured(),
+    )
+
+
+def _provider_context_from_tool_context(context: ToolBuildContext) -> ProviderContext:
+    return ProviderContext(
+        thread_id=context.thread_id,
+        profile=dict(context.profile),
+        configurable=dict(context.configurable),
+        e2b_ready=context.e2b_ready,
+    )
+
+
+def _tool_context_from_provider_context(context: ProviderContext) -> ToolBuildContext:
+    return ToolBuildContext(
+        config={"configurable": dict(context.configurable)},
+        configurable=dict(context.configurable),
+        profile=dict(context.profile),
+        thread_id=context.thread_id,
+        e2b_ready=context.e2b_ready,
+    )
+
+
+def build_default_tool_providers() -> tuple[StaticToolProvider, ...]:
+    return _DEFAULT_TOOL_REGISTRY._providers_from_specs(_DEFAULT_TOOL_REGISTRY.specs())
+
+
+def build_enabled_tool_providers(profile: dict[str, Any]) -> tuple[StaticToolProvider, ...]:
+    enabled_specs = tuple(
+        spec for spec in _DEFAULT_TOOL_REGISTRY.specs() if _enabled(profile, spec.key, spec.default_enabled)
+    )
+    return _DEFAULT_TOOL_REGISTRY._providers_from_specs(enabled_specs)
 
 
 def resolve_tool_names_for_capabilities(allowed: Iterable[str]) -> set[str]:

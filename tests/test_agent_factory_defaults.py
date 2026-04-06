@@ -75,12 +75,11 @@ def test_build_deep_research_tool_agent_filters_to_allowed_groups(monkeypatch):
 
     monkeypatch.setattr(
         agent_factory,
-        "get_registered_tools",
-        lambda: [
-            SimpleNamespace(name="browser_search"),
-            SimpleNamespace(name="crawl_url"),
-            SimpleNamespace(name="sb_browser_extract_text"),
-            SimpleNamespace(name="execute_python_code"),
+        "build_tools_for_names",
+        lambda names, config=None: [
+            SimpleNamespace(name=name)
+            for name in sorted(names)
+            if name in {"browser_search", "crawl_url", "sb_browser_extract_text", "execute_python_code"}
         ],
     )
     monkeypatch.setattr(
@@ -112,6 +111,42 @@ def test_build_deep_research_tool_agent_filters_to_allowed_groups(monkeypatch):
         "crawl_url",
         "sb_browser_extract_text",
     ]
+
+
+def test_build_deep_research_tool_agent_uses_shared_inventory(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        agent_factory,
+        "build_tools_for_names",
+        lambda names, config=None: [
+            SimpleNamespace(name=name)
+            for name in sorted(names)
+            if name in {"browser_search", "crawl_url"}
+        ],
+        raising=False,
+    )
+    monkeypatch.setattr(agent_factory, "get_registered_tools", lambda: [])
+    monkeypatch.setattr(
+        agent_factory,
+        "build_tool_agent",
+        lambda *, model, tools, temperature=0.7: captured.setdefault(
+            "agent",
+            {
+                "model": model,
+                "tool_names": [tool.name for tool in tools],
+                "temperature": temperature,
+            },
+        ),
+    )
+
+    agent, tools = agent_factory.build_deep_research_tool_agent(
+        model="gpt-test",
+        allowed_tools=["search", "extract"],
+    )
+
+    assert [tool.name for tool in tools] == ["browser_search", "crawl_url"]
+    assert agent["tool_names"] == ["browser_search", "crawl_url"]
 
 
 def test_resolve_deep_research_role_tool_names_respects_supervisor_policy():

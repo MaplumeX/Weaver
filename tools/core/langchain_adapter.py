@@ -92,7 +92,11 @@ def weaver_tool_to_langchain(
     weaver_tool: WeaverTool, method_name: Optional[str] = None, return_direct: bool = False
 ) -> List[BaseTool]:
     """
-    Convert WeaverTool instance to LangChain BaseTool(s).
+    Compatibility bridge that converts WeaverTool methods into LangChain tools.
+
+    This adapter exists for authoring-time compatibility. Runtime tool
+    discovery and execution should use provider-composed BaseTool instances
+    rather than treating this bridge as the primary registry path.
 
     Args:
         weaver_tool: WeaverTool instance

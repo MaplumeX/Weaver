@@ -13,6 +13,7 @@ import json
 
 import pytest
 
+from tools.core.langchain_adapter import weaver_tool_to_langchain
 from tools.core.base import (
     ToolResult,
     WeaverTool,
@@ -94,6 +95,14 @@ class TestToolResult:
 
 class TestWeaverTool:
     """Test WeaverTool base class."""
+
+    def test_weaver_tool_docstring_marks_authoring_compatibility_role(self):
+        """WeaverTool should be documented as a compatibility abstraction."""
+
+        doc = WeaverTool.__doc__ or ""
+
+        assert "authoring" in doc.lower()
+        assert "compatibility" in doc.lower()
 
     def test_schema_registration(self):
         """Test automatic schema registration."""
@@ -246,6 +255,13 @@ class TestToolSchemaDecorator:
         assert hasattr(test_func, "_tool_schema")
         assert test_func._tool_schema["name"] == "test"
         assert test_func._tool_schema["description"] == "Test function"
+
+
+def test_langchain_adapter_docstring_marks_compatibility_bridge():
+    doc = weaver_tool_to_langchain.__doc__ or ""
+
+    assert "compatibility" in doc.lower()
+    assert "bridge" in doc.lower()
 
     def test_decorator_with_complex_parameters(self):
         """Test decorator with full parameter schema."""

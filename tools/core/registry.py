@@ -737,6 +737,7 @@ def set_registered_tools(tools: List) -> None:
     """
     global _REGISTERED_TOOLS
     _REGISTERED_TOOLS = tools
+    logger.warning("set_registered_tools() is deprecated for runtime tool assembly compatibility.")
 
     # Also register in new registry if available
     registry = get_global_registry()

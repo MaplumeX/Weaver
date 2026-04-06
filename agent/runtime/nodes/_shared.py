@@ -513,10 +513,10 @@ def _log_usage(response: Any, node: str) -> None:
 
 def initialize_enhanced_tools() -> None:
     """
-    Initialize enhanced tool system (Phase 1-4).
+    Refresh enhanced tool catalog metadata for discovery/debug endpoints.
 
     Auto-discovers and registers all WeaverTool instances from the tools directory.
-    Should be called once at application startup.
+    Runtime tool assembly now uses provider composition instead of this registry.
     """
     if not ENHANCED_TOOLS_AVAILABLE:
         logger.info("Enhanced tools not available, skipping initialization")
@@ -562,10 +562,10 @@ def initialize_enhanced_tools() -> None:
         logger.info(f"Discovered and registered {len(discovered)} tools")
 
         all_tools = registry.list_names()
-        logger.info(f"Total tools in registry: {len(all_tools)}")
+        logger.info(f"Total tools in metadata catalog: {len(all_tools)}")
         if all_tools:
             logger.info(
-                f"Available tools: {', '.join(all_tools[:10])}{'...' if len(all_tools) > 10 else ''}"
+                f"Catalog tools: {', '.join(all_tools[:10])}{'...' if len(all_tools) > 10 else ''}"
             )
 
     except Exception as e:

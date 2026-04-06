@@ -98,9 +98,9 @@ from common.sse import (
 )
 from common.thread_ownership import get_thread_owner, set_thread_owner
 from support_agent import create_support_graph
+from agent.infrastructure.tools import build_tool_catalog_snapshot, build_tool_inventory
 from tools.browser.browser_session import browser_sessions
 from tools.core.memory_client import add_memory_entry, fetch_memories, store_interaction
-from tools.core.registry import set_registered_tools
 from tools.io.asr import get_asr_service, init_asr_service
 from tools.io.screenshot_service import get_screenshot_service
 from tools.io.tts import AVAILABLE_VOICES, get_tts_service, init_tts_service
@@ -675,7 +675,6 @@ async def startup_event():
         mcp_servers_config = servers_cfg
         mcp_tools = await init_mcp_tools(servers_override=servers_cfg, enabled=mcp_enabled)
         if mcp_tools:
-            set_registered_tools(mcp_tools)
             mcp_loaded_tools = len(mcp_tools)
             logger.info(f"Successfully registered {mcp_loaded_tools} MCP tools")
         else:
@@ -1567,16 +1566,16 @@ async def health():
 @app.get("/api/health/agent", response_model=AgentHealthResponse)
 async def agent_health():
     """Lightweight agent subsystem health snapshot (no sandbox side effects)."""
-    from tools.core.registry import get_global_registry
-
     profiles = load_agents()
     agent_ids = []
     try:
         agent_ids = [str(p.id) for p in profiles if getattr(p, "id", None)]
     except Exception:
         agent_ids = []
-
-    registry = get_global_registry()
+    tool_snapshot = build_tool_catalog_snapshot(
+        tools=build_tool_inventory({"configurable": {"thread_id": "health", "agent_profile": {}}}),
+        source="runtime_inventory",
+    )
 
     orchestrator = get_search_orchestrator()
     try:
@@ -1587,7 +1586,7 @@ async def agent_health():
     return {
         "agents_count": len(profiles),
         "agent_ids": sorted(agent_ids),
-        "tool_registry_total_tools": len(registry.list_names()),
+        "tool_registry_total_tools": int(tool_snapshot.get("total_tools", 0) or 0),
         "enhanced_tool_discovery_enabled": bool(getattr(settings, "enhanced_tool_discovery_enabled", True)),
         "enhanced_tool_discovery_recursive": bool(
             getattr(settings, "enhanced_tool_discovery_recursive", False)
@@ -3124,42 +3123,25 @@ async def get_mcp_config():
 
 @app.get("/api/tools/registry", response_model=ToolRegistryResponse)
 async def get_tool_registry():
-    """Return current ToolRegistry stats + tool metadata (best-effort)."""
-    from tools.core.registry import get_global_registry
-
-    registry = get_global_registry()
-    raw_stats = registry.get_statistics()
-
-    most_used: List[ToolRegistryMostUsed] = []
-    for entry in raw_stats.get("most_used", []) or []:
-        try:
-            name, call_count = entry
-            most_used.append(ToolRegistryMostUsed(name=str(name), call_count=int(call_count)))
-        except Exception:
-            continue
-
-    stats = ToolRegistryStats(
-        total_tools=int(raw_stats.get("total_tools", 0) or 0),
-        enabled_tools=int(raw_stats.get("enabled_tools", 0) or 0),
-        deprecated_tools=int(raw_stats.get("deprecated_tools", 0) or 0),
-        total_calls=int(raw_stats.get("total_calls", 0) or 0),
-        total_successes=int(raw_stats.get("total_successes", 0) or 0),
-        overall_success_rate=float(raw_stats.get("overall_success_rate", 0.0) or 0.0),
-        most_used=most_used,
-        by_type={str(k): int(v) for k, v in (raw_stats.get("by_type") or {}).items()},
-        tags=[str(t) for t in (raw_stats.get("tags") or [])],
+    """Return runtime inventory snapshot plus metadata-shaped tool payload."""
+    snapshot = build_tool_catalog_snapshot(
+        tools=build_tool_inventory({"configurable": {"thread_id": "catalog", "agent_profile": {}}}),
+        source="runtime_inventory",
     )
 
-    tools_payload: List[ToolRegistryTool] = []
-    for m in registry.list_metadata():
-        try:
-            as_dict = m.to_dict()
-            as_dict["success_rate"] = float(getattr(m, "success_rate", 0.0) or 0.0)
-            tools_payload.append(ToolRegistryTool(**as_dict))
-        except Exception:
-            continue
+    stats = ToolRegistryStats(
+        total_tools=int(snapshot.get("total_tools", 0) or 0),
+        enabled_tools=int(snapshot.get("total_tools", 0) or 0),
+        deprecated_tools=0,
+        total_calls=0,
+        total_successes=0,
+        overall_success_rate=0.0,
+        most_used=[],
+        by_type={str(k): int(v) for k, v in (snapshot.get("by_type") or {}).items()},
+        tags=[str(t) for t in (snapshot.get("tags") or [])],
+    )
 
-    tools_payload.sort(key=lambda t: t.name)
+    tools_payload = [ToolRegistryTool(**item) for item in (snapshot.get("tools") or [])]
     return {"stats": stats, "tools": tools_payload}
 
 
@@ -3333,14 +3315,12 @@ async def update_mcp_config(payload: MCPConfigPayload):
             cfg = _apply_mcp_thread_id(mcp_servers_config, mcp_thread_id)
             mcp_servers_config = cfg
             tools = await reload_mcp_tools(cfg, enabled=True)
-            set_registered_tools(tools)
             mcp_loaded_tools = len(tools)
         except Exception as e:
             logger.error(f"Failed to reload MCP tools: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Failed to reload MCP tools")
     else:
         await close_mcp_tools()
-        set_registered_tools([])
         mcp_loaded_tools = 0
 
     return {

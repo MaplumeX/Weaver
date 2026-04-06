@@ -10,6 +10,7 @@ from tools.core.mcp_clients import MCPClients
 logger = logging.getLogger(__name__)
 
 _CLIENTS: Optional[MCPClients] = None
+_LIVE_MCP_TOOLS: List[BaseTool] = []
 
 
 def _parse_servers(servers: Any) -> Dict[str, Any]:
@@ -37,6 +38,7 @@ async def init_mcp_tools(
     if not use_mcp or not servers:
         logger.info("MCP disabled or no servers configured.")
         _CLIENTS = None
+        _LIVE_MCP_TOOLS.clear()
         return []
 
     thread_id = servers.get("__thread_id__", "default")
@@ -61,8 +63,13 @@ async def init_mcp_tools(
             logger.error(f"MCP connect failed for {server_id}: {e}")
 
     _CLIENTS = clients
+    _LIVE_MCP_TOOLS[:] = list(clients.tools)
     logger.info(f"Loaded {len(clients.tools)} MCP tools from {len(server_items)} servers")
-    return clients.tools
+    return list(_LIVE_MCP_TOOLS)
+
+
+def get_live_mcp_tools() -> List[BaseTool]:
+    return list(_LIVE_MCP_TOOLS)
 
 
 async def reload_mcp_tools(
@@ -74,6 +81,7 @@ async def reload_mcp_tools(
 
 async def close_mcp_tools() -> None:
     global _CLIENTS
+    _LIVE_MCP_TOOLS.clear()
     if _CLIENTS is None:
         return
     try:
