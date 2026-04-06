@@ -48,14 +48,15 @@ def build_initial_agent_state(
     relevant_memories: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     route = route_name_for_mode(request.mode)
-    deep_runtime_engine = (
-        SUPPORTED_DEEP_RESEARCH_RUNTIME if route == "deep" else ""
-    )
+    deep_runtime_engine = SUPPORTED_DEEP_RESEARCH_RUNTIME if route == "deep" else ""
+    store_items = [str(item).strip() for item in (stored_memories or []) if str(item).strip()]
+    memory_items = [str(item).strip() for item in (relevant_memories or []) if str(item).strip()]
     initial_state: dict[str, Any] = {
         "input": request.input_text,
         "images": list(request.images),
         "final_report": "",
         "draft_report": "",
+        "assistant_draft": "",
         "user_id": request.user_id,
         "thread_id": request.thread_id,
         "agent_id": request.agent_profile.id,
@@ -65,10 +66,18 @@ def build_initial_agent_state(
         "route": route,
         "routing_reasoning": "",
         "routing_confidence": 0.0,
+        "needs_tools": False,
+        "tool_reason": "",
+        "required_capabilities": [],
         "scraped_content": [],
         "code_results": [],
         "summary_notes": [],
         "sources": [],
+        "memory_context": {
+            "stored": store_items,
+            "relevant": memory_items,
+        },
+        "tool_observations": [],
         "tool_approved": False,
         "pending_tool_calls": [],
         "tool_call_count": 0,
@@ -90,20 +99,8 @@ def build_initial_agent_state(
     }
 
     messages: list[Any] = []
-    if route == "agent" and request.agent_profile.system_prompt:
-        messages.append(SystemMessage(content=request.agent_profile.system_prompt))
     if route == "deep":
         messages.append(SystemMessage(content=get_deep_agent_prompt()))
-
-    store_items = [str(item).strip() for item in (stored_memories or []) if str(item).strip()]
-    if store_items:
-        store_text = "\n".join(f"- {item}" for item in store_items)
-        messages.append(SystemMessage(content=f"Stored memories:\n{store_text}"))
-
-    memory_items = [str(item).strip() for item in (relevant_memories or []) if str(item).strip()]
-    if memory_items:
-        memory_text = "\n".join(f"- {item}" for item in memory_items)
-        messages.append(SystemMessage(content=f"Relevant past knowledge:\n{memory_text}"))
 
     if messages:
         initial_state["messages"] = messages

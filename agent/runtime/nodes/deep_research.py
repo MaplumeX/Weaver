@@ -15,10 +15,8 @@ from langgraph.errors import GraphBubbleUp
 import agent.contracts.events as _events
 import agent.runtime.deep as _deep_runtime
 import agent.runtime.nodes._shared as _shared
-import agent.runtime.nodes.answer as _answer_nodes
 from common.cancellation import check_cancellation as _check_cancellation
 
-_auto_mode_prefers_linear = _shared._auto_mode_prefers_linear
 _build_compact_unique_source_preview = _shared._build_compact_unique_source_preview
 _configurable = _shared._configurable
 _event_results_limit = _shared._event_results_limit
@@ -29,7 +27,6 @@ settings = _shared.settings
 ToolEventType = _events.ToolEventType
 get_emitter_sync = _events.get_emitter_sync
 run_deep_research = _deep_runtime.run_deep_research
-agent_node = _answer_nodes.agent_node
 
 
 def _resolve_deps(explicit_deps: Any = None) -> Any:
@@ -67,13 +64,6 @@ def deep_research_node(
             logger.debug(f"[deep_research_node] failed to emit start event: {e}")
 
     try:
-        input_text = str(state.get("input", "") or "").strip()
-        if input_text and deps._auto_mode_prefers_linear(input_text):
-            logger.info("[deep_research_node] Delegating simple factual deep query to agent node")
-            delegated_state = dict(state)
-            delegated_state["route"] = "agent"
-            return deps.agent_node(delegated_state, config)
-
         token_id = state.get("cancel_token_id")
         if token_id:
             _check_cancellation(token_id)

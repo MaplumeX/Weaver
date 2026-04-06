@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+from typing import Any
+
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from agent.infrastructure.browser_context import build_browser_context_hint
+
+
+def _configurable(config: dict[str, Any] | Any) -> dict[str, Any]:
+    if isinstance(config, dict):
+        configurable = config.get("configurable") or {}
+        if isinstance(configurable, dict):
+            return configurable
+    return {}
+
+
+def _profile_prompt(config: dict[str, Any] | Any) -> str:
+    profile = _configurable(config).get("agent_profile") or {}
+    if not isinstance(profile, dict):
+        profile = {}
+    return str(profile.get("system_prompt") or "").strip()
+
+
+def _memory_block(state: dict[str, Any]) -> str:
+    memory_context = state.get("memory_context") or {}
+    if not isinstance(memory_context, dict):
+        memory_context = {}
+
+    stored = [str(item).strip() for item in (memory_context.get("stored") or []) if str(item).strip()]
+    relevant = [
+        str(item).strip() for item in (memory_context.get("relevant") or []) if str(item).strip()
+    ]
+
+    parts: list[str] = []
+    if stored:
+        parts.append("Stored memories:\n" + "\n".join(f"- {item}" for item in stored))
+    if relevant:
+        parts.append("Relevant past knowledge:\n" + "\n".join(f"- {item}" for item in relevant))
+
+    return "\n\n".join(parts).strip()
+
+
+def build_chat_runtime_messages(
+    state: dict[str, Any],
+    config: dict[str, Any] | Any,
+    *,
+    include_browser_hint: bool = False,
+) -> list[Any]:
+    system_parts = [part for part in (_profile_prompt(config), _memory_block(state)) if part]
+
+    if include_browser_hint:
+        thread_id = str(_configurable(config).get("thread_id") or "default")
+        browser_hint = build_browser_context_hint(thread_id)
+        if browser_hint:
+            system_parts.append(browser_hint)
+
+    messages: list[Any] = []
+    if system_parts:
+        messages.append(SystemMessage(content="\n\n".join(system_parts)))
+
+    messages.extend(list(state.get("messages") or []))
+    messages.append(HumanMessage(content=str(state.get("input") or "")))
+    return messages
+
+
+__all__ = ["build_chat_runtime_messages"]

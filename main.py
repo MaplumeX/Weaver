@@ -1793,7 +1793,7 @@ def _should_emit_main_text_for_node(node_name: str) -> bool:
 
     # Only allow "final writing" style nodes to stream tokens into the main answer.
     # Everything else should be represented via status/process events.
-    allow_tokens = ("agent",)
+    allow_tokens = ("chat_respond", "tool_agent")
     return any(token in name for token in allow_tokens)
 
 
@@ -1874,7 +1874,7 @@ def _thinking_intro_for_node(node_name: str, *, use_zh: bool) -> str:
             if use_zh
             else "I'll run an iterative deep-search loop (query → search → read → summarize) until coverage is solid."
         )
-    if name == "agent":
+    if name in {"agent", "chat_respond", "tool_agent", "finalize"}:
         return ""
 
     return ""
@@ -2402,8 +2402,10 @@ async def _stream_graph_execution(
                         progress_step = "supervisor"
                     elif "deepsearch" in node_name:
                         progress_step = "deep_research"
-                    elif node_name == "agent":
+                    elif node_name == "chat_respond":
                         progress_step = "agent"
+                    elif node_name == "tool_agent":
+                        progress_step = "agent_tools"
 
                     run_id = str(event.get("run_id", "") or "").strip()
                     if run_id and progress_step:
@@ -2452,11 +2454,17 @@ async def _stream_graph_execution(
                             "status",
                             {"text": text, "step": "deep_research"},
                         )
-                    elif node_name == "agent":
-                        logger.debug(f"  Agent node started | Thread: {thread_id}")
+                    elif node_name == "chat_respond":
+                        logger.debug(f"  Chat respond node started | Thread: {thread_id}")
                         yield await format_stream_event(
                             "status",
-                            {"text": "Running agent (tool-calling)", "step": "agent"},
+                            {"text": "Responding in chat mode", "step": "agent"},
+                        )
+                    elif node_name == "tool_agent":
+                        logger.debug(f"  Tool agent node started | Thread: {thread_id}")
+                        yield await format_stream_event(
+                            "status",
+                            {"text": "Using tools for live context", "step": "agent_tools"},
                         )
 
             elif event_type in {"on_chain_end", "on_node_end", "on_graph_end"}:

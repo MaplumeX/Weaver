@@ -6,10 +6,12 @@ from psycopg.rows import dict_row
 
 from agent.core.state import AgentState
 from agent.runtime.nodes import (
-    agent_node,
+    chat_respond_node,
     deep_research_node,
+    finalize_answer_node,
     human_review_node,
     route_node,
+    tool_agent_node,
 )
 from common.weaver_checkpointer import WeaverPostgresCheckpointer
 
@@ -21,14 +23,16 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     Create the root research graph.
 
     The root graph only orchestrates top-level routing:
-    router -> agent|deep_research -> human_review -> END
+    router -> chat_respond|deep_research -> tool_agent?|finalize -> human_review -> END
     """
     from common.config import settings
 
     workflow = StateGraph(AgentState)
 
     workflow.add_node("router", route_node)
-    workflow.add_node("agent", agent_node)
+    workflow.add_node("chat_respond", chat_respond_node)
+    workflow.add_node("tool_agent", tool_agent_node)
+    workflow.add_node("finalize", finalize_answer_node)
     workflow.add_node("human_review", human_review_node)
     workflow.add_node("deep_research", deep_research_node)
 
@@ -42,15 +46,20 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
             logger.info("[route_decision] → Routing to 'deep_research' node")
             return "deep_research"
         if route == "agent":
-            logger.info("[route_decision] → Routing to 'agent' node")
-            return "agent"
+            logger.info("[route_decision] → Routing to 'chat_respond' node")
+            return "chat_respond"
 
-        logger.info("[route_decision] → Routing to 'agent' node (default)")
-        return "agent"
+        logger.info("[route_decision] → Routing to 'chat_respond' node (default)")
+        return "chat_respond"
 
-    workflow.add_conditional_edges("router", route_decision, ["agent", "deep_research"])
+    workflow.add_conditional_edges("router", route_decision, ["chat_respond", "deep_research"])
 
-    workflow.add_edge("agent", "human_review")
+    def after_chat(state: AgentState) -> str:
+        return "tool_agent" if state.get("needs_tools") else "finalize"
+
+    workflow.add_conditional_edges("chat_respond", after_chat, ["tool_agent", "finalize"])
+    workflow.add_edge("tool_agent", "finalize")
+    workflow.add_edge("finalize", "human_review")
     workflow.add_edge("deep_research", "human_review")
     workflow.add_edge("human_review", END)
 

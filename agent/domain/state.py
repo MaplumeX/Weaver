@@ -54,6 +54,12 @@ class ResearchState(TypedDict, total=False):
     domain: str
     domain_config: dict[str, Any]
     sub_agent_contexts: dict[str, dict[str, Any]]
+    memory_context: dict[str, list[str]]
+    assistant_draft: str
+    needs_tools: bool
+    tool_reason: str
+    required_capabilities: list[str]
+    tool_observations: list[dict[str, Any]]
 
 
 class RuntimeSnapshot(TypedDict, total=False):
@@ -130,6 +136,12 @@ def build_research_state(state: Mapping[str, Any] | None) -> ResearchState:
         "domain": str(data.get("domain") or "").strip(),
         "domain_config": dict(data.get("domain_config") or {}),
         "sub_agent_contexts": dict(data.get("sub_agent_contexts") or {}),
+        "memory_context": dict(data.get("memory_context") or {"stored": [], "relevant": []}),
+        "assistant_draft": str(data.get("assistant_draft") or ""),
+        "needs_tools": bool(data.get("needs_tools")),
+        "tool_reason": str(data.get("tool_reason") or ""),
+        "required_capabilities": list(data.get("required_capabilities") or []),
+        "tool_observations": list(data.get("tool_observations") or []),
     }
 
 

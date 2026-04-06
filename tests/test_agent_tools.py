@@ -9,7 +9,11 @@ if str(ROOT) not in sys.path:
 from langchain_core.tools import tool  # noqa: E402
 
 from agent.domain import ToolCapability  # noqa: E402
-from agent.infrastructure.tools import StaticToolProvider, build_agent_toolset  # noqa: E402
+from agent.infrastructure.tools import (  # noqa: E402
+    StaticToolProvider,
+    build_agent_toolset,
+    build_tools_for_capabilities,
+)
 from agent.infrastructure.tools.assembly import build_tool_inventory  # noqa: E402
 from agent.infrastructure.tools.capabilities import resolve_tool_names_for_capabilities  # noqa: E402
 from common.config import settings  # noqa: E402
@@ -178,3 +182,23 @@ def test_search_capability_aliases_only_include_exposed_search_tools():
     assert "fallback_search" in names
     assert "tavily_search" in names
     assert "multi_search" not in names
+
+
+def test_build_tools_for_capabilities_limits_tools_to_search_family():
+    cfg = {
+        "configurable": {
+            "thread_id": "cap-1",
+            "agent_profile": {"enabled_tools": {"web_search": True, "browser": True}},
+        }
+    }
+
+    names = _names(build_tools_for_capabilities(["web_search"], cfg))
+
+    assert "fallback_search" in names
+    assert "browser_navigate" not in names
+
+
+def test_build_tools_for_capabilities_returns_empty_list_for_empty_request():
+    cfg = {"configurable": {"thread_id": "cap-2", "agent_profile": {"enabled_tools": {}}}}
+
+    assert build_tools_for_capabilities([], cfg) == []

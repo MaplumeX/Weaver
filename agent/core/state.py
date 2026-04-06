@@ -76,6 +76,8 @@ class AgentState(TypedDict):
     final_report: str
     # Draft report for evaluator/optimizer loop
     draft_report: str
+    # Chat-first assistant draft before finalize/human review
+    assistant_draft: str
 
     # ============ User Context ============
     # User identifier for memory/namespace
@@ -104,6 +106,12 @@ class AgentState(TypedDict):
     routing_reasoning: str
     # Routing confidence (0-1)
     routing_confidence: float
+    # Whether this turn must escalate into the tool agent path
+    needs_tools: bool
+    # Human-readable reason for escalation
+    tool_reason: str
+    # Minimal required capability set for this turn
+    required_capabilities: List[str]
 
     # ============ Research Data ============
     # All scraped content from searches
@@ -114,6 +122,10 @@ class AgentState(TypedDict):
     summary_notes: List[str]
     # Sources collected
     sources: List[Dict[str, str]]
+    # Structured memory snippets used to build runtime prompt context
+    memory_context: Dict[str, List[str]]
+    # Compact summary of tool results for finalize/logging
+    tool_observations: Annotated[List[Dict[str, Any]], operator.add]
 
     # ============ Tool Control ============
     # Tool approval gating

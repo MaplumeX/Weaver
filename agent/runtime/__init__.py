@@ -8,27 +8,31 @@ import importlib
 from typing import Any, Dict
 
 __all__ = [
-    "agent_node",
+    "chat_respond_node",
     "check_cancellation",
     "create_research_graph",
     "deep_research_node",
+    "finalize_answer_node",
     "handle_cancellation",
     "human_review_node",
     "initialize_enhanced_tools",
     "route_node",
     "run_deep_research",
+    "tool_agent_node",
 ]
 
 _SYMBOL_TO_MODULE: Dict[str, str] = {
-    "agent_node": "agent.runtime.nodes",
+    "chat_respond_node": "agent.runtime.nodes",
     "check_cancellation": "agent.runtime.nodes",
     "create_research_graph": "agent.runtime.graph",
     "deep_research_node": "agent.runtime.nodes",
+    "finalize_answer_node": "agent.runtime.nodes",
     "handle_cancellation": "agent.runtime.nodes",
     "human_review_node": "agent.runtime.nodes",
     "initialize_enhanced_tools": "agent.runtime.nodes",
     "route_node": "agent.runtime.nodes",
     "run_deep_research": "agent.runtime.deep",
+    "tool_agent_node": "agent.runtime.nodes",
 }
 
 

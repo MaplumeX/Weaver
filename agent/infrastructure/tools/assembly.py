@@ -9,6 +9,7 @@ from agent.infrastructure.tools.capabilities import (
     build_default_tool_providers,
     build_enabled_tool_providers,
     build_tool_context,
+    resolve_tool_names_for_capabilities,
 )
 from agent.infrastructure.tools.policy import filter_tools_by_name
 from agent.infrastructure.tools.providers import ProviderContext, compose_provider_tools
@@ -68,3 +69,40 @@ def build_agent_toolset(config: RunnableConfig) -> list[BaseTool]:
         tool_list = wrap_tools_with_events(tool_list, thread_id=thread_id)
 
     return tool_list
+
+
+def build_tools_for_capabilities(
+    required_capabilities: list[str],
+    config: RunnableConfig,
+) -> list[BaseTool]:
+    requested = [str(item).strip() for item in (required_capabilities or []) if str(item).strip()]
+    if not requested:
+        return []
+
+    alias_map = {
+        "web_search": "search",
+        "browser": "browse",
+        "files": "write",
+        "python": "execute",
+    }
+    resolved_capabilities = [alias_map.get(item, item) for item in requested]
+    wanted = resolve_tool_names_for_capabilities(resolved_capabilities)
+    tools = build_tools_for_names(wanted, config)
+
+    configurable = _configurable(config)
+    profile = configurable.get("agent_profile") or {}
+    if not isinstance(profile, dict):
+        profile = {}
+
+    tools = filter_tools_by_name(
+        tools,
+        whitelist=profile.get("tool_whitelist") or [],
+        blacklist=profile.get("tool_blacklist") or [],
+    )
+
+    emit_events = bool(profile.get("emit_tool_events", settings.emit_tool_events))
+    if emit_events:
+        thread_id = str(configurable.get("thread_id") or "default")
+        tools = wrap_tools_with_events(tools, thread_id=thread_id)
+
+    return tools

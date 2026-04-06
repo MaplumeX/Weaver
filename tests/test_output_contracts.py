@@ -7,6 +7,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import agent.runtime.nodes.review as nodes
+from agent.runtime.nodes.finalize import finalize_answer_node
 
 
 def test_human_review_node_enforces_exact_reply_contract():
@@ -32,3 +33,16 @@ def test_human_review_node_preserves_report_without_exact_reply_contract():
     )
 
     assert result["final_report"] == "Paris is the capital of France."
+
+
+def test_finalize_answer_node_enforces_exact_reply_contract():
+    result = finalize_answer_node(
+        {
+            "input": 'Reply with exactly "Paris".',
+            "assistant_draft": "The answer is Paris.",
+            "messages": [],
+        },
+        {"configurable": {}},
+    )
+
+    assert result["final_report"] == "Paris"

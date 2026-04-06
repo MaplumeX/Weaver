@@ -18,9 +18,10 @@ def test_create_research_graph_only_keeps_active_root_nodes():
     graph = create_research_graph()
     node_names = set(graph.get_graph().nodes.keys())
 
-    assert {"router", "agent", "deep_research", "human_review"} <= node_names
+    assert {"router", "chat_respond", "tool_agent", "finalize", "deep_research", "human_review"} <= node_names
 
     removed = {
+        "agent",
         "clarify",
         "planner",
         "refine_plan",

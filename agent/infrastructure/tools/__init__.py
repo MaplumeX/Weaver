@@ -1,6 +1,7 @@
 from agent.infrastructure.tools.assembly import (
     build_agent_toolset,
     build_tool_inventory,
+    build_tools_for_capabilities,
     build_tools_for_names,
 )
 from agent.infrastructure.tools.catalog import build_tool_catalog_snapshot
@@ -35,6 +36,7 @@ __all__ = [
     "build_default_tool_registry",
     "build_enabled_tool_providers",
     "build_tool_inventory",
+    "build_tools_for_capabilities",
     "build_tools_for_names",
     "build_tool_context",
     "compose_provider_tools",

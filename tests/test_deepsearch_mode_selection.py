@@ -21,18 +21,18 @@ def test_deep_research_node_uses_auto_runner(monkeypatch):
     assert result["runner"] == "auto"
 
 
-def test_deep_research_node_delegates_simple_factual_query_to_agent_node(monkeypatch):
-    called = {"agent": False}
+def test_deep_research_node_keeps_simple_factual_query_in_deep_runner(monkeypatch):
+    called = {"auto": False}
 
-    def fake_agent(state, config):
-        called["agent"] = True
-        assert state["route"] == "agent"
-        return {"final_report": "Paris", "messages": []}
+    def fail_agent(state, config):
+        raise AssertionError("deepsearch should not delegate simple factual queries to agent mode")
 
     def fake_auto(state, config):
-        raise AssertionError("deepsearch runner should be skipped for simple factual query")
+        called["auto"] = True
+        assert state.get("route") != "agent"
+        return {"final_report": "Paris", "messages": []}
 
-    monkeypatch.setattr(nodes, "agent_node", fake_agent, raising=False)
+    monkeypatch.setattr(nodes, "agent_node", fail_agent, raising=False)
     monkeypatch.setattr(nodes, "run_deep_research", fake_auto, raising=False)
 
     result = nodes.deep_research_node(
@@ -40,7 +40,7 @@ def test_deep_research_node_delegates_simple_factual_query_to_agent_node(monkeyp
         {"configurable": {}},
     )
 
-    assert called["agent"] is True
+    assert called["auto"] is True
     assert result["final_report"] == "Paris"
 
 
