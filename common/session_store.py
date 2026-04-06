@@ -75,10 +75,34 @@ class SessionStore:
         **payload: Any,
     ) -> None:
         message_id = uuid.uuid4()
+        attachments = payload.get("attachments")
+        sources = payload.get("sources")
+        tool_invocations = payload.get("tool_invocations")
+        process_events = payload.get("process_events")
+        metrics = payload.get("metrics")
+        completed_at = payload.get("completed_at")
         await self.conn.execute(
-            "INSERT INTO session_messages (id, thread_id, seq, role, content, created_at) "
-            "VALUES (%s, %s, COALESCE((SELECT MAX(seq) + 1 FROM session_messages WHERE thread_id = %s), 1), %s, %s, %s)",
-            (message_id, thread_id, thread_id, role, content, created_at),
+            "INSERT INTO session_messages ("
+            "id, thread_id, seq, role, content, attachments, sources, tool_invocations, "
+            "process_events, metrics, created_at, completed_at"
+            ") VALUES ("
+            "%s, %s, COALESCE((SELECT MAX(seq) + 1 FROM session_messages WHERE thread_id = %s), 1), "
+            "%s, %s, %s, %s, %s, %s, %s, %s, %s"
+            ")",
+            (
+                message_id,
+                thread_id,
+                thread_id,
+                role,
+                content,
+                Jsonb(attachments if isinstance(attachments, list) else []),
+                Jsonb(sources if isinstance(sources, list) else []),
+                Jsonb(tool_invocations if isinstance(tool_invocations, list) else []),
+                Jsonb(process_events if isinstance(process_events, list) else []),
+                Jsonb(metrics if isinstance(metrics, dict) else {}),
+                created_at,
+                completed_at,
+            ),
         )
 
     async def get_snapshot(self, thread_id: str) -> dict[str, Any]:

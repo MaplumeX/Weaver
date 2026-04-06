@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from common.session_service import SessionService
+from common.session_store import SessionStore
+from tests.persistence_fixtures import build_fake_pg_conn
 
 
 @pytest.mark.asyncio
@@ -98,3 +100,68 @@ async def test_start_session_run_reuses_existing_session_and_appends_user_messag
     assert not any(kind == "create" for kind, _ in captured)
     assert any(kind == "update" for kind, _ in captured)
     assert any(kind == "append" for kind, _ in captured)
+
+
+@pytest.mark.asyncio
+async def test_finalize_assistant_message_persists_process_payload_in_snapshot() -> None:
+    conn = build_fake_pg_conn()
+    store = SessionStore(conn)
+    await store.setup()
+    await store.create_session(
+        thread_id="thread-process",
+        user_id="alice",
+        title="Process session",
+        route="agent",
+        status="running",
+    )
+    service = SessionService(store=store, checkpointer=None)
+
+    sources = [{"title": "Doc", "url": "https://example.com/doc"}]
+    tool_invocations = [
+        {
+            "toolName": "search_docs",
+            "toolCallId": "tool-1",
+            "state": "completed",
+            "args": {"query": "session persistence"},
+            "result": {"hits": 2},
+        }
+    ]
+    process_events = [
+        {
+            "id": "evt-1",
+            "type": "thinking",
+            "timestamp": "2026-04-06T08:01:00Z",
+            "data": {"text": "Analyzing persistence flow"},
+        },
+        {
+            "id": "evt-2",
+            "type": "done",
+            "timestamp": "2026-04-06T08:01:27Z",
+            "data": {"metrics": {"duration_ms": 27000}},
+        },
+    ]
+    metrics = {"duration_ms": 27000, "run_id": "run-27"}
+
+    await service.finalize_assistant_message(
+        thread_id="thread-process",
+        content="assistant answer",
+        status="completed",
+        sources=sources,
+        tool_invocations=tool_invocations,
+        process_events=process_events,
+        metrics=metrics,
+    )
+
+    snapshot = await service.load_snapshot("thread-process")
+
+    assert snapshot is not None
+    assert snapshot["session"]["status"] == "completed"
+    assert snapshot["session"]["summary"] == "assistant answer"
+    assert len(snapshot["messages"]) == 1
+    assert snapshot["messages"][0]["role"] == "assistant"
+    assert snapshot["messages"][0]["content"] == "assistant answer"
+    assert snapshot["messages"][0]["sources"] == sources
+    assert snapshot["messages"][0]["tool_invocations"] == tool_invocations
+    assert snapshot["messages"][0]["process_events"] == process_events
+    assert snapshot["messages"][0]["metrics"] == metrics
+    assert snapshot["messages"][0]["completed_at"] is not None

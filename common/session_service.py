@@ -99,7 +99,12 @@ class SessionService:
                 thread_id=thread_id,
                 role="assistant",
                 content=content,
+                sources=sources,
+                tool_invocations=tool_invocations,
+                process_events=process_events,
+                metrics=metrics,
                 created_at=created_at,
+                completed_at=created_at,
             )
         await self.store.update_session_metadata(
             thread_id,

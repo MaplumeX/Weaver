@@ -42,6 +42,56 @@ async def test_chat_stream_creates_session_and_persists_messages(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_chat_stream_persists_process_events_tools_and_sources(monkeypatch):
+    captured: list[tuple[str, dict]] = []
+
+    class FakeSessionService:
+        async def start_session_run(self, **payload):
+            captured.append(("start", payload))
+
+        async def finalize_assistant_message(self, **payload):
+            captured.append(("assistant", payload))
+
+    async def fake_stream_agent_events(*args, **kwargs):
+        yield '0:{"type":"thinking","data":{"text":"Analyzing request"}}\n'
+        yield '0:{"type":"tool_start","data":{"name":"search_docs","toolCallId":"tool-1","args":{"query":"persistence"}}}\n'
+        yield '0:{"type":"tool_result","data":{"name":"search_docs","toolCallId":"tool-1","args":{"query":"persistence"},"result":{"hits":2}}}\n'
+        yield '0:{"type":"sources","data":{"items":[{"title":"Doc","url":"https://example.com/doc"}]}}\n'
+        yield '0:{"type":"text","data":{"content":"assistant answer"}}\n'
+        yield '0:{"type":"done","data":{"metrics":{"run_id":"run-1","duration_ms":27000}}}\n'
+
+    monkeypatch.setattr(main, "session_service", FakeSessionService(), raising=False)
+    monkeypatch.setattr(main, "stream_agent_events", fake_stream_agent_events)
+
+    transport = ASGITransport(app=main.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post(
+            "/api/chat",
+            json={
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": True,
+                "search_mode": {"mode": "agent"},
+            },
+        )
+
+    assert resp.status_code == 200
+    assert captured[1][0] == "assistant"
+    assert captured[1][1]["content"] == "assistant answer"
+    assert captured[1][1]["sources"] == [{"title": "Doc", "url": "https://example.com/doc"}]
+    assert captured[1][1]["metrics"] == {"run_id": "run-1", "duration_ms": 27000}
+    assert captured[1][1]["tool_invocations"] == [
+        {
+            "toolName": "search_docs",
+            "toolCallId": "tool-1",
+            "state": "completed",
+            "args": {"query": "persistence"},
+            "result": {"hits": 2},
+        }
+    ]
+    assert [event["type"] for event in captured[1][1]["process_events"]] == ["thinking", "tool", "tool", "done"]
+
+
+@pytest.mark.asyncio
 async def test_chat_stream_reuses_provided_thread_id_for_follow_up_messages(monkeypatch):
     captured: list[tuple[str, dict]] = []
 

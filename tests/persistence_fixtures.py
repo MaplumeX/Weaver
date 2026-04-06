@@ -85,6 +85,21 @@ class RecordingAsyncConn:
                 [int(item["seq"]) for item in self.rows["session_messages"] if item["thread_id"] == thread_id],
                 default=0,
             ) + 1
+            attachments = []
+            sources = []
+            tool_invocations = []
+            process_events = []
+            metrics = {}
+            created_at = params[5]
+            completed_at = None
+            if len(params) >= 12:
+                attachments = getattr(params[5], "obj", params[5])
+                sources = getattr(params[6], "obj", params[6])
+                tool_invocations = getattr(params[7], "obj", params[7])
+                process_events = getattr(params[8], "obj", params[8])
+                metrics = getattr(params[9], "obj", params[9])
+                created_at = params[10]
+                completed_at = params[11]
             self.rows["session_messages"].append(
                 {
                     "id": str(params[0]),
@@ -92,13 +107,13 @@ class RecordingAsyncConn:
                     "seq": next_seq,
                     "role": params[3],
                     "content": params[4],
-                    "attachments": [],
-                    "sources": [],
-                    "tool_invocations": [],
-                    "process_events": [],
-                    "metrics": {},
-                    "created_at": params[5],
-                    "completed_at": None,
+                    "attachments": attachments,
+                    "sources": sources,
+                    "tool_invocations": tool_invocations,
+                    "process_events": process_events,
+                    "metrics": metrics,
+                    "created_at": created_at,
+                    "completed_at": completed_at,
                 }
             )
         elif "UPDATE sessions" in sql:

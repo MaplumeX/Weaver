@@ -2000,6 +2000,139 @@ def _build_langchain_tool_stream_payload(
     return payload
 
 
+def _build_persisted_process_event(event_type: str, data: Any) -> Dict[str, Any]:
+    payload = dict(data) if isinstance(data, dict) else {}
+    persisted_type = event_type
+
+    if event_type in {"tool", "tool_start", "tool_result", "tool_error"}:
+        normalize_event_type = event_type if event_type != "tool" else "tool"
+        payload = _normalize_tool_event_data(normalize_event_type, payload)
+        persisted_type = "tool"
+    elif event_type == "tool_progress":
+        payload = _normalize_tool_event_data(event_type, payload)
+
+    timestamp = payload.get("timestamp") if isinstance(payload, dict) else None
+    if not isinstance(timestamp, (int, float, str)) or (
+        isinstance(timestamp, str) and not timestamp.strip()
+    ):
+        timestamp = datetime.utcnow().isoformat()
+
+    return {
+        "id": f"evt_{uuid.uuid4().hex}",
+        "type": persisted_type,
+        "timestamp": timestamp,
+        "data": payload,
+    }
+
+
+def _upsert_persisted_tool_invocation(
+    tool_invocations: List[Dict[str, Any]],
+    *,
+    event_type: str,
+    data: Any,
+) -> List[Dict[str, Any]]:
+    normalize_event_type = event_type if event_type in {"tool_start", "tool_result", "tool_error"} else "tool"
+    payload = _normalize_tool_event_data(normalize_event_type, data)
+    tool_name = str(payload.get("name") or payload.get("tool") or "").strip() or "unknown"
+    tool_call_id = str(payload.get("toolCallId") or payload.get("tool_call_id") or "").strip()
+    status = str(payload.get("status") or "").strip().lower()
+    state = "completed" if status == "completed" else "failed" if status == "failed" else "running"
+
+    invocation: Dict[str, Any] = {
+        "toolName": tool_name,
+        "state": state,
+    }
+
+    if tool_call_id:
+        invocation["toolCallId"] = tool_call_id
+
+    args = payload.get("args")
+    if isinstance(args, dict):
+        invocation["args"] = args
+    else:
+        query = payload.get("query")
+        if isinstance(query, str) and query.strip():
+            invocation["args"] = {"query": query}
+
+    if "result" in payload:
+        invocation["result"] = payload.get("result")
+
+    existing_index = -1
+    if tool_call_id:
+        for index, item in enumerate(tool_invocations):
+            if str(item.get("toolCallId") or "").strip() == tool_call_id:
+                existing_index = index
+                break
+    else:
+        for index, item in enumerate(tool_invocations):
+            if item.get("toolName") == tool_name and item.get("state") == "running":
+                existing_index = index
+                break
+
+    if existing_index >= 0:
+        merged = {**tool_invocations[existing_index], **invocation}
+        return [
+            merged if index == existing_index else item
+            for index, item in enumerate(tool_invocations)
+        ]
+
+    return [*tool_invocations, invocation]
+
+
+def _record_persisted_assistant_stream_event(
+    state: Dict[str, Any],
+    *,
+    event_type: str,
+    event_data: Any,
+) -> None:
+    if not str(event_type or "").strip():
+        return
+
+    data = event_data if isinstance(event_data, dict) else {}
+
+    if event_type == "text":
+        state["content"] += str(data.get("content") or "")
+        return
+
+    if event_type == "message":
+        state["content"] = str(data.get("content") or state["content"])
+        return
+
+    if event_type == "completion":
+        state["content"] = str(data.get("content") or state["content"])
+        if state["status"] == "running":
+            state["status"] = "completed"
+        return
+
+    if event_type == "sources":
+        items = data.get("items")
+        if isinstance(items, list):
+            state["sources"] = [item for item in items if isinstance(item, dict)]
+        return
+
+    if event_type in {"tool", "tool_start", "tool_result", "tool_error"}:
+        state["tool_invocations"] = _upsert_persisted_tool_invocation(
+            state["tool_invocations"],
+            event_type=event_type,
+            data=data,
+        )
+
+    if event_type == "interrupt":
+        state["status"] = "interrupted"
+    elif event_type == "cancelled":
+        state["status"] = "cancelled"
+    elif event_type == "error":
+        state["status"] = "failed"
+    elif event_type == "done":
+        metrics = data.get("metrics")
+        state["metrics"] = dict(metrics) if isinstance(metrics, dict) else {}
+        if state["status"] == "running":
+            state["status"] = "completed"
+
+    if event_type not in {"artifact", "sources"}:
+        state["process_events"].append(_build_persisted_process_event(event_type, data))
+
+
 def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | None) -> Dict[str, Any]:
     mode: SearchModeLiteral = "agent"
 
@@ -3037,9 +3170,14 @@ async def chat(request: Request, payload: ChatRequest):
                 )
 
             async def _session_persisted_stream():
-                assistant_content = ""
-                metrics: Dict[str, Any] = {}
-                final_status = "running"
+                persistence_state: Dict[str, Any] = {
+                    "content": "",
+                    "status": "running",
+                    "sources": [],
+                    "tool_invocations": [],
+                    "process_events": [],
+                    "metrics": {},
+                }
                 async for chunk in stream_agent_events(
                     last_message,
                     thread_id=thread_id,
@@ -3056,28 +3194,22 @@ async def chat(request: Request, payload: ChatRequest):
                             payload_obj = {}
                         event_type = str(payload_obj.get("type") or "")
                         event_data = payload_obj.get("data") if isinstance(payload_obj.get("data"), dict) else {}
-                        if event_type == "text":
-                            assistant_content += str(event_data.get("content") or "")
-                        elif event_type == "completion":
-                            assistant_content = str(event_data.get("content") or assistant_content)
-                            final_status = "completed"
-                        elif event_type == "interrupt":
-                            final_status = "interrupted"
-                        elif event_type == "cancelled":
-                            final_status = "cancelled"
-                        elif event_type == "error":
-                            final_status = "failed"
-                        elif event_type == "done":
-                            metrics = dict(event_data.get("metrics") or {})
-                            final_status = "completed" if final_status == "running" else final_status
+                        _record_persisted_assistant_stream_event(
+                            persistence_state,
+                            event_type=event_type,
+                            event_data=event_data,
+                        )
                     yield chunk
 
                 if session_service is not None:
                     await session_service.finalize_assistant_message(
                         thread_id=thread_id,
-                        content=assistant_content,
-                        status=final_status,
-                        metrics=metrics,
+                        content=str(persistence_state["content"]),
+                        status=str(persistence_state["status"]),
+                        sources=list(persistence_state["sources"]),
+                        tool_invocations=list(persistence_state["tool_invocations"]),
+                        process_events=list(persistence_state["process_events"]),
+                        metrics=dict(persistence_state["metrics"]),
                     )
 
             # Return streaming response with thread_id in header for cancellation
@@ -3204,9 +3336,14 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
 
     if payload.stream:
         async def _persisted_resume_stream():
-            assistant_content = ""
-            metrics: Dict[str, Any] = {}
-            final_status = "running"
+            persistence_state: Dict[str, Any] = {
+                "content": "",
+                "status": "running",
+                "sources": [],
+                "tool_invocations": [],
+                "process_events": [],
+                "metrics": {},
+            }
             user_text = _resume_payload_user_text(resume_payload)
             if session_service is not None and user_text:
                 await session_service.append_user_message(
@@ -3227,28 +3364,22 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
                         payload_obj = {}
                     event_type = str(payload_obj.get("type") or "")
                     event_data = payload_obj.get("data") if isinstance(payload_obj.get("data"), dict) else {}
-                    if event_type == "text":
-                        assistant_content += str(event_data.get("content") or "")
-                    elif event_type == "completion":
-                        assistant_content = str(event_data.get("content") or assistant_content)
-                        final_status = "completed"
-                    elif event_type == "interrupt":
-                        final_status = "interrupted"
-                    elif event_type == "cancelled":
-                        final_status = "cancelled"
-                    elif event_type == "error":
-                        final_status = "failed"
-                    elif event_type == "done":
-                        metrics = dict(event_data.get("metrics") or {})
-                        final_status = "completed" if final_status == "running" else final_status
+                    _record_persisted_assistant_stream_event(
+                        persistence_state,
+                        event_type=event_type,
+                        event_data=event_data,
+                    )
                 yield chunk
 
             if session_service is not None:
                 await session_service.finalize_assistant_message(
                     thread_id=payload.thread_id,
-                    content=assistant_content,
-                    status=final_status,
-                    metrics=metrics,
+                    content=str(persistence_state["content"]),
+                    status=str(persistence_state["status"]),
+                    sources=list(persistence_state["sources"]),
+                    tool_invocations=list(persistence_state["tool_invocations"]),
+                    process_events=list(persistence_state["process_events"]),
+                    metrics=dict(persistence_state["metrics"]),
                 )
 
         return StreamingResponse(
