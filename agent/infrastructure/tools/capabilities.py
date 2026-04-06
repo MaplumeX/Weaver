@@ -2,18 +2,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
-from agent.domain import ToolCapability
-from agent.infrastructure.tools.policy import filter_tools_by_name, is_tool_enabled
-from agent.infrastructure.tools.providers import (
-    ProviderContext,
-    StaticToolProvider,
-    compose_provider_tools,
-)
+from agent.infrastructure.tools.providers import ProviderContext, StaticToolProvider
 from common.config import settings
 from tools import execute_python_code, tavily_search
 from tools.mcp import get_live_mcp_tools
@@ -49,58 +43,6 @@ _E2B_PLACEHOLDER_KEYS = {
     "e2b_39ce8c3d299470afd09b42629c436edec32728d8",
 }
 
-_CAPABILITY_TOOL_NAME_ALIASES: dict[str, frozenset[str]] = {
-    ToolCapability.SEARCH.value: frozenset(
-        {
-            "browser_search",
-            "fallback_search",
-            "sandbox_extract_search_results",
-            "sandbox_search_and_click",
-            "sandbox_web_search",
-            "tavily_search",
-        }
-    ),
-    ToolCapability.BROWSE.value: frozenset(
-        {
-            "browser_click",
-            "browser_navigate",
-            "sb_browser_click",
-            "sb_browser_extract_text",
-            "sb_browser_navigate",
-            "sb_browser_press",
-            "sb_browser_scroll",
-            "sb_browser_screenshot",
-            "sb_browser_type",
-        }
-    ),
-    ToolCapability.READ.value: frozenset(
-        {
-            "browser_click",
-            "browser_navigate",
-            "crawl_url",
-            "crawl_urls",
-            "sb_browser_click",
-            "sb_browser_extract_text",
-            "sb_browser_navigate",
-            "sb_browser_press",
-            "sb_browser_scroll",
-            "sb_browser_type",
-        }
-    ),
-    ToolCapability.EXTRACT.value: frozenset(
-        {
-            "crawl_url",
-            "crawl_urls",
-            "sb_browser_extract_text",
-            "sb_browser_screenshot",
-        }
-    ),
-    ToolCapability.EXECUTE.value: frozenset({"execute_python_code"}),
-    ToolCapability.WRITE.value: frozenset({"str_replace"}),
-    ToolCapability.SYNTHESIZE.value: frozenset(),
-    "fabric": frozenset({"fabric"}),
-}
-
 
 def _e2b_api_key_configured() -> bool:
     key = (settings.e2b_api_key or "").strip()
@@ -119,12 +61,6 @@ def _configurable(config: RunnableConfig) -> dict[str, Any]:
         if isinstance(cfg, dict):
             return cfg
     return {}
-
-
-def _enabled(profile: dict[str, Any], key: str, default: bool = False) -> bool:
-    return is_tool_enabled(profile, key, default)
-
-
 @dataclass(frozen=True)
 class ToolBuildContext:
     config: RunnableConfig
@@ -138,10 +74,8 @@ ToolFactory = Callable[[ToolBuildContext], list[BaseTool]]
 
 
 @dataclass(frozen=True)
-class ToolSpecification:
+class ToolProviderSpec:
     key: str
-    capabilities: frozenset[ToolCapability]
-    default_enabled: bool
     factory: ToolFactory
 
 
@@ -170,8 +104,6 @@ def _build_crawl_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
 
 
 def _build_browser_tools(ctx: ToolBuildContext) -> list[BaseTool]:
-    if _enabled(ctx.profile, "sandbox_browser", default=False):
-        return []
     return build_browser_tools(ctx.thread_id)
 
 
@@ -182,12 +114,12 @@ def _build_sandbox_browser_tools_for_agent(ctx: ToolBuildContext) -> list[BaseTo
 
 
 def _build_browser_use_tools_for_agent(ctx: ToolBuildContext) -> list[BaseTool]:
+    if not bool(settings.enable_browser_use):
+        return []
     return build_browser_use_tools(ctx.thread_id)
 
 
 def _build_sandbox_web_search_tools_for_agent(ctx: ToolBuildContext) -> list[BaseTool]:
-    if _enabled(ctx.profile, "web_search", default=True):
-        return []
     if settings.sandbox_mode == "local" and ctx.e2b_ready:
         return build_sandbox_web_search_tools(ctx.thread_id)
     return []
@@ -287,224 +219,33 @@ def _build_daytona_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
     return [daytona_create, daytona_stop]
 
 
-TOOL_SPECS: tuple[ToolSpecification, ...] = (
-    ToolSpecification(
-        key="web_search",
-        capabilities=frozenset({ToolCapability.SEARCH}),
-        default_enabled=True,
-        factory=_build_web_search_tools,
-    ),
-    ToolSpecification(
-        key="rag",
-        capabilities=frozenset({ToolCapability.SEARCH, ToolCapability.EXTRACT}),
-        default_enabled=False,
-        factory=_build_rag_tools,
-    ),
-    ToolSpecification(
-        key="crawl",
-        capabilities=frozenset({ToolCapability.READ, ToolCapability.EXTRACT}),
-        default_enabled=True,
-        factory=_build_crawl_tools,
-    ),
-    ToolSpecification(
-        key="sandbox_browser",
-        capabilities=frozenset({ToolCapability.BROWSE, ToolCapability.READ, ToolCapability.EXTRACT}),
-        default_enabled=False,
-        factory=_build_sandbox_browser_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="browser",
-        capabilities=frozenset({ToolCapability.BROWSE, ToolCapability.READ}),
-        default_enabled=False,
-        factory=_build_browser_tools,
-    ),
-    ToolSpecification(
-        key="browser_use",
-        capabilities=frozenset({ToolCapability.BROWSE, ToolCapability.READ, ToolCapability.EXTRACT}),
-        default_enabled=bool(settings.enable_browser_use),
-        factory=_build_browser_use_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="sandbox_web_search",
-        capabilities=frozenset({ToolCapability.SEARCH, ToolCapability.BROWSE}),
-        default_enabled=False,
-        factory=_build_sandbox_web_search_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="sandbox_files",
-        capabilities=frozenset({ToolCapability.READ, ToolCapability.WRITE}),
-        default_enabled=False,
-        factory=_build_sandbox_files_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="sandbox_shell",
-        capabilities=frozenset({ToolCapability.EXECUTE, ToolCapability.READ, ToolCapability.WRITE}),
-        default_enabled=False,
-        factory=_build_sandbox_shell_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="sandbox_sheets",
-        capabilities=frozenset({ToolCapability.WRITE}),
-        default_enabled=False,
-        factory=_build_sandbox_sheets_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="sandbox_presentation",
-        capabilities=frozenset({ToolCapability.WRITE}),
-        default_enabled=False,
-        factory=_build_sandbox_presentation_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="sandbox_vision",
-        capabilities=frozenset({ToolCapability.EXTRACT}),
-        default_enabled=False,
-        factory=_build_sandbox_vision_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="sandbox_image_edit",
-        capabilities=frozenset({ToolCapability.WRITE}),
-        default_enabled=False,
-        factory=_build_image_edit_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="sandbox_web_dev",
-        capabilities=frozenset({ToolCapability.EXECUTE, ToolCapability.WRITE}),
-        default_enabled=False,
-        factory=_build_sandbox_web_dev_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="presentation_outline",
-        capabilities=frozenset({ToolCapability.SYNTHESIZE}),
-        default_enabled=False,
-        factory=_build_presentation_outline_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="presentation_v2",
-        capabilities=frozenset({ToolCapability.WRITE}),
-        default_enabled=False,
-        factory=_build_presentation_v2_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="python",
-        capabilities=frozenset({ToolCapability.EXECUTE, ToolCapability.SYNTHESIZE}),
-        default_enabled=False,
-        factory=_build_python_tools,
-    ),
-    ToolSpecification(
-        key="task_list",
-        capabilities=frozenset({ToolCapability.WRITE}),
-        default_enabled=True,
-        factory=_build_task_tools,
-    ),
-    ToolSpecification(
-        key="computer_use",
-        capabilities=frozenset({ToolCapability.EXECUTE, ToolCapability.BROWSE}),
-        default_enabled=False,
-        factory=_build_computer_use_tools_for_agent,
-    ),
-    ToolSpecification(
-        key="ask_human",
-        capabilities=frozenset({ToolCapability.SYNTHESIZE}),
-        default_enabled=True,
-        factory=_build_ask_human_tools,
-    ),
-    ToolSpecification(
-        key="str_replace",
-        capabilities=frozenset({ToolCapability.WRITE}),
-        default_enabled=True,
-        factory=_build_str_replace_tools,
-    ),
-    ToolSpecification(
-        key="bash",
-        capabilities=frozenset({ToolCapability.EXECUTE}),
-        default_enabled=False,
-        factory=_build_bash_tools,
-    ),
-    ToolSpecification(
-        key="planning",
-        capabilities=frozenset({ToolCapability.SYNTHESIZE}),
-        default_enabled=True,
-        factory=_build_planning_tools,
-    ),
-    ToolSpecification(
-        key="mcp",
-        capabilities=frozenset({ToolCapability.SYNTHESIZE}),
-        default_enabled=True,
-        factory=_build_mcp_tools,
-    ),
-    ToolSpecification(
-        key="sandbox_daytona",
-        capabilities=frozenset({ToolCapability.EXECUTE, ToolCapability.WRITE}),
-        default_enabled=True,
-        factory=_build_daytona_tools,
-    ),
+TOOL_PROVIDER_SPECS: tuple[ToolProviderSpec, ...] = (
+    ToolProviderSpec(key="web_search", factory=_build_web_search_tools),
+    ToolProviderSpec(key="rag", factory=_build_rag_tools),
+    ToolProviderSpec(key="crawl", factory=_build_crawl_tools),
+    ToolProviderSpec(key="sandbox_browser", factory=_build_sandbox_browser_tools_for_agent),
+    ToolProviderSpec(key="browser", factory=_build_browser_tools),
+    ToolProviderSpec(key="browser_use", factory=_build_browser_use_tools_for_agent),
+    ToolProviderSpec(key="sandbox_web_search", factory=_build_sandbox_web_search_tools_for_agent),
+    ToolProviderSpec(key="sandbox_files", factory=_build_sandbox_files_tools_for_agent),
+    ToolProviderSpec(key="sandbox_shell", factory=_build_sandbox_shell_tools_for_agent),
+    ToolProviderSpec(key="sandbox_sheets", factory=_build_sandbox_sheets_tools_for_agent),
+    ToolProviderSpec(key="sandbox_presentation", factory=_build_sandbox_presentation_tools_for_agent),
+    ToolProviderSpec(key="sandbox_vision", factory=_build_sandbox_vision_tools_for_agent),
+    ToolProviderSpec(key="sandbox_image_edit", factory=_build_image_edit_tools_for_agent),
+    ToolProviderSpec(key="sandbox_web_dev", factory=_build_sandbox_web_dev_tools_for_agent),
+    ToolProviderSpec(key="presentation_outline", factory=_build_presentation_outline_tools_for_agent),
+    ToolProviderSpec(key="presentation_v2", factory=_build_presentation_v2_tools_for_agent),
+    ToolProviderSpec(key="python", factory=_build_python_tools),
+    ToolProviderSpec(key="task_list", factory=_build_task_tools),
+    ToolProviderSpec(key="computer_use", factory=_build_computer_use_tools_for_agent),
+    ToolProviderSpec(key="ask_human", factory=_build_ask_human_tools),
+    ToolProviderSpec(key="str_replace", factory=_build_str_replace_tools),
+    ToolProviderSpec(key="bash", factory=_build_bash_tools),
+    ToolProviderSpec(key="planning", factory=_build_planning_tools),
+    ToolProviderSpec(key="mcp", factory=_build_mcp_tools),
+    ToolProviderSpec(key="sandbox_daytona", factory=_build_daytona_tools),
 )
-
-
-class ToolCapabilityRegistry:
-    def __init__(self, specs: Iterable[ToolSpecification] = TOOL_SPECS) -> None:
-        self._specs = tuple(specs)
-
-    def specs(self) -> tuple[ToolSpecification, ...]:
-        return self._specs
-
-    def build_tool_inventory(self, config: RunnableConfig) -> list[BaseTool]:
-        context = build_tool_context(config)
-        return compose_provider_tools(
-            self._providers_from_specs(self._specs),
-            _provider_context_from_tool_context(context),
-        )
-
-    def _providers_from_specs(
-        self, specs: Iterable[ToolSpecification]
-    ) -> tuple[StaticToolProvider, ...]:
-        providers: list[StaticToolProvider] = []
-        for spec in specs:
-            providers.append(
-                StaticToolProvider(
-                    key=spec.key,
-                    factory=lambda provider_context, current_spec=spec: current_spec.factory(
-                        _tool_context_from_provider_context(provider_context)
-                    ),
-                )
-            )
-        return tuple(providers)
-
-    def build_tools(self, config: RunnableConfig) -> list[BaseTool]:
-        context = build_tool_context(config)
-        enabled_specs = [
-            spec
-            for spec in self._specs
-            if _enabled(context.profile, spec.key, default=spec.default_enabled)
-        ]
-        tool_list = compose_provider_tools(
-            self._providers_from_specs(enabled_specs),
-            _provider_context_from_tool_context(context),
-        )
-        return filter_tools_by_name(
-            tool_list,
-            whitelist=context.profile.get("tool_whitelist") or [],
-            blacklist=context.profile.get("tool_blacklist") or [],
-        )
-
-    def resolve_concrete_tool_names(self, allowed: Iterable[str]) -> set[str]:
-        resolved: set[str] = set()
-        for item in allowed:
-            normalized = str(item or "").strip().lower()
-            if not normalized:
-                continue
-            if normalized in _CAPABILITY_TOOL_NAME_ALIASES:
-                resolved.update(_CAPABILITY_TOOL_NAME_ALIASES[normalized])
-                continue
-            resolved.add(str(item).strip())
-        return resolved
-
-
-_DEFAULT_TOOL_REGISTRY = ToolCapabilityRegistry()
-
-
-def build_default_tool_registry() -> ToolCapabilityRegistry:
-    return _DEFAULT_TOOL_REGISTRY
 
 
 def build_tool_context(config: RunnableConfig) -> ToolBuildContext:
@@ -541,15 +282,24 @@ def _tool_context_from_provider_context(context: ProviderContext) -> ToolBuildCo
 
 
 def build_default_tool_providers() -> tuple[StaticToolProvider, ...]:
-    return _DEFAULT_TOOL_REGISTRY._providers_from_specs(_DEFAULT_TOOL_REGISTRY.specs())
+    providers: list[StaticToolProvider] = []
+    for spec in TOOL_PROVIDER_SPECS:
+        providers.append(
+            StaticToolProvider(
+                key=spec.key,
+                factory=lambda provider_context, current_spec=spec: current_spec.factory(
+                    _tool_context_from_provider_context(provider_context)
+                ),
+            )
+        )
+    return tuple(providers)
 
 
-def build_enabled_tool_providers(profile: dict[str, Any]) -> tuple[StaticToolProvider, ...]:
-    enabled_specs = tuple(
-        spec for spec in _DEFAULT_TOOL_REGISTRY.specs() if _enabled(profile, spec.key, spec.default_enabled)
-    )
-    return _DEFAULT_TOOL_REGISTRY._providers_from_specs(enabled_specs)
-
-
-def resolve_tool_names_for_capabilities(allowed: Iterable[str]) -> set[str]:
-    return _DEFAULT_TOOL_REGISTRY.resolve_concrete_tool_names(allowed)
+__all__ = [
+    "ToolBuildContext",
+    "ToolFactory",
+    "ToolProviderSpec",
+    "TOOL_PROVIDER_SPECS",
+    "build_default_tool_providers",
+    "build_tool_context",
+]

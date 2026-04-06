@@ -11,7 +11,7 @@ def test_build_initial_agent_state_keeps_agent_messages_clean_and_stores_memory_
         agent_profile={
             "id": "default",
             "system_prompt": "You are a calm assistant.",
-            "enabled_tools": {"web_search": True},
+            "tools": ["browser_search", "crawl_url"],
         },
     )
 
@@ -30,6 +30,26 @@ def test_build_initial_agent_state_keeps_agent_messages_clean_and_stores_memory_
     assert state["conversation_state"]["messages"] == []
 
 
+def test_build_initial_agent_state_uses_concrete_tools_contract():
+    request = build_execution_request(
+        input_text="帮我打开 OpenAI 首页并总结要点",
+        thread_id="tool-state-1",
+        user_id="user-1",
+        mode_info={"mode": "agent"},
+        agent_profile={
+            "id": "default",
+            "tools": ["browser_search", "browser_navigate", "crawl_url"],
+            "blocked_tools": ["browser_click"],
+        },
+    )
+
+    state = build_initial_agent_state(request)
+
+    assert state["selected_tools"] == []
+    assert state["available_tools"] == ["browser_search", "browser_navigate", "crawl_url"]
+    assert state["blocked_tools"] == ["browser_click"]
+
+
 def test_build_initial_agent_state_projects_structured_slices():
     request = build_execution_request(
         input_text="AI chips roadmap",
@@ -39,7 +59,7 @@ def test_build_initial_agent_state_projects_structured_slices():
         agent_profile={
             "id": "researcher",
             "system_prompt": "You are a custom analyst.",
-            "enabled_tools": {"web_search": True},
+            "tools": ["browser_search", "crawl_url"],
         },
         options={"tool_call_limit": 9},
     )
@@ -77,7 +97,7 @@ def test_project_state_updates_keeps_structured_state_in_sync():
         thread_id="thread-2",
         user_id="user-2",
         mode_info={"mode": "agent"},
-        agent_profile={"id": "default", "enabled_tools": {"web_search": True}},
+        agent_profile={"id": "default", "tools": ["browser_search"]},
     )
     state = build_initial_agent_state(request)
 

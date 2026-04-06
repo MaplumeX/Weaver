@@ -97,7 +97,7 @@ def test_build_deep_research_tool_agent_filters_to_allowed_groups(monkeypatch):
 
     agent, tools = agent_factory.build_deep_research_tool_agent(
         model="gpt-test",
-        allowed_tools=["search", "extract"],
+        allowed_tools=["browser_search", "crawl_url", "sb_browser_extract_text"],
     )
 
     assert agent["model"] == "gpt-test"
@@ -126,7 +126,6 @@ def test_build_deep_research_tool_agent_uses_shared_inventory(monkeypatch):
         ],
         raising=False,
     )
-    monkeypatch.setattr(agent_factory, "get_registered_tools", lambda: [])
     monkeypatch.setattr(
         agent_factory,
         "build_tool_agent",
@@ -142,7 +141,7 @@ def test_build_deep_research_tool_agent_uses_shared_inventory(monkeypatch):
 
     agent, tools = agent_factory.build_deep_research_tool_agent(
         model="gpt-test",
-        allowed_tools=["search", "extract"],
+        allowed_tools=["browser_search", "crawl_url"],
     )
 
     assert [tool.name for tool in tools] == ["browser_search", "crawl_url"]
@@ -175,3 +174,28 @@ def test_resolve_deep_research_role_tool_names_respects_reporter_python_policy()
         enable_reporter_python_tools=False,
     )
     assert "execute_python_code" not in restricted
+
+
+def test_researcher_role_keeps_legacy_search_read_extract_coverage():
+    allowed = agent_factory.resolve_deep_research_role_tool_names("researcher")
+
+    assert {
+        "fabric",
+        "browser_search",
+        "tavily_search",
+        "fallback_search",
+        "sandbox_web_search",
+        "sandbox_search_and_click",
+        "sandbox_extract_search_results",
+        "browser_navigate",
+        "browser_click",
+        "crawl_url",
+        "crawl_urls",
+        "sb_browser_navigate",
+        "sb_browser_click",
+        "sb_browser_type",
+        "sb_browser_press",
+        "sb_browser_scroll",
+        "sb_browser_extract_text",
+        "sb_browser_screenshot",
+    } <= allowed

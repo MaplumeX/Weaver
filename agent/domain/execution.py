@@ -11,16 +11,6 @@ class ExecutionMode(str, Enum):
     DEEP_RESEARCH = "deep_research"
 
 
-class ToolCapability(str, Enum):
-    SEARCH = "search"
-    BROWSE = "browse"
-    READ = "read"
-    WRITE = "write"
-    EXTRACT = "extract"
-    EXECUTE = "execute"
-    SYNTHESIZE = "synthesize"
-
-
 _PUBLIC_MODE_TO_EXECUTION: dict[str, ExecutionMode] = {
     "agent": ExecutionMode.TOOL_ASSISTED,
     "tool_assisted": ExecutionMode.TOOL_ASSISTED,
@@ -63,9 +53,8 @@ def public_mode_for_execution(mode: ExecutionMode | str | None) -> str:
 class AgentProfileConfig:
     id: str = ""
     system_prompt: str = ""
-    enabled_tools: dict[str, bool] = field(default_factory=dict)
-    tool_whitelist: list[str] = field(default_factory=list)
-    tool_blacklist: list[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)
+    blocked_tools: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     prompt_pack: str = ""
     prompt_variant: str = "full"
@@ -83,9 +72,10 @@ class AgentProfileConfig:
         return cls(
             id=str(value.get("id") or "").strip(),
             system_prompt=str(value.get("system_prompt") or "").strip(),
-            enabled_tools=dict(value.get("enabled_tools") or {}),
-            tool_whitelist=[str(item).strip() for item in value.get("tool_whitelist") or [] if str(item).strip()],
-            tool_blacklist=[str(item).strip() for item in value.get("tool_blacklist") or [] if str(item).strip()],
+            tools=[str(item).strip() for item in value.get("tools") or [] if str(item).strip()],
+            blocked_tools=[
+                str(item).strip() for item in value.get("blocked_tools") or [] if str(item).strip()
+            ],
             metadata=dict(value.get("metadata") or {}),
             prompt_pack=str(value.get("prompt_pack") or "").strip(),
             prompt_variant=str(value.get("prompt_variant") or "full").strip() or "full",

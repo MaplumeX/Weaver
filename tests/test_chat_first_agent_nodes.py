@@ -15,10 +15,12 @@ def test_chat_respond_node_returns_plain_answer_without_tools(monkeypatch):
             "input": "解释一下 FastAPI 依赖注入",
             "messages": [],
             "memory_context": {"stored": [], "relevant": []},
+            "available_tools": ["browser_search", "crawl_url", "execute_python_code"],
+            "blocked_tools": [],
         },
         {"configurable": {}},
     )
 
     assert result["assistant_draft"].startswith("当然可以")
     assert result["needs_tools"] is False
-    assert result["required_capabilities"] == []
+    assert result["selected_tools"] == []

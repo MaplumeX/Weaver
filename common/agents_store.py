@@ -31,8 +31,9 @@ class AgentProfile(BaseModel):
     # Optional override; if empty, request.model/settings.primary_model is used.
     model: str = ""
 
-    # Minimal tool toggles (the runtime still enforces global safety settings).
-    enabled_tools: Dict[str, bool] = Field(default_factory=dict)
+    # Concrete tool allow/block configuration.
+    tools: List[str] = Field(default_factory=list)
+    blocked_tools: List[str] = Field(default_factory=list)
 
     # Optional per-agent MCP config override (same shape as MCP_SERVERS JSON).
     mcp_servers: Optional[Dict[str, Any]] = None

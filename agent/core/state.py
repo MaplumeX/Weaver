@@ -110,8 +110,6 @@ class AgentState(TypedDict):
     needs_tools: bool
     # Human-readable reason for escalation
     tool_reason: str
-    # Minimal required capability set for this turn
-    required_capabilities: List[str]
 
     # ============ Research Data ============
     # All scraped content from searches
@@ -136,8 +134,12 @@ class AgentState(TypedDict):
     tool_call_count: int
     # Maximum tool calls allowed
     tool_call_limit: int
-    # Tools enabled for this session
-    enabled_tools: Dict[str, bool]
+    # Concrete tools allowed for this session
+    available_tools: List[str]
+    # Concrete tools explicitly blocked for this session
+    blocked_tools: List[str]
+    # Concrete tools selected for the current turn
+    selected_tools: List[str]
 
     # ============ Cancellation & Error ============
     # Cancellation support

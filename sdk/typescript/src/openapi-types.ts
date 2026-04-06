@@ -873,7 +873,11 @@ export interface paths {
         delete: operations["delete_session_api_sessions__thread_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Patch Session
+         * @description Update session metadata.
+         */
+        patch: operations["patch_session_api_sessions__thread_id__patch"];
         trace?: never;
     };
     "/api/sessions/{thread_id}/comments": {
@@ -909,7 +913,7 @@ export interface paths {
         };
         /**
          * Get Session Evidence
-         * @description Get evidence artifacts (sources + claims + quality summary) for a session.
+         * @description Get evidence artifacts (sources + section drafts + quality summary) for a session.
          */
         get: operations["get_session_evidence_api_sessions__thread_id__evidence_get"];
         put?: never;
@@ -974,6 +978,26 @@ export interface paths {
          * @description Create a share link for a session.
          */
         post: operations["create_share_api_sessions__thread_id__share_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/{thread_id}/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session Snapshot
+         * @description Get session snapshot for chat restoration.
+         */
+        get: operations["get_session_snapshot_api_sessions__thread_id__snapshot_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1088,7 +1112,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tools/registry": {
+    "/api/tools/catalog": {
         parameters: {
             query?: never;
             header?: never;
@@ -1096,36 +1120,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Tool Registry
-         * @description Return current ToolRegistry stats + tool metadata (best-effort).
+         * Get Tool Catalog
+         * @description Return runtime inventory snapshot plus metadata-shaped tool payload.
          */
-        get: operations["get_tool_registry_api_tools_registry_get"];
+        get: operations["get_tool_catalog_api_tools_catalog_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tools/registry/refresh": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Refresh Tool Registry
-         * @description Re-run enhanced tool discovery at runtime.
-         *
-         *     Notes:
-         *     - This is intended for dev/debug (e.g., after editing tool modules).
-         *     - `reset=true` clears the global registry before discovery.
-         */
-        post: operations["refresh_tool_registry_api_tools_registry_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1524,8 +1524,8 @@ export interface components {
             search_providers_available: string[];
             /** Search Strategy */
             search_strategy: string;
-            /** Tool Registry Total Tools */
-            tool_registry_total_tools: number;
+            /** Tool Catalog Total Tools */
+            tool_catalog_total_tools: number;
         };
         /**
          * AgentProfile
@@ -1534,6 +1534,8 @@ export interface components {
          *     Stored in a local JSON file (data/agents.json) to avoid DB migrations.
          */
         AgentProfile: {
+            /** Blocked Tools */
+            blocked_tools?: string[];
             /** Created At */
             created_at?: string;
             /**
@@ -1541,10 +1543,6 @@ export interface components {
              * @default
              */
             description: string;
-            /** Enabled Tools */
-            enabled_tools?: {
-                [key: string]: boolean;
-            };
             /** Id */
             id: string;
             /** Mcp Servers */
@@ -1567,23 +1565,23 @@ export interface components {
              * @default
              */
             system_prompt: string;
+            /** Tools */
+            tools?: string[];
             /** Updated At */
             updated_at?: string;
         };
         /** AgentUpsertPayload */
         AgentUpsertPayload: {
             /**
+             * Blocked Tools
+             * @default []
+             */
+            blocked_tools: string[];
+            /**
              * Description
              * @default
              */
             description: string;
-            /**
-             * Enabled Tools
-             * @default {}
-             */
-            enabled_tools: {
-                [key: string]: boolean;
-            };
             /** Id */
             id?: string | null;
             /** Mcp Servers */
@@ -1609,6 +1607,11 @@ export interface components {
              * @default
              */
             system_prompt: string;
+            /**
+             * Tools
+             * @default []
+             */
+            tools: string[];
         };
         /** AgentsListResponse */
         AgentsListResponse: {
@@ -1652,6 +1655,8 @@ export interface components {
              * @default true
              */
             stream: boolean;
+            /** Thread Id */
+            thread_id?: string | null;
             /** User Id */
             user_id?: string | null;
         };
@@ -1812,64 +1817,103 @@ export interface components {
             /** User Id */
             user_id?: string | null;
         };
-        /** EvidenceClaim */
-        EvidenceClaim: {
-            /** Claim */
-            claim: string;
+        /** EvidenceBranchResult */
+        EvidenceBranchResult: {
             /**
-             * Evidence Passages
-             * @default []
-             */
-            evidence_passages: components["schemas"]["EvidenceClaimEvidence"][];
-            /**
-             * Evidence Urls
-             * @default []
-             */
-            evidence_urls: string[];
-            /**
-             * Notes
+             * Branch Id
              * @default
              */
-            notes: string;
+            branch_id: string;
             /**
-             * Score
-             * @default 0
+             * Id
+             * @default
              */
-            score: number;
-            /** Status */
-            status: string;
-        };
-        /** EvidenceClaimEvidence */
-        EvidenceClaimEvidence: {
-            /** Heading Path */
-            heading_path?: string[] | null;
-            /** Quote */
-            quote?: string | null;
-            /** Snippet Hash */
-            snippet_hash?: string | null;
-            /** Url */
-            url: string;
+            id: string;
+            /**
+             * Key Findings
+             * @default []
+             */
+            key_findings: string[];
+            /**
+             * Objective
+             * @default
+             */
+            objective: string;
+            /**
+             * Section Id
+             * @default
+             */
+            section_id: string;
+            /**
+             * Source Urls
+             * @default []
+             */
+            source_urls: string[];
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /**
+             * Task Id
+             * @default
+             */
+            task_id: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Validation Status
+             * @default pending
+             */
+            validation_status: string;
         };
         /** EvidencePassageItem */
         EvidencePassageItem: {
+            /** Admissible */
+            admissible?: boolean | null;
+            /** Authoritative */
+            authoritative?: boolean | null;
+            /** Branch Id */
+            branch_id?: string | null;
+            /** Document Id */
+            document_id?: string | null;
             /** End Char */
-            end_char: number;
+            end_char?: number | null;
             /** Heading */
             heading?: string | null;
             /** Heading Path */
             heading_path?: string[] | null;
+            /** Id */
+            id?: string | null;
+            /** Locator */
+            locator?: {
+                [key: string]: unknown;
+            };
             /** Method */
             method?: string | null;
             /** Page Title */
             page_title?: string | null;
+            /** Passage Kind */
+            passage_kind?: string | null;
             /** Quote */
             quote?: string | null;
             /** Retrieved At */
             retrieved_at?: string | null;
+            /** Section Id */
+            section_id?: string | null;
             /** Snippet Hash */
             snippet_hash?: string | null;
+            /** Source Published Date */
+            source_published_date?: string | null;
+            /** Source Title */
+            source_title?: string | null;
             /** Start Char */
-            start_char: number;
+            start_char?: number | null;
+            /** Task Id */
+            task_id?: string | null;
             /** Text */
             text: string;
             /** Url */
@@ -1878,15 +1922,29 @@ export interface components {
         /** EvidenceResponse */
         EvidenceResponse: {
             /**
-             * Claims
+             * Branch Results
              * @default []
              */
-            claims: components["schemas"]["EvidenceClaim"][];
+            branch_results: components["schemas"]["EvidenceBranchResult"][];
             /**
              * Fetched Pages
              * @default []
              */
             fetched_pages: components["schemas"]["FetchedPageItem"][];
+            /**
+             * Outline
+             * @default {}
+             */
+            outline: {
+                [key: string]: unknown;
+            };
+            /**
+             * Outline Gate Summary
+             * @default {}
+             */
+            outline_gate_summary: {
+                [key: string]: unknown;
+            };
             /**
              * Passages
              * @default []
@@ -1900,10 +1958,36 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
+             * Section Certifications
+             * @default []
+             */
+            section_certifications: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Section Drafts
+             * @default []
+             */
+            section_drafts: components["schemas"]["EvidenceBranchResult"][];
+            /**
+             * Section Reviews
+             * @default []
+             */
+            section_reviews: {
+                [key: string]: unknown;
+            }[];
+            /**
              * Sources
              * @default []
              */
             sources: components["schemas"]["EvidenceSource"][];
+            /**
+             * Validation Summary
+             * @default {}
+             */
+            validation_summary: {
+                [key: string]: unknown;
+            };
         };
         /** EvidenceSource */
         EvidenceSource: {
@@ -1930,20 +2014,34 @@ export interface components {
              * @default 1
              */
             attempts: number;
+            /** Branch Id */
+            branch_id?: string | null;
+            /** Content */
+            content?: string | null;
             /** Error */
             error?: string | null;
+            /** Excerpt */
+            excerpt?: string | null;
             /** Http Status */
             http_status?: number | null;
+            /** Id */
+            id?: string | null;
             /** Markdown */
             markdown?: string | null;
             /** Method */
-            method: string;
+            method?: string | null;
             /** Published Date */
             published_date?: string | null;
             /** Raw Url */
-            raw_url: string;
+            raw_url?: string | null;
             /** Retrieved At */
             retrieved_at?: string | null;
+            /** Section Id */
+            section_id?: string | null;
+            /** Source Candidate Id */
+            source_candidate_id?: string | null;
+            /** Task Id */
+            task_id?: string | null;
             /** Text */
             text?: string | null;
             /** Title */
@@ -1960,6 +2058,11 @@ export interface components {
             /** Payload */
             payload: unknown;
             search_mode?: components["schemas"]["SearchMode"] | null;
+            /**
+             * Stream
+             * @default false
+             */
+            stream: boolean;
             /** Thread Id */
             thread_id: string;
         };
@@ -2041,10 +2144,18 @@ export interface components {
             /** Tracing Enabled */
             tracing_enabled: boolean;
         };
+        /** PublicConfigModels */
+        PublicConfigModels: {
+            /** Default */
+            default: string;
+            /** Options */
+            options: string[];
+        };
         /** PublicConfigResponse */
         PublicConfigResponse: {
             defaults: components["schemas"]["PublicConfigDefaults"];
             features: components["schemas"]["PublicConfigFeatures"];
+            models: components["schemas"]["PublicConfigModels"];
             streaming: components["schemas"]["PublicConfigStreaming"];
             /** Version */
             version: string;
@@ -2089,12 +2200,18 @@ export interface components {
             claim_verifier_unsupported?: number | null;
             /** Claim Verifier Verified */
             claim_verifier_verified?: number | null;
+            /** Failed Branch Count */
+            failed_branch_count?: number | null;
             /** Freshness Ratio 30D */
             freshness_ratio_30d?: number | null;
             /** Freshness Warning */
             freshness_warning?: string | null;
+            /** Passed Branch Count */
+            passed_branch_count?: number | null;
             /** Query Coverage Score */
             query_coverage_score?: number | null;
+            /** Retry Branch Count */
+            retry_branch_count?: number | null;
             /** Sources Count */
             sources_count: number;
             /** Unsupported Claims Count */
@@ -2198,6 +2315,7 @@ export interface components {
              * Mode
              * @description Public chat mode. Only `agent` and `deep` are supported.
              * @default agent
+             * @enum {string}
              */
             mode: "agent" | "deep";
         };
@@ -2254,6 +2372,50 @@ export interface components {
             /** Updated At */
             updated_at: string;
         };
+        /** SessionMessagePayload */
+        SessionMessagePayload: {
+            /** Attachments */
+            attachments?: {
+                [key: string]: unknown;
+            }[];
+            /** Completed At */
+            completed_at?: string | null;
+            /** Content */
+            content: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Id */
+            id: string;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            };
+            /** Process Events */
+            process_events?: {
+                [key: string]: unknown;
+            }[];
+            /** Role */
+            role: string;
+            /** Sources */
+            sources?: {
+                [key: string]: unknown;
+            }[];
+            /** Tool Invocations */
+            tool_invocations?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** SessionPatchRequest */
+        SessionPatchRequest: {
+            /** Is Pinned */
+            is_pinned?: boolean | null;
+            /** Summary */
+            summary?: string | null;
+            /** Tags */
+            tags?: string[] | null;
+            /** Title */
+            title?: string | null;
+        };
         /**
          * SessionResumeRequest
          * @description Request to resume a session.
@@ -2266,12 +2428,64 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** SessionSnapshotResponse */
+        SessionSnapshotResponse: {
+            /**
+             * Can Resume
+             * @default false
+             */
+            can_resume: boolean;
+            /**
+             * Checkpoint Cleanup Pending
+             * @default false
+             */
+            checkpoint_cleanup_pending: boolean;
+            /** Messages */
+            messages?: components["schemas"]["SessionMessagePayload"][];
+            /** Pending Interrupt */
+            pending_interrupt?: {
+                [key: string]: unknown;
+            } | null;
+            session: components["schemas"]["SessionSnapshotSessionPayload"];
+        };
+        /** SessionSnapshotSessionPayload */
+        SessionSnapshotSessionPayload: {
+            /** Created At */
+            created_at: string;
+            /**
+             * Is Pinned
+             * @default false
+             */
+            is_pinned: boolean;
+            /** Route */
+            route: string;
+            /** Status */
+            status: string;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Tags */
+            tags?: string[];
+            /** Thread Id */
+            thread_id: string;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string;
+        };
         /** SessionSummary */
         SessionSummary: {
             /** Created At */
             created_at: string;
             /** Has Report */
             has_report: boolean;
+            /**
+             * Is Pinned
+             * @default false
+             */
+            is_pinned: boolean;
             /** Message Count */
             message_count: number;
             /** Revision Count */
@@ -2280,8 +2494,17 @@ export interface components {
             route: string;
             /** Status */
             status: string;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Tags */
+            tags?: string[];
             /** Thread Id */
             thread_id: string;
+            /** Title */
+            title?: string | null;
             /** Topic */
             topic: string;
             /** Updated At */
@@ -2353,95 +2576,23 @@ export interface components {
              */
             voice: string;
         };
-        /** ToolRegistryMostUsed */
-        ToolRegistryMostUsed: {
-            /** Call Count */
-            call_count: number;
-            /** Name */
-            name: string;
-        };
-        /** ToolRegistryRefreshResponse */
-        ToolRegistryRefreshResponse: {
-            /** Discovered */
-            discovered: number;
-            /** Total Tools */
-            total_tools: number;
-        };
-        /** ToolRegistryResponse */
-        ToolRegistryResponse: {
-            stats: components["schemas"]["ToolRegistryStats"];
-            /** Tools */
-            tools: components["schemas"]["ToolRegistryTool"][];
-        };
-        /** ToolRegistryStats */
-        ToolRegistryStats: {
-            /** By Type */
-            by_type: {
-                [key: string]: number;
-            };
-            /** Deprecated Tools */
-            deprecated_tools: number;
-            /** Enabled Tools */
-            enabled_tools: number;
-            /** Most Used */
-            most_used: components["schemas"]["ToolRegistryMostUsed"][];
-            /** Overall Success Rate */
-            overall_success_rate: number;
-            /** Tags */
-            tags: string[];
-            /** Total Calls */
-            total_calls: number;
-            /** Total Successes */
-            total_successes: number;
-            /** Total Tools */
-            total_tools: number;
-        };
-        /** ToolRegistryTool */
-        ToolRegistryTool: {
-            /**
-             * Average Duration Ms
-             * @default 0
-             */
-            average_duration_ms: number;
-            /**
-             * Call Count
-             * @default 0
-             */
-            call_count: number;
+        /** ToolCatalogItem */
+        ToolCatalogItem: {
             /**
              * Class Name
              * @default
              */
             class_name: string;
             /**
-             * Deprecated
-             * @default false
-             */
-            deprecated: boolean;
-            /** Deprecation Message */
-            deprecation_message?: string | null;
-            /**
              * Description
              * @default
              */
             description: string;
             /**
-             * Enabled
-             * @default true
-             */
-            enabled: boolean;
-            /**
-             * Failure Count
-             * @default 0
-             */
-            failure_count: number;
-            /**
              * Function Name
              * @default
              */
             function_name: string;
-            /** Last Called */
-            last_called?: string | null;
             /**
              * Module Name
              * @default
@@ -2453,18 +2604,6 @@ export interface components {
             parameters?: {
                 [key: string]: unknown;
             };
-            /** Return Type */
-            return_type?: string | null;
-            /**
-             * Success Count
-             * @default 0
-             */
-            success_count: number;
-            /**
-             * Success Rate
-             * @default 0
-             */
-            success_rate: number;
             /** Tags */
             tags?: string[];
             /**
@@ -2472,11 +2611,25 @@ export interface components {
              * @default
              */
             tool_type: string;
-            /**
-             * Version
-             * @default 1.0.0
-             */
-            version: string;
+        };
+        /** ToolCatalogResponse */
+        ToolCatalogResponse: {
+            stats: components["schemas"]["ToolCatalogStats"];
+            /** Tools */
+            tools: components["schemas"]["ToolCatalogItem"][];
+        };
+        /** ToolCatalogStats */
+        ToolCatalogStats: {
+            /** Active Tools */
+            active_tools: number;
+            /** By Type */
+            by_type: {
+                [key: string]: number;
+            };
+            /** Tags */
+            tags: string[];
+            /** Total Tools */
+            total_tools: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -3778,6 +3931,41 @@ export interface operations {
             };
         };
     };
+    patch_session_api_sessions__thread_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_comments_api_sessions__thread_id__comments_get: {
         parameters: {
             query?: {
@@ -3966,6 +4154,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_snapshot_api_sessions__thread_id__snapshot_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionSnapshotResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4189,7 +4408,7 @@ export interface operations {
             };
         };
     };
-    get_tool_registry_api_tools_registry_get: {
+    get_tool_catalog_api_tools_catalog_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -4204,38 +4423,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ToolRegistryResponse"];
-                };
-            };
-        };
-    };
-    refresh_tool_registry_api_tools_registry_refresh_post: {
-        parameters: {
-            query?: {
-                reset?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ToolRegistryRefreshResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ToolCatalogResponse"];
                 };
             };
         };

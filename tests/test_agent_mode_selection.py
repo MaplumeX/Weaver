@@ -12,22 +12,23 @@ import agent.runtime.nodes.answer as answer_nodes
 import agent.runtime.nodes.chat as chat_nodes
 
 
-def test_chat_respond_node_marks_current_info_queries_for_web_search():
+def test_chat_respond_node_selects_concrete_tools_for_current_info_queries():
     result = chat_nodes.chat_respond_node(
         {
             "input": "Use current web search to verify today's price of Bitcoin.",
             "messages": [],
             "memory_context": {"stored": [], "relevant": []},
+            "available_tools": ["browser_search", "crawl_url", "execute_python_code"],
+            "blocked_tools": [],
         },
         {"configurable": {}},
     )
 
     assert result["needs_tools"] is True
-    assert result["required_capabilities"] == ["web_search"]
-    assert "deterministic" in result["tool_reason"]
+    assert result["selected_tools"] == ["browser_search", "crawl_url"]
 
 
-def test_tool_agent_node_uses_capability_based_toolset(monkeypatch):
+def test_tool_agent_node_uses_selected_tools(monkeypatch):
     class FakeAgent:
         def invoke(self, payload, config=None):
             assert payload["messages"]
@@ -37,8 +38,11 @@ def test_tool_agent_node_uses_capability_based_toolset(monkeypatch):
 
     monkeypatch.setattr(
         answer_nodes,
-        "build_tools_for_capabilities",
-        lambda capabilities, _config: captured.setdefault("capabilities", list(capabilities)) or [],
+        "build_tools_for_names",
+        lambda names, _config=None: [
+            captured.setdefault("names", sorted(names))
+        ]
+        and [],
     )
     monkeypatch.setattr(answer_nodes, "build_tool_agent", lambda **_kwargs: FakeAgent())
 
@@ -47,10 +51,10 @@ def test_tool_agent_node_uses_capability_based_toolset(monkeypatch):
             "input": "Compare EV battery supply chain risks across the US and EU in 2025.",
             "messages": [],
             "memory_context": {"stored": [], "relevant": []},
-            "required_capabilities": ["web_search"],
+            "selected_tools": ["browser_search", "crawl_url"],
         },
         {"configurable": {}},
     )
 
-    assert captured["capabilities"] == ["web_search"]
+    assert captured["names"] == ["browser_search", "crawl_url"]
     assert result["assistant_draft"] == "Structured comparison"

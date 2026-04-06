@@ -19,23 +19,42 @@ logger = _shared.logger
 settings = _shared.settings
 
 
-def _detect_required_capabilities(user_input: str) -> list[str]:
+def _select_tools_for_input(
+    user_input: str,
+    *,
+    available_tools: list[str] | None = None,
+    blocked_tools: list[str] | None = None,
+) -> list[str]:
     text = str(user_input or "").strip().lower()
     if not text:
         return []
 
-    capabilities: list[str] = []
+    available = {str(name).strip() for name in (available_tools or []) if str(name).strip()}
+    blocked = {str(name).strip() for name in (blocked_tools or []) if str(name).strip()}
+    selected: list[str] = []
 
     if any(token in text for token in ("latest", "today", "current", "price", "news")):
-        capabilities.append("web_search")
+        selected.extend(["browser_search", "crawl_url"])
     if any(token in text for token in ("open ", "website", "browse", "click", "login")):
-        capabilities.append("browser")
+        selected.extend(["browser_navigate", "browser_click"])
     if any(token in text for token in ("file", "read ", "write ", "save ", "download")):
-        capabilities.append("files")
+        selected.extend(
+            [
+                "sandbox_read_file",
+                "sandbox_create_file",
+                "sandbox_update_file",
+                "sandbox_str_replace",
+            ]
+        )
     if any(token in text for token in ("python", "script", "calculate", "chart", "plot")):
-        capabilities.append("python")
+        selected.append("execute_python_code")
 
-    return sorted(set(capabilities))
+    if available:
+        selected = [name for name in selected if name in available]
+    if blocked:
+        selected = [name for name in selected if name not in blocked]
+
+    return sorted(set(selected))
 
 
 def chat_respond_node(
@@ -49,15 +68,19 @@ def chat_respond_node(
     try:
         check_cancellation(state)
 
-        required_capabilities = _detect_required_capabilities(state.get("input", ""))
-        if required_capabilities:
+        selected_tools = _select_tools_for_input(
+            state.get("input", ""),
+            available_tools=state.get("available_tools") or [],
+            blocked_tools=state.get("blocked_tools") or [],
+        )
+        if selected_tools:
             return project_state_updates(
                 state,
                 {
                     "assistant_draft": "",
                     "needs_tools": True,
                     "tool_reason": "deterministic capability rules matched the user request",
-                    "required_capabilities": required_capabilities,
+                    "selected_tools": selected_tools,
                 },
             )
 
@@ -72,7 +95,7 @@ def chat_respond_node(
                 "assistant_draft": content,
                 "needs_tools": False,
                 "tool_reason": "",
-                "required_capabilities": [],
+                "selected_tools": [],
             },
         )
     except asyncio.CancelledError as e:
@@ -86,7 +109,7 @@ def chat_respond_node(
                 "assistant_draft": msg,
                 "needs_tools": False,
                 "tool_reason": "",
-                "required_capabilities": [],
+                "selected_tools": [],
                 "errors": [msg],
             },
         )

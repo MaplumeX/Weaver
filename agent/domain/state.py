@@ -37,7 +37,9 @@ class ExecutionState(TypedDict, total=False):
     pending_tool_calls: list[dict[str, Any]]
     tool_call_count: int
     tool_call_limit: int
-    enabled_tools: dict[str, bool]
+    available_tools: list[str]
+    blocked_tools: list[str]
+    selected_tools: list[str]
     cancel_token_id: str | None
     is_cancelled: bool
     errors: list[str]
@@ -58,7 +60,6 @@ class ResearchState(TypedDict, total=False):
     assistant_draft: str
     needs_tools: bool
     tool_reason: str
-    required_capabilities: list[str]
     tool_observations: list[dict[str, Any]]
 
 
@@ -116,7 +117,9 @@ def build_execution_state(state: Mapping[str, Any] | None) -> ExecutionState:
         "pending_tool_calls": list(data.get("pending_tool_calls") or []),
         "tool_call_count": int(data.get("tool_call_count") or 0),
         "tool_call_limit": int(data.get("tool_call_limit") or 0),
-        "enabled_tools": dict(data.get("enabled_tools") or {}),
+        "available_tools": list(data.get("available_tools") or []),
+        "blocked_tools": list(data.get("blocked_tools") or []),
+        "selected_tools": list(data.get("selected_tools") or []),
         "cancel_token_id": data.get("cancel_token_id"),
         "is_cancelled": bool(data.get("is_cancelled")),
         "errors": list(data.get("errors") or []),
@@ -140,7 +143,6 @@ def build_research_state(state: Mapping[str, Any] | None) -> ResearchState:
         "assistant_draft": str(data.get("assistant_draft") or ""),
         "needs_tools": bool(data.get("needs_tools")),
         "tool_reason": str(data.get("tool_reason") or ""),
-        "required_capabilities": list(data.get("required_capabilities") or []),
         "tool_observations": list(data.get("tool_observations") or []),
     }
 

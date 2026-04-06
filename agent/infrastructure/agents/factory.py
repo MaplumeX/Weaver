@@ -17,12 +17,10 @@ from langchain.agents.middleware import (
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 
-from agent.domain import ToolCapability
 from agent.infrastructure.agents.provider_safe_middleware import ProviderSafeToolSelectorMiddleware
-from agent.infrastructure.tools import build_tools_for_names, resolve_tool_names_for_capabilities
+from agent.infrastructure.tools import build_tool_inventory, build_tools_for_names
 from common.config import settings
 from tools.code.code_executor import execute_python_code
-from tools.core.registry import get_registered_tools
 
 logger = logging.getLogger(__name__)
 
@@ -35,18 +33,45 @@ _DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS = {
     "supervisor": {"fabric"},
     "researcher": {
         "fabric",
-        ToolCapability.SEARCH.value,
-        ToolCapability.READ.value,
-        ToolCapability.EXTRACT.value,
-        ToolCapability.SYNTHESIZE.value,
+        "browser_search",
+        "tavily_search",
+        "fallback_search",
+        "sandbox_web_search",
+        "sandbox_search_and_click",
+        "sandbox_extract_search_results",
+        "browser_navigate",
+        "browser_click",
+        "crawl_url",
+        "crawl_urls",
+        "sb_browser_navigate",
+        "sb_browser_click",
+        "sb_browser_type",
+        "sb_browser_press",
+        "sb_browser_scroll",
+        "sb_browser_extract_text",
+        "sb_browser_screenshot",
     },
     "verifier": {
         "fabric",
-        ToolCapability.SEARCH.value,
-        ToolCapability.READ.value,
-        ToolCapability.EXTRACT.value,
+        "browser_search",
+        "tavily_search",
+        "fallback_search",
+        "sandbox_web_search",
+        "sandbox_search_and_click",
+        "sandbox_extract_search_results",
+        "browser_navigate",
+        "browser_click",
+        "crawl_url",
+        "crawl_urls",
+        "sb_browser_navigate",
+        "sb_browser_click",
+        "sb_browser_type",
+        "sb_browser_press",
+        "sb_browser_scroll",
+        "sb_browser_extract_text",
+        "sb_browser_screenshot",
     },
-    "reporter": {"fabric", ToolCapability.SYNTHESIZE.value, "execute_python_code"},
+    "reporter": {"fabric", "execute_python_code"},
 }
 
 
@@ -217,8 +242,9 @@ def build_writer_agent(model: str | None = None) -> tuple[object, List[BaseTool]
     Returns (agent, tools) so caller can inspect selected toolset.
     """
     model_name = (model or settings.primary_model).strip()
-    tools: List[BaseTool] = [execute_python_code]
-    tools.extend(get_registered_tools())
+    tools = list(build_tool_inventory({"configurable": {"thread_id": "writer", "agent_profile": {}}}))
+    if all(getattr(tool, "name", "") != "execute_python_code" for tool in tools):
+        tools.insert(0, execute_python_code)
 
     agent = create_agent(
         _build_llm(model_name, temperature=0.7),
@@ -243,12 +269,8 @@ def build_tool_agent(*, model: str, tools: List[BaseTool], temperature: float = 
 def _resolve_deep_research_tool_names(allowed_tools: List[str] | None = None) -> set[str]:
     requested = [str(item).strip() for item in (allowed_tools or []) if str(item).strip()]
     if not requested:
-        requested = [
-            ToolCapability.SEARCH.value,
-            ToolCapability.READ.value,
-            ToolCapability.EXTRACT.value,
-        ]
-    return resolve_tool_names_for_capabilities(requested)
+        requested = ["browser_search", "crawl_url", "sb_browser_extract_text"]
+    return set(requested)
 
 
 def resolve_deep_research_role_tool_names(
@@ -261,7 +283,26 @@ def resolve_deep_research_role_tool_names(
     normalized_role = str(role or "").strip().lower()
     requested = list(_DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS.get(normalized_role, {"fabric"}))
     if normalized_role == "supervisor" and enable_supervisor_world_tools:
-        requested.extend([ToolCapability.SEARCH.value, ToolCapability.READ.value])
+        requested.extend(
+            [
+                "browser_search",
+                "tavily_search",
+                "fallback_search",
+                "sandbox_web_search",
+                "sandbox_search_and_click",
+                "sandbox_extract_search_results",
+                "browser_navigate",
+                "browser_click",
+                "crawl_url",
+                "crawl_urls",
+                "sb_browser_navigate",
+                "sb_browser_click",
+                "sb_browser_type",
+                "sb_browser_press",
+                "sb_browser_scroll",
+                "sb_browser_extract_text",
+            ]
+        )
     if normalized_role == "reporter" and not enable_reporter_python_tools:
         requested = [item for item in requested if item != "execute_python_code"]
     requested.extend(str(item).strip() for item in (allowed_tools or []) if str(item).strip())

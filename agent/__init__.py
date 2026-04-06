@@ -24,7 +24,6 @@ _PUBLIC_SYMBOLS = {
     "ToolEvent",
     # Prompts
     "get_default_agent_prompt",
-    "initialize_enhanced_tools",
 }
 
 __all__ = sorted(
@@ -38,7 +37,6 @@ __all__ = sorted(
         "event_stream_generator",
         "get_default_agent_prompt",
         "get_emitter",
-        "initialize_enhanced_tools",
         "remove_emitter",
     ]
 )

@@ -24,11 +24,11 @@ def test_interrupt_nodes_list_strips_and_drops_empty(raw, expected):
         (" foo, ,bar , ", ["foo", "bar"]),
     ],
 )
-def test_tool_whitelist_list_strips_and_drops_empty(raw, expected):
+def test_allowed_tools_list_strips_and_drops_empty(raw, expected):
     from common.config import Settings
 
-    s = Settings(_env_file=None, tool_whitelist=raw)
-    assert s.tool_whitelist_list == expected
+    s = Settings(_env_file=None, allowed_tools=raw)
+    assert s.allowed_tools_list == expected
 
 
 @pytest.mark.parametrize(
@@ -39,11 +39,11 @@ def test_tool_whitelist_list_strips_and_drops_empty(raw, expected):
         (" foo, ,bar , ", ["foo", "bar"]),
     ],
 )
-def test_tool_blacklist_list_strips_and_drops_empty(raw, expected):
+def test_blocked_tools_list_strips_and_drops_empty(raw, expected):
     from common.config import Settings
 
-    s = Settings(_env_file=None, tool_blacklist=raw)
-    assert s.tool_blacklist_list == expected
+    s = Settings(_env_file=None, blocked_tools=raw)
+    assert s.blocked_tools_list == expected
 
 
 @pytest.mark.parametrize(

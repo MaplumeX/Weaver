@@ -49,7 +49,6 @@ from agent import (
     event_stream_generator,
     get_default_agent_prompt,
     get_emitter,
-    initialize_enhanced_tools,
     remove_emitter,
 )
 from agent.application import (
@@ -702,14 +701,6 @@ async def startup_event():
         logger.warning(f"MCP tools initialization failed: {e}", exc_info=settings.debug)
         mcp_loaded_tools = 0
 
-    # Initialize enhanced tool system (Phase 1-4)
-    try:
-        logger.info("Initializing enhanced tool system (Phase 1-4)...")
-        initialize_enhanced_tools()
-        logger.info("Enhanced tool system initialized")
-    except Exception as e:
-        logger.warning(f"Enhanced tool system initialization failed: {e}", exc_info=settings.debug)
-
     # Initialize ASR service
     if settings.dashscope_api_key:
         try:
@@ -741,13 +732,31 @@ async def startup_event():
                 name="Weaver Default Agent",
                 description="Default tool-using agent profile for agent mode.",
                 system_prompt=get_default_agent_prompt(),
-                enabled_tools={
-                    "web_search": True,
-                    "browser": True,
-                    "crawl": True,
-                    "python": True,
-                    "mcp": True,
-                },
+                tools=[
+                    "tavily_search",
+                    "fallback_search",
+                    "browser_search",
+                    "browser_navigate",
+                    "browser_click",
+                    "browser_back",
+                    "browser_extract_text",
+                    "browser_list_links",
+                    "browser_screenshot",
+                    "browser_reset",
+                    "crawl_url",
+                    "crawl_urls",
+                    "crawl4ai",
+                    "execute_python_code",
+                    "chart_visualize",
+                    "create_tasks",
+                    "view_tasks",
+                    "update_task",
+                    "get_next_task",
+                    "ask_human",
+                    "str_replace",
+                    "plan_steps",
+                ],
+                blocked_tools=[],
                 metadata={"protected": True},
             )
         )
@@ -762,32 +771,106 @@ async def startup_event():
                     "shell commands, spreadsheets, presentations, image editing, and more."
                 ),
                 system_prompt=get_default_agent_prompt(),
-                enabled_tools={
-                    # Core tools
-                    "web_search": True,
-                    "crawl": True,
-                    "python": True,
-                    "mcp": True,
-                    "task_list": True,
-                    # Sandbox browser
-                    "sandbox_browser": True,
-                    "sandbox_web_search": True,
-                    # Sandbox file operations
-                    "sandbox_files": True,
-                    "sandbox_shell": True,
-                    # Web dev & deploy
-                    "sandbox_web_dev": True,
-                    # Document generation
-                    "sandbox_sheets": True,
-                    "sandbox_presentation": True,
-                    "presentation_outline": True,
-                    "presentation_v2": True,
-                    # Image processing
-                    "sandbox_vision": True,
-                    "sandbox_image_edit": True,
-                    # Desktop automation
-                    "computer_use": True,
-                },
+                tools=[
+                    "tavily_search",
+                    "fallback_search",
+                    "browser_search",
+                    "browser_navigate",
+                    "browser_click",
+                    "browser_back",
+                    "browser_extract_text",
+                    "browser_list_links",
+                    "browser_screenshot",
+                    "browser_reset",
+                    "crawl_url",
+                    "crawl_urls",
+                    "crawl4ai",
+                    "execute_python_code",
+                    "chart_visualize",
+                    "create_tasks",
+                    "view_tasks",
+                    "update_task",
+                    "get_next_task",
+                    "ask_human",
+                    "str_replace",
+                    "plan_steps",
+                    "sandbox_web_search",
+                    "sandbox_search_and_click",
+                    "sandbox_extract_search_results",
+                    "sb_browser_navigate",
+                    "sb_browser_click",
+                    "sb_browser_type",
+                    "sb_browser_press",
+                    "sb_browser_scroll",
+                    "sb_browser_extract_text",
+                    "sb_browser_screenshot",
+                    "sb_browser_reset",
+                    "sandbox_create_file",
+                    "sandbox_read_file",
+                    "sandbox_update_file",
+                    "sandbox_str_replace",
+                    "sandbox_delete_file",
+                    "sandbox_list_files",
+                    "sandbox_upload_file",
+                    "sandbox_download_file",
+                    "sandbox_execute_command",
+                    "sandbox_check_output",
+                    "sandbox_kill_process",
+                    "sandbox_list_processes",
+                    "sandbox_install_package",
+                    "sandbox_expose_port",
+                    "sandbox_scaffold_web_project",
+                    "sandbox_deploy_web_project",
+                    "sandbox_create_spreadsheet",
+                    "sandbox_write_data",
+                    "sandbox_format_cells",
+                    "sandbox_create_chart",
+                    "sandbox_add_sheet",
+                    "sandbox_read_spreadsheet",
+                    "sandbox_add_formula",
+                    "sandbox_create_presentation",
+                    "sandbox_add_slide",
+                    "sandbox_add_image_to_slide",
+                    "sandbox_add_table_to_slide",
+                    "sandbox_add_shape_to_slide",
+                    "sandbox_get_presentation_info",
+                    "sandbox_update_slide",
+                    "sandbox_delete_slide",
+                    "generate_presentation_outline",
+                    "outline_to_presentation",
+                    "refine_presentation_outline",
+                    "expand_slide_content",
+                    "set_slide_transition",
+                    "apply_presentation_theme",
+                    "set_slide_background",
+                    "duplicate_slide",
+                    "reorder_slides",
+                    "add_text_box",
+                    "sandbox_extract_text",
+                    "sandbox_get_image_info",
+                    "sandbox_resize_image",
+                    "sandbox_convert_image",
+                    "sandbox_crop_image",
+                    "sandbox_read_qr_code",
+                    "sandbox_compare_images",
+                    "apply_image_filter",
+                    "apply_image_effect",
+                    "adjust_image",
+                    "rotate_flip_image",
+                    "add_watermark",
+                    "overlay_images",
+                    "create_thumbnail",
+                    "computer_move_mouse",
+                    "computer_click",
+                    "computer_type",
+                    "computer_press",
+                    "computer_scroll",
+                    "computer_screenshot",
+                    "computer_screen_info",
+                    "computer_drag",
+                    "browser_use",
+                ],
+                blocked_tools=[],
                 metadata={"protected": True},
             )
         )
@@ -1000,59 +1083,38 @@ class SearchProvidersResetResponse(BaseModel):
     reset: bool
 
 
-class ToolRegistryMostUsed(BaseModel):
+class ToolCatalogMostUsed(BaseModel):
     name: str
     call_count: int
 
 
-class ToolRegistryStats(BaseModel):
+class ToolCatalogStats(BaseModel):
     total_tools: int
-    enabled_tools: int
-    deprecated_tools: int
-    total_calls: int
-    total_successes: int
-    overall_success_rate: float
-    most_used: List[ToolRegistryMostUsed]
+    active_tools: int
     by_type: Dict[str, int]
     tags: List[str]
 
 
-class ToolRegistryTool(BaseModel):
+class ToolCatalogItem(BaseModel):
     name: str
     description: str = ""
     tool_type: str = ""
     parameters: Dict[str, Any] = Field(default_factory=dict)
-    return_type: Optional[str] = None
     module_name: str = ""
     class_name: str = ""
     function_name: str = ""
-    version: str = "1.0.0"
     tags: List[str] = Field(default_factory=list)
-    call_count: int = 0
-    success_count: int = 0
-    failure_count: int = 0
-    last_called: Optional[str] = None
-    average_duration_ms: float = 0.0
-    enabled: bool = True
-    deprecated: bool = False
-    deprecation_message: Optional[str] = None
-    success_rate: float = 0.0
 
 
-class ToolRegistryResponse(BaseModel):
-    stats: ToolRegistryStats
-    tools: List[ToolRegistryTool]
-
-
-class ToolRegistryRefreshResponse(BaseModel):
-    discovered: int
-    total_tools: int
+class ToolCatalogResponse(BaseModel):
+    stats: ToolCatalogStats
+    tools: List[ToolCatalogItem]
 
 
 class AgentHealthResponse(BaseModel):
     agents_count: int
     agent_ids: List[str]
-    tool_registry_total_tools: int
+    tool_catalog_total_tools: int
     enhanced_tool_discovery_enabled: bool
     enhanced_tool_discovery_recursive: bool
     rag_enabled: bool
@@ -1265,7 +1327,8 @@ class AgentUpsertPayload(BaseModel):
     description: str = ""
     system_prompt: str = ""
     model: str = ""
-    enabled_tools: Dict[str, bool] = {}
+    tools: List[str] = []
+    blocked_tools: List[str] = []
     mcp_servers: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = {}
 
@@ -1617,7 +1680,7 @@ async def agent_health():
     return {
         "agents_count": len(profiles),
         "agent_ids": sorted(agent_ids),
-        "tool_registry_total_tools": int(tool_snapshot.get("total_tools", 0) or 0),
+        "tool_catalog_total_tools": int(tool_snapshot.get("total_tools", 0) or 0),
         "enhanced_tool_discovery_enabled": bool(getattr(settings, "enhanced_tool_discovery_enabled", True)),
         "enhanced_tool_discovery_recursive": bool(
             getattr(settings, "enhanced_tool_discovery_recursive", False)
@@ -3416,52 +3479,23 @@ async def get_mcp_config():
     }
 
 
-@app.get("/api/tools/registry", response_model=ToolRegistryResponse)
-async def get_tool_registry():
+@app.get("/api/tools/catalog", response_model=ToolCatalogResponse)
+async def get_tool_catalog():
     """Return runtime inventory snapshot plus metadata-shaped tool payload."""
     snapshot = build_tool_catalog_snapshot(
         tools=build_tool_inventory({"configurable": {"thread_id": "catalog", "agent_profile": {}}}),
         source="runtime_inventory",
     )
 
-    stats = ToolRegistryStats(
+    stats = ToolCatalogStats(
         total_tools=int(snapshot.get("total_tools", 0) or 0),
-        enabled_tools=int(snapshot.get("total_tools", 0) or 0),
-        deprecated_tools=0,
-        total_calls=0,
-        total_successes=0,
-        overall_success_rate=0.0,
-        most_used=[],
+        active_tools=int(snapshot.get("total_tools", 0) or 0),
         by_type={str(k): int(v) for k, v in (snapshot.get("by_type") or {}).items()},
         tags=[str(t) for t in (snapshot.get("tags") or [])],
     )
 
-    tools_payload = [ToolRegistryTool(**item) for item in (snapshot.get("tools") or [])]
+    tools_payload = [ToolCatalogItem(**item) for item in (snapshot.get("tools") or [])]
     return {"stats": stats, "tools": tools_payload}
-
-
-@app.post("/api/tools/registry/refresh", response_model=ToolRegistryRefreshResponse)
-async def refresh_tool_registry(reset: bool = False):
-    """
-    Re-run enhanced tool discovery at runtime.
-
-    Notes:
-    - This is intended for dev/debug (e.g., after editing tool modules).
-    - `reset=true` clears the global registry before discovery.
-    """
-    from agent.runtime.nodes import initialize_enhanced_tools
-    from tools.core.registry import get_global_registry, reset_global_registry
-
-    if reset:
-        reset_global_registry()
-
-    registry = get_global_registry()
-    before = len(registry.list_names())
-
-    initialize_enhanced_tools()
-
-    after = len(get_global_registry().list_names())
-    return {"discovered": max(0, after - before), "total_tools": after}
 
 
 @app.get("/api/search/providers", response_model=SearchProvidersResponse)
@@ -3554,7 +3588,8 @@ async def create_agent(payload: AgentUpsertPayload):
         description=payload.description or "",
         system_prompt=payload.system_prompt or "",
         model=(payload.model or "").strip(),
-        enabled_tools=payload.enabled_tools or {},
+        tools=[str(item).strip() for item in (payload.tools or []) if str(item).strip()],
+        blocked_tools=[str(item).strip() for item in (payload.blocked_tools or []) if str(item).strip()],
         mcp_servers=payload.mcp_servers,
         metadata=payload.metadata or {},
     )
@@ -3576,7 +3611,10 @@ async def update_agent(agent_id: str, payload: AgentUpsertPayload):
             "description": payload.description or "",
             "system_prompt": payload.system_prompt or "",
             "model": (payload.model or "").strip(),
-            "enabled_tools": payload.enabled_tools or {},
+            "tools": [str(item).strip() for item in (payload.tools or []) if str(item).strip()],
+            "blocked_tools": [
+                str(item).strip() for item in (payload.blocked_tools or []) if str(item).strip()
+            ],
             "mcp_servers": payload.mcp_servers,
             "metadata": payload.metadata or {},
         }

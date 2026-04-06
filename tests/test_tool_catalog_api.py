@@ -9,7 +9,7 @@ import main
 
 
 @pytest.mark.asyncio
-async def test_tools_registry_endpoint_uses_runtime_inventory(monkeypatch):
+async def test_tools_catalog_endpoint_uses_runtime_inventory(monkeypatch):
     monkeypatch.setattr(
         main,
         "build_tool_inventory",
@@ -18,7 +18,7 @@ async def test_tools_registry_endpoint_uses_runtime_inventory(monkeypatch):
 
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        resp = await ac.get("/api/tools/registry")
+        resp = await ac.get("/api/tools/catalog")
 
     assert resp.status_code == 200
     payload = resp.json()
@@ -27,7 +27,7 @@ async def test_tools_registry_endpoint_uses_runtime_inventory(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_agent_health_endpoint_uses_runtime_inventory_count(monkeypatch):
+async def test_agent_health_endpoint_uses_catalog_inventory_count(monkeypatch):
     monkeypatch.setattr(
         main,
         "build_tool_inventory",
@@ -43,4 +43,4 @@ async def test_agent_health_endpoint_uses_runtime_inventory_count(monkeypatch):
 
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["tool_registry_total_tools"] == 2
+    assert payload["tool_catalog_total_tools"] == 2

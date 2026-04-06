@@ -39,7 +39,7 @@ def test_prompt_lengths():
     enhanced_agent = enhanced_mgr.get_agent_prompt(
         context={
             "current_time": datetime.now(),
-            "enabled_tools": ["web_search", "execute_python_code", "crawl_url"],
+            "tools": ["browser_search", "execute_python_code", "crawl_url"],
         }
     )
     enhanced_writer = enhanced_mgr.get_writer_prompt()
@@ -91,7 +91,7 @@ def test_prompt_content():
     enhanced_agent = enhanced_mgr.get_agent_prompt(
         context={
             "current_time": datetime.now(),
-            "enabled_tools": ["web_search", "execute_python_code"],
+            "tools": ["browser_search", "execute_python_code"],
         }
     )
 
@@ -157,7 +157,7 @@ def test_context_injection():
             "name": "With Time + Tools",
             "context": {
                 "current_time": datetime.now(),
-                "enabled_tools": ["web_search", "execute_python_code", "crawl_url"],
+                "tools": ["browser_search", "execute_python_code", "crawl_url"],
             },
         },
     ]
@@ -173,7 +173,7 @@ def test_context_injection():
                 has_date = "CURRENT DATE/TIME" in prompt or "Today's date" in prompt
                 print(f"  Date Info: {'✓ Injected' if has_date else '✗ Missing'}")
 
-            if "enabled_tools" in ctx_info["context"]:
+            if "tools" in ctx_info["context"]:
                 has_tools = "AVAILABLE TOOLS" in prompt
                 print(f"  Tools Info: {'✓ Injected' if has_tools else '✗ Missing'}")
 

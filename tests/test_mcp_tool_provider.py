@@ -25,7 +25,7 @@ def test_build_mcp_tools_reads_live_mcp_snapshot(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_update_mcp_config_does_not_call_set_registered_tools(monkeypatch):
+async def test_update_mcp_config_returns_loaded_tool_count(monkeypatch):
     async def _reload(*_args, **_kwargs):
         return [SimpleNamespace(name="mcp_fetch", description="fetch")]
 
@@ -38,11 +38,6 @@ async def test_update_mcp_config_does_not_call_set_registered_tools(monkeypatch)
         _reload,
     )
     monkeypatch.setattr(main, "close_mcp_tools", _close)
-
-    def _fail(_tools):
-        raise AssertionError("set_registered_tools should not be called by update_mcp_config")
-
-    monkeypatch.setattr(main, "set_registered_tools", _fail, raising=False)
 
     payload = MCPConfigPayload(enable=True, servers={"demo": {"type": "sse", "url": "https://example.com"}})
     result = await main.update_mcp_config(payload)

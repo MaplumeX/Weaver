@@ -20,9 +20,6 @@ from agent.research.source_url_utils import compact_unique_sources
 from common.cancellation import check_cancellation as _check_cancellation
 from common.config import settings
 from tools import execute_python_code, tavily_search
-from tools.core.registry import get_global_registry, get_registered_tools
-
-ENHANCED_TOOLS_AVAILABLE = True
 
 logger = logging.getLogger(__name__)
 
@@ -246,11 +243,13 @@ def _apply_output_contract(user_input: str, report: str) -> str:
     return report
 
 
-def _is_tool_enabled(profile: Dict[str, Any], key: str, default: bool = False) -> bool:
-    enabled_tools = profile.get("enabled_tools") or {}
-    if isinstance(enabled_tools, dict) and key in enabled_tools:
-        return bool(enabled_tools.get(key))
-    return default
+def _has_search_tools(profile: Dict[str, Any], default: bool = False) -> bool:
+    tools = [str(item).strip() for item in (profile.get("tools") or []) if str(item).strip()]
+    blocked = {str(item).strip() for item in (profile.get("blocked_tools") or []) if str(item).strip()}
+    if not tools:
+        return default
+    search_tool_names = {"browser_search", "crawl_url", "tavily_search", "fallback_search"}
+    return any(name in search_tool_names and name not in blocked for name in tools)
 
 
 def _is_narrow_comparison_prompt(user_input: str) -> bool:
@@ -294,7 +293,7 @@ def _should_use_fast_agent_path(state: AgentState, config: RunnableConfig) -> bo
     if not isinstance(profile, dict):
         profile = {}
 
-    return _is_tool_enabled(profile, "web_search", default=True)
+    return _has_search_tools(profile, default=True)
 
 
 def _build_fast_agent_search_query(user_input: str) -> str:
@@ -511,67 +510,6 @@ def _log_usage(response: Any, node: str) -> None:
         logger.info(f"[usage] {node}: {usage}")
 
 
-def initialize_enhanced_tools() -> None:
-    """
-    Refresh enhanced tool catalog metadata for discovery/debug endpoints.
-
-    Auto-discovers and registers all WeaverTool instances from the tools directory.
-    Runtime tool assembly now uses provider composition instead of this registry.
-    """
-    if not ENHANCED_TOOLS_AVAILABLE:
-        logger.info("Enhanced tools not available, skipping initialization")
-        return
-
-    try:
-        if not bool(getattr(settings, "enhanced_tool_discovery_enabled", True)):
-            logger.info("Enhanced tool discovery disabled, skipping initialization")
-            return
-
-        registry = get_global_registry()
-
-        discovered = []
-
-        logger.info("Discovering tools from module 'tools'...")
-        try:
-            discovered.extend(
-                registry.discover_from_module(
-                    module_name="tools",
-                    tags=["weaver", "auto_discovered"],
-                )
-            )
-        except Exception as e:
-            logger.warning(f"Failed to discover tools from module 'tools': {e}")
-
-        if bool(getattr(settings, "enhanced_tool_discovery_recursive", False)):
-            exclude_dirs = set(getattr(settings, "enhanced_tool_discovery_exclude_list", []) or [])
-            logger.info("Discovering tools from 'tools' directory (recursive)...")
-            discovered.extend(
-                registry.discover_from_directory(
-                    directory="tools",
-                    pattern="*.py",
-                    recursive=True,
-                    tags=["weaver", "auto_discovered"],
-                    exclude_dirs=exclude_dirs,
-                    exclude_globs=[
-                        "tools/core/*",
-                        "tools/examples/*",
-                    ],
-                )
-            )
-
-        logger.info(f"Discovered and registered {len(discovered)} tools")
-
-        all_tools = registry.list_names()
-        logger.info(f"Total tools in metadata catalog: {len(all_tools)}")
-        if all_tools:
-            logger.info(
-                f"Catalog tools: {', '.join(all_tools[:10])}{'...' if len(all_tools) > 10 else ''}"
-            )
-
-    except Exception as e:
-        logger.error(f"Failed to initialize enhanced tools: {e}", exc_info=True)
-
-
 def _selected_model(config: RunnableConfig, fallback: str) -> str:
     cfg = _configurable(config)
     val = cfg.get("model")
@@ -637,9 +575,7 @@ def _extract_tool_call_fields(
 
 
 def _get_writer_tools() -> List[Any]:
-    tools: List[Any] = [execute_python_code]
-    tools.extend(get_registered_tools())
-    return tools
+    return [execute_python_code]
 
 
 def _guess_mime(name: Optional[str]) -> str:
@@ -706,7 +642,6 @@ def _build_user_content(
 
 
 __all__ = [
-    "ENHANCED_TOOLS_AVAILABLE",
     "_answer_simple_agent_query",
     "_apply_output_contract",
     "_auto_mode_prefers_linear",
@@ -732,7 +667,6 @@ __all__ = [
     "_should_use_fast_agent_path",
     "check_cancellation",
     "handle_cancellation",
-    "initialize_enhanced_tools",
     "logger",
     "settings",
 ]

@@ -7,7 +7,6 @@ from agent.runtime.nodes.chat import chat_respond_node
 from agent.runtime.nodes.common import (
     check_cancellation,
     handle_cancellation,
-    initialize_enhanced_tools,
 )
 from agent.runtime.nodes.deep_research import deep_research_node
 from agent.runtime.nodes.finalize import finalize_answer_node
@@ -21,7 +20,6 @@ __all__ = [
     "finalize_answer_node",
     "handle_cancellation",
     "human_review_node",
-    "initialize_enhanced_tools",
     "route_node",
     "tool_agent_node",
 ]

@@ -458,8 +458,8 @@ class Settings(BaseSettings):
 
     # Tool visibility / events
     emit_tool_events: bool = True  # wrap tools with event emitters for front-end
-    tool_whitelist: str = ""  # comma-separated tool names to allow (empty = all)
-    tool_blacklist: str = ""  # comma-separated tool names to block
+    allowed_tools: str = ""  # comma-separated tool names to allow (empty = all)
+    blocked_tools: str = ""  # comma-separated tool names to block
 
     # Search fallback
     search_engines: str = "tavily"  # comma-separated engines in order
@@ -519,14 +519,14 @@ class Settings(BaseSettings):
         return [t.strip() for t in self.tool_selector_always_include.split(",") if t.strip()]
 
     @property
-    def tool_whitelist_list(self) -> List[str]:
-        """Comma separated tool whitelist."""
-        return [t.strip() for t in self.tool_whitelist.split(",") if t.strip()]
+    def allowed_tools_list(self) -> List[str]:
+        """Comma separated concrete tool allowlist."""
+        return [t.strip() for t in self.allowed_tools.split(",") if t.strip()]
 
     @property
-    def tool_blacklist_list(self) -> List[str]:
-        """Comma separated tool blacklist."""
-        return [t.strip() for t in self.tool_blacklist.split(",") if t.strip()]
+    def blocked_tools_list(self) -> List[str]:
+        """Comma separated concrete tool blocklist."""
+        return [t.strip() for t in self.blocked_tools.split(",") if t.strip()]
 
     @property
     def enhanced_tool_discovery_exclude_list(self) -> List[str]:

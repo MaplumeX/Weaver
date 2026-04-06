@@ -33,7 +33,8 @@ async def test_agents_crud(tmp_path, monkeypatch):
             name="Default",
             description="test",
             system_prompt=get_default_agent_prompt(),
-            enabled_tools={"web_search": True},
+            tools=["browser_search", "browser_navigate", "crawl_url"],
+            blocked_tools=["browser_click"],
             metadata={"protected": True},
         )
     )
@@ -56,13 +57,16 @@ async def test_agents_crud(tmp_path, monkeypatch):
             "name": "My Agent",
             "description": "demo",
             "system_prompt": "You are a test agent.",
-            "enabled_tools": {"web_search": True, "mcp": False},
+            "tools": ["browser_search", "browser_navigate", "crawl_url"],
+            "blocked_tools": ["browser_click"],
         }
         resp3 = await ac.post("/api/agents", json=create_payload)
         assert resp3.status_code == 200
         created = resp3.json()
         created_id = created.get("id")
         assert created_id and created_id != "default"
+        assert created["tools"] == ["browser_search", "browser_navigate", "crawl_url"]
+        assert created["blocked_tools"] == ["browser_click"]
 
         # update
         upd = {**create_payload, "name": "My Agent v2"}

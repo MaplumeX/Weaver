@@ -41,12 +41,14 @@ def test_removed_outer_runtime_nodes_are_not_exported():
 
 
 def test_runtime_active_entrypoints_remain_importable():
+    removed_symbol = "initialize" + "_enhanced_tools"
     assert callable(runtime_nodes.route_node)
     assert callable(runtime_nodes.chat_respond_node)
     assert callable(runtime_nodes.deep_research_node)
     assert callable(runtime_nodes.finalize_answer_node)
     assert callable(runtime_nodes.human_review_node)
     assert callable(runtime_nodes.tool_agent_node)
+    assert not hasattr(runtime_nodes, removed_symbol)
 
 
 def test_legacy_agent_node_is_no_longer_exported():

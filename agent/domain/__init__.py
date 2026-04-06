@@ -4,7 +4,6 @@ from agent.domain.execution import (
     ExecutionRequest,
     ExecutionResult,
     ReviewDecision,
-    ToolCapability,
     execution_mode_from_public_mode,
     public_mode_for_execution,
     route_name_for_mode,
@@ -31,7 +30,6 @@ __all__ = [
     "ResearchState",
     "ReviewDecision",
     "RuntimeSnapshot",
-    "ToolCapability",
     "build_deep_runtime_snapshot",
     "build_state_slices",
     "execution_mode_from_public_mode",
@@ -39,4 +37,3 @@ __all__ = [
     "public_mode_for_execution",
     "route_name_for_mode",
 ]
-

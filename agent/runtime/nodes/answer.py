@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage
 
 import agent.infrastructure.agents.factory as _agent_factory
 import agent.runtime.nodes._shared as _shared
-from agent.infrastructure.tools import build_tools_for_capabilities
+from agent.infrastructure.tools import build_tools_for_names
 from agent.runtime.nodes.prompting import build_chat_runtime_messages
 
 project_state_updates = _shared.project_state_updates
@@ -21,6 +21,16 @@ handle_cancellation = _shared.handle_cancellation
 logger = _shared.logger
 settings = _shared.settings
 build_tool_agent = _agent_factory.build_tool_agent
+
+
+def _needs_browser_hint(selected_tools: list[str] | None) -> bool:
+    for name in (selected_tools or []):
+        tool_name = str(name or "").strip()
+        if tool_name.startswith(("browser_", "sb_browser_")):
+            return True
+        if tool_name in {"browser_use", "sandbox_web_search", "sandbox_search_and_click"}:
+            return True
+    return False
 
 
 def _resolve_deps(explicit_deps: Any = None) -> Any:
@@ -43,14 +53,14 @@ def tool_agent_node(
     try:
         deps.check_cancellation(state)
 
-        tools = deps.build_tools_for_capabilities(state.get("required_capabilities") or [], config)
+        tools = deps.build_tools_for_names(set(state.get("selected_tools") or []), config)
         agent = deps.build_tool_agent(
             model=deps._shared._model_for_task("research", config),
             tools=tools,
             temperature=0.7,
         )
 
-        include_browser_hint = "browser" in set(state.get("required_capabilities") or [])
+        include_browser_hint = _needs_browser_hint(state.get("selected_tools") or [])
         messages = build_chat_runtime_messages(
             state,
             config,
