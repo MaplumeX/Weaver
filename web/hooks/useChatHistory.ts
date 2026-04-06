@@ -4,21 +4,20 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 
 import {
   deleteRemoteSession,
-  fetchInterruptStatus,
-  fetchSessionInfo,
   fetchSessions,
-  fetchSessionState,
+  fetchSessionSnapshot,
+  patchSession,
   RemoteSessionInfo,
 } from '@/lib/session-api'
 import {
-  buildArtifactsFromSessionState,
-  buildMessagesFromSessionState,
-  buildPendingInterrupt,
+  buildChatSessionFromRemoteInfo,
+  buildChatSnapshotFromRemote,
   createConversationId,
-  deriveSearchModeFromRoute,
   getDefaultSessionTitle,
   getSessionSummary,
+  mergeRemoteAndCachedHistory,
   replaceSessionPreservingOrder,
+  resolveLoadedSessionSnapshot,
   sortChatSessions,
 } from '@/lib/session-utils'
 import { ChatMode, DEFAULT_CHAT_MODE, normalizeChatMode } from '@/lib/chat-mode'
@@ -161,33 +160,8 @@ function writeSnapshot(sessionId: string, snapshot: SessionSnapshot) {
   StorageService.saveSessionMessages(sessionId, snapshot.messages)
 }
 
-function buildSessionFromRemote(remote: RemoteSessionInfo, cached?: ChatSession | null): ChatSession {
-  const snapshot = readSnapshot(remote.thread_id, cached || undefined)
-  const now = Date.now()
-  const snapshotTitle = snapshot?.messages?.length
-    ? getDefaultSessionTitle(snapshot.messages)
-    : ''
-  const snapshotSummary = snapshot?.messages?.length
-    ? getSessionSummary(snapshot.messages)
-    : ''
-
-  return normalizeSession({
-    ...cached,
-    id: remote.thread_id,
-    threadId: remote.thread_id,
-    title: cached?.title || String(remote.topic || snapshotTitle || 'New Conversation'),
-    summary: cached?.summary || snapshotSummary || String(remote.topic || ''),
-    status: String(remote.status || ''),
-    route: normalizeChatMode(String(remote.route || cached?.route || cached?.searchMode || '')),
-    searchMode: normalizeChatMode(String(cached?.searchMode || remote.route || cached?.route || '')),
-    canResume:
-      typeof cached?.canResume === 'boolean'
-        ? cached.canResume
-        : Boolean(snapshot?.pendingInterrupt),
-    createdAt: toTimestamp(remote.created_at, cached?.createdAt || snapshot?.createdAt || now),
-    updatedAt: toTimestamp(remote.updated_at, cached?.updatedAt || snapshot?.updatedAt || now),
-    source: 'remote',
-  })
+function buildSessionFromRemote(remote: RemoteSessionInfo): ChatSession {
+  return normalizeSession(buildChatSessionFromRemoteInfo(remote))
 }
 
 export function useChatHistory() {
@@ -215,10 +189,10 @@ export function useChatHistory() {
 
     try {
       const remoteHistory = await fetchSessions(REMOTE_SESSION_LIMIT)
-      const merged = remoteHistory.map((remoteSession) => {
-        const cached = cachedHistory.find((session) => session.id === remoteSession.thread_id) || null
-        return buildSessionFromRemote(remoteSession, cached)
-      })
+      const merged = mergeRemoteAndCachedHistory(
+        remoteHistory.map((remoteSession) => buildSessionFromRemote(remoteSession)),
+        cachedHistory,
+      )
 
       commitHistory(merged)
       return merged
@@ -320,88 +294,43 @@ export function useChatHistory() {
 
   const loadSession = useCallback(
     async (id: string): Promise<SessionSnapshot | null> => {
-      const baseSession = historyRef.current.find((session) => session.id === id) || null
-      const sessionId = id
-      let snapshot = readSnapshot(sessionId, baseSession || { id: sessionId, threadId: sessionId })
-
+      const fallbackSnapshot =
+        readSnapshot(id, historyRef.current.find((session) => session.id === id) || { id, threadId: id })
       try {
-        const [info, statePayload, interruptStatus] = await Promise.all([
-          fetchSessionInfo(sessionId).catch(() => null),
-          fetchSessionState(sessionId).catch(() => null),
-          fetchInterruptStatus(sessionId).catch(() => null),
-        ])
+        const remoteSnapshot = await fetchSessionSnapshot(id)
+        const snapshot = resolveLoadedSessionSnapshot({
+          remoteSnapshot,
+          fallbackSnapshot,
+          sessionId: id,
+        })
+        if (!snapshot) return null
+        writeSnapshot(id, snapshot)
 
-        if (!info && !statePayload && !snapshot) {
-          return null
-        }
-
-        if (!snapshot) {
-          snapshot = {
-            sessionId,
-            threadId: sessionId,
-            messages: [],
-            artifacts: [],
-            pendingInterrupt: null,
-            currentStatus: '',
-            route: DEFAULT_CHAT_MODE,
-            searchMode: DEFAULT_CHAT_MODE,
-            status: '',
-            canResume: false,
-            updatedAt: Date.now(),
-            createdAt: Date.now(),
-          }
-        }
-
-        snapshot.threadId = sessionId
-
-        if (statePayload?.state && typeof statePayload.state === 'object') {
-          if (snapshot.messages.length === 0) {
-            snapshot.messages = buildMessagesFromSessionState(statePayload.state, sessionId)
-          }
-          if (snapshot.artifacts.length === 0) {
-            snapshot.artifacts = buildArtifactsFromSessionState(statePayload.state, sessionId)
-          }
-
-          const route = normalizeChatMode(
-            String(statePayload.state.route || info?.route || snapshot.route || snapshot.searchMode || ''),
-          )
-          snapshot.route = route
-          snapshot.searchMode = route
-        }
-
-        if (interruptStatus?.is_interrupted) {
-          const review = buildPendingInterrupt(interruptStatus.prompts, snapshot.messages)
-          if (review) {
-            snapshot.pendingInterrupt = review
-            snapshot.canResume = true
-            snapshot.currentStatus = review.description || review.title
-          }
-        } else if (interruptStatus?.is_interrupted === false) {
-          snapshot.pendingInterrupt = null
-          snapshot.canResume = false
-          snapshot.currentStatus = ''
-        }
-
-        if (info) {
-          snapshot.status = String(info.status || snapshot.status || '')
-          snapshot.route = normalizeChatMode(String(info.route || snapshot.route || snapshot.searchMode || ''))
-          snapshot.searchMode = normalizeChatMode(
-            String(snapshot.searchMode || snapshot.route || info.route || ''),
-          )
-          snapshot.createdAt = toTimestamp(info.created_at, snapshot.createdAt)
-          snapshot.updatedAt = toTimestamp(info.updated_at, snapshot.updatedAt)
-        }
-
-        writeSnapshot(sessionId, snapshot)
-
-        const nextSession = info
-          ? buildSessionFromRemote(info as RemoteSessionInfo, historyRef.current.find((session) => session.id === sessionId) || null)
+        const nextSession = remoteSnapshot
+          ? normalizeSession({
+              ...buildChatSessionFromRemoteInfo({
+                thread_id: remoteSnapshot.session.thread_id,
+                title: remoteSnapshot.session.title,
+                summary: remoteSnapshot.session.summary,
+                status: remoteSnapshot.session.status,
+                route: remoteSnapshot.session.route,
+                created_at: remoteSnapshot.session.created_at,
+                updated_at: remoteSnapshot.session.updated_at,
+                is_pinned: remoteSnapshot.session.is_pinned,
+                tags: remoteSnapshot.session.tags,
+              }),
+              canResume: Boolean(remoteSnapshot.can_resume),
+            })
           : normalizeSession({
-              ...(baseSession || {}),
-              id: sessionId,
-              threadId: sessionId,
-              title: baseSession?.title || getDefaultSessionTitle(snapshot.messages),
-              summary: baseSession?.summary || getSessionSummary(snapshot.messages),
+              ...(historyRef.current.find((session) => session.id === id) || {}),
+              id,
+              threadId: fallbackSnapshot?.threadId || id,
+              title:
+                historyRef.current.find((session) => session.id === id)?.title ||
+                getDefaultSessionTitle(snapshot.messages),
+              summary:
+                historyRef.current.find((session) => session.id === id)?.summary ||
+                getSessionSummary(snapshot.messages),
               route: snapshot.route,
               searchMode: snapshot.searchMode,
               status: snapshot.status,
@@ -418,7 +347,7 @@ export function useChatHistory() {
         return snapshot
       } catch (error) {
         console.error('Failed to hydrate session', error)
-        return snapshot
+        return fallbackSnapshot
       }
     },
     [commitHistory],
@@ -466,36 +395,87 @@ export function useChatHistory() {
   }, [commitHistory, refreshHistory])
 
   const togglePin = useCallback(
-    (id: string) => {
-      commitHistory(
-        historyRef.current.map((session) =>
-          session.id === id ? { ...session, isPinned: !session.isPinned, source: 'cache' } : session,
-        ),
-      )
+    async (id: string) => {
+      const current = historyRef.current.find((session) => session.id === id)
+      if (!current) return
+      try {
+        const updated = await patchSession(id, { is_pinned: !current.isPinned })
+        if (!updated) return
+        const nextSession = normalizeSession(
+          buildChatSessionFromRemoteInfo({
+            thread_id: updated.thread_id || id,
+            title: updated.title,
+            summary: updated.summary,
+            status: updated.status,
+            route: updated.route,
+            created_at: updated.created_at,
+            updated_at: updated.updated_at,
+            is_pinned: updated.is_pinned,
+            tags: updated.tags,
+          }),
+        )
+        commitHistory(replaceSessionPreservingOrder(historyRef.current, nextSession), {
+          preserveOrder: true,
+        })
+      } catch (error) {
+        console.error('Failed to toggle pin', error)
+      }
     },
     [commitHistory],
   )
 
   const renameSession = useCallback(
-    (id: string, newTitle: string) => {
-      commitHistory(
-        historyRef.current.map((session) =>
-          session.id === id ? { ...session, title: newTitle, source: 'cache' } : session,
-        ),
-        { preserveOrder: true },
-      )
+    async (id: string, newTitle: string) => {
+      try {
+        const updated = await patchSession(id, { title: newTitle })
+        if (!updated) return
+        const nextSession = normalizeSession(
+          buildChatSessionFromRemoteInfo({
+            thread_id: updated.thread_id || id,
+            title: updated.title,
+            summary: updated.summary,
+            status: updated.status,
+            route: updated.route,
+            created_at: updated.created_at,
+            updated_at: updated.updated_at,
+            is_pinned: updated.is_pinned,
+            tags: updated.tags,
+          }),
+        )
+        commitHistory(replaceSessionPreservingOrder(historyRef.current, nextSession), {
+          preserveOrder: true,
+        })
+      } catch (error) {
+        console.error('Failed to rename session', error)
+      }
     },
     [commitHistory],
   )
 
   const updateTags = useCallback(
-    (id: string, tags: string[]) => {
-      commitHistory(
-        historyRef.current.map((session) =>
-          session.id === id ? { ...session, tags, source: 'cache' } : session,
-        ),
-        { preserveOrder: true },
-      )
+    async (id: string, tags: string[]) => {
+      try {
+        const updated = await patchSession(id, { tags })
+        if (!updated) return
+        const nextSession = normalizeSession(
+          buildChatSessionFromRemoteInfo({
+            thread_id: updated.thread_id || id,
+            title: updated.title,
+            summary: updated.summary,
+            status: updated.status,
+            route: updated.route,
+            created_at: updated.created_at,
+            updated_at: updated.updated_at,
+            is_pinned: updated.is_pinned,
+            tags: updated.tags,
+          }),
+        )
+        commitHistory(replaceSessionPreservingOrder(historyRef.current, nextSession), {
+          preserveOrder: true,
+        })
+      } catch (error) {
+        console.error('Failed to update session tags', error)
+      }
     },
     [commitHistory],
   )

@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { Message, Artifact, ToolInvocation, ImageAttachment, RunMetrics, MessageSource } from '@/types/chat'
 import { getApiBaseUrl } from '@/lib/api'
 import { ChatMode, createSearchModePayload } from '@/lib/chat-mode'
+import { buildChatRequestPayload } from '@/lib/chat-request'
 import { createLegacyChatStreamState, consumeLegacyChatStreamChunk } from '@/lib/chatStreamProtocol'
 import { appendProcessEvent, createStreamingAssistantMessage } from '@/lib/chat-stream-state'
 import {
@@ -535,17 +536,15 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            messages: messageHistory.map(m => ({ role: m.role, content: m.content })),
-            stream: true,
-            model: requestModel,
-            search_mode: createSearchModePayload(searchMode),
-            images: (images || []).map(img => ({
-              name: img.name,
-              mime: img.mime,
-              data: img.data
-            }))
-          }),
+          body: JSON.stringify(
+            buildChatRequestPayload({
+              messageHistory: messageHistory.map(m => ({ role: m.role, content: m.content })),
+              model: requestModel,
+              searchMode: createSearchModePayload(searchMode),
+              images: images || [],
+              threadId,
+            }),
+          ),
           signal: abortControllerRef.current.signal
         }
       )
@@ -575,7 +574,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
       setIsLoading(false)
       abortControllerRef.current = null
     }
-  }, [selectedModel, searchMode, consumeStreamingResponse])
+  }, [selectedModel, searchMode, consumeStreamingResponse, threadId])
 
   const resumeInterrupt = useCallback(async (
     action: string,

@@ -1,7 +1,6 @@
 import logging
 
 import psycopg
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, StateGraph
 from psycopg.rows import dict_row
 
@@ -12,6 +11,7 @@ from agent.runtime.nodes import (
     human_review_node,
     route_node,
 )
+from common.weaver_checkpointer import WeaverPostgresCheckpointer
 
 logger = logging.getLogger(__name__)
 
@@ -88,10 +88,16 @@ async def create_checkpointer(database_url: str):
             prepare_threshold=0,
             row_factory=dict_row,
         )
+        sync_conn = psycopg.connect(
+            database_url,
+            autocommit=True,
+            prepare_threshold=0,
+            row_factory=dict_row,
+        )
     except Exception as e:
         raise RuntimeError(f"Failed to connect to Postgres for checkpointer: {e}") from e
 
-    checkpointer = AsyncPostgresSaver(conn)
+    checkpointer = WeaverPostgresCheckpointer(conn, sync_conn=sync_conn)
 
     # Setup tables
     await checkpointer.setup()

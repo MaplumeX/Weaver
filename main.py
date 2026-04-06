@@ -28,7 +28,6 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 from prometheus_client import (
@@ -90,6 +89,14 @@ from common.langsmith import (
 from common.logger import get_logger, setup_logging
 from common.metrics import metrics_registry
 from common.proxy_env import normalize_socks_proxy_env
+from common.checkpoint_runtime import (
+    build_resume_state,
+    can_resume_thread,
+    extract_deep_research_artifacts,
+    get_thread_runtime_state,
+)
+from common.session_service import SessionService
+from common.session_store import create_session_store
 from common.sse import (
     format_sse_event,
     format_sse_retry,
@@ -407,17 +414,11 @@ async def _require_thread_owner(request: Request, thread_id: str) -> None:
     if owner_id and owner_id != principal_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    if not checkpointer:
-        return
-
     try:
-        from common.session_manager import get_session_manager
-
-        manager = get_session_manager(checkpointer)
-        session_state = await manager.aget_session_state(thread_id)
-        if not session_state or not isinstance(session_state.state, dict):
+        session_state = await get_thread_runtime_state(checkpointer, thread_id)
+        if not session_state or not isinstance(session_state, dict):
             return
-        persisted_owner = session_state.state.get("user_id")
+        persisted_owner = session_state.get("user_id")
         if isinstance(persisted_owner, str) and persisted_owner.strip() and persisted_owner.strip() != principal_id:
             raise HTTPException(status_code=403, detail="Forbidden")
     except HTTPException:
@@ -445,14 +446,17 @@ async def _cleanup_rate_limit_buckets():
 
 
 # Initialize agent graphs with short-term memory (checkpointer)
-checkpointer = MemorySaver()
+checkpointer = None
 store = None
+session_store = None
+session_service = None
 research_graph = None
 support_graph = None
 _checkpointer_conn = None
+_session_store_conn = None
 _store_conn = None
-_checkpointer_status = "initializing" if settings.database_url else "not_configured"
-_checkpointer_error = ""
+_checkpointer_status = "initializing" if settings.database_url else "failed"
+_checkpointer_error = "" if settings.database_url else "DATABASE_URL is required for session persistence"
 _store_status = "initializing" if settings.memory_store_backend.lower().strip() != "memory" else "disabled"
 _store_error = ""
 
@@ -507,12 +511,17 @@ _compile_runtime_graphs()
 
 
 async def _close_runtime_resources() -> None:
-    global _checkpointer_conn, _store_conn
+    global _checkpointer_conn, _session_store_conn, _store_conn
 
     checkpointer_conn = _checkpointer_conn
     _checkpointer_conn = None
     if checkpointer_conn is not None and hasattr(checkpointer_conn, "close"):
         await checkpointer_conn.close()
+
+    session_store_conn = _session_store_conn
+    _session_store_conn = None
+    if session_store_conn is not None and hasattr(session_store_conn, "close"):
+        await session_store_conn.close()
 
     store_conn = _store_conn
     _store_conn = None
@@ -521,7 +530,8 @@ async def _close_runtime_resources() -> None:
 
 
 async def _initialize_runtime_state() -> None:
-    global checkpointer, store, _checkpointer_conn, _store_conn
+    global checkpointer, session_store, session_service, store
+    global _checkpointer_conn, _session_store_conn, _store_conn
     global _checkpointer_status, _checkpointer_error, _store_status, _store_error
 
     await _close_runtime_resources()
@@ -534,16 +544,20 @@ async def _initialize_runtime_state() -> None:
             _checkpointer_error = ""
             checkpointer = await create_checkpointer(settings.database_url)
             _checkpointer_conn = getattr(checkpointer, "conn", None)
+            session_store = await create_session_store(settings.database_url)
+            _session_store_conn = getattr(session_store, "conn", None)
+            session_service = SessionService(store=session_store, checkpointer=checkpointer)
             _checkpointer_status = "ready"
             runtime_changed = True
-        elif checkpointer is None:
-            checkpointer = MemorySaver()
-            _checkpointer_status = "not_configured"
-            _checkpointer_error = ""
-            runtime_changed = True
         else:
-            _checkpointer_status = "not_configured"
-            _checkpointer_error = ""
+            runtime_changed = checkpointer is not None
+            checkpointer = None
+            session_store = None
+            session_service = None
+            _checkpointer_status = "failed"
+            _checkpointer_error = "DATABASE_URL is required for session persistence"
+            _checkpointer_conn = None
+            _session_store_conn = None
 
         backend = settings.memory_store_backend.lower().strip()
         if backend == "memory":
@@ -565,12 +579,16 @@ async def _initialize_runtime_state() -> None:
     except Exception as e:
         if settings.database_url:
             checkpointer = None
+            session_store = None
+            session_service = None
             _checkpointer_status = "failed"
             _checkpointer_error = str(e)
         else:
-            checkpointer = MemorySaver()
-            _checkpointer_status = "not_configured"
-            _checkpointer_error = ""
+            checkpointer = None
+            session_store = None
+            session_service = None
+            _checkpointer_status = "failed"
+            _checkpointer_error = "DATABASE_URL is required for session persistence"
 
         store = None
         if settings.memory_store_backend.lower().strip() == "memory":
@@ -588,7 +606,7 @@ async def _initialize_runtime_state() -> None:
 def _checkpointer_backend_name() -> str:
     if settings.database_url:
         return "postgres"
-    return "memory"
+    return "none"
 mcp_thread_id = "default"  # thread id for MCP event emission; per-request tools will override
 mcp_enabled = settings.enable_mcp
 mcp_servers_config = settings.mcp_servers
@@ -1192,6 +1210,7 @@ class ChatRequest(BaseModel):
     search_mode: Optional[SearchMode] = None
     agent_id: Optional[str] = None  # optional GPTs-like agent profile id (data/agents.json)
     user_id: Optional[str] = None
+    thread_id: Optional[str] = None
     images: Optional[List[ImagePayload]] = None  # Base64 images for multimodal input
 
     @field_validator("search_mode", mode="before")
@@ -1479,6 +1498,18 @@ def _normalize_interrupt_resume_payload(payload: Any, prompt: Any = None) -> Any
     return payload
 
 
+def _resume_payload_user_text(payload: Any) -> str:
+    if isinstance(payload, str):
+        return payload.strip()
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("clarify_answer", "scope_feedback", "content", "message", "feedback"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Global Exception Handlers — consistent JSON error responses
 # ---------------------------------------------------------------------------
@@ -1552,7 +1583,7 @@ async def health():
     """Detailed health check."""
     return {
         "status": "healthy",
-        "database": _checkpointer_status if settings.database_url else "not_configured",
+        "database": _checkpointer_status,
         "database_backend": _checkpointer_backend_name(),
         "database_error": _checkpointer_error if _checkpointer_status == "failed" else "",
         "store": _store_status,
@@ -2023,17 +2054,14 @@ async def _restore_thread_stream_context(thread_id: str) -> Dict[str, Any]:
         return restored
 
     try:
-        from common.session_manager import get_session_manager
-
-        manager = get_session_manager(checkpointer)
-        session_state = await manager.aget_session_state(thread_id)
+        session_state = await get_thread_runtime_state(checkpointer, thread_id)
     except Exception:
         return restored
 
-    if not session_state or not isinstance(session_state.state, dict):
+    if not session_state or not isinstance(session_state, dict):
         return restored
 
-    state = session_state.state
+    state = session_state
     restored["state"] = state
     restored["input_text"] = str(state.get("input") or state.get("topic") or "").strip()
     restored["user_id"] = (
@@ -2966,13 +2994,27 @@ async def chat(request: Request, payload: ChatRequest):
         logger.debug(f"  Message preview: {last_message[:200]}...")
 
         if payload.stream:
-            thread_id = f"thread_{uuid.uuid4().hex}"
+            requested_thread_id = str(payload.thread_id or "").strip()
+            thread_id = requested_thread_id or f"thread_{uuid.uuid4().hex}"
             logger.info(f"Starting streaming response | Thread: {thread_id}")
-            set_thread_owner(thread_id, principal_id or "anonymous")
+            if requested_thread_id:
+                await _require_thread_owner(request, thread_id)
+            else:
+                set_thread_owner(thread_id, principal_id or "anonymous")
 
-            # Return streaming response with thread_id in header for cancellation
-            return StreamingResponse(
-                stream_agent_events(
+            if session_service is not None:
+                await session_service.start_session_run(
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    route=mode_info.get("mode", "agent"),
+                    initial_user_message=last_message,
+                )
+
+            async def _session_persisted_stream():
+                assistant_content = ""
+                metrics: Dict[str, Any] = {}
+                final_status = "running"
+                async for chunk in stream_agent_events(
                     last_message,
                     thread_id=thread_id,
                     model=model,
@@ -2980,7 +3022,41 @@ async def chat(request: Request, payload: ChatRequest):
                     agent_id=payload.agent_id,
                     images=_normalize_images_payload(payload.images),
                     user_id=user_id,
-                ),
+                ):
+                    if isinstance(chunk, str) and chunk.startswith("0:"):
+                        try:
+                            payload_obj = json.loads(chunk[2:].strip())
+                        except json.JSONDecodeError:
+                            payload_obj = {}
+                        event_type = str(payload_obj.get("type") or "")
+                        event_data = payload_obj.get("data") if isinstance(payload_obj.get("data"), dict) else {}
+                        if event_type == "text":
+                            assistant_content += str(event_data.get("content") or "")
+                        elif event_type == "completion":
+                            assistant_content = str(event_data.get("content") or assistant_content)
+                            final_status = "completed"
+                        elif event_type == "interrupt":
+                            final_status = "interrupted"
+                        elif event_type == "cancelled":
+                            final_status = "cancelled"
+                        elif event_type == "error":
+                            final_status = "failed"
+                        elif event_type == "done":
+                            metrics = dict(event_data.get("metrics") or {})
+                            final_status = "completed" if final_status == "running" else final_status
+                    yield chunk
+
+                if session_service is not None:
+                    await session_service.finalize_assistant_message(
+                        thread_id=thread_id,
+                        content=assistant_content,
+                        status=final_status,
+                        metrics=metrics,
+                    )
+
+            # Return streaming response with thread_id in header for cancellation
+            return StreamingResponse(
+                _session_persisted_stream(),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -2991,8 +3067,19 @@ async def chat(request: Request, payload: ChatRequest):
             )
         else:
             # Non-streaming response (fallback)
-            thread_id = thread_id or f"thread_{uuid.uuid4().hex}"
-            set_thread_owner(thread_id, principal_id or "anonymous")
+            requested_thread_id = str(payload.thread_id or "").strip()
+            thread_id = requested_thread_id or thread_id or f"thread_{uuid.uuid4().hex}"
+            if requested_thread_id:
+                await _require_thread_owner(request, thread_id)
+            else:
+                set_thread_owner(thread_id, principal_id or "anonymous")
+            if session_service is not None:
+                await session_service.start_session_run(
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    route=mode_info.get("mode", "agent"),
+                    initial_user_message=last_message,
+                )
             initial_state = _build_initial_agent_state(
                 input_text=last_message,
                 thread_id=thread_id,
@@ -3014,6 +3101,15 @@ async def chat(request: Request, payload: ChatRequest):
             )
             result = await research_graph.ainvoke(initial_state, config=config)
             final_report = result.get("final_report", "No response generated")
+            if session_service is not None:
+                await session_service.finalize_assistant_message(
+                    thread_id=thread_id,
+                    content=final_report,
+                    status="completed",
+                    metrics=metrics_registry.get(thread_id).to_dict()
+                    if metrics_registry.get(thread_id)
+                    else {},
+                )
             add_memory_entry(final_report)
             store_interaction(last_message, final_report)
             _store_add(last_message, final_report, user_id=user_id)
@@ -3081,14 +3177,56 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
         raise HTTPException(status_code=400, detail=str(e))
 
     if payload.stream:
-        return StreamingResponse(
-            stream_resumed_agent_events(
+        async def _persisted_resume_stream():
+            assistant_content = ""
+            metrics: Dict[str, Any] = {}
+            final_status = "running"
+            user_text = _resume_payload_user_text(resume_payload)
+            if session_service is not None and user_text:
+                await session_service.append_user_message(
+                    thread_id=payload.thread_id,
+                    content=user_text,
+                )
+            async for chunk in stream_resumed_agent_events(
                 thread_id=payload.thread_id,
                 resume_payload=resume_payload,
                 model=model,
                 search_mode=mode_info,
                 agent_id=agent_id,
-            ),
+            ):
+                if isinstance(chunk, str) and chunk.startswith("0:"):
+                    try:
+                        payload_obj = json.loads(chunk[2:].strip())
+                    except json.JSONDecodeError:
+                        payload_obj = {}
+                    event_type = str(payload_obj.get("type") or "")
+                    event_data = payload_obj.get("data") if isinstance(payload_obj.get("data"), dict) else {}
+                    if event_type == "text":
+                        assistant_content += str(event_data.get("content") or "")
+                    elif event_type == "completion":
+                        assistant_content = str(event_data.get("content") or assistant_content)
+                        final_status = "completed"
+                    elif event_type == "interrupt":
+                        final_status = "interrupted"
+                    elif event_type == "cancelled":
+                        final_status = "cancelled"
+                    elif event_type == "error":
+                        final_status = "failed"
+                    elif event_type == "done":
+                        metrics = dict(event_data.get("metrics") or {})
+                        final_status = "completed" if final_status == "running" else final_status
+                yield chunk
+
+            if session_service is not None:
+                await session_service.finalize_assistant_message(
+                    thread_id=payload.thread_id,
+                    content=assistant_content,
+                    status=final_status,
+                    metrics=metrics,
+                )
+
+        return StreamingResponse(
+            _persisted_resume_stream(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -3409,14 +3547,11 @@ async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
         )
 
     try:
-        from common.session_manager import get_session_manager
-
-        manager = get_session_manager(checkpointer)
-        session_state = await manager.aget_session_state(thread_id)
+        session_state = await get_thread_runtime_state(checkpointer, thread_id)
         if not session_state:
             raise ValueError("session not found")
 
-        artifacts = session_state.deep_research_artifacts or {}
+        artifacts = extract_deep_research_artifacts(session_state) or {}
         if not isinstance(artifacts, dict):
             raise TypeError("deep_research_artifacts is not a dict")
 
@@ -3845,9 +3980,7 @@ async def export_report_endpoint(
         format_lower = format.lower().strip()
 
         if format_lower == "json":
-            from common.session_manager import SessionManager
-
-            deep_research_artifacts = SessionManager(checkpointer=object())._extract_deep_research_artifacts(state) or {}
+            deep_research_artifacts = extract_deep_research_artifacts(state) or {}
             if not isinstance(deep_research_artifacts, dict):
                 deep_research_artifacts = {}
 
@@ -4130,11 +4263,55 @@ class SessionSummary(BaseModel):
     has_report: bool
     revision_count: int
     message_count: int
+    title: Optional[str] = None
+    summary: str = ""
+    is_pinned: bool = False
+    tags: List[str] = Field(default_factory=list)
 
 
 class SessionsListResponse(BaseModel):
     count: int
     sessions: List[SessionSummary]
+
+
+class SessionMessagePayload(BaseModel):
+    id: str
+    role: str
+    content: str
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    sources: List[Dict[str, Any]] = Field(default_factory=list)
+    tool_invocations: List[Dict[str, Any]] = Field(default_factory=list)
+    process_events: List[Dict[str, Any]] = Field(default_factory=list)
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class SessionSnapshotSessionPayload(BaseModel):
+    thread_id: str
+    title: str
+    status: str
+    route: str
+    created_at: str
+    updated_at: str
+    summary: str = ""
+    is_pinned: bool = False
+    tags: List[str] = Field(default_factory=list)
+
+
+class SessionSnapshotResponse(BaseModel):
+    session: SessionSnapshotSessionPayload
+    messages: List[SessionMessagePayload] = Field(default_factory=list)
+    pending_interrupt: Optional[Dict[str, Any]] = None
+    can_resume: bool = False
+    checkpoint_cleanup_pending: bool = False
+
+
+class SessionPatchRequest(BaseModel):
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    is_pinned: Optional[bool] = None
+    tags: Optional[List[str]] = None
 
 
 class EvidenceSource(BaseModel):
@@ -4232,23 +4409,33 @@ async def list_sessions(
         limit: Maximum sessions to return
         status: Filter by status (pending, running, completed, cancelled)
     """
-    if not checkpointer:
-        raise HTTPException(status_code=400, detail="No checkpointer configured")
+    if session_service is None:
+        raise HTTPException(status_code=503, detail="Session service is not configured")
 
     try:
-        from common.session_manager import get_session_manager
-
-        manager = get_session_manager(checkpointer)
         internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
         user_filter = None
         if internal_key:
             user_filter = (getattr(request.state, "principal_id", "") or "").strip() or "internal"
-        sessions = await manager.alist_sessions(limit=limit, status_filter=status, user_id_filter=user_filter)
+        sessions = await session_service.list_sessions(limit=limit, user_id=user_filter)
 
         session_payloads = []
         for session in sessions:
-            payload = session.to_dict()
-            payload["route"] = _canonical_chat_mode(payload.get("route"))
+            payload = {
+                "thread_id": session.get("thread_id", ""),
+                "status": session.get("status", ""),
+                "topic": session.get("title") or session.get("summary") or "",
+                "created_at": session.get("created_at", ""),
+                "updated_at": session.get("updated_at", ""),
+                "route": _canonical_chat_mode(session.get("route")),
+                "has_report": False,
+                "revision_count": 0,
+                "message_count": 0,
+                "title": session.get("title"),
+                "summary": session.get("summary") or "",
+                "is_pinned": bool(session.get("is_pinned")),
+                "tags": list(session.get("tags") or []),
+            }
             session_payloads.append(payload)
 
         return {
@@ -4266,30 +4453,37 @@ async def get_session(thread_id: str, request: Request):
     """
     Get session info by thread ID.
     """
-    if not checkpointer:
-        raise HTTPException(status_code=400, detail="No checkpointer configured")
+    if session_service is None:
+        raise HTTPException(status_code=503, detail="Session service is not configured")
 
     try:
-        from common.session_manager import get_session_manager
-
-        manager = get_session_manager(checkpointer)
-
-        internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
-        if internal_key:
-            principal_id = (getattr(request.state, "principal_id", "") or "").strip()
-            session_state = await manager.aget_session_state(thread_id)
-            if session_state and isinstance(session_state.state, dict):
-                owner = session_state.state.get("user_id")
-                if isinstance(owner, str) and owner.strip() and owner.strip() != principal_id:
-                    raise HTTPException(status_code=403, detail="Forbidden")
-
-        session = await manager.aget_session(thread_id)
+        session = await session_service.get_session(thread_id)
 
         if not session:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
-        payload = session.to_dict()
-        payload["route"] = _canonical_chat_mode(payload.get("route"))
+        internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+        if internal_key:
+            principal_id = (getattr(request.state, "principal_id", "") or "").strip()
+            owner = session.get("user_id")
+            if isinstance(owner, str) and owner.strip() and owner.strip() != principal_id:
+                raise HTTPException(status_code=403, detail="Forbidden")
+
+        payload = {
+            "thread_id": session.get("thread_id", ""),
+            "status": session.get("status", ""),
+            "topic": session.get("title") or session.get("summary") or "",
+            "created_at": session.get("created_at", ""),
+            "updated_at": session.get("updated_at", ""),
+            "route": _canonical_chat_mode(session.get("route")),
+            "has_report": False,
+            "revision_count": 0,
+            "message_count": 0,
+            "title": session.get("title"),
+            "summary": session.get("summary") or "",
+            "is_pinned": bool(session.get("is_pinned")),
+            "tags": list(session.get("tags") or []),
+        }
         return payload
 
     except HTTPException:
@@ -4299,31 +4493,75 @@ async def get_session(thread_id: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/sessions/{thread_id}/snapshot", response_model=SessionSnapshotResponse)
+async def get_session_snapshot(thread_id: str, request: Request):
+    """
+    Get session snapshot for chat restoration.
+    """
+    if session_service is None:
+        raise HTTPException(status_code=503, detail="Session service is not configured")
+
+    try:
+        await _require_thread_owner(request, thread_id)
+        snapshot = await session_service.load_snapshot(thread_id)
+        if not snapshot:
+            raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
+        return snapshot
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get session snapshot error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/api/sessions/{thread_id}")
+async def patch_session(thread_id: str, request: Request, payload: SessionPatchRequest):
+    """
+    Update session metadata.
+    """
+    if session_service is None:
+        raise HTTPException(status_code=503, detail="Session service is not configured")
+
+    try:
+        await _require_thread_owner(request, thread_id)
+        updated = await session_service.update_session_metadata(
+            thread_id,
+            payload.model_dump(exclude_none=True),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Patch session error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/sessions/{thread_id}/state")
 async def get_session_state(thread_id: str, request: Request):
     """
     Get full session state snapshot.
     """
-    if not checkpointer:
-        raise HTTPException(status_code=400, detail="No checkpointer configured")
-
     try:
-        from common.session_manager import get_session_manager
-
-        manager = get_session_manager(checkpointer)
-        state = await manager.aget_session_state(thread_id)
-
+        state = await get_thread_runtime_state(checkpointer, thread_id)
         if not state:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
         internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
         if internal_key:
             principal_id = (getattr(request.state, "principal_id", "") or "").strip()
-            owner = state.state.get("user_id") if isinstance(state.state, dict) else None
+            owner = state.get("user_id") if isinstance(state, dict) else None
             if isinstance(owner, str) and owner.strip() and owner.strip() != principal_id:
                 raise HTTPException(status_code=403, detail="Forbidden")
 
-        payload = state.to_dict()
+        payload = {
+            "thread_id": thread_id,
+            "checkpoint_ts": "",
+            "parent_checkpoint_id": None,
+            "state": state,
+            "deep_research_artifacts": extract_deep_research_artifacts(state),
+        }
         state_payload = payload.get("state")
         if isinstance(state_payload, dict):
             state_payload["route"] = _mode_info_from_session_state(state_payload).get("mode", "agent")
@@ -4341,25 +4579,19 @@ async def get_session_evidence(thread_id: str, request: Request):
     """
         Get evidence artifacts (sources + section drafts + quality summary) for a session.
     """
-    if not checkpointer:
-        raise HTTPException(status_code=400, detail="No checkpointer configured")
-
     try:
-        from common.session_manager import get_session_manager
-
-        manager = get_session_manager(checkpointer)
-        session_state = await manager.aget_session_state(thread_id)
-        if not session_state:
+        state = await get_thread_runtime_state(checkpointer, thread_id)
+        if not state:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
         internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
         if internal_key:
             principal_id = (getattr(request.state, "principal_id", "") or "").strip()
-            owner = session_state.state.get("user_id") if isinstance(session_state.state, dict) else None
+            owner = state.get("user_id") if isinstance(state, dict) else None
             if isinstance(owner, str) and owner.strip() and owner.strip() != principal_id:
                 raise HTTPException(status_code=403, detail="Forbidden")
 
-        artifacts = session_state.deep_research_artifacts or {}
+        artifacts = extract_deep_research_artifacts(state) or {}
         if not isinstance(artifacts, dict):
             artifacts = {}
 
@@ -4415,24 +4647,21 @@ async def resume_session(
         raise HTTPException(status_code=400, detail="No checkpointer configured")
 
     try:
-        from common.session_manager import get_session_manager
-
         await _require_thread_owner(request, thread_id)
 
-        manager = get_session_manager(checkpointer)
-
         # Check if session can be resumed
-        can_resume, reason = await manager.acan_resume(thread_id)
+        can_resume, reason = await can_resume_thread(checkpointer, thread_id)
         if not can_resume:
             raise HTTPException(status_code=400, detail=reason)
 
         # Get current state
-        state = await manager.aget_session_state(thread_id)
+        state = await get_thread_runtime_state(checkpointer, thread_id)
         if not state:
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
-        restored_state = await manager.abuild_resume_state(
-            thread_id=thread_id,
+        restored_state = await build_resume_state(
+            checkpointer,
+            thread_id,
             additional_input=payload.additional_input if payload else None,
             update_state=payload.update_state if payload else None,
         )
@@ -4486,8 +4715,8 @@ async def resume_session(
             "status": "ready_to_resume",
             "message": f"Session {thread_id} is ready to resume. Use the streaming endpoint with this thread_id.",
             "current_state": {
-                "route": state.state.get("route"),
-                "has_report": bool(state.state.get("final_report")),
+                "route": state.get("route"),
+                "has_report": bool(state.get("final_report")),
                 "has_deep_research_artifacts": bool(deep_research_artifacts),
                 "deep_research_queries": len(queries) if isinstance(queries, list) else 0,
             },
@@ -4517,24 +4746,12 @@ async def delete_session(thread_id: str, request: Request):
     """
     Delete a research session.
     """
-    if not checkpointer:
-        raise HTTPException(status_code=400, detail="No checkpointer configured")
+    if session_service is None:
+        raise HTTPException(status_code=503, detail="Session service is not configured")
 
     try:
-        from common.session_manager import get_session_manager
-
         await _require_thread_owner(request, thread_id)
-
-        manager = get_session_manager(checkpointer)
-        success = await manager.adelete_session(thread_id)
-
-        if not success:
-            raise HTTPException(status_code=400, detail=f"Failed to delete session: {thread_id}")
-
-        return {
-            "success": True,
-            "message": f"Session {thread_id} deleted",
-        }
+        return await session_service.delete_session(thread_id)
 
     except HTTPException:
         raise
@@ -4623,12 +4840,8 @@ async def get_share(share_id: str):
         # Get session state if checkpointer available
         session_data = None
         if checkpointer:
-            from common.session_manager import get_session_manager
-
-            manager = get_session_manager(checkpointer)
-            session_state = await manager.aget_session_state(link["thread_id"])
-            if session_state and isinstance(session_state.state, dict):
-                state = session_state.state
+            state = await get_thread_runtime_state(checkpointer, link["thread_id"])
+            if state and isinstance(state, dict):
                 raw_messages = state.get("messages", [])
                 messages = []
                 if isinstance(raw_messages, list) and raw_messages:
@@ -4755,25 +4968,27 @@ async def get_versions(thread_id: str, request: Request):
 async def create_version(thread_id: str, request: Request, label: Optional[str] = None):
     """Create a version snapshot of a session."""
     try:
-        if not checkpointer:
-            raise HTTPException(status_code=400, detail="No checkpointer configured")
+        if session_service is None:
+            raise HTTPException(status_code=503, detail="Session service is not configured")
 
         await _require_thread_owner(request, thread_id)
 
         from common.collaboration import save_version
-        from common.session_manager import get_session_manager
 
-        manager = get_session_manager(checkpointer)
-        session = await manager.aget_session(thread_id)
-        if not session:
+        snapshot = await session_service.load_snapshot(thread_id)
+        if not snapshot:
             raise HTTPException(status_code=404, detail="Session not found")
 
         # Create snapshot from session state
         state_snapshot = {
-            "thread_id": session.thread_id,
-            "title": session.title,
-            "messages": session.messages,
-            "metadata": getattr(session, "metadata", {}),
+            "thread_id": snapshot["session"]["thread_id"],
+            "title": snapshot["session"]["title"],
+            "messages": snapshot["messages"],
+            "metadata": {
+                "status": snapshot["session"]["status"],
+                "route": snapshot["session"]["route"],
+                "can_resume": snapshot.get("can_resume", False),
+            },
         }
 
         version = save_version(thread_id, state_snapshot, label)
@@ -5624,12 +5839,9 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
 
         if checkpointer:
             try:
-                from common.session_manager import get_session_manager
-
-                manager = get_session_manager(checkpointer)
-                session_state = await manager.aget_session_state(thread_id)
-                if session_state and isinstance(session_state.state, dict):
-                    persisted_owner = session_state.state.get("user_id")
+                session_state = await get_thread_runtime_state(checkpointer, thread_id)
+                if session_state and isinstance(session_state, dict):
+                    persisted_owner = session_state.get("user_id")
                     if (
                         isinstance(persisted_owner, str)
                         and persisted_owner.strip()

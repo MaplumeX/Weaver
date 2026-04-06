@@ -4,11 +4,11 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import main
-from common.session_manager import SessionState
 
 
 @pytest.mark.asyncio
-async def test_session_evidence_unknown_session_returns_404():
+async def test_session_evidence_unknown_session_returns_404(monkeypatch):
+    monkeypatch.setattr(main, "checkpointer", None)
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         resp = await ac.get("/api/sessions/nope/evidence")
@@ -48,23 +48,13 @@ async def test_session_evidence_includes_fetched_pages_and_passages(monkeypatch)
             }
         ],
     }
-    state = SessionState(
-        thread_id="thread-evidence",
-        state={"route": "deep", "deep_research_artifacts": artifacts},
-        checkpoint_ts="",
-        parent_checkpoint_id=None,
-        deep_research_artifacts=artifacts,
-    )
-
-    class FakeManager:
-        @staticmethod
-        async def aget_session_state(thread_id: str):
-            if thread_id != "thread-evidence":
-                return None
-            return state
+    async def fake_get_thread_runtime_state(checkpointer, thread_id: str):
+        if thread_id != "thread-evidence":
+            return None
+        return {"route": "deep", "deep_research_artifacts": artifacts}
 
     monkeypatch.setattr(main, "checkpointer", object())
-    monkeypatch.setattr("common.session_manager.get_session_manager", lambda checkpointer: FakeManager())
+    monkeypatch.setattr(main, "get_thread_runtime_state", fake_get_thread_runtime_state)
 
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

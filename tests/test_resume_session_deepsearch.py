@@ -14,7 +14,6 @@ if str(ROOT) not in sys.path:
 os.environ["DATABASE_URL"] = ""
 
 import main
-from common.session_manager import SessionState
 
 
 @pytest.mark.asyncio
@@ -27,38 +26,27 @@ async def test_resume_session_returns_deep_research_artifact_context(monkeypatch
         "query_coverage": {"score": 0.8, "covered": 2, "total": 3},
         "freshness_summary": {"known_count": 3, "fresh_count": 1, "fresh_ratio": 0.33},
     }
-    state = SessionState(
-        thread_id="thread-123",
-        state={
+    async def fake_can_resume_thread(checkpointer, thread_id: str):
+        return True, "ok"
+
+    async def fake_get_thread_runtime_state(checkpointer, thread_id: str):
+        return {
             "route": "deep",
             "final_report": "",
             "deep_research_artifacts": artifacts,
-        },
-        checkpoint_ts="",
-        parent_checkpoint_id=None,
-        deep_research_artifacts=artifacts,
-    )
+        }
 
-    class FakeManager:
-        @staticmethod
-        async def acan_resume(thread_id: str):
-            return True, "ok"
-
-        @staticmethod
-        async def aget_session_state(thread_id: str):
-            return state
-
-        @staticmethod
-        async def abuild_resume_state(thread_id: str, additional_input=None, update_state=None):
-            restored = dict(state.state)
-            restored["resumed_from_checkpoint"] = True
-            return restored
+    async def fake_build_resume_state(checkpointer, thread_id: str, *, additional_input=None, update_state=None):
+        return {
+            "route": "deep",
+            "deep_research_artifacts": artifacts,
+            "resumed_from_checkpoint": True,
+        }
 
     monkeypatch.setattr(main, "checkpointer", object())
-    monkeypatch.setattr(
-        "common.session_manager.get_session_manager",
-        lambda checkpointer: FakeManager(),
-    )
+    monkeypatch.setattr(main, "can_resume_thread", fake_can_resume_thread)
+    monkeypatch.setattr(main, "get_thread_runtime_state", fake_get_thread_runtime_state)
+    monkeypatch.setattr(main, "build_resume_state", fake_build_resume_state)
 
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -82,37 +70,26 @@ async def test_resume_session_uses_quality_summary_coverage_fallback(monkeypatch
         "queries": ["q1"],
         "quality_summary": {"query_coverage_score": 0.6, "summary_count": 1},
     }
-    state = SessionState(
-        thread_id="thread-coverage-fallback",
-        state={
+    async def fake_can_resume_thread(checkpointer, thread_id: str):
+        return True, "ok"
+
+    async def fake_get_thread_runtime_state(checkpointer, thread_id: str):
+        return {
             "route": "deep",
             "deep_research_artifacts": artifacts,
-        },
-        checkpoint_ts="",
-        parent_checkpoint_id=None,
-        deep_research_artifacts=artifacts,
-    )
+        }
 
-    class FakeManager:
-        @staticmethod
-        async def acan_resume(thread_id: str):
-            return True, "ok"
-
-        @staticmethod
-        async def aget_session_state(thread_id: str):
-            return state
-
-        @staticmethod
-        async def abuild_resume_state(thread_id: str, additional_input=None, update_state=None):
-            restored = dict(state.state)
-            restored["resumed_from_checkpoint"] = True
-            return restored
+    async def fake_build_resume_state(checkpointer, thread_id: str, *, additional_input=None, update_state=None):
+        return {
+            "route": "deep",
+            "deep_research_artifacts": artifacts,
+            "resumed_from_checkpoint": True,
+        }
 
     monkeypatch.setattr(main, "checkpointer", object())
-    monkeypatch.setattr(
-        "common.session_manager.get_session_manager",
-        lambda checkpointer: FakeManager(),
-    )
+    monkeypatch.setattr(main, "can_resume_thread", fake_can_resume_thread)
+    monkeypatch.setattr(main, "get_thread_runtime_state", fake_get_thread_runtime_state)
+    monkeypatch.setattr(main, "build_resume_state", fake_build_resume_state)
 
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

@@ -1,8 +1,15 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-import common.session_manager as session_manager_mod
 import main
+
+
+class FakeSessionService:
+    def __init__(self, session_by_thread_id):
+        self._session_by_thread_id = session_by_thread_id
+
+    async def get_session(self, thread_id: str):
+        return self._session_by_thread_id.get(thread_id)
 
 
 class _CheckpointTuple:
@@ -15,10 +22,6 @@ class _CheckpointTuple:
 class _FakeCheckpointer:
     def __init__(self, by_thread_id):
         self._by_thread_id = by_thread_id
-        self.storage = {}
-        for thread_id, state in by_thread_id.items():
-            cfg = _Cfg(thread_id)
-            self.storage[cfg] = {"channel_values": state}
 
     def get_tuple(self, config):
         thread_id = (config or {}).get("configurable", {}).get("thread_id")
@@ -27,29 +30,30 @@ class _FakeCheckpointer:
         return _CheckpointTuple(self._by_thread_id[thread_id])
 
 
-class _Cfg:
-    def __init__(self, thread_id: str):
-        self.configurable = {"thread_id": thread_id}
-
-    def __hash__(self) -> int:  # pragma: no cover
-        return hash(self.configurable["thread_id"])
-
-    def __eq__(self, other: object) -> bool:  # pragma: no cover
-        return isinstance(other, _Cfg) and other.configurable == self.configurable
-
-
 @pytest.mark.asyncio
 async def test_session_detail_forbidden_for_other_user_when_internal_auth_enabled(monkeypatch):
     monkeypatch.setitem(main.settings.__dict__, "internal_api_key", "test-key")
     monkeypatch.setitem(main.settings.__dict__, "auth_user_header", "X-Weaver-User")
-
-    fake_checkpointer = _FakeCheckpointer(
-        by_thread_id={
-            "thread_alice": {"user_id": "alice", "input": "hello", "route": "direct"},
-        }
+    monkeypatch.setattr(
+        main,
+        "session_service",
+        FakeSessionService(
+            {
+                "thread_alice": {
+                    "thread_id": "thread_alice",
+                    "user_id": "alice",
+                    "title": "hello",
+                    "summary": "",
+                    "status": "running",
+                    "route": "agent",
+                    "created_at": "2026-04-06T00:00:00Z",
+                    "updated_at": "2026-04-06T00:00:00Z",
+                }
+            }
+        ),
+        raising=False,
     )
-    monkeypatch.setattr(main, "checkpointer", fake_checkpointer)
-    monkeypatch.setattr(session_manager_mod, "_session_manager", None)
+    monkeypatch.setattr(main, "checkpointer", _FakeCheckpointer({"thread_alice": {"user_id": "alice"}}))
 
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -75,7 +79,6 @@ async def test_session_state_forbidden_for_other_user_when_internal_auth_enabled
         }
     )
     monkeypatch.setattr(main, "checkpointer", fake_checkpointer)
-    monkeypatch.setattr(session_manager_mod, "_session_manager", None)
 
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -101,7 +104,6 @@ async def test_session_evidence_forbidden_for_other_user_when_internal_auth_enab
         }
     )
     monkeypatch.setattr(main, "checkpointer", fake_checkpointer)
-    monkeypatch.setattr(session_manager_mod, "_session_manager", None)
 
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
