@@ -54,6 +54,8 @@ class RecordingAsyncConn:
             )
             if duplicate is None:
                 self.rows["graph_checkpoint_writes"].append(row)
+            elif "DO UPDATE SET" in sql:
+                duplicate.update(row)
         elif "DELETE FROM graph_checkpoint_writes" in sql:
             thread_id = params[0]
             self.rows["graph_checkpoint_writes"] = [
@@ -159,6 +161,9 @@ class RecordingAsyncConn:
             for row in self.rows["graph_checkpoints"]
             if row["thread_id"] == params[0] and row["checkpoint_ns"] == params[1]
         ]
+        if "ORDER BY checkpoint_id DESC" in sql:
+            ordered = sorted(candidates, key=lambda row: str(row["checkpoint_id"]), reverse=True)
+            return ordered[0] if ordered else None
         return candidates[-1] if candidates else None
 
     async def fetch(self, sql: str, params: tuple | None = None):
@@ -190,6 +195,12 @@ class RecordingAsyncConn:
                 if (not thread_id or row["thread_id"] == thread_id)
                 and row["checkpoint_ns"] == checkpoint_ns
             ]
+            if "ORDER BY checkpoint_id DESC" in sql:
+                return sorted(
+                    filtered,
+                    key=lambda row: str(row["checkpoint_id"]),
+                    reverse=True,
+                )[:limit]
             return list(reversed(filtered))[:limit]
         return []
 

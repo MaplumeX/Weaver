@@ -68,6 +68,13 @@ For each boundary:
 
 **Good**: Each layer only knows its neighbors
 
+### Mistake 4: Reimplementing A Framework Contract Partially
+
+**Bad**: Copying a framework-owned persistence interface but changing ordering,
+idempotency, or overwrite semantics
+
+**Good**: Match the framework's contract exactly and add a round-trip resume test
+
 ---
 
 ## Checklist for Cross-Layer Features
@@ -82,6 +89,8 @@ After implementation:
 - [ ] Tested with edge cases (null, empty, invalid)
 - [ ] Verified error handling at each boundary
 - [ ] Checked data survives round-trip
+- [ ] If mirroring a framework-owned persistence contract, verified ordering and
+      overwrite semantics with a regression test
 
 ---
 

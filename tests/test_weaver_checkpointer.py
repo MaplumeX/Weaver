@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import pytest
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-
-from tests.persistence_fixtures import build_fake_pg_conn
 
 from common.weaver_checkpointer import WeaverPostgresCheckpointer
+from tests.persistence_fixtures import build_fake_pg_conn
 
 
 @pytest.mark.asyncio
@@ -43,10 +41,57 @@ async def test_put_writes_is_idempotent_for_same_task_and_index() -> None:
 
 
 @pytest.mark.asyncio
+async def test_special_writes_overwrite_stale_interrupt_payload_for_same_task() -> None:
+    conn = build_fake_pg_conn()
+    saver = WeaverPostgresCheckpointer(conn)
+
+    config = {
+        "configurable": {
+            "thread_id": "thread-interrupt-upsert",
+            "checkpoint_ns": "",
+            "checkpoint_id": "cp-1",
+        }
+    }
+
+    await saver.aput_writes(
+        config,
+        [("__interrupt__", [{"checkpoint": "deep_research_clarify"}])],
+        task_id="task-1",
+        task_path="root",
+    )
+    await saver.aput_writes(
+        config,
+        [("__interrupt__", [{"checkpoint": "deep_research_scope_review"}])],
+        task_id="task-1",
+        task_path="root",
+    )
+
+    checkpoint_row = {
+        "configurable": {
+            "thread_id": "thread-interrupt-upsert",
+            "checkpoint_ns": "",
+            "checkpoint_id": "cp-1",
+        }
+    }
+    await saver.aput(
+        checkpoint_row,
+        {"id": "cp-1", "ts": "2026-04-06T00:00:00Z", "channel_values": {}},
+        {"created_at": "2026-04-06T00:00:00Z"},
+        {},
+    )
+
+    checkpoint_tuple = await saver.aget_tuple(checkpoint_row)
+
+    assert checkpoint_tuple is not None
+    assert checkpoint_tuple.pending_writes == [
+        ("task-1", "__interrupt__", [{"checkpoint": "deep_research_scope_review"}])
+    ]
+
+
+@pytest.mark.asyncio
 async def test_get_tuple_returns_latest_checkpoint_when_checkpoint_id_missing() -> None:
     conn = build_fake_pg_conn()
     saver = WeaverPostgresCheckpointer(conn)
-    serde = JsonPlusSerializer()
     base = {"configurable": {"thread_id": "thread-7", "checkpoint_ns": ""}}
 
     await saver.aput(
@@ -74,6 +119,52 @@ async def test_get_tuple_returns_latest_checkpoint_when_checkpoint_id_missing() 
     assert checkpoint_tuple.checkpoint["id"] == "cp-2"
     assert checkpoint_tuple.metadata["created_at"] == "2026-04-06T00:01:00Z"
     assert checkpoint_tuple.pending_writes == [("task-1", "channel_a", {"value": 1})]
+
+
+@pytest.mark.asyncio
+async def test_get_tuple_prefers_highest_checkpoint_id_not_last_inserted() -> None:
+    conn = build_fake_pg_conn()
+    saver = WeaverPostgresCheckpointer(conn)
+    base = {"configurable": {"thread_id": "thread-ordered", "checkpoint_ns": ""}}
+
+    latest_checkpoint_id = "1ef4f797-8335-6428-8001-8a1503f9b876"
+    older_checkpoint_id = "1ef4f797-8335-6428-8001-8a1503f9b875"
+
+    await saver.aput(
+        {**base, "configurable": {**base["configurable"], "checkpoint_id": latest_checkpoint_id}},
+        {"id": latest_checkpoint_id, "ts": "2026-04-06T00:01:00Z", "channel_values": {}},
+        {"created_at": "2026-04-06T00:01:00Z"},
+        {},
+    )
+    await saver.aput_writes(
+        {**base, "configurable": {**base["configurable"], "checkpoint_id": latest_checkpoint_id}},
+        [("__interrupt__", [{"checkpoint": "deep_research_scope_review"}])],
+        task_id="task-latest",
+        task_path="root",
+    )
+
+    # Insert an older checkpoint after the latest one to simulate storage rows
+    # whose insertion order does not match the checkpoint's logical ordering.
+    await saver.aput(
+        {**base, "configurable": {**base["configurable"], "checkpoint_id": older_checkpoint_id}},
+        {"id": older_checkpoint_id, "ts": "2026-04-06T00:00:00Z", "channel_values": {}},
+        {"created_at": "2026-04-06T00:00:00Z"},
+        {},
+    )
+    await saver.aput_writes(
+        {**base, "configurable": {**base["configurable"], "checkpoint_id": older_checkpoint_id}},
+        [("__interrupt__", [{"checkpoint": "deep_research_clarify"}])],
+        task_id="task-older",
+        task_path="root",
+    )
+
+    checkpoint_tuple = await saver.aget_tuple(base)
+
+    assert checkpoint_tuple is not None
+    assert checkpoint_tuple.checkpoint["id"] == latest_checkpoint_id
+    assert checkpoint_tuple.pending_writes == [
+        ("task-latest", "__interrupt__", [{"checkpoint": "deep_research_scope_review"}])
+    ]
 
 
 @pytest.mark.asyncio

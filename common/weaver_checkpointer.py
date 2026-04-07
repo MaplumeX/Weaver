@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-from typing import Any, AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
-from langgraph.checkpoint.base import BaseCheckpointSaver, CheckpointTuple
+from langgraph.checkpoint.base import WRITES_IDX_MAP, BaseCheckpointSaver, CheckpointTuple
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from common.persistence_schema import CHECKPOINT_DDL_STATEMENTS
@@ -42,6 +42,49 @@ class WeaverPostgresCheckpointer(BaseCheckpointSaver[str]):
             raise RuntimeError("sync_conn is required for synchronous checkpoint access")
         cursor = self.sync_conn.execute(sql, params)
         return list(cursor.fetchall())
+
+    def _dump_writes(
+        self,
+        thread_id: str,
+        checkpoint_ns: str,
+        checkpoint_id: str,
+        task_id: str,
+        task_path: str,
+        writes: Sequence[tuple[str, Any]],
+    ) -> list[tuple[Any, ...]]:
+        return [
+            (
+                thread_id,
+                checkpoint_ns,
+                checkpoint_id,
+                task_id,
+                task_path,
+                WRITES_IDX_MAP.get(channel, write_idx),
+                channel,
+                *self.serde.dumps_typed(value),
+            )
+            for write_idx, (channel, value) in enumerate(writes)
+        ]
+
+    @staticmethod
+    def _writes_sql(writes: Sequence[tuple[str, Any]]) -> str:
+        base = (
+            "INSERT INTO graph_checkpoint_writes "
+            "(thread_id, checkpoint_ns, checkpoint_id, task_id, task_path, write_idx, channel, value_type, value_payload) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        )
+        if all(channel in WRITES_IDX_MAP for channel, _ in writes):
+            return (
+                base
+                + "ON CONFLICT (thread_id, checkpoint_ns, checkpoint_id, task_id, write_idx) DO UPDATE SET "
+                + "channel = EXCLUDED.channel, "
+                + "value_type = EXCLUDED.value_type, "
+                + "value_payload = EXCLUDED.value_payload"
+            )
+        return (
+            base
+            + "ON CONFLICT (thread_id, checkpoint_ns, checkpoint_id, task_id, write_idx) DO NOTHING"
+        )
 
     async def aput(
         self,
@@ -90,24 +133,18 @@ class WeaverPostgresCheckpointer(BaseCheckpointSaver[str]):
         thread_id = str(config["configurable"]["thread_id"])
         checkpoint_ns = str(config["configurable"].get("checkpoint_ns", ""))
         checkpoint_id = str(config["configurable"]["checkpoint_id"])
-        for write_idx, (channel, value) in enumerate(writes):
-            value_type, value_payload = self.serde.dumps_typed(value)
+        query = self._writes_sql(writes)
+        for params in self._dump_writes(
+            thread_id,
+            checkpoint_ns,
+            checkpoint_id,
+            task_id,
+            task_path,
+            writes,
+        ):
             await self.conn.execute(
-                "INSERT INTO graph_checkpoint_writes "
-                "(thread_id, checkpoint_ns, checkpoint_id, task_id, task_path, write_idx, channel, value_type, value_payload) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
-                "ON CONFLICT (thread_id, checkpoint_ns, checkpoint_id, task_id, write_idx) DO NOTHING",
-                (
-                    thread_id,
-                    checkpoint_ns,
-                    checkpoint_id,
-                    task_id,
-                    task_path,
-                    write_idx,
-                    channel,
-                    value_type,
-                    value_payload,
-                ),
+                query,
+                params,
             )
 
     async def aget_tuple(self, config: dict[str, Any]) -> CheckpointTuple | None:
@@ -124,7 +161,7 @@ class WeaverPostgresCheckpointer(BaseCheckpointSaver[str]):
         else:
             row = await self._fetchrow(
                 "SELECT * FROM graph_checkpoints WHERE thread_id = %s AND checkpoint_ns = %s "
-                "ORDER BY created_at DESC LIMIT 1",
+                "ORDER BY checkpoint_id DESC LIMIT 1",
                 (thread_id, checkpoint_ns),
             )
 
@@ -182,7 +219,7 @@ class WeaverPostgresCheckpointer(BaseCheckpointSaver[str]):
         rows = await self._fetchall(
             "SELECT thread_id, checkpoint_ns, checkpoint_id FROM graph_checkpoints "
             "WHERE (%s = '' OR thread_id = %s) AND checkpoint_ns = %s "
-            "ORDER BY created_at DESC LIMIT %s",
+            "ORDER BY checkpoint_id DESC LIMIT %s",
             (thread_id, thread_id, checkpoint_ns, int(limit or 100)),
         )
         for row in rows:
@@ -254,24 +291,18 @@ class WeaverPostgresCheckpointer(BaseCheckpointSaver[str]):
         thread_id = str(config["configurable"]["thread_id"])
         checkpoint_ns = str(config["configurable"].get("checkpoint_ns", ""))
         checkpoint_id = str(config["configurable"]["checkpoint_id"])
-        for write_idx, (channel, value) in enumerate(writes):
-            value_type, value_payload = self.serde.dumps_typed(value)
+        query = self._writes_sql(writes)
+        for params in self._dump_writes(
+            thread_id,
+            checkpoint_ns,
+            checkpoint_id,
+            task_id,
+            task_path,
+            writes,
+        ):
             self.sync_conn.execute(
-                "INSERT INTO graph_checkpoint_writes "
-                "(thread_id, checkpoint_ns, checkpoint_id, task_id, task_path, write_idx, channel, value_type, value_payload) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
-                "ON CONFLICT (thread_id, checkpoint_ns, checkpoint_id, task_id, write_idx) DO NOTHING",
-                (
-                    thread_id,
-                    checkpoint_ns,
-                    checkpoint_id,
-                    task_id,
-                    task_path,
-                    write_idx,
-                    channel,
-                    value_type,
-                    value_payload,
-                ),
+                query,
+                params,
             )
 
     def get_tuple(self, config: dict[str, Any]) -> CheckpointTuple | None:
@@ -288,7 +319,7 @@ class WeaverPostgresCheckpointer(BaseCheckpointSaver[str]):
         else:
             row = self._sync_fetchrow(
                 "SELECT * FROM graph_checkpoints WHERE thread_id = %s AND checkpoint_ns = %s "
-                "ORDER BY created_at DESC LIMIT 1",
+                "ORDER BY checkpoint_id DESC LIMIT 1",
                 (thread_id, checkpoint_ns),
             )
 
@@ -346,7 +377,7 @@ class WeaverPostgresCheckpointer(BaseCheckpointSaver[str]):
         rows = self._sync_fetchall(
             "SELECT thread_id, checkpoint_ns, checkpoint_id FROM graph_checkpoints "
             "WHERE (%s = '' OR thread_id = %s) AND checkpoint_ns = %s "
-            "ORDER BY created_at DESC LIMIT %s",
+            "ORDER BY checkpoint_id DESC LIMIT %s",
             (thread_id, thread_id, checkpoint_ns, int(limit or 100)),
         )
         result: list[CheckpointTuple] = []
