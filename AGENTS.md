@@ -24,3 +24,21 @@ Recent history uses short imperative subjects and frequent Conventional Commit p
 
 ## Security & Agent Workflow
 Copy `.env.example` and `web/.env.local.example` for local setup; never commit real secrets; run `make secret-scan` before opening a PR. This repository also tracks work with `bd` (`bd ready`, `bd show <id>`, `bd update <id> --status in_progress`), so keep issue status aligned with code changes.
+<!-- TRELLIS:START -->
+# Trellis Instructions
+
+These instructions are for AI assistants working in this project.
+
+Use the `/trellis:start` command when starting a new session to:
+- Initialize your developer identity
+- Understand current project context
+- Read relevant guidelines
+
+Use `@/.trellis/` to learn:
+- Development workflow (`workflow.md`)
+- Project structure guidelines (`spec/`)
+- Developer workspace (`workspace/`)
+
+Keep this managed block so 'trellis update' can refresh the instructions.
+
+<!-- TRELLIS:END -->
