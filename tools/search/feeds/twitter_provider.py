@@ -8,9 +8,9 @@ Supports:
 - Rate limit handling (450 requests/15min)
 """
 
+import importlib.util
 import logging
 import time
-from typing import Any, Dict, List, Optional
 
 from common.config import settings
 from tools.search.multi_search import SearchProvider, SearchResult
@@ -44,14 +44,9 @@ class TwitterProvider(SearchProvider):
         bearer_token = getattr(settings, "twitter_bearer_token", "")
         if not bearer_token:
             return False
-        try:
-            import tweepy
+        return importlib.util.find_spec("tweepy") is not None
 
-            return True
-        except ImportError:
-            return False
-
-    def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
         """
         Search recent tweets (last 7 days).
 
@@ -143,7 +138,7 @@ class TwitterProvider(SearchProvider):
 
     def get_user_tweets(
         self, username: str, max_results: int = 10
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Get recent tweets from a specific user.
 

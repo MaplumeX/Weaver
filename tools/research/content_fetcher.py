@@ -4,8 +4,7 @@ import html
 import ipaddress
 import re
 import threading
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 import requests
@@ -76,7 +75,7 @@ def _extract_title_from_html(text: str) -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _looks_like_javascript_interstitial(text: str) -> bool:
@@ -167,8 +166,8 @@ def _read_response_bytes(resp: object) -> bytes:
     return truncate_bytes(bytes(data), max_bytes=limit)
 
 
-def _extract_body_from_response(resp: object) -> tuple[str, Optional[str], Optional[str], Optional[int], str]:
-    status_code: Optional[int]
+def _extract_body_from_response(resp: object) -> tuple[str, str | None, str | None, int | None, str]:
+    status_code: int | None
     try:
         status_code = int(getattr(resp, "status_code", None))
     except Exception:
@@ -184,7 +183,7 @@ def _extract_body_from_response(resp: object) -> tuple[str, Optional[str], Optio
     else:
         decoded = str(getattr(resp, "text", "") or "")
 
-    markdown: Optional[str] = None
+    markdown: str | None = None
     if "html" in content_type:
         title = _extract_title_from_html(decoded) or None
         text = _strip_html(decoded)
@@ -200,9 +199,9 @@ class ContentFetcher:
     def __init__(
         self,
         *,
-        reader_mode: Optional[str] = None,
-        reader_public_base: Optional[str] = None,
-        reader_self_hosted_base: Optional[str] = None,
+        reader_mode: str | None = None,
+        reader_public_base: str | None = None,
+        reader_self_hosted_base: str | None = None,
     ) -> None:
         self._registry = SourceRegistry()
         self._reader_mode = reader_mode if reader_mode is not None else settings.reader_fallback_mode
@@ -225,7 +224,7 @@ class ContentFetcher:
             return "reader_self_hosted" if self._reader_self_hosted_base else "reader_public"
         return "reader_unknown"
 
-    def _fetch_via_reader(self, canonical_url: str, raw_url: str, *, attempts: int) -> Optional[FetchedPage]:
+    def _fetch_via_reader(self, canonical_url: str, raw_url: str, *, attempts: int) -> FetchedPage | None:
         try:
             client = ReaderClient(
                 mode=self._reader_mode,
@@ -266,7 +265,7 @@ class ContentFetcher:
             )
         return None
 
-    def _fetch_via_crawler(self, canonical_url: str, raw_url: str, *, attempts: int) -> Optional[FetchedPage]:
+    def _fetch_via_crawler(self, canonical_url: str, raw_url: str, *, attempts: int) -> FetchedPage | None:
         mode = str(getattr(settings, "research_fetch_render_mode", "off") or "off").strip().lower()
         if mode == "off":
             return None

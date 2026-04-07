@@ -5,15 +5,15 @@ import os
 import threading
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class AgentProfile(BaseModel):
@@ -32,13 +32,13 @@ class AgentProfile(BaseModel):
     model: str = ""
 
     # Concrete tool allow/block configuration.
-    tools: List[str] = Field(default_factory=list)
-    blocked_tools: List[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    blocked_tools: list[str] = Field(default_factory=list)
 
     # Optional per-agent MCP config override (same shape as MCP_SERVERS JSON).
-    mcp_servers: Optional[Dict[str, Any]] = None
+    mcp_servers: dict[str, Any] | None = None
 
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_utc_now_iso)
     updated_at: str = Field(default_factory=_utc_now_iso)
 
@@ -52,7 +52,7 @@ class AgentsStorePaths:
 _LOCK = threading.Lock()
 
 
-def default_store_paths(project_root: Optional[Path] = None) -> AgentsStorePaths:
+def default_store_paths(project_root: Path | None = None) -> AgentsStorePaths:
     """
     Compute default storage locations for agent profiles.
 
@@ -80,7 +80,7 @@ def _atomic_write_json(path: Path, payload: Any) -> None:
     tmp.replace(path)
 
 
-def load_agents(paths: Optional[AgentsStorePaths] = None) -> List[AgentProfile]:
+def load_agents(paths: AgentsStorePaths | None = None) -> list[AgentProfile]:
     """
     Load agent profiles. Returns empty list if no file exists.
     """
@@ -91,7 +91,7 @@ def load_agents(paths: Optional[AgentsStorePaths] = None) -> List[AgentProfile]:
         raw = json.loads(paths.file.read_text(encoding="utf-8") or "[]")
         if not isinstance(raw, list):
             return []
-        profiles: List[AgentProfile] = []
+        profiles: list[AgentProfile] = []
         for item in raw:
             if not isinstance(item, dict):
                 continue
@@ -102,7 +102,7 @@ def load_agents(paths: Optional[AgentsStorePaths] = None) -> List[AgentProfile]:
         return profiles
 
 
-def save_agents(profiles: List[AgentProfile], paths: Optional[AgentsStorePaths] = None) -> None:
+def save_agents(profiles: list[AgentProfile], paths: AgentsStorePaths | None = None) -> None:
     paths = paths or default_store_paths()
     payload = [p.model_dump(mode="json") for p in profiles]
     with _LOCK:
@@ -112,8 +112,8 @@ def save_agents(profiles: List[AgentProfile], paths: Optional[AgentsStorePaths] 
 def ensure_default_agent(
     *,
     default_profile: AgentProfile,
-    paths: Optional[AgentsStorePaths] = None,
-) -> List[AgentProfile]:
+    paths: AgentsStorePaths | None = None,
+) -> list[AgentProfile]:
     """
     Ensure the store exists and contains `default_profile.id`.
     Returns the full updated list.
@@ -129,19 +129,19 @@ def ensure_default_agent(
     return profiles
 
 
-def get_agent(agent_id: str, paths: Optional[AgentsStorePaths] = None) -> Optional[AgentProfile]:
+def get_agent(agent_id: str, paths: AgentsStorePaths | None = None) -> AgentProfile | None:
     for p in load_agents(paths):
         if p.id == agent_id:
             return p
     return None
 
 
-def upsert_agent(profile: AgentProfile, paths: Optional[AgentsStorePaths] = None) -> AgentProfile:
+def upsert_agent(profile: AgentProfile, paths: AgentsStorePaths | None = None) -> AgentProfile:
     paths = paths or default_store_paths()
     profiles = load_agents(paths)
     now = _utc_now_iso()
 
-    updated: List[AgentProfile] = []
+    updated: list[AgentProfile] = []
     replaced = False
     for p in profiles:
         if p.id != profile.id:
@@ -160,8 +160,8 @@ def upsert_agent(profile: AgentProfile, paths: Optional[AgentsStorePaths] = None
 def delete_agent(
     agent_id: str,
     *,
-    protected_ids: Optional[set[str]] = None,
-    paths: Optional[AgentsStorePaths] = None,
+    protected_ids: set[str] | None = None,
+    paths: AgentsStorePaths | None = None,
 ) -> bool:
     protected_ids = protected_ids or set()
     if agent_id in protected_ids:

@@ -8,7 +8,7 @@ import httpx
 SDK_PYTHON_ROOT = Path(__file__).resolve().parent.parent / "sdk" / "python"
 sys.path.insert(0, str(SDK_PYTHON_ROOT))
 
-from weaver_sdk.client import WeaverApiError, WeaverClient  # noqa: E402
+from weaver_sdk.client import WeaverApiError, WeaverClient
 
 
 def test_sdk_request_json_raises_with_status_and_body() -> None:

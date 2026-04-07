@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, time
 from decimal import Decimal
-import uuid
 from typing import Any
 
 import psycopg

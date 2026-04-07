@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from typing import Any
 
 from agent.prompts.agent_prompts import get_default_agent_prompt
 from agent.prompts.runtime_templates import RUNTIME_PROMPT_TEMPLATES
 from agent.prompts.system_prompts import (
     get_agent_prompt as get_enhanced_agent_prompt,
+)
+from agent.prompts.system_prompts import (
     get_deep_research_prompt as get_enhanced_deep_research_prompt,
+)
+from agent.prompts.system_prompts import (
     get_writer_prompt as get_enhanced_writer_prompt,
 )
-
 
 PromptRenderer = Callable[[dict[str, Any]], str]
 

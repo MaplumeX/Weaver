@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any
 
 
 class ExecutionMode(str, Enum):
@@ -60,7 +61,7 @@ class AgentProfileConfig:
     prompt_variant: str = "full"
 
     @classmethod
-    def from_value(cls, value: Any) -> "AgentProfileConfig":
+    def from_value(cls, value: Any) -> AgentProfileConfig:
         if value is None:
             return cls()
         if isinstance(value, cls):

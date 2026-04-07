@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from fastapi import (
     FastAPI,
@@ -335,7 +335,7 @@ async def log_requests(request: Request, call_next):
         duration = time.time() - start_time
         logger.error(
             f"? Request failed | {request.method} {request.url.path} | "
-            f"ID: {request_id} | Duration: {duration:.3f}s | Error: {str(e)}",
+            f"ID: {request_id} | Duration: {duration:.3f}s | Error: {e!s}",
             exc_info=True,
         )
         if http_requests_total:
@@ -370,7 +370,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Rate Limiting Middleware (in-memory token bucket)
 # ---------------------------------------------------------------------------
-_rate_limit_buckets: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_rate_limit_buckets: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 _RATE_LIMIT_EXEMPT = {"/", "/health", "/metrics", "/docs", "/openapi.json", "/redoc"}
 _rate_limit_cleanup_task: asyncio.Task | None = None
 
@@ -1054,8 +1054,8 @@ def _coerce_search_mode_input(value: Any) -> SearchMode | None:
 class ProviderCircuitSnapshot(BaseModel):
     is_open: bool
     consecutive_failures: int
-    opened_for_seconds: Optional[float] = None
-    resets_in_seconds: Optional[float] = None
+    opened_for_seconds: float | None = None
+    resets_in_seconds: float | None = None
 
 
 class SearchProviderSnapshot(BaseModel):
@@ -1068,13 +1068,13 @@ class SearchProviderSnapshot(BaseModel):
     success_rate: float
     avg_latency_ms: float
     avg_result_quality: float
-    last_error: Optional[str] = None
-    last_error_time: Optional[str] = None
+    last_error: str | None = None
+    last_error_time: str | None = None
     circuit: ProviderCircuitSnapshot
 
 
 class SearchProvidersResponse(BaseModel):
-    providers: List[SearchProviderSnapshot]
+    providers: list[SearchProviderSnapshot]
 
 
 class SearchProvidersResetResponse(BaseModel):
@@ -1089,36 +1089,36 @@ class ToolCatalogMostUsed(BaseModel):
 class ToolCatalogStats(BaseModel):
     total_tools: int
     active_tools: int
-    by_type: Dict[str, int]
-    tags: List[str]
+    by_type: dict[str, int]
+    tags: list[str]
 
 
 class ToolCatalogItem(BaseModel):
     name: str
     description: str = ""
     tool_type: str = ""
-    parameters: Dict[str, Any] = Field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
     module_name: str = ""
     class_name: str = ""
     function_name: str = ""
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class ToolCatalogResponse(BaseModel):
     stats: ToolCatalogStats
-    tools: List[ToolCatalogItem]
+    tools: list[ToolCatalogItem]
 
 
 class AgentHealthResponse(BaseModel):
     agents_count: int
-    agent_ids: List[str]
+    agent_ids: list[str]
     tool_catalog_total_tools: int
     enhanced_tool_discovery_enabled: bool
     enhanced_tool_discovery_recursive: bool
     rag_enabled: bool
     search_strategy: str
-    search_engines: List[str]
-    search_providers_available: List[str]
+    search_engines: list[str]
+    search_providers_available: list[str]
 
 
 class PublicConfigDefaults(BaseModel):
@@ -1148,7 +1148,7 @@ class PublicConfigStreaming(BaseModel):
 
 class PublicConfigModels(BaseModel):
     default: str
-    options: List[str]
+    options: list[str]
 
 
 class PublicConfigResponse(BaseModel):
@@ -1165,7 +1165,7 @@ def _normalize_model_name(value: Any) -> str:
     return value.strip()
 
 
-def _public_model_options() -> List[str]:
+def _public_model_options() -> list[str]:
     """
     Return only models that are explicitly configured on the backend.
 
@@ -1200,7 +1200,7 @@ def _public_model_options() -> List[str]:
     return opts
 
 
-def _resolve_requested_model(requested_model: Optional[str]) -> str:
+def _resolve_requested_model(requested_model: str | None) -> str:
     model = _normalize_model_name(requested_model) or _normalize_model_name(settings.primary_model)
     if not model:
         raise HTTPException(status_code=500, detail="No primary model is configured")
@@ -1227,17 +1227,17 @@ class SandboxBrowserConfigured(BaseModel):
 class SandboxBrowserDeepResult(BaseModel):
     ok: bool
     latency_ms: int
-    frame_bytes: Optional[int] = None
-    error: Optional[str] = None
+    frame_bytes: int | None = None
+    error: str | None = None
 
 
 class SandboxBrowserDiagnoseResponse(BaseModel):
     ready: bool
-    missing: List[str]
+    missing: list[str]
     sandbox_mode: str
     allow_internet: bool
     configured: SandboxBrowserConfigured
-    deep: Optional[SandboxBrowserDeepResult] = None
+    deep: SandboxBrowserDeepResult | None = None
 
 
 class SearchCacheStats(BaseModel):
@@ -1258,20 +1258,20 @@ class SearchCacheClearResponse(BaseModel):
 
 
 class ImagePayload(BaseModel):
-    name: Optional[str] = None
+    name: str | None = None
     data: str
-    mime: Optional[str] = None
+    mime: str | None = None
 
 
 class ChatRequest(BaseModel):
-    messages: List[Message]
+    messages: list[Message]
     stream: bool = True
-    model: Optional[str] = None
-    search_mode: Optional[SearchMode] = None
-    agent_id: Optional[str] = None  # optional GPTs-like agent profile id (data/agents.json)
-    user_id: Optional[str] = None
-    thread_id: Optional[str] = None
-    images: Optional[List[ImagePayload]] = None  # Base64 images for multimodal input
+    model: str | None = None
+    search_mode: SearchMode | None = None
+    agent_id: str | None = None  # optional GPTs-like agent profile id (data/agents.json)
+    user_id: str | None = None
+    thread_id: str | None = None
+    images: list[ImagePayload] | None = None  # Base64 images for multimodal input
 
     @field_validator("search_mode", mode="before")
     @classmethod
@@ -1281,11 +1281,11 @@ class ChatRequest(BaseModel):
 
 class ResearchRequest(BaseModel):
     query: str
-    model: Optional[str] = None
-    search_mode: Optional[SearchMode] = None
-    agent_id: Optional[str] = None
-    user_id: Optional[str] = None
-    images: Optional[List[ImagePayload]] = None
+    model: str | None = None
+    search_mode: SearchMode | None = None
+    agent_id: str | None = None
+    user_id: str | None = None
+    images: list[ImagePayload] | None = None
 
     @field_validator("search_mode", mode="before")
     @classmethod
@@ -1304,9 +1304,9 @@ class GraphInterruptResumeRequest(BaseModel):
     thread_id: str
     payload: Any
     stream: bool = False
-    model: Optional[str] = None
-    search_mode: Optional[SearchMode] = None
-    agent_id: Optional[str] = None
+    model: str | None = None
+    search_mode: SearchMode | None = None
+    agent_id: str | None = None
 
     @field_validator("search_mode", mode="before")
     @classmethod
@@ -1315,29 +1315,29 @@ class GraphInterruptResumeRequest(BaseModel):
 
 
 class MCPConfigPayload(BaseModel):
-    enable: Optional[bool] = None
-    servers: Optional[Dict[str, Any]] = None
+    enable: bool | None = None
+    servers: dict[str, Any] | None = None
 
 
 class AgentUpsertPayload(BaseModel):
-    id: Optional[str] = None
+    id: str | None = None
     name: str
     description: str = ""
     system_prompt: str = ""
     model: str = ""
-    tools: List[str] = []
-    blocked_tools: List[str] = []
-    mcp_servers: Optional[Dict[str, Any]] = None
-    metadata: Dict[str, Any] = {}
+    tools: list[str] = []
+    blocked_tools: list[str] = []
+    mcp_servers: dict[str, Any] | None = None
+    metadata: dict[str, Any] = {}
 
 
 class AgentsListResponse(BaseModel):
-    agents: List[AgentProfile]
+    agents: list[AgentProfile]
 
 
 class SupportChatRequest(BaseModel):
     message: str
-    user_id: Optional[str] = "default_user"
+    user_id: str | None = "default_user"
     stream: bool = False  # reserved for future
 
 
@@ -1350,18 +1350,18 @@ class SupportChatResponse(BaseModel):
 class CancelRequest(BaseModel):
     """鍙栨秷浠诲姟璇锋眰"""
 
-    reason: Optional[str] = "User requested cancellation"
+    reason: str | None = "User requested cancellation"
 
 
 # Store active streaming tasks (legacy; cancellation is primarily token-based)
-active_streams: Dict[str, asyncio.Task] = {}
+active_streams: dict[str, asyncio.Task] = {}
 
 # Track active browser live-view WS connections per thread_id.
 #
 # This is used to avoid tearing down sandbox browser sessions while the UI is
 # actively streaming frames. Cleanup is deferred until the viewer disconnects.
 _browser_stream_conn_lock = threading.Lock()
-_browser_stream_conn_counts: Dict[str, int] = {}
+_browser_stream_conn_counts: dict[str, int] = {}
 
 
 def _browser_stream_conn_inc(thread_id: str) -> None:
@@ -1387,10 +1387,10 @@ def _browser_stream_conn_active(thread_id: str) -> bool:
         return int(_browser_stream_conn_counts.get(tid, 0)) > 0
 
 
-def _serialize_interrupts(interrupts: Any) -> List[Any]:
+def _serialize_interrupts(interrupts: Any) -> list[Any]:
     if not interrupts:
         return []
-    result: List[Any] = []
+    result: list[Any] = []
     for item in interrupts:
         if hasattr(item, "value"):
             result.append(item.value)
@@ -1401,9 +1401,9 @@ def _serialize_interrupts(interrupts: Any) -> List[Any]:
     return result
 
 
-def _pending_interrupt_prompts(checkpoint_tuple: Any) -> List[Any]:
+def _pending_interrupt_prompts(checkpoint_tuple: Any) -> list[Any]:
     pending_writes = getattr(checkpoint_tuple, "pending_writes", []) or []
-    interrupt_items: List[Any] = []
+    interrupt_items: list[Any] = []
     for entry in pending_writes:
         if not isinstance(entry, (list, tuple)) or len(entry) != 3:
             continue
@@ -1417,7 +1417,7 @@ def _pending_interrupt_prompts(checkpoint_tuple: Any) -> List[Any]:
     return _serialize_interrupts(interrupt_items)
 
 
-async def _pending_interrupt_prompts_for_thread(thread_id: str) -> List[Any]:
+async def _pending_interrupt_prompts_for_thread(thread_id: str) -> list[Any]:
     if not checkpointer:
         return []
     tid = str(thread_id or "").strip()
@@ -1432,7 +1432,7 @@ async def _pending_interrupt_prompts_for_thread(thread_id: str) -> List[Any]:
     return _pending_interrupt_prompts(existing)
 
 
-def _normalize_scope_review_resume_payload(payload: Any) -> Dict[str, Any]:
+def _normalize_scope_review_resume_payload(payload: Any) -> dict[str, Any]:
     if isinstance(payload, str):
         feedback = payload.strip()
         if not feedback:
@@ -1469,7 +1469,7 @@ def _normalize_scope_review_resume_payload(payload: Any) -> Dict[str, Any]:
     raise ValueError(f"Unsupported scope review action: {action}")
 
 
-def _normalize_clarify_resume_payload(payload: Any) -> Dict[str, Any]:
+def _normalize_clarify_resume_payload(payload: Any) -> dict[str, Any]:
     if isinstance(payload, str):
         answer = payload.strip()
         if not answer:
@@ -1531,7 +1531,7 @@ def _normalize_interrupt_resume_payload(payload: Any, prompt: Any = None) -> Any
 
         approved = bool(payload.get("tool_approved"))
         if approved:
-            normalized_decisions: List[Dict[str, Any]] = []
+            normalized_decisions: list[dict[str, Any]] = []
             for call in tool_calls:
                 if not isinstance(call, dict):
                     raise ValueError("tool_calls entries must be objects")
@@ -1731,7 +1731,7 @@ async def cancel_chat(thread_id: str, request: Request, payload: CancelRequest |
         }
 
 
-def _task_is_visible_to_principal(task_id: str, task_info: Dict[str, Any], principal_id: str) -> bool:
+def _task_is_visible_to_principal(task_id: str, task_info: dict[str, Any], principal_id: str) -> bool:
     owner_id = (get_thread_owner(task_id) or "").strip()
     if owner_id:
         return owner_id == principal_id
@@ -1808,7 +1808,7 @@ async def get_active_tasks(request: Request):
 
         stream_count = sum(
             1
-            for thread_id in active_streams.keys()
+            for thread_id in active_streams
             if _task_is_visible_to_principal(
                 thread_id,
                 active_tasks.get(thread_id, {}),
@@ -1941,7 +1941,7 @@ def _thinking_intro_for_node(node_name: str, *, use_zh: bool) -> str:
     return ""
 
 
-def _compact_tool_args(tool_input: Any) -> Dict[str, Any]:
+def _compact_tool_args(tool_input: Any) -> dict[str, Any]:
     """
     Best-effort compact tool args for streaming UI previews.
 
@@ -1965,7 +1965,7 @@ def _compact_tool_args(tool_input: Any) -> Dict[str, Any]:
         "title",
         "filename",
     )
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
 
     for key in allowed_keys:
         if key not in tool_input:
@@ -1995,7 +1995,7 @@ def _compact_tool_args(tool_input: Any) -> Dict[str, Any]:
 
 def _resolve_tool_event_name(
     event_name: Any = None,
-    data: Optional[Dict[str, Any]] = None,
+    data: dict[str, Any] | None = None,
 ) -> str:
     """Resolve a human-readable tool name across mixed event formats."""
     candidates = [
@@ -2012,7 +2012,7 @@ def _resolve_tool_event_name(
     return "unknown"
 
 
-def _normalize_tool_event_data(event_type: str, data: Any) -> Dict[str, Any]:
+def _normalize_tool_event_data(event_type: str, data: Any) -> dict[str, Any]:
     """Normalize custom tool events so clients can rely on stable fields."""
     payload = dict(data) if isinstance(data, dict) else {}
     tool_name = _resolve_tool_event_name(data=payload)
@@ -2035,14 +2035,14 @@ def _build_langchain_tool_stream_payload(
     event_name: Any = None,
     data: Any = None,
     run_id: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Normalize LangChain tool stream events into the frontend contract."""
     data_dict = data if isinstance(data, dict) else {}
     tool_name = _resolve_tool_event_name(event_name=event_name, data=data_dict)
     tool_input = data_dict.get("input", data_dict.get("args", {}))
     args_preview = _compact_tool_args(tool_input)
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "name": tool_name,
         "tool": tool_name,
         "status": status,
@@ -2061,7 +2061,7 @@ def _build_langchain_tool_stream_payload(
     return payload
 
 
-def _build_persisted_process_event(event_type: str, data: Any) -> Dict[str, Any]:
+def _build_persisted_process_event(event_type: str, data: Any) -> dict[str, Any]:
     payload = dict(data) if isinstance(data, dict) else {}
     persisted_type = event_type
 
@@ -2087,11 +2087,11 @@ def _build_persisted_process_event(event_type: str, data: Any) -> Dict[str, Any]
 
 
 def _upsert_persisted_tool_invocation(
-    tool_invocations: List[Dict[str, Any]],
+    tool_invocations: list[dict[str, Any]],
     *,
     event_type: str,
     data: Any,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     normalize_event_type = event_type if event_type in {"tool_start", "tool_result", "tool_error"} else "tool"
     payload = _normalize_tool_event_data(normalize_event_type, data)
     tool_name = str(payload.get("name") or payload.get("tool") or "").strip() or "unknown"
@@ -2099,7 +2099,7 @@ def _upsert_persisted_tool_invocation(
     status = str(payload.get("status") or "").strip().lower()
     state = "completed" if status == "completed" else "failed" if status == "failed" else "running"
 
-    invocation: Dict[str, Any] = {
+    invocation: dict[str, Any] = {
         "toolName": tool_name,
         "state": state,
     }
@@ -2141,7 +2141,7 @@ def _upsert_persisted_tool_invocation(
 
 
 def _record_persisted_assistant_stream_event(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     *,
     event_type: str,
     event_data: Any,
@@ -2194,7 +2194,7 @@ def _record_persisted_assistant_stream_event(
         state["process_events"].append(_build_persisted_process_event(event_type, data))
 
 
-def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | None) -> Dict[str, Any]:
+def _normalize_search_mode(search_mode: SearchMode | dict[str, Any] | None) -> dict[str, Any]:
     mode: SearchModeLiteral = "agent"
 
     if isinstance(search_mode, SearchMode):
@@ -2220,11 +2220,11 @@ def _normalize_search_mode(search_mode: SearchMode | Dict[str, Any] | None) -> D
     return {"mode": mode}
 
 
-def _normalize_images_payload(images: Optional[List[ImagePayload]]) -> List[Dict[str, Any]]:
+def _normalize_images_payload(images: list[ImagePayload] | None) -> list[dict[str, Any]]:
     """
     Normalize incoming image payloads; strip data URL prefix if present.
     """
-    normalized: List[Dict[str, Any]] = []
+    normalized: list[dict[str, Any]] = []
     if not images:
         return normalized
 
@@ -2238,8 +2238,8 @@ def _normalize_images_payload(images: Optional[List[ImagePayload]]) -> List[Dict
     return normalized
 
 
-async def _restore_thread_stream_context(thread_id: str) -> Dict[str, Any]:
-    restored: Dict[str, Any] = {
+async def _restore_thread_stream_context(thread_id: str) -> dict[str, Any]:
+    restored: dict[str, Any] = {
         "input_text": "",
         "user_id": settings.memory_user_id,
         "state": {},
@@ -2264,7 +2264,7 @@ async def _restore_thread_stream_context(thread_id: str) -> Dict[str, Any]:
     return restored
 
 
-def _mode_info_from_session_state(state: Dict[str, Any]) -> Dict[str, Any]:
+def _mode_info_from_session_state(state: dict[str, Any]) -> dict[str, Any]:
     route = str(state.get("route") or "").strip().lower()
     deep_runtime = state.get("deep_runtime")
     if not isinstance(deep_runtime, dict):
@@ -2285,13 +2285,13 @@ def _build_agent_graph_config(
     *,
     thread_id: str,
     model: str,
-    mode_info: Dict[str, Any],
-    agent_profile: Optional[AgentProfile],
-    user_id: Optional[str],
+    mode_info: dict[str, Any],
+    agent_profile: AgentProfile | None,
+    user_id: str | None,
     resumed_from_checkpoint: bool = False,
-    stream: Optional[bool] = None,
-) -> Dict[str, Any]:
-    configurable: Dict[str, Any] = {
+    stream: bool | None = None,
+) -> dict[str, Any]:
+    configurable: dict[str, Any] = {
         "thread_id": thread_id,
         "model": model,
         "search_mode": mode_info,
@@ -2331,10 +2331,10 @@ def _build_initial_agent_state(
     *,
     input_text: str,
     thread_id: str,
-    mode_info: Dict[str, Any],
-    images: Optional[List[Dict[str, Any]]] = None,
-    user_id: Optional[str] = None,
-    agent_profile: Optional[AgentProfile] = None,
+    mode_info: dict[str, Any],
+    images: list[dict[str, Any]] | None = None,
+    user_id: str | None = None,
+    agent_profile: AgentProfile | None = None,
 ) -> AgentState:
     images = images or []
     user_id = user_id or settings.memory_user_id
@@ -2378,11 +2378,11 @@ _MULTI_AGENT_GENERIC_PROGRESS_NODE_NAMES = {
 }
 
 
-def _is_multi_agent_deep_mode(mode_info: Dict[str, Any]) -> bool:
+def _is_multi_agent_deep_mode(mode_info: dict[str, Any]) -> bool:
     return mode_info.get("mode") == "deep"
 
 
-def _should_emit_generic_progress_for_node(node_name: str, mode_info: Dict[str, Any]) -> bool:
+def _should_emit_generic_progress_for_node(node_name: str, mode_info: dict[str, Any]) -> bool:
     name = (node_name or "").strip().lower()
     if not name:
         return True
@@ -2396,8 +2396,8 @@ async def _stream_graph_execution(
     input_text: str,
     thread_id: str,
     model: str,
-    mode_info: Dict[str, Any],
-    config: Dict[str, Any],
+    mode_info: dict[str, Any],
+    config: dict[str, Any],
     user_id: str,
     execution_input: Any,
     resumed_from_checkpoint: bool = False,
@@ -2409,7 +2409,7 @@ async def _stream_graph_execution(
     start_time = time.time()
     was_interrupted = False
     emit_main_text = False
-    final_output: Optional[Dict[str, Any]] = None
+    final_output: dict[str, Any] | None = None
     use_zh = _contains_cjk(input_text)
     last_thinking_text = ""
     seen_generic_progress_keys: set[tuple[str, str, str]] = set()
@@ -2465,7 +2465,7 @@ async def _stream_graph_execution(
 
         metrics = metrics_registry.start(thread_id, model=model, route=mode_info.get("mode", ""))
 
-        async def _build_pending_interrupt_event() -> Optional[str]:
+        async def _build_pending_interrupt_event() -> str | None:
             nonlocal was_interrupted
             prompts = await _pending_interrupt_prompts_for_thread(thread_id)
             if not prompts:
@@ -2809,7 +2809,7 @@ async def _stream_graph_execution(
             final_report = final_output.get("final_report", "")
             if final_report:
                 try:
-                    candidates: List[Dict[str, Any]] = []
+                    candidates: list[dict[str, Any]] = []
                     scraped_content = final_output.get("scraped_content")
                     if isinstance(scraped_content, list):
                         candidates.extend(scraped_content)
@@ -2866,7 +2866,7 @@ async def _stream_graph_execution(
         metrics_registry.finish(thread_id, cancelled=False)
         logger.error(
             f"? Agent stream error | Thread: {thread_id} | "
-            f"Duration: {duration:.2f}s | Error: {str(e)}",
+            f"Duration: {duration:.2f}s | Error: {e!s}",
             exc_info=True,
         )
         yield await format_stream_event("error", {"message": str(e)})
@@ -2877,8 +2877,7 @@ async def _stream_graph_execution(
             await remove_emitter(thread_id)
         except Exception:
             pass
-        if thread_id in active_streams:
-            del active_streams[thread_id]
+        active_streams.pop(thread_id, None)
         if thread_handler:
             try:
                 root_logger.removeHandler(thread_handler)
@@ -2896,7 +2895,7 @@ async def _stream_graph_execution(
                 )
             else:
                 try:
-                    asyncio.create_task(asyncio.to_thread(sandbox_browser_sessions.reset, thread_id))
+                    await asyncio.to_thread(sandbox_browser_sessions.reset, thread_id)
                 except Exception:
                     try:
                         sandbox_browser_sessions.reset(thread_id)
@@ -2986,10 +2985,10 @@ async def stream_agent_events(
     input_text: str,
     thread_id: str = "default",
     model: str | None = None,
-    search_mode: Dict[str, Any] | None = None,
+    search_mode: dict[str, Any] | None = None,
     agent_id: str | None = None,
-    images: Optional[List[Dict[str, Any]]] = None,
-    user_id: Optional[str] = None,
+    images: list[dict[str, Any]] | None = None,
+    user_id: str | None = None,
 ):
     """
     Stream agent execution events in real-time.
@@ -3037,7 +3036,7 @@ async def stream_resumed_agent_events(
     thread_id: str,
     resume_payload: Any,
     model: str | None = None,
-    search_mode: SearchMode | Dict[str, Any] | None = None,
+    search_mode: SearchMode | dict[str, Any] | None = None,
     agent_id: str | None = None,
 ):
     restored = await _restore_thread_stream_context(thread_id)
@@ -3229,7 +3228,7 @@ async def chat(request: Request, payload: ChatRequest):
                 )
 
             async def _session_persisted_stream():
-                persistence_state: Dict[str, Any] = {
+                persistence_state: dict[str, Any] = {
                     "content": "",
                     "status": "running",
                     "sources": [],
@@ -3348,7 +3347,7 @@ async def chat(request: Request, payload: ChatRequest):
         logger.error(
             f"鉁?Chat error | Thread: {thread_id or 'N/A'} | "
             f"Model: {model if 'model' in locals() else (payload.model if 'payload' in locals() else 'N/A')} | "
-            f"Error: {str(e)}",
+            f"Error: {e!s}",
             exc_info=True,
         )
         raise HTTPException(status_code=500, detail=str(e))
@@ -3399,7 +3398,7 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
 
     if payload.stream:
         async def _persisted_resume_stream():
-            persistence_state: Dict[str, Any] = {
+            persistence_state: dict[str, Any] = {
                 "content": "",
                 "status": "running",
                 "sources": [],
@@ -3522,7 +3521,7 @@ async def get_tool_catalog():
 async def get_search_providers():
     """Expose multi-search provider availability, health, and circuit-breaker state."""
     orchestrator = get_search_orchestrator()
-    providers: List[SearchProviderSnapshot] = []
+    providers: list[SearchProviderSnapshot] = []
 
     for provider in orchestrator.providers:
         circuit = orchestrator.reliability_manager.snapshot(provider.name)
@@ -3701,17 +3700,17 @@ async def list_runs(request: Request):
 class RunEvidenceSummary(BaseModel):
     sources_count: int
     unsupported_claims_count: int
-    passed_branch_count: Optional[int] = None
-    retry_branch_count: Optional[int] = None
-    failed_branch_count: Optional[int] = None
-    freshness_ratio_30d: Optional[float] = None
-    citation_coverage: Optional[float] = None
-    query_coverage_score: Optional[float] = None
-    freshness_warning: Optional[str] = None
-    claim_verifier_total: Optional[int] = None
-    claim_verifier_verified: Optional[int] = None
-    claim_verifier_unsupported: Optional[int] = None
-    claim_verifier_contradicted: Optional[int] = None
+    passed_branch_count: int | None = None
+    retry_branch_count: int | None = None
+    failed_branch_count: int | None = None
+    freshness_ratio_30d: float | None = None
+    citation_coverage: float | None = None
+    query_coverage_score: float | None = None
+    freshness_warning: str | None = None
+    claim_verifier_total: int | None = None
+    claim_verifier_verified: int | None = None
+    claim_verifier_unsupported: int | None = None
+    claim_verifier_contradicted: int | None = None
 
 
 class RunMetricsResponse(BaseModel):
@@ -3719,12 +3718,12 @@ class RunMetricsResponse(BaseModel):
     model: str
     route: str = ""
     started_at: str
-    ended_at: Optional[str] = None
+    ended_at: str | None = None
     duration_ms: float
     event_count: int
-    nodes_started: Dict[str, int]
-    nodes_completed: Dict[str, int]
-    errors: List[str]
+    nodes_started: dict[str, int]
+    nodes_completed: dict[str, int]
+    errors: list[str]
     cancelled: bool
     evidence_summary: RunEvidenceSummary
 
@@ -3732,17 +3731,17 @@ class RunMetricsResponse(BaseModel):
 async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
     sources_count = 0
     unsupported_claims_count = 0
-    passed_branch_count: Optional[int] = None
-    retry_branch_count: Optional[int] = None
-    failed_branch_count: Optional[int] = None
-    freshness_ratio_30d: Optional[float] = None
-    citation_coverage: Optional[float] = None
-    query_coverage_score: Optional[float] = None
-    freshness_warning: Optional[str] = None
-    claim_verifier_total: Optional[int] = None
-    claim_verifier_verified: Optional[int] = None
-    claim_verifier_unsupported: Optional[int] = None
-    claim_verifier_contradicted: Optional[int] = None
+    passed_branch_count: int | None = None
+    retry_branch_count: int | None = None
+    failed_branch_count: int | None = None
+    freshness_ratio_30d: float | None = None
+    citation_coverage: float | None = None
+    query_coverage_score: float | None = None
+    freshness_warning: str | None = None
+    claim_verifier_total: int | None = None
+    claim_verifier_verified: int | None = None
+    claim_verifier_unsupported: int | None = None
+    claim_verifier_contradicted: int | None = None
 
     if not checkpointer:
         return RunEvidenceSummary(
@@ -3831,7 +3830,7 @@ async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
             if isinstance(freshness_warning_raw, str) and freshness_warning_raw.strip():
                 freshness_warning = freshness_warning_raw.strip()
 
-            def _maybe_int(value: Any) -> Optional[int]:
+            def _maybe_int(value: Any) -> int | None:
                 if value is None:
                     return None
                 try:
@@ -3917,25 +3916,25 @@ class MemoryEntryPayload(BaseModel):
     importance: int
     status: str
     retrieval_count: int = 0
-    last_retrieved_at: Optional[str] = None
-    invalidated_at: Optional[str] = None
+    last_retrieved_at: str | None = None
+    invalidated_at: str | None = None
     invalidation_reason: str = ""
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 class MemoryEntriesResponse(BaseModel):
     count: int
-    entries: List[MemoryEntryPayload]
+    entries: list[MemoryEntryPayload]
 
 
 class MemoryContextResponse(BaseModel):
-    stored: List[str] = Field(default_factory=list)
-    relevant: List[str] = Field(default_factory=list)
-    stored_entries: List[MemoryEntryPayload] = Field(default_factory=list)
-    relevant_entries: List[MemoryEntryPayload] = Field(default_factory=list)
+    stored: list[str] = Field(default_factory=list)
+    relevant: list[str] = Field(default_factory=list)
+    stored_entries: list[MemoryEntryPayload] = Field(default_factory=list)
+    relevant_entries: list[MemoryEntryPayload] = Field(default_factory=list)
 
 
 class MemoryInvalidateRequest(BaseModel):
@@ -3944,7 +3943,7 @@ class MemoryInvalidateRequest(BaseModel):
 
 class MemoryEventsResponse(BaseModel):
     count: int
-    events: List[Dict[str, Any]] = Field(default_factory=list)
+    events: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _require_memory_service() -> MemoryService:
@@ -3953,14 +3952,14 @@ def _require_memory_service() -> MemoryService:
     return memory_service
 
 
-def _resolve_memory_user_id(request: Request, requested_user_id: Optional[str] = None) -> str:
+def _resolve_memory_user_id(request: Request, requested_user_id: str | None = None) -> str:
     internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
     if internal_key:
         return (getattr(request.state, "principal_id", "") or "").strip() or "internal"
     return str(requested_user_id or settings.memory_user_id).strip() or settings.memory_user_id
 
 
-def _validate_memory_filters(status: Optional[str], memory_type: Optional[str]) -> None:
+def _validate_memory_filters(status: str | None, memory_type: str | None) -> None:
     if status is not None and status not in {"active", "invalidated"}:
         raise HTTPException(status_code=400, detail="Invalid memory status filter")
     if memory_type is not None and memory_type not in {"preference", "user_fact"}:
@@ -3983,9 +3982,9 @@ async def memory_status():
 async def list_memory_entries(
     request: Request,
     limit: int = 50,
-    status: Optional[str] = None,
-    memory_type: Optional[str] = None,
-    user_id: Optional[str] = None,
+    status: str | None = None,
+    memory_type: str | None = None,
+    user_id: str | None = None,
 ):
     service = _require_memory_service()
     _validate_memory_filters(status, memory_type)
@@ -4010,7 +4009,7 @@ async def get_memory_context(
     request: Request,
     query: str = "",
     limit: int = 5,
-    user_id: Optional[str] = None,
+    user_id: str | None = None,
 ):
     service = _require_memory_service()
     owner = _resolve_memory_user_id(request, user_id)
@@ -4024,9 +4023,9 @@ async def get_memory_context(
 @app.get("/api/memory/events", response_model=MemoryEventsResponse)
 async def get_memory_events(
     request: Request,
-    entry_id: Optional[str] = None,
+    entry_id: str | None = None,
     limit: int = 50,
-    user_id: Optional[str] = None,
+    user_id: str | None = None,
 ):
     service = _require_memory_service()
     owner = _resolve_memory_user_id(request, user_id)
@@ -4043,7 +4042,7 @@ async def invalidate_memory_entry(
     entry_id: str,
     request: Request,
     payload: MemoryInvalidateRequest,
-    user_id: Optional[str] = None,
+    user_id: str | None = None,
 ):
     service = _require_memory_service()
     owner = _resolve_memory_user_id(request, user_id)
@@ -4070,7 +4069,7 @@ async def delete_memory_entry(
     entry_id: str,
     request: Request,
     reason: str = "manual delete",
-    user_id: Optional[str] = None,
+    user_id: str | None = None,
 ):
     service = _require_memory_service()
     owner = _resolve_memory_user_id(request, user_id)
@@ -4160,7 +4159,7 @@ async def sandbox_browser_diagnose(deep: bool = False):
 
     ready = not missing
 
-    deep_result: Dict[str, Any] | None = None
+    deep_result: dict[str, Any] | None = None
     if deep and ready:
         diag_thread = f"diagnose_{uuid.uuid4().hex[:8]}"
         started = time.time()
@@ -4287,7 +4286,7 @@ async def get_all_traces(thread_id: str, request: Request):
 class ExportRequest(BaseModel):
     """Export request for generating reports in various formats."""
     format: str = "html"  # html, pdf, docx
-    title: Optional[str] = None
+    title: str | None = None
 
 
 @app.get("/api/export/templates")
@@ -4330,7 +4329,7 @@ async def export_report_endpoint(
     thread_id: str,
     request: Request,
     format: str = "html",
-    title: Optional[str] = None,
+    title: str | None = None,
     template: str = "default",
 ):
     """
@@ -4658,28 +4657,28 @@ class SessionSummary(BaseModel):
     has_report: bool
     revision_count: int
     message_count: int
-    title: Optional[str] = None
+    title: str | None = None
     summary: str = ""
     is_pinned: bool = False
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class SessionsListResponse(BaseModel):
     count: int
-    sessions: List[SessionSummary]
+    sessions: list[SessionSummary]
 
 
 class SessionMessagePayload(BaseModel):
     id: str
     role: str
     content: str
-    attachments: List[Dict[str, Any]] = Field(default_factory=list)
-    sources: List[Dict[str, Any]] = Field(default_factory=list)
-    tool_invocations: List[Dict[str, Any]] = Field(default_factory=list)
-    process_events: List[Dict[str, Any]] = Field(default_factory=list)
-    metrics: Dict[str, Any] = Field(default_factory=dict)
-    created_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    tool_invocations: list[dict[str, Any]] = Field(default_factory=list)
+    process_events: list[dict[str, Any]] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
+    completed_at: str | None = None
 
 
 class SessionSnapshotSessionPayload(BaseModel):
@@ -4691,31 +4690,31 @@ class SessionSnapshotSessionPayload(BaseModel):
     updated_at: str
     summary: str = ""
     is_pinned: bool = False
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class SessionSnapshotResponse(BaseModel):
     session: SessionSnapshotSessionPayload
-    messages: List[SessionMessagePayload] = Field(default_factory=list)
-    pending_interrupt: Optional[Dict[str, Any]] = None
+    messages: list[SessionMessagePayload] = Field(default_factory=list)
+    pending_interrupt: dict[str, Any] | None = None
     can_resume: bool = False
     checkpoint_cleanup_pending: bool = False
 
 
 class SessionPatchRequest(BaseModel):
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    is_pinned: Optional[bool] = None
-    tags: Optional[List[str]] = None
+    title: str | None = None
+    summary: str | None = None
+    is_pinned: bool | None = None
+    tags: list[str] | None = None
 
 
 class EvidenceSource(BaseModel):
     title: str = ""
     url: str
-    rawUrl: Optional[str] = None
-    domain: Optional[str] = None
-    provider: Optional[str] = None
-    publishedDate: Optional[str] = None
+    rawUrl: str | None = None
+    domain: str | None = None
+    provider: str | None = None
+    publishedDate: str | None = None
 
 
 class EvidenceBranchResult(BaseModel):
@@ -4726,76 +4725,76 @@ class EvidenceBranchResult(BaseModel):
     title: str = ""
     objective: str = ""
     summary: str = ""
-    key_findings: List[str] = []
-    source_urls: List[str] = []
+    key_findings: list[str] = []
+    source_urls: list[str] = []
     validation_status: str = "pending"
 
 
 class FetchedPageItem(BaseModel):
     url: str
-    id: Optional[str] = None
-    task_id: Optional[str] = None
-    section_id: Optional[str] = None
-    branch_id: Optional[str] = None
-    raw_url: Optional[str] = None
-    method: Optional[str] = None
-    text: Optional[str] = None
-    title: Optional[str] = None
-    excerpt: Optional[str] = None
-    content: Optional[str] = None
-    published_date: Optional[str] = None
-    retrieved_at: Optional[str] = None
-    markdown: Optional[str] = None
-    http_status: Optional[int] = None
-    error: Optional[str] = None
+    id: str | None = None
+    task_id: str | None = None
+    section_id: str | None = None
+    branch_id: str | None = None
+    raw_url: str | None = None
+    method: str | None = None
+    text: str | None = None
+    title: str | None = None
+    excerpt: str | None = None
+    content: str | None = None
+    published_date: str | None = None
+    retrieved_at: str | None = None
+    markdown: str | None = None
+    http_status: int | None = None
+    error: str | None = None
     attempts: int = 1
-    source_candidate_id: Optional[str] = None
+    source_candidate_id: str | None = None
 
 
 class EvidencePassageItem(BaseModel):
     url: str
     text: str
-    id: Optional[str] = None
-    task_id: Optional[str] = None
-    section_id: Optional[str] = None
-    branch_id: Optional[str] = None
-    document_id: Optional[str] = None
-    start_char: Optional[int] = None
-    end_char: Optional[int] = None
-    heading: Optional[str] = None
-    heading_path: Optional[List[str]] = None
-    page_title: Optional[str] = None
-    retrieved_at: Optional[str] = None
-    method: Optional[str] = None
-    quote: Optional[str] = None
-    snippet_hash: Optional[str] = None
-    source_title: Optional[str] = None
-    locator: Dict[str, Any] = Field(default_factory=dict)
-    source_published_date: Optional[str] = None
-    passage_kind: Optional[str] = None
-    admissible: Optional[bool] = None
-    authoritative: Optional[bool] = None
+    id: str | None = None
+    task_id: str | None = None
+    section_id: str | None = None
+    branch_id: str | None = None
+    document_id: str | None = None
+    start_char: int | None = None
+    end_char: int | None = None
+    heading: str | None = None
+    heading_path: list[str] | None = None
+    page_title: str | None = None
+    retrieved_at: str | None = None
+    method: str | None = None
+    quote: str | None = None
+    snippet_hash: str | None = None
+    source_title: str | None = None
+    locator: dict[str, Any] = Field(default_factory=dict)
+    source_published_date: str | None = None
+    passage_kind: str | None = None
+    admissible: bool | None = None
+    authoritative: bool | None = None
 
 
 class EvidenceResponse(BaseModel):
-    sources: List[EvidenceSource] = []
-    outline: Dict[str, Any] = {}
-    section_drafts: List[EvidenceBranchResult] = []
-    section_reviews: List[Dict[str, Any]] = []
-    section_certifications: List[Dict[str, Any]] = []
-    outline_gate_summary: Dict[str, Any] = {}
-    branch_results: List[EvidenceBranchResult] = []
-    validation_summary: Dict[str, Any] = {}
-    quality_summary: Dict[str, Any] = {}
-    fetched_pages: List[FetchedPageItem] = []
-    passages: List[EvidencePassageItem] = []
+    sources: list[EvidenceSource] = []
+    outline: dict[str, Any] = {}
+    section_drafts: list[EvidenceBranchResult] = []
+    section_reviews: list[dict[str, Any]] = []
+    section_certifications: list[dict[str, Any]] = []
+    outline_gate_summary: dict[str, Any] = {}
+    branch_results: list[EvidenceBranchResult] = []
+    validation_summary: dict[str, Any] = {}
+    quality_summary: dict[str, Any] = {}
+    fetched_pages: list[FetchedPageItem] = []
+    passages: list[EvidencePassageItem] = []
 
 
 @app.get("/api/sessions", response_model=SessionsListResponse)
 async def list_sessions(
     request: Request,
     limit: int = 50,
-    status: Optional[str] = None,
+    status: str | None = None,
 ):
     """
     List all research sessions.
@@ -5025,8 +5024,8 @@ async def get_session_evidence(thread_id: str, request: Request):
 
 class SessionResumeRequest(BaseModel):
     """Request to resume a session."""
-    additional_input: Optional[str] = None
-    update_state: Optional[Dict[str, Any]] = None
+    additional_input: str | None = None
+    update_state: dict[str, Any] | None = None
 
 
 @app.post("/api/sessions/{thread_id}/resume")
@@ -5161,20 +5160,20 @@ async def delete_session(thread_id: str, request: Request):
 class ShareRequest(BaseModel):
     """Request to create a share link."""
     permissions: str = "view"
-    expires_hours: Optional[int] = 72
+    expires_hours: int | None = 72
 
 
 class CommentRequest(BaseModel):
     """Request to add a comment."""
     content: str
     author: str = "anonymous"
-    message_id: Optional[str] = None
+    message_id: str | None = None
 
 
 class SessionComment(BaseModel):
     id: str
     thread_id: str
-    message_id: Optional[str] = None
+    message_id: str | None = None
     author: str
     content: str
     created_at: str
@@ -5182,7 +5181,7 @@ class SessionComment(BaseModel):
 
 
 class CommentsResponse(BaseModel):
-    comments: List[SessionComment]
+    comments: list[SessionComment]
     count: int
 
 
@@ -5196,7 +5195,7 @@ class SessionVersion(BaseModel):
 
 
 class VersionsResponse(BaseModel):
-    versions: List[SessionVersion]
+    versions: list[SessionVersion]
     count: int
 
 
@@ -5332,7 +5331,7 @@ async def add_comment(thread_id: str, request: Request, req: CommentRequest):
 
 
 @app.get("/api/sessions/{thread_id}/comments", response_model=CommentsResponse)
-async def get_comments(thread_id: str, request: Request, message_id: Optional[str] = None):
+async def get_comments(thread_id: str, request: Request, message_id: str | None = None):
     """Get comments for a session."""
     try:
         await _require_thread_owner(request, thread_id)
@@ -5360,7 +5359,7 @@ async def get_versions(thread_id: str, request: Request):
 
 
 @app.post("/api/sessions/{thread_id}/versions")
-async def create_version(thread_id: str, request: Request, label: Optional[str] = None):
+async def create_version(thread_id: str, request: Request, label: str | None = None):
     """Create a version snapshot of a session."""
     try:
         if session_service is None:
@@ -5434,8 +5433,8 @@ class InterruptAction(str, Enum):
 class InterruptResumeRequest(BaseModel):
     """Request to resume from an interrupt point."""
     action: str = "approve"
-    modifications: Optional[Dict[str, Any]] = None
-    feedback: Optional[str] = None
+    modifications: dict[str, Any] | None = None
+    feedback: str | None = None
 
 
 @app.get("/api/interrupt/{thread_id}/status")
@@ -5459,8 +5458,8 @@ async def get_interrupt_status(thread_id: str, request: Request):
         prompts = _pending_interrupt_prompts(checkpoint_tuple)
         is_interrupted = bool(prompts)
 
-        checkpoint_name: Optional[str] = None
-        available_actions: List[str] = []
+        checkpoint_name: str | None = None
+        available_actions: list[str] = []
         first = prompts[0] if prompts else None
         if isinstance(first, dict):
             cp = first.get("checkpoint")
@@ -5571,7 +5570,7 @@ class ASRRequest(BaseModel):
     audio_data: str  # Base64 encoded audio
     format: str = "wav"
     sample_rate: int = 16000
-    language_hints: Optional[List[str]] = None
+    language_hints: list[str] | None = None
 
 
 @app.post("/api/asr/recognize")
@@ -5601,7 +5600,7 @@ async def recognize_speech(request: ASRRequest):
                 content={
                     "success": False,
                     "text": "",
-                    "error": f"Invalid base64 audio data: {str(e)}",
+                    "error": f"Invalid base64 audio data: {e!s}",
                 },
             )
 
@@ -5622,13 +5621,13 @@ async def recognize_speech(request: ASRRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"ASR error: {str(e)}", exc_info=True)
+        logger.error(f"ASR error: {e!s}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={
                 "success": False,
                 "text": "",
-                "error": f"ASR processing error: {str(e)}",
+                "error": f"ASR processing error: {e!s}",
             },
         )
 
@@ -5678,8 +5677,8 @@ async def recognize_speech_upload(file: UploadFile = File(...), sample_rate: int
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"ASR upload error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"ASR processing error: {str(e)}")
+        logger.error(f"ASR upload error: {e!s}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"ASR processing error: {e!s}")
 
 
 @app.get("/api/asr/status")
@@ -5745,7 +5744,7 @@ async def synthesize_speech(request: TTSRequest):
         if "invalidapikey" in lowered or "unauthorized" in lowered or "handshake status 401" in lowered:
             logger.warning("TTS auth error: %s", message)
             raise HTTPException(status_code=401, detail=f"TTS authentication error: {message}")
-        logger.error(f"TTS error: {str(e)}", exc_info=True)
+        logger.error(f"TTS error: {e!s}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"TTS processing error: {message}")
 
 
@@ -5927,7 +5926,7 @@ async def get_screenshot(filename: str):
 
 
 @app.get("/api/screenshots")
-async def list_screenshots(request: Request, thread_id: Optional[str] = None, limit: int = 50):
+async def list_screenshots(request: Request, thread_id: str | None = None, limit: int = 50):
     """
     List available screenshots.
 
@@ -5964,7 +5963,7 @@ async def cleanup_screenshots():
 
 
 @app.get("/api/events/{thread_id}")
-async def stream_tool_events(thread_id: str, request: Request, last_event_id: Optional[str] = None):
+async def stream_tool_events(thread_id: str, request: Request, last_event_id: str | None = None):
     """
     Subscribe to tool execution events for a specific thread.
 
@@ -6259,12 +6258,12 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
     _browser_stream_conn_inc(thread_id)
 
     streaming = False
-    stream_task: Optional[asyncio.Task] = None
-    init_task: Optional[asyncio.Task] = None
-    ping_task: Optional[asyncio.Task] = None
+    stream_task: asyncio.Task | None = None
+    init_task: asyncio.Task | None = None
+    ping_task: asyncio.Task | None = None
     dropped_messages = 0
 
-    async def _safe_send_json(payload: Dict[str, Any], *, timeout_s: Optional[float] = None) -> bool:
+    async def _safe_send_json(payload: dict[str, Any], *, timeout_s: float | None = None) -> bool:
         """
         Best-effort send that won't spam logs on expected disconnects.
 
@@ -6279,7 +6278,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
             else:
                 await send_coro
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Backpressure: drop the message but keep the connection alive.
             dropped_messages += 1
             try:
@@ -6416,7 +6415,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
         )
         page.set_content(html)
 
-    async def capture_frame(*, quality: int = 70) -> Dict[str, Any]:
+    async def capture_frame(*, quality: int = 70) -> dict[str, Any]:
         """Capture a single JPEG frame from the sandbox browser session."""
         q = max(1, min(100, int(quality or 70)))
         capture_timeout_s = 90.0
@@ -6426,7 +6425,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                 return await asyncio.wait_for(
                     sandbox_browser_sessions.run_async(thread_id, _capture), timeout=capture_timeout_s
                 )
-            except asyncio.TimeoutError as e:
+            except TimeoutError as e:
                 raise TimeoutError(
                     "Timed out waiting for sandbox browser frame. "
                     "The sandbox may be cold-starting or stuck. "
@@ -6446,7 +6445,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                 jpg_bytes = page.screenshot(type="jpeg", quality=q, full_page=False, caret="hide")
             except TypeError:
                 jpg_bytes = page.screenshot(type="jpeg", quality=q, full_page=False)
-            metadata: Dict[str, Any] = {}
+            metadata: dict[str, Any] = {}
             try:
                 metadata["url"] = page.url
             except Exception:
@@ -6504,7 +6503,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
         except Exception:
             pass
 
-    def _peek_cdp_frame() -> Optional[Dict[str, Any]]:
+    def _peek_cdp_frame() -> dict[str, Any] | None:
         """
         Peek the latest CDP frame without touching Playwright.
 
@@ -6521,7 +6520,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
         nonlocal streaming, init_task
         interval = 1.0 / max(1, int(max_fps or 5))
         next_frame_due = time.perf_counter()
-        last_frame_payload: Optional[Dict[str, Any]] = None
+        last_frame_payload: dict[str, Any] | None = None
         last_screenshot_capture_at: float = 0.0
         screenshot_refresh_s = 1.0
         consecutive_failures = 0
@@ -6692,10 +6691,10 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                     ok: bool,
                     action_name: str,
                     error: str | None = None,
-                    metadata: Optional[Dict[str, Any]] = None,
+                    metadata: dict[str, Any] | None = None,
                     req_id=req_id,
                 ) -> bool:
-                    payload: Dict[str, Any] = {
+                    payload: dict[str, Any] = {
                         "type": "ack",
                         "ok": bool(ok),
                         "action": action_name,
@@ -6764,7 +6763,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         except Exception:
                             pass
 
-                        meta: Dict[str, Any] = {}
+                        meta: dict[str, Any] = {}
                         try:
                             meta["url"] = page.url
                         except Exception:
@@ -6809,7 +6808,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                                     sandbox_browser_sessions.run_async(thread_id, _set_status_page_if_blank),
                                     timeout=10.0,
                                 )
-                            except asyncio.TimeoutError:
+                            except TimeoutError:
                                 pass
                             except Exception:
                                 pass
@@ -6818,7 +6817,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                                 await asyncio.wait_for(
                                     _start_cdp_screencast(quality=q), timeout=120.0
                                 )
-                            except asyncio.TimeoutError:
+                            except TimeoutError:
                                 pass
                             except Exception:
                                 pass
@@ -6997,7 +6996,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
 
                                 page.mouse.click(x_px, y_px, button=button, click_count=clicks)
 
-                                meta: Dict[str, Any] = {}
+                                meta: dict[str, Any] = {}
                                 try:
                                     meta["url"] = page.url
                                 except Exception:
@@ -7040,7 +7039,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
 
                                 page.mouse.move(x_px, y_px)
 
-                                meta: Dict[str, Any] = {}
+                                meta: dict[str, Any] = {}
                                 try:
                                     meta["url"] = page.url
                                 except Exception:
@@ -7070,7 +7069,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                             page = session.get_page()
                             page.mouse.down(button=button)
 
-                            meta: Dict[str, Any] = {}
+                            meta: dict[str, Any] = {}
                             try:
                                 meta["url"] = page.url
                             except Exception:
@@ -7100,7 +7099,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                             page = session.get_page()
                             page.mouse.up(button=button)
 
-                            meta: Dict[str, Any] = {}
+                            meta: dict[str, Any] = {}
                             try:
                                 meta["url"] = page.url
                             except Exception:
@@ -7143,7 +7142,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         page = session.get_page()
                         page.mouse.wheel(dx, dy)
 
-                        meta: Dict[str, Any] = {}
+                        meta: dict[str, Any] = {}
                         try:
                             meta["url"] = page.url
                         except Exception:
@@ -7196,7 +7195,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                             page = session.get_page()
                             page.keyboard.press(key)
 
-                            meta: Dict[str, Any] = {}
+                            meta: dict[str, Any] = {}
                             try:
                                 meta["url"] = page.url
                             except Exception:
@@ -7237,7 +7236,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                             page = session.get_page()
                             page.keyboard.type(text)
 
-                            meta: Dict[str, Any] = {}
+                            meta: dict[str, Any] = {}
                             try:
                                 meta["url"] = page.url
                             except Exception:
@@ -7305,7 +7304,7 @@ async def browser_stream_websocket(websocket: WebSocket, thread_id: str):
                         page = session.get_page()
                         page.goto(url)
 
-                        meta: Dict[str, Any] = {}
+                        meta: dict[str, Any] = {}
                         try:
                             meta["url"] = page.url
                         except Exception:
@@ -7384,11 +7383,11 @@ class CreateScheduledTriggerRequest(BaseModel):
     schedule: str  # Cron expression
     agent_id: str = "default"
     task: str
-    task_params: Dict[str, Any] = {}
+    task_params: dict[str, Any] = {}
     timezone: str = "Asia/Shanghai"
     run_immediately: bool = False
-    user_id: Optional[str] = None
-    tags: List[str] = []
+    user_id: str | None = None
+    tags: list[str] = []
 
 
 class CreateWebhookTriggerRequest(BaseModel):
@@ -7396,26 +7395,26 @@ class CreateWebhookTriggerRequest(BaseModel):
     description: str = ""
     agent_id: str = "default"
     task: str
-    task_params: Dict[str, Any] = {}
-    http_methods: List[str] = ["POST"]
+    task_params: dict[str, Any] = {}
+    http_methods: list[str] = ["POST"]
     require_auth: bool = False
-    rate_limit: Optional[int] = None
-    user_id: Optional[str] = None
-    tags: List[str] = []
+    rate_limit: int | None = None
+    user_id: str | None = None
+    tags: list[str] = []
 
 
 class CreateEventTriggerRequest(BaseModel):
     name: str
     description: str = ""
     event_type: str
-    event_source: Optional[str] = None
-    event_filters: Dict[str, Any] = {}
+    event_source: str | None = None
+    event_filters: dict[str, Any] = {}
     agent_id: str = "default"
     task: str
-    task_params: Dict[str, Any] = {}
+    task_params: dict[str, Any] = {}
     debounce_seconds: int = 0
-    user_id: Optional[str] = None
-    tags: List[str] = []
+    user_id: str | None = None
+    tags: list[str] = []
 
 
 @app.post("/api/triggers/scheduled")
@@ -7518,9 +7517,9 @@ async def create_event_trigger(request: Request, payload: CreateEventTriggerRequ
 @app.get("/api/triggers")
 async def list_triggers(
     request: Request,
-    trigger_type: Optional[str] = None,
-    status: Optional[str] = None,
-    user_id: Optional[str] = None,
+    trigger_type: str | None = None,
+    status: str | None = None,
+    user_id: str | None = None,
 ):
     """List all triggers with optional filtering."""
     manager = get_trigger_manager()

@@ -344,6 +344,7 @@ class AgentRunRecord:
 
 
 __all__ = [
+    "REGISTERED_CONTROL_PLANE_AGENTS",
     "AgentRole",
     "AgentRunRecord",
     "ArtifactStatus",
@@ -354,14 +355,13 @@ __all__ = [
     "FinalReportArtifact",
     "OutlineArtifact",
     "OutlineSection",
-    "REGISTERED_CONTROL_PLANE_AGENTS",
     "ResearchPlanArtifact",
     "ResearchTask",
+    "ScopeDraft",
+    "ScopeDraftStatus",
     "SectionCertificationArtifact",
     "SectionDraftArtifact",
     "SectionReviewArtifact",
-    "ScopeDraft",
-    "ScopeDraftStatus",
     "TaskStage",
     "TaskStatus",
     "_now_iso",

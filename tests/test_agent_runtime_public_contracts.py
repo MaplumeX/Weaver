@@ -55,9 +55,9 @@ def test_legacy_agent_node_is_no_longer_exported():
     assert "agent_node" not in runtime_nodes.__all__
     assert "agent_node" not in runtime_pkg.__all__
     with pytest.raises(AttributeError):
-        getattr(runtime_nodes, "agent_node")
+        _ = runtime_nodes.agent_node
     with pytest.raises(AttributeError):
-        getattr(runtime_pkg, "agent_node")
+        _ = runtime_pkg.agent_node
 
 
 def test_public_search_cache_contract_uses_core_singleton():

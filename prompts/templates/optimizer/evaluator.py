@@ -7,12 +7,12 @@ Prompt 评估函数模块
 import json
 import logging
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def eval_planner_quality(results: List[Dict]) -> Tuple[float, List[Dict]]:
+def eval_planner_quality(results: list[dict]) -> tuple[float, list[dict]]:
     """
     评估 planner 输出质量
 
@@ -118,7 +118,7 @@ def eval_planner_quality(results: List[Dict]) -> Tuple[float, List[Dict]]:
     return accuracy, annotated
 
 
-def eval_writer_quality(results: List[Dict]) -> Tuple[float, List[Dict]]:
+def eval_writer_quality(results: list[dict]) -> tuple[float, list[dict]]:
     """
     评估 writer 输出质量
 
@@ -212,8 +212,8 @@ def eval_writer_quality(results: List[Dict]) -> Tuple[float, List[Dict]]:
 
 
 def eval_generic_quality(
-    results: List[Dict], criteria: Dict[str, Dict[str, Any]] = None
-) -> Tuple[float, List[Dict]]:
+    results: list[dict], criteria: dict[str, dict[str, Any]] = None
+) -> tuple[float, list[dict]]:
     """
     通用质量评估函数
 
@@ -253,7 +253,6 @@ def eval_generic_quality(
 
         for name, config in criteria.items():
             criterion_type = config.get("type")
-            weight = config.get("weight", 1.0 / len(criteria))
 
             if criterion_type == "contains":
                 values = config.get("values", [])
@@ -275,7 +274,7 @@ def eval_generic_quality(
                 try:
                     json.loads(output)
                     scores[name] = 1.0
-                except:
+                except json.JSONDecodeError:
                     # 尝试提取 JSON
                     start = output.find("{")
                     end = output.rfind("}") + 1
@@ -283,7 +282,7 @@ def eval_generic_quality(
                         try:
                             json.loads(output[start:end])
                             scores[name] = 0.8
-                        except:
+                        except json.JSONDecodeError:
                             scores[name] = 0.0
                     else:
                         scores[name] = 0.0
@@ -317,7 +316,7 @@ def eval_generic_quality(
     return accuracy, annotated
 
 
-def _parse_queries(output: str) -> List[str]:
+def _parse_queries(output: str) -> list[str]:
     """
     从输出中解析查询列表
 

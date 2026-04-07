@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from langchain_core.messages import SystemMessage
 
@@ -105,6 +106,5 @@ def build_initial_agent_state(
 
     if messages:
         initial_state["messages"] = messages
-
     initial_state.update(build_state_slices(initial_state))
     return initial_state

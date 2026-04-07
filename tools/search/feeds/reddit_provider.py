@@ -9,9 +9,10 @@ Supports:
 - Time filter: hour, day, week, month, year, all
 """
 
+import importlib.util
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from common.config import settings
 from tools.search.multi_search import SearchProvider, SearchResult
@@ -53,21 +54,16 @@ class RedditProvider(SearchProvider):
         client_secret = getattr(settings, "reddit_client_secret", "")
         if not (client_id and client_secret):
             return False
-        try:
-            import praw
-
-            return True
-        except ImportError:
-            return False
+        return importlib.util.find_spec("praw") is not None
 
     def search(
         self,
         query: str,
         max_results: int = 10,
-        subreddit: Optional[str] = None,
+        subreddit: str | None = None,
         sort: str = "relevance",
         time_filter: str = "all",
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Search Reddit posts.
 
@@ -151,7 +147,7 @@ class RedditProvider(SearchProvider):
 
     def get_hot_posts(
         self, subreddit: str = "all", max_results: int = 10
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Get hot posts from a subreddit.
 
@@ -201,7 +197,7 @@ class RedditProvider(SearchProvider):
 
     def get_post_comments(
         self, post_url: str, max_comments: int = 20
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get top comments from a Reddit post.
 

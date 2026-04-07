@@ -12,7 +12,7 @@ Supports:
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import requests
 
@@ -45,10 +45,10 @@ class SemanticScholarProvider(SearchProvider):
         self,
         query: str,
         max_results: int = 10,
-        year_range: Optional[tuple] = None,
-        fields_of_study: Optional[List[str]] = None,
+        year_range: tuple | None = None,
+        fields_of_study: list[str] | None = None,
         open_access_only: bool = False,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Search Semantic Scholar papers.
 
@@ -105,7 +105,7 @@ class SemanticScholarProvider(SearchProvider):
             logger.error(f"[SemanticScholarProvider] Search failed: {e}")
             return []
 
-    def get_paper(self, paper_id: str) -> Optional[SearchResult]:
+    def get_paper(self, paper_id: str) -> SearchResult | None:
         """
         Get a paper by Semantic Scholar ID, DOI, or arXiv ID.
 
@@ -139,7 +139,7 @@ class SemanticScholarProvider(SearchProvider):
         paper_id: str,
         max_results: int = 20,
         influential_only: bool = False,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Get papers that cite a given paper.
 
@@ -183,7 +183,7 @@ class SemanticScholarProvider(SearchProvider):
 
     def get_paper_references(
         self, paper_id: str, max_results: int = 20
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Get papers referenced by a given paper.
 
@@ -223,7 +223,7 @@ class SemanticScholarProvider(SearchProvider):
 
     def search_author(
         self, author_name: str, max_results: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Search for authors by name.
 
@@ -255,7 +255,7 @@ class SemanticScholarProvider(SearchProvider):
             logger.error(f"[SemanticScholarProvider] search_author failed: {e}")
             return []
 
-    def _paper_to_result(self, paper: Dict[str, Any]) -> SearchResult:
+    def _paper_to_result(self, paper: dict[str, Any]) -> SearchResult:
         """Convert S2 paper dict to SearchResult."""
         paper_id = paper.get("paperId", "")
 

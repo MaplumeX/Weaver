@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from agent.contracts.source_registry import SourceRegistry
 
@@ -74,7 +74,7 @@ _STOPWORDS = {
 }
 
 
-def _split_sentences(text: str) -> List[str]:
+def _split_sentences(text: str) -> list[str]:
     if not text:
         return []
     return [
@@ -93,9 +93,9 @@ def _contains_marker(text: str, marker: str) -> bool:
     return marker in lower
 
 
-def _token_fragments(text: str) -> Set[str]:
+def _token_fragments(text: str) -> set[str]:
     normalized = (text or "").lower()
-    fragments: Set[str] = set()
+    fragments: set[str] = set()
     for token in re.findall(r"[a-z]+(?:'[a-z]+)?|\d+(?:\.\d+)?|[\u4e00-\u9fff]+", normalized):
         if re.fullmatch(r"[\u4e00-\u9fff]+", token):
             if len(token) == 1:
@@ -125,9 +125,9 @@ class ClaimCheck:
     claim: str
     status: ClaimStatus
     claim_id: str = ""
-    evidence_urls: List[str] = field(default_factory=list)
-    evidence_passages: List[Dict[str, Any]] = field(default_factory=list)
-    evidence_passage_ids: List[str] = field(default_factory=list)
+    evidence_urls: list[str] = field(default_factory=list)
+    evidence_passages: list[dict[str, Any]] = field(default_factory=list)
+    evidence_passage_ids: list[str] = field(default_factory=list)
     score: float = 0.0
     notes: str = ""
 
@@ -139,14 +139,14 @@ class ClaimVerifier:
         self.min_overlap_tokens = max(1, int(min_overlap_tokens))
         self.max_evidence_per_claim = max(1, int(max_evidence_per_claim))
 
-    def extract_claims(self, report: str, max_claims: int = 10) -> List[str]:
+    def extract_claims(self, report: str, max_claims: int = 10) -> list[str]:
         if not report:
             return []
 
         candidates = _split_sentences(report)
-        claims: List[str] = []
-        fallback_claims: List[str] = []
-        seen: Set[str] = set()
+        claims: list[str] = []
+        fallback_claims: list[str] = []
+        seen: set[str] = set()
 
         for sentence in candidates:
             text = sentence.strip()
@@ -170,8 +170,8 @@ class ClaimVerifier:
         if claims:
             return claims
 
-        deduped_fallbacks: List[str] = []
-        seen_fallbacks: Set[str] = set()
+        deduped_fallbacks: list[str] = []
+        seen_fallbacks: set[str] = set()
         for text in fallback_claims:
             key = text.lower()
             if key in seen_fallbacks:
@@ -185,23 +185,23 @@ class ClaimVerifier:
     def verify_report(
         self,
         report: str,
-        scraped_content: List[Dict[str, Any]],
+        scraped_content: list[dict[str, Any]],
         max_claims: int = 10,
-        passages: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[ClaimCheck]:
+        passages: list[dict[str, Any]] | None = None,
+    ) -> list[ClaimCheck]:
         claims = self.extract_claims(report, max_claims=max_claims)
         if not claims:
             return []
         evidence = self._extract_evidence(scraped_content, passages=passages)
         return [self.verify_claim(claim, evidence) for claim in claims]
 
-    def verify_claim(self, claim: str, evidence: List[Dict[str, Any]]) -> ClaimCheck:
+    def verify_claim(self, claim: str, evidence: list[dict[str, Any]]) -> ClaimCheck:
         return self.verify_claim_unit({"claim": claim}, evidence)
 
     def verify_claim_unit(
         self,
-        claim_unit: Dict[str, Any],
-        evidence: List[Dict[str, Any]],
+        claim_unit: dict[str, Any],
+        evidence: list[dict[str, Any]],
     ) -> ClaimCheck:
         claim = str(claim_unit.get("claim") or "").strip()
         claim_id = str(claim_unit.get("id") or "").strip()
@@ -209,8 +209,8 @@ class ClaimVerifier:
         if not claim_tokens:
             return ClaimCheck(claim=claim, claim_id=claim_id, status=ClaimStatus.UNSUPPORTED)
 
-        supported: List[tuple[int, str, Dict[str, Any]]] = []
-        contradicted: List[tuple[int, str, Dict[str, Any]]] = []
+        supported: list[tuple[int, str, dict[str, Any]]] = []
+        contradicted: list[tuple[int, str, dict[str, Any]]] = []
         best_overlap = 0
 
         for item in evidence:
@@ -224,7 +224,7 @@ class ClaimVerifier:
                 continue
 
             best_overlap = max(best_overlap, overlap)
-            passage_payload: Dict[str, Any] = {
+            passage_payload: dict[str, Any] = {
                 "url": url,
             }
             snippet_hash = str(item.get("snippet_hash") or "").strip()
@@ -310,11 +310,11 @@ class ClaimVerifier:
 
     def _extract_evidence(
         self,
-        scraped_content: List[Dict[str, Any]],
+        scraped_content: list[dict[str, Any]],
         *,
-        passages: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[Dict[str, Any]]:
-        evidence: List[Dict[str, Any]] = []
+        passages: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        evidence: list[dict[str, Any]] = []
         source_registry = SourceRegistry()
 
         if passages:
@@ -336,7 +336,7 @@ class ClaimVerifier:
                     or passage.get("document_id")
                 )
                 admissible = bool(passage.get("admissible", True)) and has_locator
-                item: Dict[str, Any] = {
+                item: dict[str, Any] = {
                     "url": canonical_url,
                     "text": text,
                     "admissible": admissible,
@@ -370,7 +370,7 @@ class ClaimVerifier:
                     evidence.append({"url": canonical_url, "text": text, "admissible": False})
         return evidence
 
-    def _tokenize(self, text: str) -> Set[str]:
+    def _tokenize(self, text: str) -> set[str]:
         tokens = _token_fragments(text)
         return {t for t in tokens if len(t) > 1 or t.isdigit()}
 

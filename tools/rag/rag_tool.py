@@ -5,7 +5,7 @@ Provides a LangChain-compatible tool for searching local documents.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from langchain_core.tools import tool
 
@@ -29,7 +29,7 @@ class RAGTool:
     def __init__(
         self,
         collection_name: str = "weaver_documents",
-        persist_directory: Optional[str] = None,
+        persist_directory: str | None = None,
         embedding_model: str = "text-embedding-3-small",
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
@@ -60,7 +60,7 @@ class RAGTool:
         file_path: str = None,
         content: bytes = None,
         filename: str = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Add a document to the RAG store.
 
@@ -117,8 +117,8 @@ class RAGTool:
         self,
         query: str,
         n_results: int = 5,
-        filter_source: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        filter_source: str | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Search for relevant document chunks.
 
@@ -151,11 +151,11 @@ class RAGTool:
             for doc, score in results
         ]
 
-    def list_documents(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def list_documents(self, limit: int = 100) -> list[dict[str, Any]]:
         """List all documents in the store."""
         return self.vector_store.list_documents(limit=limit)
 
-    def delete_document(self, source: str) -> Dict[str, Any]:
+    def delete_document(self, source: str) -> dict[str, Any]:
         """
         Delete all chunks from a specific source.
 
@@ -178,7 +178,7 @@ class RAGTool:
         return self.vector_store.count()
 
 
-def get_rag_tool(*, collection_name: Optional[str] = None) -> Optional[RAGTool]:
+def get_rag_tool(*, collection_name: str | None = None) -> RAGTool | None:
     """
     Get a cached RAG tool instance.
 

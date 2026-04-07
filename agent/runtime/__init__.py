@@ -5,7 +5,7 @@ Structured runtime entrypoints for agent execution internals.
 from __future__ import annotations
 
 import importlib
-from typing import Any, Dict
+from typing import Any
 
 __all__ = [
     "chat_respond_node",
@@ -20,7 +20,7 @@ __all__ = [
     "tool_agent_node",
 ]
 
-_SYMBOL_TO_MODULE: Dict[str, str] = {
+_SYMBOL_TO_MODULE: dict[str, str] = {
     "chat_respond_node": "agent.runtime.nodes",
     "check_cancellation": "agent.runtime.nodes",
     "create_research_graph": "agent.runtime.graph",

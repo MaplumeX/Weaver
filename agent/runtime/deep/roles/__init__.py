@@ -10,8 +10,8 @@ from .supervisor import ResearchSupervisor, SupervisorAction, SupervisorDecision
 __all__ = [
     "DeepResearchClarifyAgent",
     "DeepResearchScopeAgent",
-    "ResearchPlanner",
     "ResearchAgent",
+    "ResearchPlanner",
     "ResearchReporter",
     "ResearchSupervisor",
     "SupervisorAction",

@@ -1,5 +1,4 @@
 import json
-from typing import List
 
 from langchain.tools import tool
 from langchain_openai import ChatOpenAI
@@ -9,7 +8,7 @@ from prompts.planning import PLANNING_SYSTEM_PROMPT
 
 
 @tool
-def plan_steps(goal: str, max_steps: int = 5) -> List[str]:
+def plan_steps(goal: str, max_steps: int = 5) -> list[str]:
     """
     Generate 3-7 concise steps to achieve the goal using the reasoning model.
     """
@@ -48,7 +47,7 @@ def plan_steps(goal: str, max_steps: int = 5) -> List[str]:
     ]
     resp = llm.invoke(messages)
     content = getattr(resp, "content", "") or ""
-    steps: List[str] = []
+    steps: list[str] = []
     for line in content.splitlines():
         line = line.strip()
         if not line:

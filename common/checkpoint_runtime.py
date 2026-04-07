@@ -4,7 +4,9 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
-from agent.runtime.deep.artifacts.public_artifacts import build_public_deep_research_artifacts_from_state
+from agent.runtime.deep.artifacts.public_artifacts import (
+    build_public_deep_research_artifacts_from_state,
+)
 from common.checkpoint_ops import aget_checkpoint_tuple
 
 

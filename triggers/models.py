@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class TriggerType(str, Enum):
@@ -58,7 +58,7 @@ class BaseTrigger:
     # Agent configuration
     agent_id: str = "default"  # Which agent to use
     task: str = ""  # Task/prompt to execute
-    task_params: Dict[str, Any] = field(default_factory=dict)
+    task_params: dict[str, Any] = field(default_factory=dict)
 
     # Execution settings
     timeout_seconds: int = 300
@@ -68,15 +68,15 @@ class BaseTrigger:
     # Metadata
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
-    last_executed_at: Optional[datetime] = None
+    last_executed_at: datetime | None = None
     execution_count: int = 0
     failure_count: int = 0
 
     # User/Owner
-    user_id: Optional[str] = None
-    tags: List[str] = field(default_factory=list)
+    user_id: str | None = None
+    tags: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert trigger to dictionary."""
         return {
             "id": self.id,
@@ -102,7 +102,7 @@ class BaseTrigger:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BaseTrigger":
+    def from_dict(cls, data: dict[str, Any]) -> BaseTrigger:
         """Create trigger from dictionary."""
         data = data.copy()
 
@@ -145,9 +145,9 @@ class ScheduledTrigger(BaseTrigger):
     max_instances: int = 1  # Max concurrent instances
 
     # Next scheduled run
-    next_run_at: Optional[datetime] = None
+    next_run_at: datetime | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data = super().to_dict()
         data.update(
             {
@@ -177,20 +177,20 @@ class WebhookTrigger(BaseTrigger):
 
     # Webhook configuration
     endpoint_path: str = ""  # Custom endpoint path (auto-generated if empty)
-    http_methods: List[str] = field(default_factory=lambda: ["POST"])
+    http_methods: list[str] = field(default_factory=lambda: ["POST"])
     require_auth: bool = False  # Require authentication
-    auth_token: Optional[str] = None  # Secret token for validation
+    auth_token: str | None = None  # Secret token for validation
 
     # Request processing
     extract_body: bool = True  # Include request body in task_params
     extract_query: bool = True  # Include query params
-    extract_headers: List[str] = field(default_factory=list)  # Headers to extract
+    extract_headers: list[str] = field(default_factory=list)  # Headers to extract
 
     # Rate limiting
-    rate_limit: Optional[int] = None  # Max requests per minute
+    rate_limit: int | None = None  # Max requests per minute
     rate_limit_window: int = 60  # Window in seconds
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data = super().to_dict()
         data.update(
             {
@@ -219,15 +219,15 @@ class EventTrigger(BaseTrigger):
 
     # Event configuration
     event_type: str = ""  # Event type to listen for
-    event_source: Optional[str] = None  # Filter by source
-    event_filters: Dict[str, Any] = field(default_factory=dict)  # JSON path filters
+    event_source: str | None = None  # Filter by source
+    event_filters: dict[str, Any] = field(default_factory=dict)  # JSON path filters
 
     # Debouncing
     debounce_seconds: int = 0  # Minimum time between triggers
     batch_events: bool = False  # Batch multiple events
     batch_window_seconds: int = 10
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data = super().to_dict()
         data.update(
             {
@@ -252,28 +252,28 @@ class TriggerExecution:
 
     # Timing
     started_at: datetime = field(default_factory=datetime.now)
-    completed_at: Optional[datetime] = None
-    duration_ms: Optional[float] = None
+    completed_at: datetime | None = None
+    duration_ms: float | None = None
 
     # Status
     status: str = "running"  # running, success, failed, timeout, cancelled
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     # Execution details
     agent_id: str = ""
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     task: str = ""
-    task_params: Dict[str, Any] = field(default_factory=dict)
+    task_params: dict[str, Any] = field(default_factory=dict)
 
     # Results
-    result: Optional[Dict[str, Any]] = None
-    output_text: Optional[str] = None
+    result: dict[str, Any] | None = None
+    output_text: str | None = None
 
     # Retry info
     retry_attempt: int = 0
     max_retries: int = 3
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "trigger_id": self.trigger_id,
@@ -293,7 +293,7 @@ class TriggerExecution:
             "max_retries": self.max_retries,
         }
 
-    def mark_success(self, result: Optional[Dict[str, Any]] = None, output: Optional[str] = None):
+    def mark_success(self, result: dict[str, Any] | None = None, output: str | None = None):
         """Mark execution as successful."""
         self.status = "success"
         self.completed_at = datetime.now()

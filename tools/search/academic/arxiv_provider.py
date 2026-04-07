@@ -12,7 +12,6 @@ Supports:
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree
 
 import requests
@@ -56,10 +55,10 @@ class ArxivProvider(SearchProvider):
         self,
         query: str,
         max_results: int = 10,
-        categories: Optional[List[str]] = None,
+        categories: list[str] | None = None,
         sort_by: str = "relevance",
         sort_order: str = "descending",
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Search arXiv papers.
 
@@ -107,15 +106,15 @@ class ArxivProvider(SearchProvider):
 
     def search_by_author(
         self, author: str, max_results: int = 20
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Search papers by author name."""
         return self.search(f"au:{author}", max_results=max_results)
 
-    def search_by_title(self, title: str, max_results: int = 10) -> List[SearchResult]:
+    def search_by_title(self, title: str, max_results: int = 10) -> list[SearchResult]:
         """Search papers by title."""
         return self.search(f"ti:{title}", max_results=max_results)
 
-    def get_paper_by_id(self, arxiv_id: str) -> Optional[SearchResult]:
+    def get_paper_by_id(self, arxiv_id: str) -> SearchResult | None:
         """
         Get a specific paper by arXiv ID.
 
@@ -144,7 +143,7 @@ class ArxivProvider(SearchProvider):
             logger.error(f"[ArxivProvider] get_paper_by_id failed: {e}")
             return None
 
-    def _parse_arxiv_response(self, xml_text: str) -> List[SearchResult]:
+    def _parse_arxiv_response(self, xml_text: str) -> list[SearchResult]:
         """Parse arXiv Atom XML response into SearchResults."""
         results = []
 
@@ -242,7 +241,7 @@ class ArxivProvider(SearchProvider):
     def _get_text(
         element: ElementTree.Element,
         path: str,
-        namespaces: Dict[str, str],
+        namespaces: dict[str, str],
     ) -> str:
         """Safely get text from XML element."""
         child = element.find(path, namespaces)

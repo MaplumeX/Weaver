@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import requests
 
@@ -59,7 +59,7 @@ def _safe_json(resp: requests.Response) -> Any:
         return None
 
 
-def serper_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+def serper_search(query: str, max_results: int = 10) -> list[dict[str, Any]]:
     api_key = (getattr(settings, "serper_api_key", "") or "").strip()
     if not _is_valid_api_key(api_key):
         return []
@@ -74,7 +74,7 @@ def serper_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         raise RuntimeError(f"Serper API error ({resp.status_code}): {msg}")
 
     data = _safe_json(resp) or {}
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     kg = data.get("knowledgeGraph")
     if isinstance(kg, dict) and (kg.get("title") or kg.get("description") or kg.get("website")):
@@ -110,7 +110,7 @@ def serper_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
 
 def serpapi_search(
     query: str, max_results: int = 10, *, engine: str = "google"
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     api_key = (getattr(settings, "serpapi_api_key", "") or "").strip()
     if not _is_valid_api_key(api_key):
         return []
@@ -129,7 +129,7 @@ def serpapi_search(
         raise RuntimeError(f"SerpAPI error ({resp.status_code}): {msg}")
 
     data = _safe_json(resp) or {}
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     kg = data.get("knowledge_graph")
     if isinstance(kg, dict) and (kg.get("title") or kg.get("description")):
@@ -169,7 +169,7 @@ def serpapi_search(
     return results[: int(max_results or 10)]
 
 
-def bing_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+def bing_search(query: str, max_results: int = 10) -> list[dict[str, Any]]:
     api_key = (getattr(settings, "bing_api_key", "") or "").strip()
     if not _is_valid_api_key(api_key):
         return []
@@ -189,7 +189,7 @@ def bing_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         raise RuntimeError(f"Bing Search API error ({resp.status_code}): {msg}")
 
     data = _safe_json(resp) or {}
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     web_pages = data.get("webPages") if isinstance(data, dict) else None
     values = web_pages.get("value") if isinstance(web_pages, dict) else None
@@ -211,7 +211,7 @@ def bing_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
     return results[: int(max_results or 10)]
 
 
-def google_cse_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+def google_cse_search(query: str, max_results: int = 10) -> list[dict[str, Any]]:
     api_key = (getattr(settings, "google_search_api_key", "") or "").strip()
     search_engine_id = (getattr(settings, "google_search_engine_id", "") or "").strip()
     if not (_is_valid_api_key(api_key) and search_engine_id):
@@ -231,7 +231,7 @@ def google_cse_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]
         raise RuntimeError(f"Google CSE API error ({resp.status_code}): {msg}")
 
     data = _safe_json(resp) or {}
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     items = data.get("items") or []
     if isinstance(items, list):
@@ -268,8 +268,8 @@ def exa_search(
     max_results: int = 10,
     *,
     search_type: str = "auto",
-    category: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    category: str | None = None,
+) -> list[dict[str, Any]]:
     api_key = (getattr(settings, "exa_api_key", "") or "").strip()
     if not _is_valid_api_key(api_key):
         return []
@@ -281,7 +281,7 @@ def exa_search(
     if search_type_norm not in {"neural", "keyword", "auto"}:
         search_type_norm = "auto"
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "query": query,
         "numResults": max(1, min(int(max_results or 10), 100)),
         "type": search_type_norm,
@@ -301,7 +301,7 @@ def exa_search(
         raise RuntimeError(f"Exa API error ({resp.status_code}): {msg}")
 
     data = _safe_json(resp) or {}
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     items = data.get("results") or []
     if isinstance(items, list):
@@ -333,7 +333,7 @@ def exa_search(
     return results[: int(max_results or 10)]
 
 
-def firecrawl_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+def firecrawl_search(query: str, max_results: int = 10) -> list[dict[str, Any]]:
     api_key = (getattr(settings, "firecrawl_api_key", "") or "").strip()
     if not _is_valid_api_key(api_key):
         return []
@@ -353,13 +353,13 @@ def firecrawl_search(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
         raise RuntimeError(f"Firecrawl API error ({resp.status_code}): {msg}")
 
     data = _safe_json(resp) or {}
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     # Firecrawl responses can be:
     # - {"data": [...]} (older)
     # - {"data": {"web": [...]}} (v2)
     raw_items: Any = data.get("data") or []
-    items: List[Any] = []
+    items: list[Any] = []
     if isinstance(raw_items, list):
         items = raw_items
     elif isinstance(raw_items, dict):

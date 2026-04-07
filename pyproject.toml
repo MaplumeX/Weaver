@@ -4,6 +4,7 @@ line-length = 100
 
 # Keep linting scoped; this repo contains build outputs and local envs.
 extend-exclude = [
+  ".trellis",
   ".venv",
   "web/.next",
   "web/node_modules",
@@ -27,6 +28,17 @@ ignore = [
   "E501",   # line-too-long — handled by formatter, allow occasional overflows
   "B008",   # do-not-perform-function-call-in-default-argument — allow Depends()
   "UP007",  # non-pep604-annotation — keep Optional[X] for readability
+  "B904",   # raise-without-from-inside-except — legacy exception style in non-critical paths
+  "RUF001", # ambiguous-unicode-character-string — Chinese prompts/content are valid here
+  "RUF002", # ambiguous-unicode-character-docstring — Chinese docs/comments are valid here
+  "RUF003", # ambiguous-unicode-character-comment — Chinese comments are valid here
+  "RUF013", # implicit-optional — keep legacy annotation style where already present
+  "SIM102", # collapsible-if — readability trade-off is not always worth it in this repo
+  "SIM103", # needless-bool — keep explicit boolean branches when clearer
+  "SIM105", # suppressible-exception — do not churn exception handling for style alone
+  "SIM108", # if-else-block-instead-of-if-exp — prefer readability over terse expressions
+  "SIM118", # in-dict-keys — low-signal style rule for this codebase
+  "UP042",  # replace-str-enum — do not mass-migrate enums to StrEnum
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -34,11 +46,28 @@ ignore = [
 "tests/**/*.py" = [
   "B011",  # do-not-assert-false
   "B017",  # assert-raises-exception
+  "E402",  # test bootstraps sometimes need sys.path/env setup before imports
+  "RUF012",# lightweight fake classes often use shared class fixtures
   "SIM",   # don't enforce simplification in tests
 ]
 # Main monolith has acceptable complexity while being refactored
 "main.py" = [
   "E402",  # module-level-import-not-at-top — mid-file imports exist
+]
+"tools/automation/__init__.py" = [
+  "F403",  # facade module intentionally re-exports submodule symbols
+]
+"tools/browser/__init__.py" = [
+  "F403",  # facade module intentionally re-exports submodule symbols
+]
+"tools/crawl/__init__.py" = [
+  "F403",  # facade module intentionally re-exports submodule symbols
+]
+"tools/io/__init__.py" = [
+  "F403",  # facade module intentionally re-exports submodule symbols
+]
+"tools/planning/__init__.py" = [
+  "F403",  # facade module intentionally re-exports submodule symbols
 ]
 
 [tool.ruff.lint.isort]

@@ -34,10 +34,9 @@ import logging
 import os
 import re
 import threading
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +82,7 @@ class ScreenshotService:
     def _generate_filename(
         self,
         action: str,
-        thread_id: Optional[str] = None,
+        thread_id: str | None = None,
         extension: str = "png",
     ) -> str:
         """
@@ -112,10 +111,10 @@ class ScreenshotService:
         self,
         image_data: bytes,
         action: str = "screenshot",
-        thread_id: Optional[str] = None,
-        page_url: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        thread_id: str | None = None,
+        page_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Save a screenshot to disk.
 
@@ -180,10 +179,10 @@ class ScreenshotService:
         self,
         base64_data: str,
         action: str = "screenshot",
-        thread_id: Optional[str] = None,
-        page_url: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        thread_id: str | None = None,
+        page_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Save a base64-encoded screenshot to disk.
 
@@ -228,10 +227,10 @@ class ScreenshotService:
         self,
         image_data: bytes,
         action: str = "screenshot",
-        thread_id: Optional[str] = None,
-        page_url: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        thread_id: str | None = None,
+        page_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Synchronous version of save_screenshot for non-async contexts.
 
@@ -295,7 +294,7 @@ class ScreenshotService:
                     "thread_id": thread_id,
                 }
 
-    def get_screenshot_path(self, filename: str) -> Optional[Path]:
+    def get_screenshot_path(self, filename: str) -> Path | None:
         """
         Get the full path for a screenshot filename.
 
@@ -344,9 +343,9 @@ class ScreenshotService:
 
     def list_screenshots(
         self,
-        thread_id: Optional[str] = None,
+        thread_id: str | None = None,
         limit: int = 100,
-    ) -> list[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         List available screenshots.
 
@@ -403,7 +402,7 @@ class ScreenshotService:
 
 
 # Global singleton instance
-_screenshot_service: Optional[ScreenshotService] = None
+_screenshot_service: ScreenshotService | None = None
 
 
 def get_screenshot_service() -> ScreenshotService:

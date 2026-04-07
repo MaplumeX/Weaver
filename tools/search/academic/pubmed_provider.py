@@ -12,7 +12,6 @@ Supports:
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree
 
 import requests
@@ -48,9 +47,9 @@ class PubMedProvider(SearchProvider):
         self,
         query: str,
         max_results: int = 10,
-        date_range: Optional[tuple] = None,
+        date_range: tuple | None = None,
         sort: str = "relevance",
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Search PubMed articles.
 
@@ -85,17 +84,17 @@ class PubMedProvider(SearchProvider):
 
     def search_by_author(
         self, author: str, max_results: int = 20
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Search articles by author name."""
         return self.search(f"{author}[Author]", max_results=max_results)
 
     def search_by_mesh(
         self, mesh_term: str, max_results: int = 20
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Search articles by MeSH term."""
         return self.search(f"{mesh_term}[MeSH]", max_results=max_results)
 
-    def get_article(self, pmid: str) -> Optional[SearchResult]:
+    def get_article(self, pmid: str) -> SearchResult | None:
         """
         Get article details by PMID.
 
@@ -116,9 +115,9 @@ class PubMedProvider(SearchProvider):
         self,
         query: str,
         max_results: int,
-        date_range: Optional[tuple],
+        date_range: tuple | None,
         sort: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """Execute ESearch to get PMIDs."""
         params = {
             "db": "pubmed",
@@ -144,7 +143,7 @@ class PubMedProvider(SearchProvider):
         result = data.get("esearchresult", {})
         return result.get("idlist", [])
 
-    def _efetch(self, pmids: List[str]) -> List[SearchResult]:
+    def _efetch(self, pmids: list[str]) -> list[SearchResult]:
         """Fetch article details for given PMIDs."""
         if not pmids:
             return []
@@ -165,7 +164,7 @@ class PubMedProvider(SearchProvider):
 
         return self._parse_pubmed_xml(response.text)
 
-    def _parse_pubmed_xml(self, xml_text: str) -> List[SearchResult]:
+    def _parse_pubmed_xml(self, xml_text: str) -> list[SearchResult]:
         """Parse PubMed XML response into SearchResults."""
         results = []
 

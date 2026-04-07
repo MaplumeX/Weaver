@@ -19,8 +19,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from dataclasses import dataclass
 
 import tiktoken
 from langchain_core.messages import (
@@ -127,7 +126,7 @@ class ContextWindowManager:
     def __init__(
         self,
         model: str = "gpt-4",
-        config: Optional[TruncationConfig] = None,
+        config: TruncationConfig | None = None,
     ):
         self.model = self._normalize_model_name(model)
         self.config = config or TruncationConfig()
@@ -230,7 +229,7 @@ class ContextWindowManager:
 
         return tokens
 
-    def count_messages_tokens(self, messages: List[BaseMessage]) -> TokenStats:
+    def count_messages_tokens(self, messages: list[BaseMessage]) -> TokenStats:
         """
         Count tokens for a list of messages with detailed stats.
 
@@ -262,10 +261,10 @@ class ContextWindowManager:
 
     def truncate_messages(
         self,
-        messages: List[BaseMessage],
-        max_tokens: Optional[int] = None,
-        strategy: Optional[str] = None,
-    ) -> Tuple[List[BaseMessage], TokenStats]:
+        messages: list[BaseMessage],
+        max_tokens: int | None = None,
+        strategy: str | None = None,
+    ) -> tuple[list[BaseMessage], TokenStats]:
         """
         Truncate messages to fit within token limit.
 
@@ -303,9 +302,9 @@ class ContextWindowManager:
 
     def _truncate_smart(
         self,
-        messages: List[BaseMessage],
+        messages: list[BaseMessage],
         max_tokens: int,
-    ) -> Tuple[List[BaseMessage], TokenStats]:
+    ) -> tuple[list[BaseMessage], TokenStats]:
         """
         Smart truncation: preserve system messages and recent context.
 
@@ -368,9 +367,9 @@ class ContextWindowManager:
 
     def _truncate_fifo(
         self,
-        messages: List[BaseMessage],
+        messages: list[BaseMessage],
         max_tokens: int,
-    ) -> Tuple[List[BaseMessage], TokenStats]:
+    ) -> tuple[list[BaseMessage], TokenStats]:
         """
         FIFO truncation: remove oldest messages first.
 
@@ -406,9 +405,9 @@ class ContextWindowManager:
 
     def _truncate_middle(
         self,
-        messages: List[BaseMessage],
+        messages: list[BaseMessage],
         max_tokens: int,
-    ) -> Tuple[List[BaseMessage], TokenStats]:
+    ) -> tuple[list[BaseMessage], TokenStats]:
         """
         Middle truncation: keep start and end, remove middle.
 
@@ -470,7 +469,7 @@ class ContextWindowManager:
 
     def get_available_tokens(
         self,
-        messages: List[BaseMessage],
+        messages: list[BaseMessage],
         reserve_for_response: int = 1000,
     ) -> int:
         """
@@ -489,7 +488,7 @@ class ContextWindowManager:
 
     def should_truncate(
         self,
-        messages: List[BaseMessage],
+        messages: list[BaseMessage],
         threshold: float = 0.9,
     ) -> bool:
         """
@@ -555,12 +554,12 @@ class ContextWindowManager:
 
 
 # Global context window manager instances
-_context_managers: Dict[str, ContextWindowManager] = {}
+_context_managers: dict[str, ContextWindowManager] = {}
 
 
 def get_context_window_manager(
     model: str = "gpt-4",
-    config: Optional[TruncationConfig] = None,
+    config: TruncationConfig | None = None,
 ) -> ContextWindowManager:
     """
     Get or create a ContextWindowManager for a model.

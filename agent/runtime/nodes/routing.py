@@ -5,7 +5,7 @@ Routing-related graph nodes.
 from __future__ import annotations
 
 import sys
-from typing import Any, Dict
+from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
@@ -26,11 +26,11 @@ def _resolve_deps(explicit_deps: Any = None) -> Any:
 
 
 def route_node(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     config: RunnableConfig,
     *,
     _deps: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Route execution using SmartRouter (LLM-based intelligent routing).
 

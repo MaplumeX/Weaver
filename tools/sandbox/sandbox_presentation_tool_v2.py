@@ -19,11 +19,9 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import time
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -154,7 +152,7 @@ class _PresentationV2BaseTool(BaseTool):
             return session._handles.sandbox
         return None
 
-    def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
+    def _emit_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Emit an event."""
         if not self.emit_events:
             return
@@ -165,7 +163,7 @@ class _PresentationV2BaseTool(BaseTool):
             except Exception as e:
                 logger.warning(f"[presentation_v2] Failed to emit event: {e}")
 
-    def _emit_tool_start(self, action: str, args: Dict[str, Any]) -> float:
+    def _emit_tool_start(self, action: str, args: dict[str, Any]) -> float:
         """Emit tool start event."""
         start_time = time.time()
         self._emit_event(
@@ -182,7 +180,7 @@ class _PresentationV2BaseTool(BaseTool):
     def _emit_tool_result(
         self,
         action: str,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         start_time: float,
         success: bool = True,
     ) -> None:
@@ -241,7 +239,7 @@ class SetTransitionTool(_PresentationV2BaseTool):
         slide_number: int,
         transition_type: TransitionType = "fade",
         duration_seconds: float = 1.0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "set_transition",
             {
@@ -338,7 +336,7 @@ class ApplyThemeTool(_PresentationV2BaseTool):
         color_scheme: ColorScheme = "default",
         font_title: str = "Arial",
         font_body: str = "Arial",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "apply_theme",
             {
@@ -418,8 +416,8 @@ class SetBackgroundInput(BaseModel):
 
     file_path: str = Field(description="Path to the presentation file")
     slide_number: int = Field(description="Slide number (1-based), or 0 for all slides")
-    color: Optional[str] = Field(default=None, description="Background color (hex, e.g., 'FFFFFF')")
-    image_path: Optional[str] = Field(
+    color: str | None = Field(default=None, description="Background color (hex, e.g., 'FFFFFF')")
+    image_path: str | None = Field(
         default=None, description="Path to background image in sandbox"
     )
 
@@ -438,9 +436,9 @@ class SetBackgroundTool(_PresentationV2BaseTool):
         self,
         file_path: str,
         slide_number: int,
-        color: Optional[str] = None,
-        image_path: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        color: str | None = None,
+        image_path: str | None = None,
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "set_background",
             {
@@ -484,7 +482,6 @@ prs.save("{full_path}")
 print("SUCCESS")
 '''
             else:
-                full_image = f"{self.workspace_path}/{image_path.lstrip('/')}"
                 python_code = f'''
 from pptx import Presentation
 from pptx.util import Inches
@@ -532,7 +529,7 @@ class DuplicateSlideInput(BaseModel):
 
     file_path: str = Field(description="Path to the presentation file")
     slide_number: int = Field(description="Slide number to duplicate (1-based)")
-    insert_position: Optional[int] = Field(
+    insert_position: int | None = Field(
         default=None, description="Position to insert the duplicate (default: after original)"
     )
 
@@ -548,8 +545,8 @@ class DuplicateSlideTool(_PresentationV2BaseTool):
         self,
         file_path: str,
         slide_number: int,
-        insert_position: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        insert_position: int | None = None,
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "duplicate_slide",
             {
@@ -567,7 +564,6 @@ class DuplicateSlideTool(_PresentationV2BaseTool):
                 return {"success": False, "error": "Failed to install python-pptx"}
 
             full_path = f"{self.workspace_path}/{file_path.lstrip('/')}"
-            pos = insert_position if insert_position else slide_number + 1
 
             python_code = f'''
 from pptx import Presentation
@@ -627,7 +623,7 @@ class ReorderSlidesInput(BaseModel):
     """Input for reorder_slides."""
 
     file_path: str = Field(description="Path to the presentation file")
-    new_order: List[int] = Field(
+    new_order: list[int] = Field(
         description="New order of slides as list of slide numbers (1-based)"
     )
 
@@ -646,8 +642,8 @@ class ReorderSlidesTool(_PresentationV2BaseTool):
     def _run(
         self,
         file_path: str,
-        new_order: List[int],
-    ) -> Dict[str, Any]:
+        new_order: list[int],
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "reorder_slides",
             {
@@ -759,7 +755,7 @@ class AddTextBoxTool(_PresentationV2BaseTool):
         font_color: str = "000000",
         bold: bool = False,
         italic: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "add_text_box",
             {
@@ -837,7 +833,7 @@ print("SUCCESS")
 def build_presentation_v2_tools(
     thread_id: str,
     emit_events: bool = True,
-) -> List[BaseTool]:
+) -> list[BaseTool]:
     """
     Build presentation v2 tools for a thread.
 

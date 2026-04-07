@@ -6,10 +6,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from langchain_core.tools import tool  # noqa: E402
+from langchain_core.tools import tool
 
-from agent.infrastructure.tools import StaticToolProvider, build_agent_toolset  # noqa: E402
-from agent.infrastructure.tools.assembly import build_tool_inventory  # noqa: E402
+from agent.infrastructure.tools import StaticToolProvider, build_agent_toolset
+from agent.infrastructure.tools.assembly import build_tool_inventory
 
 
 def _names(tools):

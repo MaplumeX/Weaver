@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 
-from tests.persistence_fixtures import build_fake_pg_conn
-
 from common.session_store import SessionStore
+from tests.persistence_fixtures import build_fake_pg_conn
 
 
 @pytest.mark.asyncio
@@ -102,9 +101,9 @@ async def test_get_snapshot_serializes_datetime_and_uuid_fields() -> None:
     conn = build_fake_pg_conn()
     store = SessionStore(conn)
 
-    session_created_at = datetime(2026, 4, 6, 7, 15, 55, 108562, tzinfo=timezone.utc)
+    session_created_at = datetime(2026, 4, 6, 7, 15, 55, 108562, tzinfo=UTC)
     message_id = uuid4()
-    message_created_at = datetime(2026, 4, 6, 0, 0, 0, tzinfo=timezone.utc)
+    message_created_at = datetime(2026, 4, 6, 0, 0, 0, tzinfo=UTC)
 
     conn.rows["sessions"] = [
         {

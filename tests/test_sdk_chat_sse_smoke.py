@@ -8,7 +8,7 @@ import httpx
 SDK_PYTHON_ROOT = Path(__file__).resolve().parent.parent / "sdk" / "python"
 sys.path.insert(0, str(SDK_PYTHON_ROOT))
 
-from weaver_sdk.client import WeaverClient  # noqa: E402
+from weaver_sdk.client import WeaverClient
 
 
 def test_sdk_chat_sse_parses_enveloped_events() -> None:

@@ -9,7 +9,7 @@ import os
 import tempfile
 import time
 from http import HTTPStatus
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 from dashscope.audio.asr import Recognition, RecognitionCallback, Transcription
@@ -47,7 +47,7 @@ def _is_url(path: str) -> bool:
 class ASRService:
     """语音识别服务"""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         """
         初始化 ASR 服务
 
@@ -63,16 +63,16 @@ class ASRService:
             self.enabled = True
         else:
             self.enabled = False
-        self.last_error: Optional[str] = None
-        self.last_error_time: Optional[float] = None
+        self.last_error: str | None = None
+        self.last_error_time: float | None = None
 
     def recognize_file(
         self,
         file_path: str,
         format: str = "wav",
         sample_rate: int = 16000,
-        language_hints: Optional[list] = None,
-    ) -> Dict[str, Any]:
+        language_hints: list | None = None,
+    ) -> dict[str, Any]:
         """
         识别音频文件
 
@@ -135,7 +135,7 @@ class ASRService:
             return {"success": False, "text": "", "error": error_msg}
 
         except Exception as e:
-            error_msg = f"ASR exception: {str(e)}"
+            error_msg = f"ASR exception: {e!s}"
             logger.error(error_msg, exc_info=True)
             self.last_error = error_msg
             self.last_error_time = time.time()
@@ -146,8 +146,8 @@ class ASRService:
         audio_data: bytes,
         format: str = "wav",
         sample_rate: int = 16000,
-        language_hints: Optional[list] = None,
-    ) -> Dict[str, Any]:
+        language_hints: list | None = None,
+    ) -> dict[str, Any]:
         """
         识别音频字节数据
 
@@ -223,10 +223,10 @@ class ASRService:
 
 
 # 全局 ASR 服务实例
-_asr_service: Optional[ASRService] = None
+_asr_service: ASRService | None = None
 
 
-def get_asr_service(api_key: Optional[str] = None) -> ASRService:
+def get_asr_service(api_key: str | None = None) -> ASRService:
     """获取 ASR 服务单例"""
     global _asr_service
 

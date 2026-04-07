@@ -12,10 +12,11 @@ import logging
 import threading
 import uuid
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +52,11 @@ class AgentRun:
 
     # Timing
     created_at: datetime = field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     # Results
-    error: Optional[str] = None
+    error: str | None = None
     final_report: str = ""
 
     # Metrics
@@ -64,15 +65,17 @@ class AgentRun:
     tool_calls: int = 0
 
     # Event queue for streaming
-    _event_queue: Optional[asyncio.Queue] = field(default=None, repr=False)
-    _listeners: List[Callable] = field(default_factory=list, repr=False)
+    _event_queue: asyncio.Queue | None = field(default=None, repr=False)
+    _listeners: list[Callable] = field(default_factory=list, repr=False)
+    _listener_tasks: set[asyncio.Task[Any]] = field(default_factory=set, repr=False)
 
     def __post_init__(self):
         self._event_queue = asyncio.Queue()
         self._listeners = []
+        self._listener_tasks = set()
 
     @property
-    def duration_seconds(self) -> Optional[float]:
+    def duration_seconds(self) -> float | None:
         """Calculate run duration in seconds."""
         if not self.started_at:
             return None
@@ -127,12 +130,12 @@ class AgentRun:
         logger.info(f"Agent run {self.id} cancelled: {reason}")
         self._push_event({"type": "status", "status": "cancelled", "reason": reason})
 
-    def push_event(self, event: Dict[str, Any]) -> None:
+    def push_event(self, event: dict[str, Any]) -> None:
         """Push an event to the queue for streaming."""
         self.event_count += 1
         self._push_event(event)
 
-    def _push_event(self, event: Dict[str, Any]) -> None:
+    def _push_event(self, event: dict[str, Any]) -> None:
         """Internal event push with timestamp."""
         event["timestamp"] = datetime.now().isoformat()
         event["run_id"] = self.id
@@ -147,19 +150,21 @@ class AgentRun:
         for listener in self._listeners:
             try:
                 if asyncio.iscoroutinefunction(listener):
-                    asyncio.create_task(listener(event))
+                    task = asyncio.create_task(listener(event))
+                    self._listener_tasks.add(task)
+                    task.add_done_callback(self._listener_tasks.discard)
                 else:
                     listener(event)
             except Exception as e:
                 logger.warning(f"Event listener error: {e}")
 
-    async def get_event(self, timeout: float = 30.0) -> Optional[Dict[str, Any]]:
+    async def get_event(self, timeout: float = 30.0) -> dict[str, Any] | None:
         """Get next event from queue with timeout."""
         if not self._event_queue:
             return None
         try:
             return await asyncio.wait_for(self._event_queue.get(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
     def add_listener(self, listener: Callable) -> None:
@@ -171,7 +176,7 @@ class AgentRun:
         if listener in self._listeners:
             self._listeners.remove(listener)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API responses."""
         return {
             "id": self.id,
@@ -203,7 +208,7 @@ class AgentRunRegistry:
         self.max_runs = max_runs
         self.ttl_seconds = ttl_seconds
         self._runs: OrderedDict[str, AgentRun] = OrderedDict()
-        self._thread_index: Dict[str, str] = {}  # thread_id -> run_id
+        self._thread_index: dict[str, str] = {}  # thread_id -> run_id
         self._lock = threading.RLock()
 
     def create(
@@ -246,7 +251,7 @@ class AgentRunRegistry:
         logger.debug(f"Created agent run {run_id} for thread {thread_id}")
         return run
 
-    def get(self, run_id: str) -> Optional[AgentRun]:
+    def get(self, run_id: str) -> AgentRun | None:
         """Get a run by ID."""
         with self._lock:
             run = self._runs.get(run_id)
@@ -255,7 +260,7 @@ class AgentRunRegistry:
                 self._runs.move_to_end(run_id)
             return run
 
-    def get_by_thread(self, thread_id: str) -> Optional[AgentRun]:
+    def get_by_thread(self, thread_id: str) -> AgentRun | None:
         """Get the current run for a thread."""
         with self._lock:
             run_id = self._thread_index.get(thread_id)
@@ -263,7 +268,7 @@ class AgentRunRegistry:
                 return self._runs.get(run_id)
             return None
 
-    def get_active_by_thread(self, thread_id: str) -> Optional[AgentRun]:
+    def get_active_by_thread(self, thread_id: str) -> AgentRun | None:
         """Get the active (non-terminal) run for a thread."""
         run = self.get_by_thread(thread_id)
         if run and not run.is_terminal:
@@ -272,10 +277,10 @@ class AgentRunRegistry:
 
     def list_runs(
         self,
-        user_id: Optional[str] = None,
-        status: Optional[AgentRunStatus] = None,
+        user_id: str | None = None,
+        status: AgentRunStatus | None = None,
         limit: int = 50,
-    ) -> List[AgentRun]:
+    ) -> list[AgentRun]:
         """List runs with optional filtering."""
         with self._lock:
             runs = list(self._runs.values())
@@ -315,7 +320,7 @@ class AgentRunRegistry:
 
         return len(expired_ids)
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Get registry statistics."""
         with self._lock:
             status_counts = {}
@@ -332,7 +337,7 @@ class AgentRunRegistry:
 
 
 # Global registry instance
-_agent_run_registry: Optional[AgentRunRegistry] = None
+_agent_run_registry: AgentRunRegistry | None = None
 
 
 def get_agent_run_registry() -> AgentRunRegistry:
@@ -360,11 +365,11 @@ def create_agent_run(
     )
 
 
-def get_agent_run(run_id: str) -> Optional[AgentRun]:
+def get_agent_run(run_id: str) -> AgentRun | None:
     """Get an agent run by ID."""
     return get_agent_run_registry().get(run_id)
 
 
-def get_agent_run_by_thread(thread_id: str) -> Optional[AgentRun]:
+def get_agent_run_by_thread(thread_id: str) -> AgentRun | None:
     """Get the current agent run for a thread."""
     return get_agent_run_registry().get_by_thread(thread_id)

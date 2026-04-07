@@ -19,8 +19,8 @@ authoritative verification gate.
 import json
 import logging
 import re
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
@@ -88,14 +88,14 @@ class GapAnalysisResult:
     """Advisory planning result from heuristic gap analysis."""
     overall_coverage: float
     confidence: float
-    gaps: List[KnowledgeGap]
-    suggested_queries: List[str]
-    covered_aspects: List[str]
+    gaps: list[KnowledgeGap]
+    suggested_queries: list[str]
+    covered_aspects: list[str]
     analysis: str
     is_sufficient: bool = False
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "GapAnalysisResult":
+    def from_dict(cls, data: dict[str, Any]) -> "GapAnalysisResult":
         gaps = []
         for g in data.get("gaps", []):
             if isinstance(g, dict):
@@ -118,7 +118,7 @@ class GapAnalysisResult:
             is_sufficient=coverage >= 0.8 and len(gaps) == 0,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "overall_coverage": self.overall_coverage,
             "confidence": self.confidence,
@@ -152,7 +152,7 @@ class KnowledgeGapAnalyzer:
     def __init__(
         self,
         llm: BaseChatModel,
-        config: Dict[str, Any] = None,
+        config: dict[str, Any] = None,
         coverage_threshold: float = 0.8,
     ):
         """
@@ -166,12 +166,12 @@ class KnowledgeGapAnalyzer:
         self.llm = llm
         self.config = config or {}
         self.coverage_threshold = coverage_threshold
-        self.history: List[GapAnalysisResult] = []
+        self.history: list[GapAnalysisResult] = []
 
     def analyze(
         self,
         topic: str,
-        executed_queries: List[str],
+        executed_queries: list[str],
         collected_knowledge: str,
     ) -> GapAnalysisResult:
         """
@@ -240,7 +240,7 @@ class KnowledgeGapAnalyzer:
         self,
         result: GapAnalysisResult,
         max_queries: int = 3,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Get prioritized queries based on gap importance.
 
@@ -301,7 +301,7 @@ class KnowledgeGapAnalyzer:
             not has_high_priority_gaps
         )
 
-    def get_coverage_trend(self) -> List[float]:
+    def get_coverage_trend(self) -> list[float]:
         """Get the trend of coverage across analysis iterations."""
         return [r.overall_coverage for r in self.history]
 
@@ -322,9 +322,9 @@ class KnowledgeGapAnalyzer:
 
     def generate_targeted_queries(
         self,
-        result: Optional[GapAnalysisResult] = None,
+        result: GapAnalysisResult | None = None,
         max_queries: int = 5,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Generate targeted search queries based on identified knowledge gaps.
 
@@ -361,8 +361,8 @@ class KnowledgeGapAnalyzer:
 
     def get_high_priority_aspects(
         self,
-        result: Optional[GapAnalysisResult] = None,
-    ) -> List[str]:
+        result: GapAnalysisResult | None = None,
+    ) -> list[str]:
         """
         Get list of high-priority missing aspects.
 
@@ -390,11 +390,11 @@ class KnowledgeGapAnalyzer:
 def integrate_gap_analysis(
     topic: str,
     llm: BaseChatModel,
-    current_queries: List[str],
-    current_summaries: List[str],
-    config: Dict[str, Any] = None,
+    current_queries: list[str],
+    current_summaries: list[str],
+    config: dict[str, Any] = None,
     max_new_queries: int = 3,
-) -> Tuple[List[str], bool]:
+) -> tuple[list[str], bool]:
     """
     Convenience function to integrate gap analysis into research loop.
 

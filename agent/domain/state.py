@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Mapping, TypedDict
+from collections.abc import Mapping
+from typing import Any, TypedDict
 
 from agent.domain.execution import execution_mode_from_public_mode
 

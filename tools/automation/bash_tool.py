@@ -1,7 +1,6 @@
 import shlex
 import subprocess
 from pathlib import Path
-from typing import List, Optional
 
 from langchain.tools import tool
 
@@ -11,7 +10,7 @@ DISALLOWED = {"rm", "shutdown", "reboot"}
 
 
 @tool
-def safe_bash(cmd: str, cwd: Optional[str] = None, timeout: int = DEFAULT_TIMEOUT) -> str:
+def safe_bash(cmd: str, cwd: str | None = None, timeout: int = DEFAULT_TIMEOUT) -> str:
     """
     Run a shell command with basic safety guard (no destructive commands).
 

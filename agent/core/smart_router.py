@@ -8,7 +8,7 @@ into the most appropriate execution mode.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -84,7 +84,7 @@ class SmartRouter:
 
     def __init__(
         self,
-        model: str = None,
+        model: str | None = None,
         temperature: float = 0.1,
         fallback_route: RouteType = "agent",
     ):
@@ -120,9 +120,9 @@ class SmartRouter:
     def route(
         self,
         query: str,
-        images: Optional[List[Dict[str, Any]]] = None,
-        context: Optional[str] = None,
-        config: Optional[RunnableConfig] = None,
+        images: list[dict[str, Any]] | None = None,
+        context: str | None = None,
+        config: RunnableConfig | None = None,
     ) -> RouteDecision:
         """
         Route a query to the appropriate execution path.
@@ -166,11 +166,11 @@ class SmartRouter:
             logger.warning(f"[smart_router] failed: {e}, using fallback")
             return RouteDecision(
                 route=self.fallback_route,
-                reasoning=f"Routing failed: {str(e)}",
+                reasoning=f"Routing failed: {e!s}",
                 confidence=0.5,
             )
 
-    def detect_tool_requirements(self, query: str) -> List[str]:
+    def detect_tool_requirements(self, query: str) -> list[str]:
         """
         Detect which tools might be needed for a query.
 
@@ -277,7 +277,7 @@ class SmartRouter:
 
 
 # Singleton instance
-_router_instance: Optional[SmartRouter] = None
+_router_instance: SmartRouter | None = None
 
 
 def get_smart_router() -> SmartRouter:
@@ -290,11 +290,11 @@ def get_smart_router() -> SmartRouter:
 
 def smart_route(
     query: str,
-    images: Optional[List[Dict[str, Any]]] = None,
-    context: Optional[str] = None,
-    config: Optional[RunnableConfig] = None,
-    override_mode: Optional[str] = None,
-) -> Dict[str, Any]:
+    images: list[dict[str, Any]] | None = None,
+    context: str | None = None,
+    config: RunnableConfig | None = None,
+    override_mode: str | None = None,
+) -> dict[str, Any]:
     """
     Smart routing function for use in graph nodes.
 

@@ -3,7 +3,6 @@ Factory to create LangChain agents with official middleware (selector, retry, li
 """
 
 import logging
-from typing import List
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -142,8 +141,8 @@ def _build_todo_middleware() -> TodoListMiddleware:
     return TodoListMiddleware(**kwargs)
 
 
-def _build_middlewares() -> List:
-    mws: List = []
+def _build_middlewares() -> list:
+    mws: list = []
 
     # Tool selector
     if settings.tool_selector:
@@ -236,7 +235,7 @@ def _build_middlewares() -> List:
     return mws
 
 
-def build_writer_agent(model: str | None = None) -> tuple[object, List[BaseTool]]:
+def build_writer_agent(model: str | None = None) -> tuple[object, list[BaseTool]]:
     """
     Create a tool-calling agent for writer node with configured middleware.
     Returns (agent, tools) so caller can inspect selected toolset.
@@ -254,7 +253,7 @@ def build_writer_agent(model: str | None = None) -> tuple[object, List[BaseTool]
     return agent, tools
 
 
-def build_tool_agent(*, model: str, tools: List[BaseTool], temperature: float = 0.7) -> object:
+def build_tool_agent(*, model: str, tools: list[BaseTool], temperature: float = 0.7) -> object:
     """
     Create a generic tool-calling agent using the shared middleware stack.
     """
@@ -266,7 +265,7 @@ def build_tool_agent(*, model: str, tools: List[BaseTool], temperature: float = 
     )
 
 
-def _resolve_deep_research_tool_names(allowed_tools: List[str] | None = None) -> set[str]:
+def _resolve_deep_research_tool_names(allowed_tools: list[str] | None = None) -> set[str]:
     requested = [str(item).strip() for item in (allowed_tools or []) if str(item).strip()]
     if not requested:
         requested = ["browser_search", "crawl_url", "sb_browser_extract_text"]
@@ -276,7 +275,7 @@ def _resolve_deep_research_tool_names(allowed_tools: List[str] | None = None) ->
 def resolve_deep_research_role_tool_names(
     role: str,
     *,
-    allowed_tools: List[str] | None = None,
+    allowed_tools: list[str] | None = None,
     enable_supervisor_world_tools: bool = False,
     enable_reporter_python_tools: bool = True,
 ) -> set[str]:
@@ -313,10 +312,10 @@ def build_deep_research_tool_agent(
     *,
     model: str | None = None,
     role: str | None = None,
-    allowed_tools: List[str] | None = None,
-    extra_tools: List[BaseTool] | None = None,
+    allowed_tools: list[str] | None = None,
+    extra_tools: list[BaseTool] | None = None,
     temperature: float = 0.1,
-) -> tuple[object, List[BaseTool]]:
+) -> tuple[object, list[BaseTool]]:
     """
     Create a Deep Research-specific tool agent with a restricted toolset.
     """

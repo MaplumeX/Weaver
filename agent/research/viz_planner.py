@@ -13,12 +13,11 @@ Key Features:
 
 import base64
 import io
-import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
@@ -30,7 +29,6 @@ logger = logging.getLogger(__name__)
 try:
     import matplotlib
     matplotlib.use('Agg')  # Non-interactive backend
-    import matplotlib.font_manager as fm
     import matplotlib.pyplot as plt
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
@@ -53,11 +51,11 @@ class ChartSpec:
     """Specification for a chart to generate."""
     chart_type: ChartType
     title: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
     description: str = ""
     source: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "chart_type": self.chart_type.value,
             "title": self.title,
@@ -101,7 +99,7 @@ class GeneratedChart:
 class ChartDataResponse(BaseModel):
     """LLM response for chart data extraction."""
     has_chartable_data: bool = Field(description="Whether the content has data suitable for visualization")
-    charts: List[Dict[str, Any]] = Field(default_factory=list, description="List of chart specifications")
+    charts: list[dict[str, Any]] = Field(default_factory=list, description="List of chart specifications")
 
 
 DATA_EXTRACTION_PROMPT = """
@@ -156,15 +154,15 @@ class VizPlanner:
     and generates appropriate visualizations.
     """
 
-    def __init__(self, llm: BaseChatModel, config: Dict[str, Any] = None):
+    def __init__(self, llm: BaseChatModel, config: dict[str, Any] = None):
         self.llm = llm
         self.config = config or {}
 
     def analyze_for_charts(
         self,
-        compressed_knowledge: Dict[str, Any],
+        compressed_knowledge: dict[str, Any],
         report_text: str = "",
-    ) -> List[ChartSpec]:
+    ) -> list[ChartSpec]:
         """
         Analyze research content for chartable data.
 
@@ -197,7 +195,7 @@ class VizPlanner:
         if report_text:
             # Extract sections with numbers
             lines = report_text.split("\n")
-            numeric_lines = [l for l in lines if re.search(r'\d+[%万亿]|\d+\.\d+', l)]
+            numeric_lines = [line for line in lines if re.search(r'\d+[%万亿]|\d+\.\d+', line)]
             if numeric_lines:
                 content_parts.append("## 报告中的数据")
                 content_parts.extend(numeric_lines[:15])
@@ -243,7 +241,7 @@ class VizPlanner:
             logger.warning(f"Chart analysis failed: {e}")
             return []
 
-    def generate_chart(self, spec: ChartSpec) -> Optional[GeneratedChart]:
+    def generate_chart(self, spec: ChartSpec) -> GeneratedChart | None:
         """
         Generate a chart image from specification.
 
@@ -305,7 +303,7 @@ class VizPlanner:
                 plt.close(fig)
             return None
 
-    def _draw_bar_chart(self, ax, labels: List, values: List, title: str) -> None:
+    def _draw_bar_chart(self, ax, labels: list, values: list, title: str) -> None:
         """Draw a bar chart."""
         colors = plt.cm.Blues([0.4 + 0.1 * i for i in range(len(labels))])
         bars = ax.bar(labels, values, color=colors, edgecolor='white')
@@ -313,7 +311,7 @@ class VizPlanner:
         ax.set_ylabel('Value')
 
         # Add value labels on bars
-        for bar, val in zip(bars, values):
+        for bar, val in zip(bars, values, strict=False):
             ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(),
                     f'{val}', ha='center', va='bottom', fontsize=10)
 
@@ -322,7 +320,7 @@ class VizPlanner:
         plt.xticks(rotation=45, ha='right')
         plt.tight_layout()
 
-    def _draw_line_chart(self, ax, labels: List, values: List, title: str) -> None:
+    def _draw_line_chart(self, ax, labels: list, values: list, title: str) -> None:
         """Draw a line chart."""
         ax.plot(labels, values, marker='o', linewidth=2, markersize=8, color='#3498db')
         ax.fill_between(labels, values, alpha=0.3, color='#3498db')
@@ -334,10 +332,10 @@ class VizPlanner:
         plt.xticks(rotation=45, ha='right')
         plt.tight_layout()
 
-    def _draw_pie_chart(self, ax, labels: List, values: List, title: str) -> None:
+    def _draw_pie_chart(self, ax, labels: list, values: list, title: str) -> None:
         """Draw a pie chart."""
         colors = plt.cm.Set3([i/len(labels) for i in range(len(labels))])
-        wedges, texts, autotexts = ax.pie(
+        _wedges, _texts, _autotexts = ax.pie(
             values, labels=labels, autopct='%1.1f%%',
             colors=colors, startangle=90,
             explode=[0.02] * len(labels),
@@ -345,10 +343,10 @@ class VizPlanner:
         ax.set_title(title, fontsize=14, fontweight='bold')
         plt.tight_layout()
 
-    def _draw_comparison_chart(self, ax, labels: List, values: List, title: str) -> None:
+    def _draw_comparison_chart(self, ax, labels: list, values: list, title: str) -> None:
         """Draw a horizontal comparison chart."""
         colors = ['#3498db' if v >= 0 else '#e74c3c' for v in values]
-        bars = ax.barh(labels, values, color=colors, edgecolor='white')
+        ax.barh(labels, values, color=colors, edgecolor='white')
         ax.set_title(title, fontsize=14, fontweight='bold')
         ax.axvline(x=0, color='gray', linestyle='-', linewidth=0.5)
         ax.spines['top'].set_visible(False)
@@ -357,10 +355,10 @@ class VizPlanner:
 
     def generate_all_charts(
         self,
-        compressed_knowledge: Dict[str, Any],
+        compressed_knowledge: dict[str, Any],
         report_text: str = "",
         max_charts: int = 3,
-    ) -> List[GeneratedChart]:
+    ) -> list[GeneratedChart]:
         """
         Analyze content and generate all appropriate charts.
 
@@ -389,7 +387,7 @@ class VizPlanner:
 
 def embed_charts_in_report(
     report: str,
-    charts: List[GeneratedChart],
+    charts: list[GeneratedChart],
     format: str = "markdown",
 ) -> str:
     """

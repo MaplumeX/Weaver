@@ -22,10 +22,10 @@ import time
 import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from difflib import SequenceMatcher
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 from agent.contracts.search_cache import get_search_cache
@@ -53,14 +53,14 @@ _TRACKING_QUERY_KEYS = {
 }
 
 
-def _resolve_ddgs_module_name() -> Optional[str]:
+def _resolve_ddgs_module_name() -> str | None:
     for module_name in _DDGS_MODULE_NAMES:
         if importlib.util.find_spec(module_name) is not None:
             return module_name
     return None
 
 
-def _load_ddgs_class() -> tuple[Any, Optional[str]]:
+def _load_ddgs_class() -> tuple[Any, str | None]:
     module_name = _resolve_ddgs_module_name()
     if not module_name:
         return None, None
@@ -69,7 +69,7 @@ def _load_ddgs_class() -> tuple[Any, Optional[str]]:
     return getattr(module, "DDGS", None), module_name
 
 
-def _log_legacy_ddg_package_once(module_name: Optional[str]) -> None:
+def _log_legacy_ddg_package_once(module_name: str | None) -> None:
     global _legacy_ddg_package_warning_logged
     if module_name != "duckduckgo_search" or _legacy_ddg_package_warning_logged:
         return
@@ -131,9 +131,9 @@ class SearchResult:
     snippet: str
     content: str = ""
     score: float = 0.0
-    published_date: Optional[str] = None
+    published_date: str | None = None
     provider: str = ""
-    raw_data: Dict[str, Any] = field(default_factory=dict)
+    raw_data: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.url = _canonicalize_result_url(self.url)
@@ -151,7 +151,7 @@ class SearchResult:
         """Get hash of URL for deduplication."""
         return hashlib.md5(self.url.encode()).hexdigest()[:12]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "title": self.title,
             "url": self.url,
@@ -172,8 +172,8 @@ class ProviderStats:
     error_count: int = 0
     total_latency_ms: float = 0
     avg_result_quality: float = 0.5
-    last_error: Optional[str] = None
-    last_error_time: Optional[str] = None
+    last_error: str | None = None
+    last_error_time: str | None = None
     is_healthy: bool = True
     consecutive_failures: int = 0
 
@@ -210,13 +210,13 @@ class ProviderStats:
 class SearchProvider(ABC):
     """Abstract base class for search providers."""
 
-    def __init__(self, name: str, api_key: Optional[str] = None):
+    def __init__(self, name: str, api_key: str | None = None):
         self.name = name
         self.api_key = api_key
         self.stats = ProviderStats(name=name)
 
     @abstractmethod
-    def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
         """Execute a search query and return normalized results."""
         pass
 
@@ -225,7 +225,7 @@ class SearchProvider(ABC):
         """Check if the provider is available (API key configured, etc.)."""
         pass
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "success_rate": self.stats.success_rate,
@@ -244,7 +244,7 @@ class TavilyProvider(SearchProvider):
     def is_available(self) -> bool:
         return bool(self.api_key)
 
-    def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
         from tools.search.search import tavily_search
 
         start_time = time.time()
@@ -286,7 +286,7 @@ class DuckDuckGoProvider(SearchProvider):
     def is_available(self) -> bool:
         return _resolve_ddgs_module_name() is not None
 
-    def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
         try:
             DDGS, module_name = _load_ddgs_class()
         except ImportError:
@@ -346,7 +346,7 @@ class BraveProvider(SearchProvider):
     def is_available(self) -> bool:
         return bool(self.api_key)
 
-    def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
         import requests
 
         start_time = time.time()
@@ -400,7 +400,7 @@ class SerperProvider(SearchProvider):
     def is_available(self) -> bool:
         return bool(self.api_key)
 
-    def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
         import requests
 
         start_time = time.time()
@@ -455,7 +455,7 @@ class ExaProvider(SearchProvider):
     def is_available(self) -> bool:
         return bool(self.api_key)
 
-    def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
         try:
             from exa_py import Exa
         except ImportError:
@@ -496,7 +496,7 @@ class ExaProvider(SearchProvider):
 
 
 # Import feed providers (lazy to avoid circular imports)
-def _get_feed_providers() -> List[SearchProvider]:
+def _get_feed_providers() -> list[SearchProvider]:
     """Get available real-time feed providers."""
     providers = []
     try:
@@ -527,7 +527,7 @@ def _get_feed_providers() -> List[SearchProvider]:
 
 
 # Import academic providers (lazy to avoid circular imports)
-def _get_academic_providers() -> List[SearchProvider]:
+def _get_academic_providers() -> list[SearchProvider]:
     """Get available academic search providers."""
     providers = []
     try:
@@ -570,10 +570,10 @@ class MultiSearchOrchestrator:
 
     def __init__(
         self,
-        providers: Optional[List[SearchProvider]] = None,
+        providers: list[SearchProvider] | None = None,
         strategy: SearchStrategy = SearchStrategy.FALLBACK,
         similarity_threshold: float = 0.7,
-        reliability_manager: Optional[ProviderReliabilityManager] = None,
+        reliability_manager: ProviderReliabilityManager | None = None,
     ):
         """
         Initialize the orchestrator.
@@ -618,7 +618,7 @@ class MultiSearchOrchestrator:
         )
         self.reliability_manager = reliability_manager or ProviderReliabilityManager(policy)
 
-    def _init_default_providers(self) -> List[SearchProvider]:
+    def _init_default_providers(self) -> list[SearchProvider]:
         """Initialize default providers based on available API keys."""
         providers = []
 
@@ -658,7 +658,7 @@ class MultiSearchOrchestrator:
         logger.info(f"[MultiSearch] Initialized {len(providers)} providers: {[p.name for p in providers]}")
         return providers
 
-    def get_available_providers(self) -> List[SearchProvider]:
+    def get_available_providers(self) -> list[SearchProvider]:
         """Get list of currently healthy and available providers."""
         return [p for p in self.providers if p.is_available() and p.stats.is_healthy]
 
@@ -666,9 +666,9 @@ class MultiSearchOrchestrator:
         self,
         query: str,
         max_results: int = 10,
-        strategy: Optional[SearchStrategy] = None,
-        provider_profile: Optional[List[str]] = None,
-    ) -> List[SearchResult]:
+        strategy: SearchStrategy | None = None,
+        provider_profile: list[str] | None = None,
+    ) -> list[SearchResult]:
         """
         Execute a search using the configured strategy.
 
@@ -695,7 +695,7 @@ class MultiSearchOrchestrator:
             logger.error("[MultiSearch] No available search providers")
             return []
 
-        results: List[SearchResult]
+        results: list[SearchResult]
         if strategy == SearchStrategy.FALLBACK:
             results = self._search_fallback(query, max_results, available)
         elif strategy == SearchStrategy.PARALLEL:
@@ -717,13 +717,13 @@ class MultiSearchOrchestrator:
         query: str,
         max_results: int,
         strategy: SearchStrategy,
-        provider_profile: Optional[List[str]],
+        provider_profile: list[str] | None,
     ) -> str:
         profile = ",".join(provider_profile or [])
         return f"multi_search::{strategy.value}::{max_results}::{profile}::{query}"
 
-    def _from_cached_results(self, cached: List[Dict[str, Any]]) -> List[SearchResult]:
-        results: List[SearchResult] = []
+    def _from_cached_results(self, cached: list[dict[str, Any]]) -> list[SearchResult]:
+        results: list[SearchResult] = []
         for item in cached or []:
             if not isinstance(item, dict):
                 continue
@@ -743,9 +743,9 @@ class MultiSearchOrchestrator:
 
     def _apply_provider_profile(
         self,
-        providers: List[SearchProvider],
-        provider_profile: Optional[List[str]],
-    ) -> List[SearchProvider]:
+        providers: list[SearchProvider],
+        provider_profile: list[str] | None,
+    ) -> list[SearchProvider]:
         """Filter/reorder providers by requested profile while keeping safe fallback.
 
         Provider profiles are used as a preference signal (ordering + prioritization),
@@ -765,7 +765,7 @@ class MultiSearchOrchestrator:
             return providers
 
         providers_by_name = {p.name.lower(): p for p in providers}
-        selected: List[SearchProvider] = []
+        selected: list[SearchProvider] = []
         for name in preferred:
             provider = providers_by_name.get(name)
             if provider and provider not in selected:
@@ -788,9 +788,9 @@ class MultiSearchOrchestrator:
         provider: SearchProvider,
         query: str,
         max_results: int,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Call provider through reliability layer (retry + circuit breaker)."""
-        def call_once() -> List[SearchResult]:
+        def call_once() -> list[SearchResult]:
             # Many provider adapters swallow exceptions and return [] while recording
             # error stats. Treat that as a failed attempt so the reliability layer can retry.
             before_errors = int(getattr(provider.stats, "error_count", 0) or 0)
@@ -810,8 +810,8 @@ class MultiSearchOrchestrator:
         self,
         query: str,
         max_results: int,
-        providers: List[SearchProvider],
-    ) -> List[SearchResult]:
+        providers: list[SearchProvider],
+    ) -> list[SearchResult]:
         """Try providers sequentially until success."""
         for provider in providers:
             results = self._call_provider(provider, query, max_results)
@@ -827,20 +827,20 @@ class MultiSearchOrchestrator:
         self,
         query: str,
         max_results: int,
-        providers: List[SearchProvider],
-    ) -> List[SearchResult]:
+        providers: list[SearchProvider],
+    ) -> list[SearchResult]:
         """Query all providers in parallel and merge results."""
         import concurrent.futures
 
-        all_results: List[SearchResult] = []
+        all_results: list[SearchResult] = []
 
         max_workers = min(len(providers), int(getattr(self, "parallel_max_workers", len(providers))))
         max_workers = max(1, max_workers)
         timeout_s = float(getattr(self, "parallel_timeout_seconds", 30.0))
         timed_out = False
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
-        futures: Dict[concurrent.futures.Future[List[SearchResult]], SearchProvider] = {}
-        pending: set[concurrent.futures.Future[List[SearchResult]]] = set()
+        futures: dict[concurrent.futures.Future[list[SearchResult]], SearchProvider] = {}
+        pending: set[concurrent.futures.Future[list[SearchResult]]] = set()
 
         try:
             futures = {
@@ -885,8 +885,8 @@ class MultiSearchOrchestrator:
         self,
         query: str,
         max_results: int,
-        providers: List[SearchProvider],
-    ) -> List[SearchResult]:
+        providers: list[SearchProvider],
+    ) -> list[SearchResult]:
         """Use round-robin to distribute queries."""
         if not providers:
             return []
@@ -907,8 +907,8 @@ class MultiSearchOrchestrator:
         self,
         query: str,
         max_results: int,
-        providers: List[SearchProvider],
-    ) -> List[SearchResult]:
+        providers: list[SearchProvider],
+    ) -> list[SearchResult]:
         """Use best performing provider first."""
         # Sort by composite score: success_rate * quality / latency
         sorted_providers = sorted(
@@ -925,17 +925,17 @@ class MultiSearchOrchestrator:
 
     def _deduplicate_and_rank(
         self,
-        results: List[SearchResult],
+        results: list[SearchResult],
         max_results: int,
         query: str = "",
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Deduplicate results by URL and content similarity, then rank."""
         if not results:
             return []
 
         ranked = sorted(results, key=lambda r: self._ranking_score(r, query), reverse=True)
         seen_urls = set()
-        deduplicated: List[SearchResult] = []
+        deduplicated: list[SearchResult] = []
 
         for result in ranked:
             if result.url_hash in seen_urls:
@@ -952,7 +952,7 @@ class MultiSearchOrchestrator:
     def _is_content_duplicate(
         self,
         candidate: SearchResult,
-        existing_results: List[SearchResult],
+        existing_results: list[SearchResult],
     ) -> bool:
         candidate_snippet = (candidate.snippet or "").strip().lower()[:200]
         if not candidate_snippet:
@@ -989,7 +989,7 @@ class MultiSearchOrchestrator:
 
         return bool(re.search(r"\b20\d{2}\b", q))
 
-    def _parse_published_date(self, value: Optional[str]) -> Optional[datetime]:
+    def _parse_published_date(self, value: str | None) -> datetime | None:
         if not value:
             return None
 
@@ -1022,15 +1022,15 @@ class MultiSearchOrchestrator:
                 return None
 
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
 
-    def _freshness_score(self, published_date: Optional[str]) -> float:
+    def _freshness_score(self, published_date: str | None) -> float:
         dt = self._parse_published_date(published_date)
         if dt is None:
             return 0.5
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         age_days = max(0.0, (now - dt).total_seconds() / 86400.0)
         return math.exp(-age_days / self.freshness_half_life_days)
 
@@ -1042,7 +1042,7 @@ class MultiSearchOrchestrator:
         freshness = self._freshness_score(result.published_date)
         return (1.0 - self.freshness_weight) * base_score + self.freshness_weight * freshness
 
-    def get_provider_stats(self) -> List[Dict[str, Any]]:
+    def get_provider_stats(self) -> list[dict[str, Any]]:
         """Get statistics for all providers."""
         return [p.get_stats() for p in self.providers]
 
@@ -1054,7 +1054,7 @@ class MultiSearchOrchestrator:
 
 
 # Global orchestrator instance
-_global_orchestrator: Optional[MultiSearchOrchestrator] = None
+_global_orchestrator: MultiSearchOrchestrator | None = None
 
 
 def get_search_orchestrator() -> MultiSearchOrchestrator:
@@ -1075,8 +1075,8 @@ def multi_search(
     query: str,
     max_results: int = 10,
     strategy: SearchStrategy = SearchStrategy.FALLBACK,
-    provider_profile: Optional[List[str]] = None,
-) -> List[Dict[str, Any]]:
+    provider_profile: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """
     Convenience function for multi-provider search.
 

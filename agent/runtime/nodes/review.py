@@ -5,7 +5,7 @@ Review graph nodes.
 from __future__ import annotations
 
 import sys
-from typing import Any, Dict
+from typing import Any
 
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
@@ -33,11 +33,11 @@ def _hitl_checkpoints_enabled() -> set[str]:
 
 
 def human_review_node(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     config: RunnableConfig,
     *,
     _deps: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Optional human review step using LangGraph interrupt."""
     deps = _resolve_deps(_deps)
     logger.info("Executing human review node")

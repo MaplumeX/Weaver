@@ -5,7 +5,6 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from common.langsmith import sync_langsmith_env
 from common.proxy_env import normalize_socks_proxy_env
@@ -31,21 +30,21 @@ class LLMSettingsModel(BaseModel):
     base_url: str
     api_key: str
     max_tokens: int = 4096
-    max_input_tokens: Optional[int] = None
+    max_input_tokens: int | None = None
     temperature: float = 1.0
     api_type: str = ""
     api_version: str = ""
 
 
 class ProxySettings(BaseModel):
-    server: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
+    server: str | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 class SearchSettings(BaseModel):
     engine: str = "tavily"
-    fallback_engines: List[str] = Field(default_factory=list)
+    fallback_engines: list[str] = Field(default_factory=list)
     retry_delay: int = 60
     max_retries: int = 3
     lang: str = "en"
@@ -55,11 +54,11 @@ class SearchSettings(BaseModel):
 class BrowserSettings(BaseModel):
     headless: bool = False
     disable_security: bool = True
-    extra_chromium_args: List[str] = Field(default_factory=list)
-    chrome_instance_path: Optional[str] = None
-    wss_url: Optional[str] = None
-    cdp_url: Optional[str] = None
-    proxy: Optional[ProxySettings] = None
+    extra_chromium_args: list[str] = Field(default_factory=list)
+    chrome_instance_path: str | None = None
+    wss_url: str | None = None
+    cdp_url: str | None = None
+    proxy: ProxySettings | None = None
     max_content_length: int = 2000
 
 
@@ -84,13 +83,13 @@ class DaytonaSettings(BaseModel):
 
 class MCPServerConfig(BaseModel):
     type: str
-    url: Optional[str] = None
-    command: Optional[str] = None
-    args: List[str] = Field(default_factory=list)
+    url: str | None = None
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
 
 
 class MCPSettings(BaseModel):
-    servers: Dict[str, MCPServerConfig] = Field(default_factory=dict)
+    servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
 class RunflowSettings(BaseModel):
@@ -98,13 +97,13 @@ class RunflowSettings(BaseModel):
 
 
 class AppConfig(BaseModel):
-    llm: Dict[str, LLMSettingsModel]
-    sandbox: Optional[SandboxSettings] = None
-    browser_config: Optional[BrowserSettings] = None
-    search_config: Optional[SearchSettings] = None
-    mcp_config: Optional[MCPSettings] = None
-    run_flow_config: Optional[RunflowSettings] = None
-    daytona_config: Optional[DaytonaSettings] = None
+    llm: dict[str, LLMSettingsModel]
+    sandbox: SandboxSettings | None = None
+    browser_config: BrowserSettings | None = None
+    search_config: SearchSettings | None = None
+    mcp_config: MCPSettings | None = None
+    run_flow_config: RunflowSettings | None = None
+    daytona_config: DaytonaSettings | None = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -226,7 +225,7 @@ class Settings(BaseSettings):
     # RATE_LIMIT_ENABLED:
     # - unset (default): enabled only when APP_ENV=prod|production
     # - true/false: force on/off regardless of APP_ENV
-    rate_limit_enabled: Optional[bool] = Field(default=None, validation_alias="RATE_LIMIT_ENABLED")
+    rate_limit_enabled: bool | None = Field(default=None, validation_alias="RATE_LIMIT_ENABLED")
     rate_limit_general_per_minute: int = Field(
         default=60, ge=1, validation_alias="RATE_LIMIT_GENERAL_PER_MINUTE"
     )
@@ -248,7 +247,7 @@ class Settings(BaseSettings):
     interrupt_before_nodes: str = ""  # comma-separated node names for LangGraph interrupts
     app_config_path: str = "config/config.toml"  # Optional TOML config (OpenManus style)
     mcp_config_path: str = "config/mcp.json"  # MCP servers definition (JSON)
-    app_config_object: Optional[AppConfig] = None  # populated at runtime if TOML is present
+    app_config_object: AppConfig | None = None  # populated at runtime if TOML is present
 
     # Logging Config
     log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -287,7 +286,7 @@ class Settings(BaseSettings):
 
     # RAG (Retrieval-Augmented Generation) Config
     rag_enabled: bool = False  # Enable local document RAG
-    rag_store_path: Optional[str] = None  # Path for persistent vector storage
+    rag_store_path: str | None = None  # Path for persistent vector storage
     rag_collection_name: str = "weaver_documents"  # ChromaDB collection name
     rag_embedding_model: str = "text-embedding-3-small"  # OpenAI embedding model
     rag_chunk_size: int = 1000  # Document chunk size
@@ -466,7 +465,7 @@ class Settings(BaseSettings):
     prompt_optimization_sample_size: int = 50  # 每轮评估样本数
 
     @property
-    def cors_origins_list(self) -> List[str]:
+    def cors_origins_list(self) -> list[str]:
         """Parse CORS origins string into list."""
         origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
@@ -505,27 +504,27 @@ class Settings(BaseSettings):
         return env in {"prod", "production"}
 
     @property
-    def interrupt_nodes_list(self) -> List[str]:
+    def interrupt_nodes_list(self) -> list[str]:
         """Parse interrupt_before_nodes into list for LangGraph compile."""
         return [node.strip() for node in self.interrupt_before_nodes.split(",") if node.strip()]
 
     @property
-    def tool_selector_always_include_list(self) -> List[str]:
+    def tool_selector_always_include_list(self) -> list[str]:
         """Comma separated tool names that must always be kept when selector is on."""
         return [t.strip() for t in self.tool_selector_always_include.split(",") if t.strip()]
 
     @property
-    def allowed_tools_list(self) -> List[str]:
+    def allowed_tools_list(self) -> list[str]:
         """Comma separated concrete tool allowlist."""
         return [t.strip() for t in self.allowed_tools.split(",") if t.strip()]
 
     @property
-    def blocked_tools_list(self) -> List[str]:
+    def blocked_tools_list(self) -> list[str]:
         """Comma separated concrete tool blocklist."""
         return [t.strip() for t in self.blocked_tools.split(",") if t.strip()]
 
     @property
-    def enhanced_tool_discovery_exclude_list(self) -> List[str]:
+    def enhanced_tool_discovery_exclude_list(self) -> list[str]:
         """Comma separated directory names excluded from enhanced tool discovery."""
         return [
             d.strip()
@@ -534,20 +533,20 @@ class Settings(BaseSettings):
         ]
 
     @property
-    def search_engines_list(self) -> List[str]:
+    def search_engines_list(self) -> list[str]:
         """Comma separated ordered search engines."""
         engines = [e.strip() for e in self.search_engines.split(",") if e.strip()]
         if not engines and getattr(self, "app_config_object", None):
             cfg = getattr(self.app_config_object, "search_config", None)
             if cfg:
-                engines = [cfg.engine] + list(cfg.fallback_engines or [])
+                engines = [cfg.engine, *list(cfg.fallback_engines or [])]
         return engines or ["tavily"]
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def _load_mcp_servers(mcp_path: str) -> Dict[str, MCPServerConfig]:
+def _load_mcp_servers(mcp_path: str) -> dict[str, MCPServerConfig]:
     """
     Load MCP server configs from JSON (mcp.json or mcp.json.example).
     """
@@ -574,8 +573,8 @@ def _load_mcp_servers(mcp_path: str) -> Dict[str, MCPServerConfig]:
     return {}
 
 
-@lru_cache()
-def load_app_config(config_path: str, mcp_path: str) -> Optional[AppConfig]:
+@lru_cache
+def load_app_config(config_path: str, mcp_path: str) -> AppConfig | None:
     """
     Load AppConfig from TOML + MCP JSON (compatible with OpenManus config layout).
     """
@@ -607,7 +606,7 @@ def load_app_config(config_path: str, mcp_path: str) -> Optional[AppConfig]:
         "api_version": base_llm.get("api_version", ""),
     }
 
-    llm_dict: Dict[str, LLMSettingsModel] = {}
+    llm_dict: dict[str, LLMSettingsModel] = {}
     if default_settings.get("model"):
         llm_dict["default"] = LLMSettingsModel(**default_settings)
     for name, override in overrides.items():
@@ -690,9 +689,10 @@ def apply_app_config_overrides(settings: Settings) -> None:
 
     # Search engines
     if not settings.search_engines.strip() and app_cfg.search_config:
-        engines = [app_cfg.search_config.engine] + list(
-            app_cfg.search_config.fallback_engines or []
-        )
+        engines = [
+            app_cfg.search_config.engine,
+            *list(app_cfg.search_config.fallback_engines or []),
+        ]
         settings.search_engines = ",".join([e for e in engines if e])
 
     # Daytona

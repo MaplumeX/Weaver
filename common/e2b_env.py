@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def _normalize_domain(domain: str) -> str:
     return d
 
 
-def _e2b_no_proxy_hosts(e2b_domain: Optional[str] = None) -> list[str]:
+def _e2b_no_proxy_hosts(e2b_domain: str | None = None) -> list[str]:
     bases = ["e2b.app"]
     d = _normalize_domain(e2b_domain or "")
     if d and d not in bases:
@@ -53,7 +53,7 @@ def _e2b_no_proxy_hosts(e2b_domain: Optional[str] = None) -> list[str]:
     return _dedupe_keep_order(hosts)
 
 
-def prepare_e2b_env(e2b_domain: Optional[str] = None) -> None:
+def prepare_e2b_env(e2b_domain: str | None = None) -> None:
     """
     Make E2B sandbox calls stable under proxy-heavy environments.
 

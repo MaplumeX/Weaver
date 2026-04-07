@@ -27,7 +27,7 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, Thread
-from typing import Any, Dict, Optional
+from typing import Any
 
 import httpx
 
@@ -95,7 +95,7 @@ def _truncate(text: str, limit: int = 220) -> str:
     return text[:limit] + ("..." if len(text) > limit else "")
 
 
-def _try_json(resp: httpx.Response) -> Dict[str, Any]:
+def _try_json(resp: httpx.Response) -> dict[str, Any]:
     try:
         data = resp.json()
         if isinstance(data, dict):
@@ -107,7 +107,7 @@ def _try_json(resp: httpx.Response) -> Dict[str, Any]:
 
 def _client(base_url: str) -> httpx.Client:
     _normalize_socks_proxy_env()
-    headers: Dict[str, str] = {}
+    headers: dict[str, str] = {}
 
     internal_key = _env("WEAVER_INTERNAL_API_KEY", "")
     if not internal_key and _WEAVER_SETTINGS is not None:
@@ -177,7 +177,6 @@ def _check_chat_sse(client: httpx.Client) -> CheckResult:
         }
 
         got_event = False
-        got_done = False
         with client.stream("POST", "/api/chat/sse", json=payload) as resp:
             resp.raise_for_status()
             for line in resp.iter_lines():
@@ -186,7 +185,6 @@ def _check_chat_sse(client: httpx.Client) -> CheckResult:
                 if line.startswith("event:"):
                     got_event = True
                 if line.startswith("event: done"):
-                    got_done = True
                     break
                 # Stop early once we've confirmed we can parse frames.
                 if got_event and time.time() - t0 > 8.0:
@@ -302,7 +300,7 @@ def _check_chat_deep_cancel(base_url: str) -> CheckResult:
     stream_ready = Event()
     watcher_done = Event()
 
-    state: Dict[str, Any] = {
+    state: dict[str, Any] = {
         "thread_id": None,
         "got_event": False,
         "got_cancelled": False,
@@ -342,7 +340,7 @@ def _check_chat_deep_cancel(base_url: str) -> CheckResult:
                         # Timebox observation; cancellation should land quickly.
                         if time.time() - start > 25.0:
                             break
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             state["error"] = _compact_error(e)
             stream_ready.set()
         finally:

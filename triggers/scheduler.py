@@ -9,16 +9,16 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-import re
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any
 
 from .models import ScheduledTrigger, TriggerStatus
 
 logger = logging.getLogger(__name__)
 
 
-def parse_cron_field(field: str, min_val: int, max_val: int) -> Set[int]:
+def parse_cron_field(field: str, min_val: int, max_val: int) -> set[int]:
     """
     Parse a single cron field into a set of valid values.
 
@@ -55,7 +55,7 @@ def parse_cron_field(field: str, min_val: int, max_val: int) -> Set[int]:
     return values
 
 
-def parse_cron(expression: str) -> Dict[str, Set[int]]:
+def parse_cron(expression: str) -> dict[str, set[int]]:
     """
     Parse cron expression into component sets.
 
@@ -122,9 +122,9 @@ class TriggerScheduler:
     """
 
     def __init__(self):
-        self.triggers: Dict[str, ScheduledTrigger] = {}
-        self.tasks: Dict[str, asyncio.Task] = {}
-        self.callbacks: Dict[str, Callable] = {}
+        self.triggers: dict[str, ScheduledTrigger] = {}
+        self.tasks: dict[str, asyncio.Task] = {}
+        self.callbacks: dict[str, Callable] = {}
         self._running = False
         self._lock = asyncio.Lock()
 
@@ -137,7 +137,7 @@ class TriggerScheduler:
         logger.info("[scheduler] Trigger scheduler started")
 
         # Start all active triggers
-        for trigger_id, trigger in self.triggers.items():
+        for _trigger_id, trigger in self.triggers.items():
             if trigger.status == TriggerStatus.ACTIVE:
                 await self._start_trigger_task(trigger)
 
@@ -217,7 +217,6 @@ class TriggerScheduler:
             if trigger.id not in self.triggers:
                 return False
 
-            old_trigger = self.triggers[trigger.id]
             callback = self.callbacks.get(trigger.id)
 
             # Cancel old task
@@ -284,11 +283,11 @@ class TriggerScheduler:
             logger.info(f"[scheduler] Resumed trigger: {trigger.name}")
             return True
 
-    def get_trigger(self, trigger_id: str) -> Optional[ScheduledTrigger]:
+    def get_trigger(self, trigger_id: str) -> ScheduledTrigger | None:
         """Get a trigger by ID."""
         return self.triggers.get(trigger_id)
 
-    def list_triggers(self) -> List[ScheduledTrigger]:
+    def list_triggers(self) -> list[ScheduledTrigger]:
         """List all triggers."""
         return list(self.triggers.values())
 
@@ -379,7 +378,7 @@ class TriggerScheduler:
 
 
 # Global scheduler instance
-_scheduler: Optional[TriggerScheduler] = None
+_scheduler: TriggerScheduler | None = None
 
 
 def get_scheduler() -> TriggerScheduler:

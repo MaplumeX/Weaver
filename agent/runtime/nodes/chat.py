@@ -5,7 +5,7 @@ Chat-first runtime node.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict
+from typing import Any
 
 import agent.runtime.nodes._shared as _shared
 from agent.runtime.nodes.prompting import build_chat_runtime_messages
@@ -58,9 +58,9 @@ def _select_tools_for_input(
 
 
 def chat_respond_node(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     config,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Default agent-mode node: answer like a normal chat assistant unless tools are required.
     """

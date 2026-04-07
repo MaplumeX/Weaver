@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Set
+from typing import Any
 
 _QUERY_DIMENSIONS = (
     "freshness",
@@ -133,13 +133,13 @@ def is_time_sensitive_topic(topic: str) -> bool:
     return bool(_YEAR_RE.search(text))
 
 
-def query_dimensions(query: str) -> Set[str]:
+def query_dimensions(query: str) -> set[str]:
     """Infer coverage dimensions represented by a query."""
     text = str(query or "").strip()
     if not text:
         return set()
 
-    dims: Set[str] = set()
+    dims: set[str] = set()
 
     if is_time_sensitive_topic(text):
         dims.add("freshness")
@@ -161,7 +161,7 @@ def query_dimensions(query: str) -> Set[str]:
     return dims
 
 
-def analyze_query_coverage(queries: List[str]) -> Dict[str, Any]:
+def analyze_query_coverage(queries: list[str]) -> dict[str, Any]:
     """Compute dimension coverage score for generated research queries."""
     hits = {name: 0 for name in _QUERY_DIMENSIONS}
 
@@ -186,7 +186,7 @@ def analyze_query_coverage(queries: List[str]) -> Dict[str, Any]:
     }
 
 
-def _seed_templates(topic: str, year: int) -> List[Dict[str, str]]:
+def _seed_templates(topic: str, year: int) -> list[dict[str, str]]:
     if _is_cjk_text(topic):
         return [
             {"dimension": "freshness", "query": f"{topic} 最新进展 {year}"},
@@ -210,10 +210,10 @@ def _seed_templates(topic: str, year: int) -> List[Dict[str, str]]:
 
 def backfill_diverse_queries(
     topic: str,
-    existing_queries: List[str],
-    historical_queries: List[str],
+    existing_queries: list[str],
+    historical_queries: list[str],
     query_num: int,
-) -> List[str]:
+) -> list[str]:
     """
     Backfill query list with deterministic dimension seeds.
 
@@ -227,7 +227,7 @@ def backfill_diverse_queries(
         if isinstance(q, str) and str(q).strip()
     }
 
-    final_queries: List[str] = []
+    final_queries: list[str] = []
     for query in existing_queries or []:
         q = str(query or "").strip()
         if not q:

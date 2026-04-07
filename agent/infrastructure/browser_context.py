@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from tools.browser.browser_session import browser_sessions
 from tools.sandbox import sandbox_browser_sessions
 
 
-def build_browser_context_hint(thread_id: str = "default") -> Optional[str]:
+def build_browser_context_hint(thread_id: str = "default") -> str | None:
     """
     Best-effort browser context summary for prompt augmentation.
 

@@ -26,9 +26,10 @@ import socket
 import sys
 import tempfile
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import httpx
 
@@ -38,7 +39,7 @@ class SmokeResult:
     method: str
     path: str
     url: str
-    status_code: Optional[int]
+    status_code: int | None
     ok: bool
     elapsed_ms: int
     note: str = ""
@@ -46,7 +47,7 @@ class SmokeResult:
 
 
 # These are populated at runtime (after the server is up) by calling status endpoints.
-_SERVICE_FLAGS: Dict[str, bool] = {"asr_enabled": True, "tts_enabled": True}
+_SERVICE_FLAGS: dict[str, bool] = {"asr_enabled": True, "tts_enabled": True}
 _REQ_SEQ = 0
 
 
@@ -64,15 +65,15 @@ def _next_test_ip() -> str:
     return f"203.0.113.{last_octet}"
 
 
-def _default_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-    headers: Dict[str, str] = {}
+def _default_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
+    headers: dict[str, str] = {}
     if extra:
         headers.update({str(k): str(v) for k, v in extra.items() if v is not None})
     headers.setdefault("X-Forwarded-For", _next_test_ip())
     return headers
 
 
-def _expected_503_note(path: str, status_code: Optional[int]) -> Optional[str]:
+def _expected_503_note(path: str, status_code: int | None) -> str | None:
     if status_code != 503:
         return None
     if path in {"/api/asr/recognize", "/api/asr/upload"} and not _SERVICE_FLAGS.get(
@@ -112,7 +113,7 @@ def _find_free_port(host: str) -> int:
         return int(sock.getsockname()[1])
 
 
-def _env_for_server(*, tmp_root: Path) -> Dict[str, str]:
+def _env_for_server(*, tmp_root: Path) -> dict[str, str]:
     env = dict(os.environ)
 
     # Avoid proxy leakage into the backend subprocess.
@@ -152,7 +153,7 @@ async def _start_uvicorn(
     port: int,
     tmp_root: Path,
     log_level: str,
-) -> Tuple[asyncio.subprocess.Process, Path, Any]:
+) -> tuple[asyncio.subprocess.Process, Path, Any]:
     cmd = [
         sys.executable,
         "-m",
@@ -193,7 +194,7 @@ async def _stop_process(proc: asyncio.subprocess.Process, *, timeout_s: float = 
     try:
         await asyncio.wait_for(proc.wait(), timeout=timeout_s)
         return
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass
 
     try:
@@ -204,7 +205,7 @@ async def _stop_process(proc: asyncio.subprocess.Process, *, timeout_s: float = 
     try:
         await asyncio.wait_for(proc.wait(), timeout=timeout_s)
         return
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass
 
     try:
@@ -218,7 +219,7 @@ async def _wait_for_health(
     base_url: str,
     *,
     timeout_s: float,
-    proc: Optional[asyncio.subprocess.Process] = None,
+    proc: asyncio.subprocess.Process | None = None,
     expected_openapi_title: str = "Weaver Research Agent API",
 ) -> None:
     """
@@ -232,7 +233,7 @@ async def _wait_for_health(
 
     deadline = time.monotonic() + timeout_s
     async with httpx.AsyncClient(base_url=base_url, timeout=2.0, trust_env=False) as client:
-        last_err: Optional[BaseException] = None
+        last_err: BaseException | None = None
         while time.monotonic() < deadline:
             if proc is not None and proc.returncode is not None:
                 raise RuntimeError(
@@ -292,16 +293,16 @@ async def _raw_request(
     *,
     method: str,
     path: str,
-    params: Optional[dict] = None,
+    params: dict | None = None,
     json_body: Any = None,
     files: Any = None,
-    headers: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
     timeout_s: float,
-) -> Tuple[SmokeResult, Optional[httpx.Response]]:
+) -> tuple[SmokeResult, httpx.Response | None]:
     url = str(client.base_url)[:-1] + path
     start_total = time.perf_counter()
 
-    last_resp: Optional[httpx.Response] = None
+    last_resp: httpx.Response | None = None
     for attempt in range(3):
         try:
             last_resp = await client.request(
@@ -379,7 +380,7 @@ async def _request_json(
     *,
     method: str,
     path: str,
-    params: Optional[dict] = None,
+    params: dict | None = None,
     json_body: Any = None,
     files: Any = None,
     timeout_s: float,
@@ -402,7 +403,7 @@ async def _request_stream(
     *,
     method: str,
     path: str,
-    params: Optional[dict] = None,
+    params: dict | None = None,
     json_body: Any = None,
     timeout_s: float,
     first_byte_timeout_s: float = 1.0,
@@ -410,7 +411,7 @@ async def _request_stream(
     url = str(client.base_url)[:-1] + path
     start_total = time.perf_counter()
 
-    last_status: Optional[int] = None
+    last_status: int | None = None
     last_note = ""
     last_body_snip = ""
 
@@ -449,7 +450,7 @@ async def _request_stream(
                         last_body_snip = _snippet(
                             first.decode("utf-8", errors="replace"), limit=160
                         )
-                    except (asyncio.TimeoutError, httpx.ReadTimeout):
+                    except (TimeoutError, httpx.ReadTimeout):
                         note = "stream: no chunk within timeout (ok)"
                     except StopAsyncIteration:
                         note = "stream: ended immediately"
@@ -616,7 +617,7 @@ async def _scenario_calls(
     client: httpx.AsyncClient,
     *,
     timeout_s: float,
-) -> Tuple[List[SmokeResult], Dict[str, str], List[Tuple[str, str]]]:
+) -> tuple[list[SmokeResult], dict[str, str], list[tuple[str, str]]]:
     """
     Call a few endpoints with valid payloads to exercise deeper paths.
 
@@ -625,9 +626,9 @@ async def _scenario_calls(
       - ids dict with keys like: agent_id, scheduled_trigger_id, webhook_trigger_id, share_id, thread_id
       - list of (method, openapi-path) pairs already exercised
     """
-    results: List[SmokeResult] = []
-    ids: Dict[str, str] = {}
-    done: set[Tuple[str, str]] = set()
+    results: list[SmokeResult] = []
+    ids: dict[str, str] = {}
+    done: set[tuple[str, str]] = set()
 
     # Basic health
     res, _ = await _raw_request(client, method="GET", path="/health", timeout_s=timeout_s)
@@ -948,17 +949,17 @@ async def _sweep_all_routes(
     client: httpx.AsyncClient,
     *,
     timeout_s: float,
-    ids: Dict[str, str],
-    already_done: Iterable[Tuple[str, str]],
-) -> List[SmokeResult]:
+    ids: dict[str, str],
+    already_done: Iterable[tuple[str, str]],
+) -> list[SmokeResult]:
     done = set((m.upper(), p) for (m, p) in already_done)
 
     openapi = await client.get("/openapi.json", timeout=timeout_s)
     openapi.raise_for_status()
     spec = openapi.json()
 
-    paths: Dict[str, Any] = spec.get("paths", {}) if isinstance(spec, dict) else {}
-    results: List[SmokeResult] = []
+    paths: dict[str, Any] = spec.get("paths", {}) if isinstance(spec, dict) else {}
+    results: list[SmokeResult] = []
 
     def pick_id(name: str) -> str:
         return ids.get(name) or f"smoke_{name}"
@@ -966,7 +967,7 @@ async def _sweep_all_routes(
     for path, item in sorted(paths.items()):
         if not isinstance(item, dict):
             continue
-        for method, op in sorted(item.items()):
+        for method, _op in sorted(item.items()):
             if method.lower() not in {"get", "post", "put", "delete", "patch"}:
                 continue
             method_u = method.upper()
@@ -1088,8 +1089,8 @@ async def run_smoke(
     base_url: str,
     timeout_s: float,
     include_ws: bool,
-) -> List[SmokeResult]:
-    results: List[SmokeResult] = []
+) -> list[SmokeResult]:
+    results: list[SmokeResult] = []
     async with httpx.AsyncClient(base_url=base_url, trust_env=False) as client:
         # Run a few "deeper" scenario calls first.
         scenario, ids, already_done = await _scenario_calls(client, timeout_s=timeout_s)
@@ -1132,7 +1133,7 @@ async def run_smoke(
     return results
 
 
-def _write_report(path: Path, results: List[SmokeResult]) -> None:
+def _write_report(path: Path, results: list[SmokeResult]) -> None:
     payload = [
         {
             "method": r.method,
@@ -1150,7 +1151,7 @@ def _write_report(path: Path, results: List[SmokeResult]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def parse_args(argv: List[str]) -> argparse.Namespace:
+def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--base-url", default="", help="Base URL (for --no-start). Example: http://127.0.0.1:8000")
     p.add_argument("--no-start", action="store_true", help="Do not start uvicorn; use --base-url")
@@ -1163,16 +1164,16 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-async def amain(argv: List[str]) -> int:
+async def amain(argv: list[str]) -> int:
     args = parse_args(argv)
 
     if args.no_start and not args.base_url:
         raise SystemExit("--no-start requires --base-url")
 
-    proc: Optional[asyncio.subprocess.Process] = None
-    log_fh: Optional[Any] = None
-    log_path: Optional[Path] = None
-    tmp_ctx: Optional[tempfile.TemporaryDirectory] = None
+    proc: asyncio.subprocess.Process | None = None
+    log_fh: Any | None = None
+    log_path: Path | None = None
+    tmp_ctx: tempfile.TemporaryDirectory | None = None
     base_url = args.base_url.rstrip("/")
 
     try:

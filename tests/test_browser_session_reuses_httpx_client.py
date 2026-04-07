@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-import pytest
-
 
 class _FakeResponse:
     def __init__(self, url: str):

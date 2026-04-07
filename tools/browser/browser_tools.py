@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -28,7 +28,7 @@ class _BrowserTool(BaseTool):
     def _session(self):
         return browser_sessions.get((self.thread_id or "").strip() or "default")
 
-    def _emit(self, event_type: ToolEventType, data: Dict[str, Any]):
+    def _emit(self, event_type: ToolEventType, data: dict[str, Any]):
         emitter = get_emitter_sync(self.thread_id)
         try:
             emitter.emit_sync(event_type, data)
@@ -63,7 +63,7 @@ class _BrowserTool(BaseTool):
             # Playwright isn't available; skip silently.
             return
 
-        png_bytes: Optional[bytes] = None
+        png_bytes: bytes | None = None
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -95,10 +95,10 @@ class _BrowserTool(BaseTool):
         if not png_bytes:
             return
 
-        screenshot_url: Optional[str] = None
-        screenshot_filename: Optional[str] = None
+        screenshot_url: str | None = None
+        screenshot_filename: str | None = None
         mime_type: str = "image/jpeg"
-        image_b64: Optional[str] = None
+        image_b64: str | None = None
 
         try:
             from tools.io.screenshot_service import get_screenshot_service
@@ -147,7 +147,7 @@ class BrowserSearchTool(_BrowserTool):
     )
     args_schema: type[BaseModel] = BrowserSearchInput
 
-    def _run(self, query: str, engine: str = "duckduckgo", max_links: int = 10) -> Dict[str, Any]:
+    def _run(self, query: str, engine: str = "duckduckgo", max_links: int = 10) -> dict[str, Any]:
         self._progress("search", f"{engine} {query}")
         self._emit(
             ToolEventType.TOOL_START,
@@ -174,7 +174,7 @@ class BrowserNavigateTool(_BrowserTool):
     description: str = "Open a URL in the lightweight browser session and extract title/text/links."
     args_schema: type[BaseModel] = BrowserNavigateInput
 
-    def _run(self, url: str, max_links: int = 10) -> Dict[str, Any]:
+    def _run(self, url: str, max_links: int = 10) -> dict[str, Any]:
         self._progress("navigate", url)
         self._emit(ToolEventType.TOOL_START, {"tool": self.name, "args": {"url": url}})
         page = self._session().navigate(url=url)
@@ -203,7 +203,7 @@ class BrowserClickTool(_BrowserTool):
     description: str = "Click a link from the current page by 1-based index and navigate to it."
     args_schema: type[BaseModel] = BrowserClickInput
 
-    def _run(self, index: int, max_links: int = 10) -> Dict[str, Any]:
+    def _run(self, index: int, max_links: int = 10) -> dict[str, Any]:
         session = self._session()
         if not session.current:
             raise ValueError("No current page. Use browser_search or browser_navigate first.")
@@ -239,7 +239,7 @@ class BrowserBackTool(_BrowserTool):
     name: str = "browser_back"
     description: str = "Go back to the previous page in this browser session."
 
-    def _run(self) -> Dict[str, Any]:
+    def _run(self) -> dict[str, Any]:
         self._emit(ToolEventType.TOOL_START, {"tool": self.name})
         page = self._session().back()
         self._maybe_emit_screenshot(page_url=page.url, action="back")
@@ -260,7 +260,7 @@ class BrowserExtractTextTool(_BrowserTool):
     description: str = "Return the extracted text of the current page."
     args_schema: type[BaseModel] = BrowserExtractTextInput
 
-    def _run(self, max_chars: int = 3000) -> Dict[str, Any]:
+    def _run(self, max_chars: int = 3000) -> dict[str, Any]:
         session = self._session()
         if not session.current:
             raise ValueError("No current page. Use browser_search or browser_navigate first.")
@@ -281,7 +281,7 @@ class BrowserListLinksTool(_BrowserTool):
     description: str = "List extracted links from the current page."
     args_schema: type[BaseModel] = BrowserListLinksInput
 
-    def _run(self, max_links: int = 10) -> Dict[str, Any]:
+    def _run(self, max_links: int = 10) -> dict[str, Any]:
         session = self._session()
         if not session.current:
             raise ValueError("No current page. Use browser_search or browser_navigate first.")
@@ -297,14 +297,14 @@ class BrowserResetTool(_BrowserTool):
     name: str = "browser_reset"
     description: str = "Reset the browser session (clears current page and history)."
 
-    def _run(self) -> Dict[str, Any]:
+    def _run(self) -> dict[str, Any]:
         self._emit(ToolEventType.TOOL_START, {"tool": self.name})
         browser_sessions.reset(self.thread_id)
         return {"status": "reset", "thread_id": self.thread_id}
 
 
 class BrowserScreenshotInput(BaseModel):
-    url: Optional[str] = Field(default=None, description="If omitted, uses current page url")
+    url: str | None = Field(default=None, description="If omitted, uses current page url")
     full_page: bool = True
     wait_ms: int = Field(default=1500, ge=0, le=15000)
 
@@ -318,8 +318,8 @@ class BrowserScreenshotTool(_BrowserTool):
     args_schema: type[BaseModel] = BrowserScreenshotInput
 
     def _run(
-        self, url: Optional[str] = None, full_page: bool = True, wait_ms: int = 1500
-    ) -> Dict[str, Any]:
+        self, url: str | None = None, full_page: bool = True, wait_ms: int = 1500
+    ) -> dict[str, Any]:
         target = (url or "").strip()
         if not target:
             session = self._session()
@@ -351,8 +351,8 @@ class BrowserScreenshotTool(_BrowserTool):
             finally:
                 browser.close()
 
-        screenshot_url: Optional[str] = None
-        screenshot_filename: Optional[str] = None
+        screenshot_url: str | None = None
+        screenshot_filename: str | None = None
         mime_type: str = "image/png"
 
         # Best-effort: save to disk so the UI can fetch the image by URL (lighter than SSE base64).
@@ -372,7 +372,7 @@ class BrowserScreenshotTool(_BrowserTool):
             pass
 
         # Only include base64 when we couldn't persist to disk.
-        image_b64: Optional[str] = None
+        image_b64: str | None = None
         if not screenshot_url:
             image_b64 = base64.b64encode(png_bytes).decode("ascii")
 
@@ -394,7 +394,7 @@ class BrowserScreenshotTool(_BrowserTool):
         except Exception:
             pass
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "url": target,  # page URL (kept for backwards compatibility)
             "page_url": target,
             "screenshot_url": screenshot_url,
@@ -406,7 +406,7 @@ class BrowserScreenshotTool(_BrowserTool):
         return result
 
 
-def build_browser_tools(thread_id: str) -> List[BaseTool]:
+def build_browser_tools(thread_id: str) -> list[BaseTool]:
     """
     Create per-request browser tools bound to a thread_id.
     """

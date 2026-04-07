@@ -1,10 +1,6 @@
-import pytest
 
-import main
 from scripts.benchmark_deep_research import (
-    _execute_research_case,
     _parse_sse_frame,
-    run_benchmark,
 )
 
 

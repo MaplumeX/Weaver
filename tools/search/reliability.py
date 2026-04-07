@@ -8,8 +8,9 @@ circuit breaker to avoid hammering failing backends.
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ class ReliabilityPolicy:
 @dataclass
 class _ProviderReliabilityState:
     consecutive_failures: int = 0
-    opened_at: Optional[float] = None
+    opened_at: float | None = None
 
 
 class ProviderReliabilityManager:
@@ -38,9 +39,9 @@ class ProviderReliabilityManager:
     can keep fallback behavior deterministic.
     """
 
-    def __init__(self, policy: Optional[ReliabilityPolicy] = None):
+    def __init__(self, policy: ReliabilityPolicy | None = None):
         self.policy = policy or ReliabilityPolicy()
-        self._states: Dict[str, _ProviderReliabilityState] = {}
+        self._states: dict[str, _ProviderReliabilityState] = {}
         self._lock = threading.Lock()
 
     def _state(self, provider_name: str) -> _ProviderReliabilityState:
@@ -120,7 +121,7 @@ class ProviderReliabilityManager:
 
         return []
 
-    def snapshot(self, provider_name: str) -> Dict[str, Any]:
+    def snapshot(self, provider_name: str) -> dict[str, Any]:
         """
         Return a JSON-serializable view of the current reliability state for a provider.
 

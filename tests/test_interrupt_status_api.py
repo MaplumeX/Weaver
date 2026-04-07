@@ -1,5 +1,4 @@
 from types import SimpleNamespace
-import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient

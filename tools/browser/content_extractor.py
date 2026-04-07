@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class ExtractedLink:
 
     text: str
     url: str
-    title: Optional[str] = None
+    title: str | None = None
 
 
 @dataclass
@@ -44,7 +44,7 @@ class ExtractedForm:
 
     action: str
     method: str
-    inputs: List[Dict[str, str]] = field(default_factory=list)
+    inputs: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -53,16 +53,16 @@ class ExtractedContent:
 
     url: str
     title: str
-    description: Optional[str] = None
-    author: Optional[str] = None
-    published_date: Optional[str] = None
+    description: str | None = None
+    author: str | None = None
+    published_date: str | None = None
     text: str = ""
     markdown: str = ""
-    links: List[ExtractedLink] = field(default_factory=list)
-    headings: List[str] = field(default_factory=list)
-    forms: List[ExtractedForm] = field(default_factory=list)
-    images: List[Dict[str, str]] = field(default_factory=list)
-    metadata: Dict[str, str] = field(default_factory=dict)
+    links: list[ExtractedLink] = field(default_factory=list)
+    headings: list[str] = field(default_factory=list)
+    forms: list[ExtractedForm] = field(default_factory=list)
+    images: list[dict[str, str]] = field(default_factory=list)
+    metadata: dict[str, str] = field(default_factory=dict)
 
 
 # JavaScript for content extraction (injected into page)

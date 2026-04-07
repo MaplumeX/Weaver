@@ -15,7 +15,7 @@ import copy
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,18 +29,18 @@ class SubAgentContext:
     independently modified without affecting siblings.
     """
     scope_id: str
-    parent_scope_id: Optional[str] = None
+    parent_scope_id: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
     # Isolated state fields (deep copied from parent)
-    messages: List[Any] = field(default_factory=list)
-    research_plan: List[str] = field(default_factory=list)
-    summary_notes: List[str] = field(default_factory=list)
+    messages: list[Any] = field(default_factory=list)
+    research_plan: list[str] = field(default_factory=list)
+    summary_notes: list[str] = field(default_factory=list)
 
     # Accumulated results (to be merged back)
-    scraped_content: List[Dict[str, Any]] = field(default_factory=list)
-    sources: List[Dict[str, str]] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    scraped_content: list[dict[str, Any]] = field(default_factory=list)
+    sources: list[dict[str, str]] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     # Read-only context (shared reference)
     input: str = ""
@@ -52,7 +52,7 @@ class SubAgentContext:
     is_complete: bool = False
     is_cancelled: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for state storage."""
         return {
             "scope_id": self.scope_id,
@@ -78,23 +78,23 @@ class ResearchWorkerContext:
     role: str = "researcher"
     query: str = ""
     topic: str = ""
-    parent_scope_id: Optional[str] = None
+    parent_scope_id: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
-    brief: Dict[str, Any] = field(default_factory=dict)
-    related_artifacts: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    brief: dict[str, Any] = field(default_factory=dict)
+    related_artifacts: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
-    messages: List[Any] = field(default_factory=list)
-    summary_notes: List[str] = field(default_factory=list)
-    scraped_content: List[Dict[str, Any]] = field(default_factory=list)
-    sources: List[Dict[str, Any]] = field(default_factory=list)
-    artifacts_created: List[Dict[str, Any]] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    messages: list[Any] = field(default_factory=list)
+    summary_notes: list[str] = field(default_factory=list)
+    scraped_content: list[dict[str, Any]] = field(default_factory=list)
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    artifacts_created: list[dict[str, Any]] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     is_complete: bool = False
     is_cancelled: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "scope_id": self.scope_id,
             "task_id": self.task_id,
@@ -126,13 +126,13 @@ class WorkerContextStore:
     """
 
     def __init__(self):
-        self.contexts: Dict[str, SubAgentContext] = {}
+        self.contexts: dict[str, SubAgentContext] = {}
 
     def fork(
         self,
-        parent_state: Dict[str, Any],
+        parent_state: dict[str, Any],
         scope_id: str,
-        parent_scope_id: Optional[str] = None,
+        parent_scope_id: str | None = None,
         inherit_messages: bool = False,
     ) -> SubAgentContext:
         """
@@ -176,10 +176,10 @@ class WorkerContextStore:
 
     def merge(
         self,
-        parent_state: Dict[str, Any],
+        parent_state: dict[str, Any],
         child_context: SubAgentContext,
         merge_messages: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Merge child context results back to parent state.
 
@@ -236,7 +236,7 @@ class WorkerContextStore:
 
         return updates
 
-    def get_context(self, scope_id: str) -> Optional[SubAgentContext]:
+    def get_context(self, scope_id: str) -> SubAgentContext | None:
         """Get a context by scope ID."""
         return self.contexts.get(scope_id)
 
@@ -246,7 +246,7 @@ class WorkerContextStore:
             del self.contexts[scope_id]
             logger.debug(f"[WorkerContextStore] Removed context: {scope_id}")
 
-    def get_active_contexts(self) -> List[SubAgentContext]:
+    def get_active_contexts(self) -> list[SubAgentContext]:
         """Get all active (non-complete) contexts."""
         return [c for c in self.contexts.values() if not c.is_complete]
 
@@ -258,10 +258,10 @@ class WorkerContextStore:
 
 
 def fork_state(
-    parent_state: Dict[str, Any],
+    parent_state: dict[str, Any],
     scope_id: str,
     clear_messages: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Create a forked state dictionary for a sub-agent.
 
@@ -303,10 +303,10 @@ def fork_state(
 
 
 def merge_state(
-    parent_state: Dict[str, Any],
-    child_state: Dict[str, Any],
+    parent_state: dict[str, Any],
+    child_state: dict[str, Any],
     scope_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Merge child state results back to parent.
 
@@ -345,16 +345,16 @@ def merge_state(
 
 
 def build_research_worker_context(
-    parent_state: Dict[str, Any],
+    parent_state: dict[str, Any],
     *,
     task_id: str,
     agent_id: str,
     query: str,
     topic: str,
-    brief: Optional[Dict[str, Any]] = None,
-    related_artifacts: Optional[Dict[str, List[Dict[str, Any]]]] = None,
-    scope_id: Optional[str] = None,
-    parent_scope_id: Optional[str] = None,
+    brief: dict[str, Any] | None = None,
+    related_artifacts: dict[str, list[dict[str, Any]]] | None = None,
+    scope_id: str | None = None,
+    parent_scope_id: str | None = None,
     inherit_messages: bool = False,
 ) -> ResearchWorkerContext:
     """
@@ -392,16 +392,16 @@ def build_research_worker_context(
 
 
 def merge_research_worker_context(
-    parent_state: Dict[str, Any],
+    parent_state: dict[str, Any],
     worker_context: ResearchWorkerContext,
     *,
     merge_messages: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Merge a structured research worker context back into the shared agent state.
     """
 
-    updates: Dict[str, Any] = {}
+    updates: dict[str, Any] = {}
 
     if worker_context.scraped_content:
         existing = parent_state.get("scraped_content", [])
@@ -445,7 +445,7 @@ def merge_research_worker_context(
 
 
 # Global context manager instance
-_global_context_manager: Optional[WorkerContextStore] = None
+_global_context_manager: WorkerContextStore | None = None
 
 
 def get_worker_context_store() -> WorkerContextStore:

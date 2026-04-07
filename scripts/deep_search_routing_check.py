@@ -29,7 +29,7 @@ def run_deep_search_routing_check():
     try:
         response = requests.get(f"{BASE_URL}/health", timeout=5)
         print(f"✅ 服务器运行中 (状态: {response.status_code})")
-    except:
+    except Exception:
         print("❌ 服务器未运行！")
         print("请先启动服务器: python main.py")
         return False
@@ -55,7 +55,7 @@ def run_deep_search_routing_check():
         if response.status_code == 200:
             data = response.json()
             content = data.get("content", "")
-            print(f"✅ 响应成功")
+            print("✅ 响应成功")
             print(f"响应长度: {len(content)} 字符")
             print(f"内容预览: {content[:200]}...")
         else:
@@ -88,7 +88,7 @@ def run_deep_search_routing_check():
         if response.status_code == 200:
             data = response.json()
             content = data.get("content", "")
-            print(f"✅ 响应成功")
+            print("✅ 响应成功")
             print(f"响应长度: {len(content)} 字符")
             print(f"内容预览: {content[:200]}...")
         else:

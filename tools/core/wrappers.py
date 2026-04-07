@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from langchain_core.tools import BaseTool
 
@@ -41,7 +42,7 @@ class EventedTool(BaseTool):
         self.original = original
         self.thread_id = thread_id
 
-    def _emit_sync(self, event_type: ToolEventType, data: Dict[str, Any]):
+    def _emit_sync(self, event_type: ToolEventType, data: dict[str, Any]):
         """Best-effort async emit from sync context."""
         emitter = get_emitter_sync(self.thread_id)
         emitter.emit_sync(event_type, data)
@@ -144,11 +145,10 @@ class EventedTool(BaseTool):
         return result
 
 
-def wrap_tools_with_events(tools: Iterable[Any], thread_id: str = "default") -> List[Any]:
+def wrap_tools_with_events(tools: Iterable[Any], thread_id: str = "default") -> list[Any]:
     """Wrap a list of tools with EventedTool, skipping ones already evented."""
-    wrapped: List[Any] = []
+    wrapped: list[Any] = []
     for tool in tools:
-        name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
         # Many first-party tools already emit tool_* events (and expose a switch
         # like `emit_events`). Avoid double-emitting start/result/error.
         if (

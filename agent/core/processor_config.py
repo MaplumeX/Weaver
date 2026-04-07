@@ -16,8 +16,9 @@ Inspired by Manus AgentPress ProcessorConfig.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 
 from common.config import settings
 
@@ -154,16 +155,16 @@ class AgentProcessorConfig:
 
     # ==================== Advanced Options ====================
 
-    custom_tool_selector: Optional[callable] = None
+    custom_tool_selector: Callable[..., Any] | None = None
     """Custom function to filter/select which tools to execute."""
 
-    tool_call_preprocessor: Optional[callable] = None
+    tool_call_preprocessor: Callable[..., Any] | None = None
     """Custom function to preprocess tool calls before execution."""
 
-    tool_result_postprocessor: Optional[callable] = None
+    tool_result_postprocessor: Callable[..., Any] | None = None
     """Custom function to postprocess tool results before injection."""
 
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     """Additional custom metadata."""
 
     def __post_init__(self):
@@ -215,7 +216,7 @@ class AgentProcessorConfig:
             f")"
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""
         return {
             # Tool calling

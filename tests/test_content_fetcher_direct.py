@@ -67,8 +67,7 @@ def test_content_fetcher_streams_and_caps_response_bytes(monkeypatch):
             raise AssertionError("Response.content should not be read when streaming")
 
         def iter_content(self, chunk_size=65536):
-            for chunk in self._chunks:
-                yield chunk
+            yield from self._chunks
 
         def close(self):
             return None

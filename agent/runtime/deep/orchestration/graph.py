@@ -21,24 +21,35 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
-from langgraph.types import Command, Send, interrupt
+from langgraph.types import Send, interrupt
 
-from agent.contracts.events import ToolEventType, get_emitter_sync
-from agent.core.llm_factory import create_chat_model
+import agent.runtime.deep.support.runtime_support as support
+from agent.contracts.events import ToolEventType
+from agent.contracts.events import get_emitter_sync as get_emitter_sync
+from agent.core.llm_factory import create_chat_model as create_chat_model
 from agent.core.state import build_deep_runtime_snapshot
+from agent.research.source_url_utils import canonicalize_source_url
 from agent.runtime.deep.artifacts.public_artifacts import build_public_deep_research_artifacts
 from agent.runtime.deep.config import resolve_max_searches, resolve_parallel_workers
-from agent.runtime.deep.roles.clarify import DeepResearchClarifyAgent
+from agent.runtime.deep.roles import (
+    DeepResearchClarifyAgent as DeepResearchClarifyAgent,
+)
+from agent.runtime.deep.roles import (
+    DeepResearchScopeAgent as DeepResearchScopeAgent,
+)
+from agent.runtime.deep.roles import (
+    ResearchAgent as ResearchAgent,
+)
+from agent.runtime.deep.roles import (
+    ResearchReporter as ResearchReporter,
+)
+from agent.runtime.deep.roles import (
+    ResearchSupervisor as ResearchSupervisor,
+)
 from agent.runtime.deep.roles.reporter import (
     ReportContext,
     ReportSectionContext,
     ReportSource,
-    ResearchReporter,
-)
-from agent.runtime.deep.roles.researcher import ResearchAgent
-from agent.runtime.deep.roles.scope import DeepResearchScopeAgent
-from agent.runtime.deep.roles.supervisor import (
-    ResearchSupervisor,
 )
 from agent.runtime.deep.schema import (
     AgentRunRecord,
@@ -48,26 +59,41 @@ from agent.runtime.deep.schema import (
     OutlineSection,
     ResearchPlanArtifact,
     ResearchTask,
+    ScopeDraft,
     SectionCertificationArtifact,
     SectionDraftArtifact,
     SectionReviewArtifact,
-    ScopeDraft,
     _now_iso,
 )
-from agent.runtime.deep.services.knowledge_gap import GapAnalysisResult, KnowledgeGapAnalyzer
+from agent.runtime.deep.services.knowledge_gap import (
+    GapAnalysisResult,
+)
+from agent.runtime.deep.services.knowledge_gap import (
+    KnowledgeGapAnalyzer as KnowledgeGapAnalyzer,
+)
 from agent.runtime.deep.state import read_deep_runtime_snapshot
 from agent.runtime.deep.store import ResearchTaskQueue
 from agent.runtime.deep.support.graph_helpers import (
     MultiAgentGraphState,
+)
+from agent.runtime.deep.support.graph_helpers import (
     build_clarify_transcript as _build_clarify_transcript,
+)
+from agent.runtime.deep.support.graph_helpers import (
     build_scope_draft as _build_scope_draft,
+)
+from agent.runtime.deep.support.graph_helpers import (
     extract_interrupt_text as _extract_interrupt_text,
+)
+from agent.runtime.deep.support.graph_helpers import (
     format_scope_draft_markdown as _format_scope_draft_markdown,
+)
+from agent.runtime.deep.support.graph_helpers import (
     scope_draft_from_payload as _scope_draft_from_payload,
+)
+from agent.runtime.deep.support.graph_helpers import (
     split_findings as _split_findings,
 )
-from agent.research.source_url_utils import canonicalize_source_url
-import agent.runtime.deep.support.runtime_support as support
 from common.cancellation import check_cancellation as _check_cancel_token
 from common.config import settings
 
@@ -1665,21 +1691,25 @@ class MultiAgentDeepResearchRuntime:
         created_by: str,
     ) -> dict[str, Any]:
         summary = str(outcome.get("summary") or "").strip()
-        result = BranchResult(
-            id=support._new_id("branch_result"),
-            task_id=task.id,
-            branch_id=task.branch_id,
-            title=_branch_title(task),
-            objective=task.objective or task.goal,
-            summary=summary,
-            key_findings=list(outcome.get("key_findings") or _split_findings(summary) or [summary]),
-            open_questions=list(outcome.get("open_questions") or []),
-            confidence_note=str(outcome.get("confidence_note") or "").strip(),
-            source_urls=[str(item.get("url") or "").strip() for item in bundle.get("sources", []) if item.get("url")],
-            evidence_bundle_id=str(bundle.get("id") or "") or None,
-            created_by=created_by,
-        )
-        return result.to_dict()
+        return {
+            "id": support._new_id("branch_result"),
+            "task_id": task.id,
+            "section_id": task.section_id,
+            "branch_id": task.branch_id,
+            "title": _branch_title(task),
+            "objective": task.objective or task.goal,
+            "summary": summary,
+            "key_findings": list(outcome.get("key_findings") or _split_findings(summary) or [summary]),
+            "open_questions": list(outcome.get("open_questions") or []),
+            "confidence_note": str(outcome.get("confidence_note") or "").strip(),
+            "source_urls": [
+                str(item.get("url") or "").strip()
+                for item in bundle.get("sources", [])
+                if item.get("url")
+            ],
+            "evidence_bundle_id": str(bundle.get("id") or "") or None,
+            "created_by": created_by,
+        }
 
     def _build_validation_summary(
         self,
@@ -1703,18 +1733,18 @@ class MultiAgentDeepResearchRuntime:
         notes = gap_result.analysis or ""
         if advisory_only and missing_aspects:
             notes = f"{notes}; acceptance criteria 已满足, 缺口作为 advisory hints 记录".strip("; ")
-        summary = ValidationSummary(
-            id=support._new_id("validation"),
-            task_id=task.id,
-            branch_id=task.branch_id,
-            status=status,
-            score=float(gap_result.overall_coverage),
-            missing_aspects=missing_aspects,
-            retry_queries=_dedupe_texts(gap_result.suggested_queries or [task.query]),
-            notes=notes,
-            status_reason="advisory_only" if advisory_only and missing_aspects else "",
-        )
-        payload = summary.to_dict()
+        payload = {
+            "id": support._new_id("validation"),
+            "task_id": task.id,
+            "section_id": task.section_id,
+            "branch_id": task.branch_id,
+            "status": status,
+            "score": float(gap_result.overall_coverage),
+            "missing_aspects": missing_aspects,
+            "retry_queries": _dedupe_texts(gap_result.suggested_queries or [task.query]),
+            "notes": notes,
+            "status_reason": "advisory_only" if advisory_only and missing_aspects else "",
+        }
         payload["coverage_hits"] = coverage_hits
         payload["coverage_misses"] = coverage_misses
         payload["coverage_confidence"] = round(max(float(gap_result.overall_coverage), acceptance_score), 3)
@@ -2038,8 +2068,14 @@ class MultiAgentDeepResearchRuntime:
             answer = _extract_interrupt_text(updated, keys=("clarify_answer", "answer", "content"))
             if not answer:
                 raise ValueError("deep_research clarify resume requires non-empty clarify_answer")
-            parts.runtime_state["clarify_question_history"] = list(parts.runtime_state.get("clarify_question_history") or []) + [question]
-            parts.runtime_state["clarify_answer_history"] = list(parts.runtime_state.get("clarify_answer_history") or []) + [answer]
+            parts.runtime_state["clarify_question_history"] = [
+                *list(parts.runtime_state.get("clarify_question_history") or []),
+                question,
+            ]
+            parts.runtime_state["clarify_answer_history"] = [
+                *list(parts.runtime_state.get("clarify_answer_history") or []),
+                answer,
+            ]
             parts.runtime_state["clarify_question"] = question
             parts.runtime_state["intake_status"] = "pending"
             return self._patch(parts, next_step="clarify")

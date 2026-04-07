@@ -8,7 +8,7 @@ import copy
 import logging
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from agent.contracts.search_cache import get_search_cache
 from agent.research.domain_router import ResearchDomain, build_provider_profile
@@ -23,14 +23,14 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
 
-def _configurable_value(config: Dict[str, Any], key: str) -> Any:
+def _configurable_value(config: dict[str, Any], key: str) -> Any:
     cfg = config.get("configurable") or {}
     if isinstance(cfg, dict):
         return cfg.get(key)
     return None
 
 
-def _configurable_int(config: Dict[str, Any], key: str, default: int) -> int:
+def _configurable_int(config: dict[str, Any], key: str, default: int) -> int:
     value = _configurable_value(config, key)
     if value is None:
         return default
@@ -40,7 +40,7 @@ def _configurable_int(config: Dict[str, Any], key: str, default: int) -> int:
         return default
 
 
-def _configurable_float(config: Dict[str, Any], key: str, default: float) -> float:
+def _configurable_float(config: dict[str, Any], key: str, default: float) -> float:
     value = _configurable_value(config, key)
     if value is None:
         return default
@@ -50,21 +50,21 @@ def _configurable_float(config: Dict[str, Any], key: str, default: float) -> flo
         return default
 
 
-def _selected_model(config: Dict[str, Any], fallback: str) -> str:
+def _selected_model(config: dict[str, Any], fallback: str) -> str:
     value = _configurable_value(config, "model")
     if isinstance(value, str) and value.strip():
         return value.strip()
     return fallback
 
 
-def _selected_reasoning_model(config: Dict[str, Any], fallback: str) -> str:
+def _selected_reasoning_model(config: dict[str, Any], fallback: str) -> str:
     value = _configurable_value(config, "reasoning_model")
     if isinstance(value, str) and value.strip():
         return value.strip()
     return fallback
 
 
-def _model_for_task(task_type: str, config: Dict[str, Any]) -> str:
+def _model_for_task(task_type: str, config: dict[str, Any]) -> str:
     try:
         from agent.core.multi_model import TaskType, get_model_router
 
@@ -76,7 +76,7 @@ def _model_for_task(task_type: str, config: Dict[str, Any]) -> str:
         return _selected_model(config, settings.primary_model)
 
 
-def _resolve_provider_profile(state: Dict[str, Any]) -> Optional[List[str]]:
+def _resolve_provider_profile(state: dict[str, Any]) -> list[str] | None:
     domain_config = state.get("domain_config") or {}
     suggested_sources = domain_config.get("suggested_sources", [])
     domain_value = state.get("domain") or domain_config.get("domain") or "general"
@@ -100,8 +100,8 @@ def _resolve_search_strategy() -> SearchStrategy:
         return SearchStrategy.FALLBACK
 
 
-def _normalize_multi_search_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    normalized: List[Dict[str, Any]] = []
+def _normalize_multi_search_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
     for item in results or []:
         if not isinstance(item, dict):
             continue
@@ -123,7 +123,7 @@ def _cache_query_key(
     query: str,
     max_results: int,
     strategy: SearchStrategy,
-    provider_profile: Optional[List[str]],
+    provider_profile: list[str] | None,
 ) -> str:
     joined_profile = ",".join(provider_profile or [])
     return f"deep-research-multi-agent::{strategy.value}::{max_results}::{joined_profile}::{query}"
@@ -132,9 +132,9 @@ def _cache_query_key(
 def _search_query(
     query: str,
     max_results: int,
-    config: Dict[str, Any],
-    provider_profile: Optional[List[str]] = None,
-) -> List[Dict[str, Any]]:
+    config: dict[str, Any],
+    provider_profile: list[str] | None = None,
+) -> list[dict[str, Any]]:
     strategy = _resolve_search_strategy()
     cache = get_search_cache()
     cache_key = _cache_query_key(query, max_results, strategy, provider_profile)
@@ -143,7 +143,7 @@ def _search_query(
         return copy.deepcopy(cached)
 
     try:
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "query": query,
             "max_results": max_results,
             "strategy": strategy,
@@ -177,7 +177,7 @@ def _estimate_tokens_from_text(text: str) -> int:
     return max(1, len(str(text)) // 4)
 
 
-def _estimate_tokens_from_results(results: List[Dict[str, Any]]) -> int:
+def _estimate_tokens_from_results(results: list[dict[str, Any]]) -> int:
     total = 0
     for item in results or []:
         if not isinstance(item, dict):
@@ -203,7 +203,7 @@ def _budget_stop_reason(
     max_seconds: float,
     max_tokens: int,
     max_searches: int,
-) -> Optional[str]:
+) -> str | None:
     if max_seconds > 0 and (time.time() - start_ts) >= max_seconds:
         return "time_budget_exceeded"
     if max_tokens > 0 and tokens_used >= max_tokens:
@@ -213,9 +213,9 @@ def _budget_stop_reason(
     return None
 
 
-def _compact_sources(results: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
+def _compact_sources(results: list[dict[str, Any]], limit: int = 20) -> list[dict[str, Any]]:
     seen: set[str] = set()
-    compacted: List[Dict[str, Any]] = []
+    compacted: list[dict[str, Any]] = []
     for item in results or []:
         if not isinstance(item, dict):
             continue

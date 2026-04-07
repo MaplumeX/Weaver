@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 def _json_safe(value: Any) -> Any:
@@ -31,16 +31,16 @@ class FetchedPage:
     url: str
     raw_url: str
     method: str
-    text: Optional[str] = None
-    title: Optional[str] = None
-    published_date: Optional[str] = None
-    retrieved_at: Optional[str] = None
-    markdown: Optional[str] = None
-    http_status: Optional[int] = None
-    error: Optional[str] = None
+    text: str | None = None
+    title: str | None = None
+    published_date: str | None = None
+    retrieved_at: str | None = None
+    markdown: str | None = None
+    http_status: int | None = None
+    error: str | None = None
     attempts: int = 1
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "url": _json_safe(self.url),
             "raw_url": _json_safe(self.raw_url),

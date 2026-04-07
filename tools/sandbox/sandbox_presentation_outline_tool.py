@@ -17,11 +17,10 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
@@ -43,7 +42,7 @@ class SlideOutline(BaseModel):
     slide_number: int = Field(description="Slide number (1-based)")
     title: str = Field(description="Slide title")
     layout: str = Field(description="Slide layout type")
-    content: List[str] = Field(description="Bullet points or content items")
+    content: list[str] = Field(description="Bullet points or content items")
     speaker_notes: str = Field(default="", description="Speaker notes for this slide")
     has_image: bool = Field(default=False, description="Whether this slide should have an image")
     image_suggestion: str = Field(
@@ -60,8 +59,8 @@ class PresentationOutline(BaseModel):
     total_slides: int = Field(description="Total number of slides")
     estimated_duration_minutes: int = Field(description="Estimated presentation duration")
     target_audience: str = Field(description="Target audience description")
-    key_takeaways: List[str] = Field(description="Key takeaways from the presentation")
-    slides: List[SlideOutline] = Field(description="List of slide outlines")
+    key_takeaways: list[str] = Field(description="Key takeaways from the presentation")
+    slides: list[SlideOutline] = Field(description="List of slide outlines")
 
 
 OUTLINE_SYSTEM_PROMPT = """You are an expert presentation designer. Your task is to create a structured outline for a presentation.
@@ -116,7 +115,7 @@ class _PresentationOutlineBaseTool(BaseTool):
     thread_id: str = "default"
     emit_events: bool = True
 
-    def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
+    def _emit_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Emit an event."""
         if not self.emit_events:
             return
@@ -127,7 +126,7 @@ class _PresentationOutlineBaseTool(BaseTool):
             except Exception as e:
                 logger.warning(f"[presentation_outline] Failed to emit event: {e}")
 
-    def _emit_tool_start(self, action: str, args: Dict[str, Any]) -> float:
+    def _emit_tool_start(self, action: str, args: dict[str, Any]) -> float:
         """Emit tool start event."""
         start_time = time.time()
         self._emit_event(
@@ -144,7 +143,7 @@ class _PresentationOutlineBaseTool(BaseTool):
     def _emit_tool_result(
         self,
         action: str,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         start_time: float,
         success: bool = True,
     ) -> None:
@@ -211,7 +210,7 @@ class GenerateOutlineTool(_PresentationOutlineBaseTool):
         duration_minutes: int = 15,
         include_images: bool = True,
         additional_context: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "generate_outline",
             {
@@ -266,7 +265,7 @@ Generate a complete JSON outline following the PresentationOutline schema.
 class OutlineToSlidesInput(BaseModel):
     """Input for outline_to_slides."""
 
-    outline: Dict[str, Any] = Field(description="The presentation outline (from generate_outline)")
+    outline: dict[str, Any] = Field(description="The presentation outline (from generate_outline)")
     file_path: str = Field(description="Output path for the PPTX file")
 
 
@@ -294,9 +293,9 @@ class OutlineToSlidesTool(_PresentationOutlineBaseTool):
 
     def _run(
         self,
-        outline: Dict[str, Any],
+        outline: dict[str, Any],
         file_path: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "outline_to_slides",
             {
@@ -419,7 +418,7 @@ print(f"SUCCESS: Created {{len(prs.slides)}} slides")
 class RefineOutlineInput(BaseModel):
     """Input for refine_outline."""
 
-    outline: Dict[str, Any] = Field(description="The current presentation outline")
+    outline: dict[str, Any] = Field(description="The current presentation outline")
     feedback: str = Field(description="Feedback or changes to apply")
 
 
@@ -435,9 +434,9 @@ class RefineOutlineTool(_PresentationOutlineBaseTool):
 
     def _run(
         self,
-        outline: Dict[str, Any],
+        outline: dict[str, Any],
         feedback: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "refine_outline",
             {
@@ -505,7 +504,7 @@ class ExpandSlideTool(_PresentationOutlineBaseTool):
         topic: str,
         context: str = "",
         style: PresentationStyle = "business",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start("expand_slide", {"topic": topic})
 
         try:
@@ -552,7 +551,7 @@ Return as a SlideOutline JSON object.
 def build_presentation_outline_tools(
     thread_id: str,
     emit_events: bool = True,
-) -> List[BaseTool]:
+) -> list[BaseTool]:
     """
     Build presentation outline tools for a thread.
 

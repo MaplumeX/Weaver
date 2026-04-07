@@ -15,7 +15,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, ClassVar
 
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
@@ -63,13 +63,13 @@ class ModelConfig:
     provider: ModelProvider
     model_name: str
     temperature: float = 0.7
-    max_tokens: Optional[int] = None
-    timeout: Optional[int] = None
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    extra_params: Dict[str, Any] = field(default_factory=dict)
+    max_tokens: int | None = None
+    timeout: int | None = None
+    api_key: str | None = None
+    base_url: str | None = None
+    extra_params: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "provider": self.provider.value,
             "model_name": self.model_name,
@@ -88,7 +88,7 @@ class ModelUsageStats:
     output_tokens: int = 0
     latency_ms: float = 0
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class ModelRouter:
@@ -103,7 +103,7 @@ class ModelRouter:
     """
 
     # Default temperature settings per task type
-    DEFAULT_TEMPERATURES = {
+    DEFAULT_TEMPERATURES: ClassVar[dict[TaskType, float]] = {
         TaskType.ROUTING: 0.3,      # Deterministic routing
         TaskType.PLANNING: 0.6,     # Creative but structured
         TaskType.QUERY_GEN: 0.8,    # More exploratory
@@ -119,8 +119,8 @@ class ModelRouter:
     def __init__(
         self,
         default_provider: ModelProvider = ModelProvider.OPENAI,
-        task_model_map: Optional[Dict[TaskType, ModelConfig]] = None,
-        fallback_configs: Optional[Dict[str, List[ModelConfig]]] = None,
+        task_model_map: dict[TaskType, ModelConfig] | None = None,
+        fallback_configs: dict[str, list[ModelConfig]] | None = None,
     ):
         """
         Initialize the ModelRouter.
@@ -133,7 +133,7 @@ class ModelRouter:
         self.default_provider = default_provider
         self.task_model_map = task_model_map or {}
         self.fallback_configs = fallback_configs or {}
-        self.usage_stats: List[ModelUsageStats] = []
+        self.usage_stats: list[ModelUsageStats] = []
 
         # Load from settings
         self._load_from_settings()
@@ -179,7 +179,7 @@ class ModelRouter:
         return ModelProvider.OPENAI
 
     # Task types that default to reasoning_model instead of primary_model
-    REASONING_TASKS = {
+    REASONING_TASKS: ClassVar[set[TaskType]] = {
         TaskType.ROUTING,
         TaskType.PLANNING,
         TaskType.EVALUATION,
@@ -219,7 +219,7 @@ class ModelRouter:
     def get_model_name(
         self,
         task_type: TaskType,
-        config: Optional[Dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ) -> str:
         """
         Get model name for a task, respecting runtime config overrides.
@@ -262,8 +262,8 @@ class ModelRouter:
     def build_model(
         self,
         task_type: TaskType,
-        temperature_override: Optional[float] = None,
-        config_override: Optional[Dict[str, Any]] = None,
+        temperature_override: float | None = None,
+        config_override: dict[str, Any] | None = None,
     ) -> BaseChatModel:
         """
         Build and return a chat model for the specified task.
@@ -292,7 +292,7 @@ class ModelRouter:
         self,
         config: ModelConfig,
         temperature: float,
-        extra_params: Dict[str, Any],
+        extra_params: dict[str, Any],
     ) -> BaseChatModel:
         """Create a chat model instance from config."""
         provider = config.provider
@@ -372,15 +372,15 @@ class ModelRouter:
 
             return ChatOpenAI(**params)
 
-    def get_fallback_chain(self, model_name: str) -> List[ModelConfig]:
+    def get_fallback_chain(self, model_name: str) -> list[ModelConfig]:
         """Get fallback models for a given model."""
         return self.fallback_configs.get(model_name, [])
 
     def build_model_with_fallback(
         self,
         task_type: TaskType,
-        temperature_override: Optional[float] = None,
-    ) -> Tuple[BaseChatModel, List[BaseChatModel]]:
+        temperature_override: float | None = None,
+    ) -> tuple[BaseChatModel, list[BaseChatModel]]:
         """
         Build primary model and its fallback chain.
 
@@ -407,7 +407,7 @@ class ModelRouter:
         """Record model usage statistics."""
         self.usage_stats.append(stats)
 
-    def get_usage_summary(self) -> Dict[str, Any]:
+    def get_usage_summary(self) -> dict[str, Any]:
         """Get summary of model usage."""
         if not self.usage_stats:
             return {"total_calls": 0}
@@ -437,7 +437,7 @@ class ModelRouter:
 
 
 # Global model router instance (lazy initialized)
-_global_router: Optional[ModelRouter] = None
+_global_router: ModelRouter | None = None
 
 
 def get_model_router() -> ModelRouter:

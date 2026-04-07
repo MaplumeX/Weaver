@@ -8,10 +8,8 @@ calls; currently implements a safe no-op when config is missing.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import uuid
-from typing import Dict
 
 import requests
 from langchain.tools import tool
@@ -20,7 +18,7 @@ from agent.contracts.events import ToolEventType, get_emitter_sync
 from common.config import settings
 
 
-def _emit(thread_id: str, event_type: ToolEventType, data: Dict):
+def _emit(thread_id: str, event_type: ToolEventType, data: dict):
     try:
         emitter = get_emitter_sync(thread_id)
         emitter.emit_sync(event_type, data)
@@ -49,7 +47,7 @@ _ACTIVE_BY_THREAD = {}
 
 
 @tool
-def daytona_create(thread_id: str = "default") -> Dict[str, str]:
+def daytona_create(thread_id: str = "default") -> dict[str, str]:
     """
     Create a Daytona sandbox and return endpoints (VNC/HTTP). Returns stub when not configured.
     """
@@ -105,7 +103,7 @@ def daytona_create(thread_id: str = "default") -> Dict[str, str]:
 
 
 @tool
-def daytona_stop(sandbox_id: str, thread_id: str = "default") -> Dict[str, str]:
+def daytona_stop(sandbox_id: str, thread_id: str = "default") -> dict[str, str]:
     """Stop a Daytona sandbox by id."""
     key, base_url, *_ = _daytona_cfg()
     _emit(
@@ -144,8 +142,8 @@ def daytona_stop(sandbox_id: str, thread_id: str = "default") -> Dict[str, str]:
         return {"status": "error", "message": msg}
 
 
-def daytona_stop_all(thread_id: str = "default") -> Dict[str, str]:
-    key, base_url, *_ = _daytona_cfg()
+def daytona_stop_all(thread_id: str = "default") -> dict[str, str]:
+    key, _base_url, *_ = _daytona_cfg()
     if not key:
         return {"status": "not_configured", "message": "Daytona API key not configured"}
     stopped = []
@@ -154,12 +152,13 @@ def daytona_stop_all(thread_id: str = "default") -> Dict[str, str]:
         if thread_id and thread_id in _ACTIVE_BY_THREAD
         else list(_ACTIVE_SANDBOX_IDS)
     )
-    if hasattr(daytona_stop, "invoke"):
-        stop_callable = lambda sid: daytona_stop.invoke({"sandbox_id": sid, "thread_id": thread_id})
-    elif hasattr(daytona_stop, "run"):
-        stop_callable = lambda sid: daytona_stop.run({"sandbox_id": sid, "thread_id": thread_id})
-    else:
-        stop_callable = lambda sid: daytona_stop(sid, thread_id=thread_id)
+    def stop_callable(sandbox_id: str) -> dict[str, str]:
+        if hasattr(daytona_stop, "invoke"):
+            return daytona_stop.invoke({"sandbox_id": sandbox_id, "thread_id": thread_id})
+        if hasattr(daytona_stop, "run"):
+            return daytona_stop.run({"sandbox_id": sandbox_id, "thread_id": thread_id})
+        return daytona_stop(sandbox_id, thread_id=thread_id)
+
     for sid in targets:
         try:
             stop_callable(sid)

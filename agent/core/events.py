@@ -35,9 +35,10 @@ import logging
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Union
 
 logger = logging.getLogger(__name__)
 
@@ -92,13 +93,13 @@ class Event:
     """Represents a single event in the event stream."""
 
     type: ToolEventType
-    data: Dict[str, Any]
+    data: dict[str, Any]
     event_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     seq: int = 0
     timestamp: float = field(default_factory=time.time)
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary for JSON serialization."""
         return {
             "type": self.type.value if isinstance(self.type, Enum) else self.type,
@@ -131,7 +132,7 @@ class EventEmitter:
 
     def __init__(
         self,
-        thread_id: Optional[str] = None,
+        thread_id: str | None = None,
         buffer_size: int = 100,
     ):
         """
@@ -143,12 +144,12 @@ class EventEmitter:
         """
         self.thread_id = thread_id
         self.buffer_size = buffer_size
-        self._listeners: List[EventListener] = []
-        self._async_listeners: List[EventListener] = []
-        self._event_buffer: List[Event] = []
+        self._listeners: list[EventListener] = []
+        self._async_listeners: list[EventListener] = []
+        self._event_buffer: list[Event] = []
         self._seq: int = 0
         self._lock = asyncio.Lock()
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._buffer_lock = threading.Lock()
 
     def _bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -190,7 +191,7 @@ class EventEmitter:
     async def emit(
         self,
         event_type: Union[ToolEventType, str],
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> Event:
         """
         Emit an event to all registered listeners.
@@ -244,7 +245,7 @@ class EventEmitter:
     def emit_sync(
         self,
         event_type: Union[ToolEventType, str],
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> None:
         """
         Best-effort emit from sync contexts.
@@ -282,8 +283,8 @@ class EventEmitter:
     async def emit_tool_start(
         self,
         tool_name: str,
-        args: Dict[str, Any],
-        description: Optional[str] = None,
+        args: dict[str, Any],
+        description: str | None = None,
     ) -> Event:
         """Convenience method to emit tool start event."""
         return await self.emit(
@@ -300,7 +301,7 @@ class EventEmitter:
         tool_name: str,
         result: Any,
         success: bool = True,
-        duration_ms: Optional[float] = None,
+        duration_ms: float | None = None,
     ) -> Event:
         """Convenience method to emit tool result event."""
         return await self.emit(
@@ -317,8 +318,8 @@ class EventEmitter:
         self,
         url: str,
         filename: str,
-        action: Optional[str] = None,
-        page_url: Optional[str] = None,
+        action: str | None = None,
+        page_url: str | None = None,
     ) -> Event:
         """Convenience method to emit screenshot event."""
         return await self.emit(
@@ -335,8 +336,8 @@ class EventEmitter:
         self,
         task_id: str,
         status: str,
-        title: Optional[str] = None,
-        progress: Optional[int] = None,
+        title: str | None = None,
+        progress: int | None = None,
     ) -> Event:
         """Convenience method to emit task update event."""
         data = {"id": task_id, "status": status}
@@ -350,14 +351,14 @@ class EventEmitter:
         """Convenience method to emit content event."""
         return await self.emit(ToolEvent.CONTENT, {"text": text})
 
-    async def emit_error(self, message: str, details: Optional[Dict] = None) -> Event:
+    async def emit_error(self, message: str, details: dict | None = None) -> Event:
         """Convenience method to emit error event."""
         data = {"message": message}
         if details:
             data["details"] = details
         return await self.emit(ToolEvent.ERROR, data)
 
-    async def emit_done(self, message: Optional[str] = None) -> Event:
+    async def emit_done(self, message: str | None = None) -> Event:
         """Convenience method to emit done event."""
         return await self.emit(ToolEvent.DONE, {"message": message or "Stream completed"})
 
@@ -366,7 +367,7 @@ class EventEmitter:
         node_id: str,
         topic: str,
         depth: int = 0,
-        parent_id: Optional[str] = None,
+        parent_id: str | None = None,
     ) -> Event:
         """Convenience method to emit research node start event."""
         return await self.emit(
@@ -382,8 +383,8 @@ class EventEmitter:
     async def emit_research_node_complete(
         self,
         node_id: str,
-        summary: Optional[str] = None,
-        sources: Optional[List[Dict[str, Any]]] = None,
+        summary: str | None = None,
+        sources: list[dict[str, Any]] | None = None,
     ) -> Event:
         """Convenience method to emit research node complete event."""
         return await self.emit(
@@ -397,7 +398,7 @@ class EventEmitter:
 
     async def emit_deep_research_topology_update(
         self,
-        topology: Dict[str, Any],
+        topology: dict[str, Any],
     ) -> Event:
         """Convenience method to emit Deep Research topology updates."""
         return await self.emit(
@@ -409,7 +410,7 @@ class EventEmitter:
         self,
         query: str,
         provider: str,
-        results: Optional[List[Dict[str, Any]]] = None,
+        results: list[dict[str, Any]] | None = None,
     ) -> Event:
         """Convenience method to emit search event."""
         return await self.emit(
@@ -422,7 +423,7 @@ class EventEmitter:
             },
         )
 
-    async def emit_quality_update(self, quality: Dict[str, Any]) -> Event:
+    async def emit_quality_update(self, quality: dict[str, Any]) -> Event:
         """Convenience method to emit quality metric updates."""
         return await self.emit(ToolEvent.QUALITY_UPDATE, quality or {})
 
@@ -432,11 +433,11 @@ class EventEmitter:
         agent_id: str,
         role: str,
         phase: str,
-        task_id: Optional[str] = None,
-        iteration: Optional[int] = None,
+        task_id: str | None = None,
+        iteration: int | None = None,
     ) -> Event:
         """Emit a structured multi-agent Deep Research start event."""
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "agent_id": agent_id,
             "role": role,
             "phase": phase,
@@ -454,12 +455,12 @@ class EventEmitter:
         role: str,
         phase: str,
         status: str,
-        task_id: Optional[str] = None,
-        iteration: Optional[int] = None,
-        summary: Optional[str] = None,
+        task_id: str | None = None,
+        iteration: int | None = None,
+        summary: str | None = None,
     ) -> Event:
         """Emit a structured multi-agent Deep Research completion event."""
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "agent_id": agent_id,
             "role": role,
             "phase": phase,
@@ -478,16 +479,16 @@ class EventEmitter:
         *,
         task_id: str,
         status: str,
-        title: Optional[str] = None,
-        query: Optional[str] = None,
-        parent_task_id: Optional[str] = None,
-        parent_context_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-        reason: Optional[str] = None,
-        priority: Optional[int] = None,
+        title: str | None = None,
+        query: str | None = None,
+        parent_task_id: str | None = None,
+        parent_context_id: str | None = None,
+        agent_id: str | None = None,
+        reason: str | None = None,
+        priority: int | None = None,
     ) -> Event:
         """Emit a structured task queue event for Deep Research."""
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "task_id": task_id,
             "status": status,
         }
@@ -513,13 +514,13 @@ class EventEmitter:
         artifact_id: str,
         artifact_type: str,
         status: str,
-        task_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-        summary: Optional[str] = None,
-        source_url: Optional[str] = None,
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        summary: str | None = None,
+        source_url: str | None = None,
     ) -> Event:
         """Emit a structured artifact lifecycle event for Deep Research."""
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "artifact_id": artifact_id,
             "artifact_type": artifact_type,
             "status": status,
@@ -539,12 +540,12 @@ class EventEmitter:
         *,
         decision_type: str,
         reason: str,
-        iteration: Optional[int] = None,
-        coverage: Optional[float] = None,
-        gap_count: Optional[int] = None,
+        iteration: int | None = None,
+        coverage: float | None = None,
+        gap_count: int | None = None,
     ) -> Event:
         """Emit a supervisor-owned decision event for Deep Research."""
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "decision_type": decision_type,
             "reason": reason,
         }
@@ -556,7 +557,7 @@ class EventEmitter:
             data["gap_count"] = gap_count
         return await self.emit(ToolEvent.RESEARCH_DECISION, data)
 
-    def get_buffered_events(self) -> List[Event]:
+    def get_buffered_events(self) -> list[Event]:
         """Get all buffered events for replay."""
         with self._buffer_lock:
             return list(self._event_buffer)
@@ -568,7 +569,7 @@ class EventEmitter:
 
 
 # Global event emitter registry by thread_id
-_emitters: Dict[str, EventEmitter] = {}
+_emitters: dict[str, EventEmitter] = {}
 _emitters_lock = asyncio.Lock()
 
 
@@ -600,8 +601,7 @@ async def remove_emitter(thread_id: str) -> None:
         thread_id: The thread/conversation ID
     """
     async with _emitters_lock:
-        if thread_id in _emitters:
-            del _emitters[thread_id]
+        _emitters.pop(thread_id, None)
     # Best-effort cleanup for thread-scoped resources (e.g., Daytona sandboxes)
     try:
         from tools.sandbox.daytona_client import daytona_stop_all
@@ -634,7 +634,7 @@ def get_emitter_sync(thread_id: str) -> EventEmitter:
 async def event_stream_generator(
     thread_id: str,
     timeout: float = 300.0,
-    last_event_id: Optional[str] = None,
+    last_event_id: str | None = None,
 ) -> Any:
     """
     Async generator that yields SSE events for a thread.
@@ -653,7 +653,7 @@ async def event_stream_generator(
     """
     emitter = await get_emitter(thread_id)
     queue: asyncio.Queue = asyncio.Queue()
-    last_seq: Optional[int] = None
+    last_seq: int | None = None
     if last_event_id:
         try:
             last_seq = int(str(last_event_id).strip())
@@ -689,7 +689,7 @@ async def event_stream_generator(
                 if event.type == ToolEvent.DONE:
                     break
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Send keepalive
                 yield ": keepalive\n\n"
 

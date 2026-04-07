@@ -4,7 +4,7 @@ import asyncio
 import base64
 import hashlib
 import time
-from typing import Any, Optional
+from typing import Any
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -15,15 +15,15 @@ from common.config import settings
 
 class BrowserUseInput(BaseModel):
     action: str = Field(..., description="Browser action to perform")
-    url: Optional[str] = None
-    index: Optional[int] = None
-    text: Optional[str] = None
-    scroll_amount: Optional[int] = None
-    tab_id: Optional[int] = None
-    query: Optional[str] = None
-    goal: Optional[str] = None
-    keys: Optional[str] = None
-    seconds: Optional[int] = None
+    url: str | None = None
+    index: int | None = None
+    text: str | None = None
+    scroll_amount: int | None = None
+    tab_id: int | None = None
+    query: str | None = None
+    goal: str | None = None
+    keys: str | None = None
+    seconds: int | None = None
 
 
 class BrowserUseTool(BaseTool):
@@ -51,7 +51,7 @@ class BrowserUseTool(BaseTool):
         self._dom_service = None
         self._lock = asyncio.Lock()
         self._last_screenshot_at = 0.0
-        self._last_screenshot_hash: Optional[str] = None
+        self._last_screenshot_hash: str | None = None
         self._scroll_accum_px = 0
         self._arrow_press_accum = 0
 
@@ -129,7 +129,7 @@ class BrowserUseTool(BaseTool):
         full_page: bool = False,
         min_interval_ms: int = 0,
         dedupe: bool = True,
-    ) -> Optional[str]:
+    ) -> str | None:
         try:
             now = time.monotonic()
             if min_interval_ms > 0 and (now - self._last_screenshot_at) < (
@@ -157,10 +157,10 @@ class BrowserUseTool(BaseTool):
             if dedupe and self._last_screenshot_hash == img_hash:
                 return None
 
-            screenshot_url: Optional[str] = None
-            screenshot_filename: Optional[str] = None
+            screenshot_url: str | None = None
+            screenshot_filename: str | None = None
             mime_type: str = "image/jpeg"
-            b64: Optional[str] = None
+            b64: str | None = None
 
             # Best-effort: persist screenshot so SSE stays lightweight and tool
             # output doesn't explode the token budget.

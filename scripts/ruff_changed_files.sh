@@ -30,6 +30,7 @@ fi
 
 CHANGED_PY_FILES="$(
   git diff --name-only "${BASE_REF}...${HEAD_REF}" -- '*.py' \
+    | awk '!/^\.trellis\//' \
     | tr '\n' ' '
 )"
 

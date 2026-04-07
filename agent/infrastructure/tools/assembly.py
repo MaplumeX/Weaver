@@ -12,8 +12,8 @@ from agent.infrastructure.tools.capabilities import (
 from agent.infrastructure.tools.policy import filter_tools_by_name
 from agent.infrastructure.tools.providers import ProviderContext, compose_provider_tools
 from common.config import settings
-from tools.mcp import get_live_mcp_tools
 from tools.core.wrappers import wrap_tools_with_events
+from tools.mcp import get_live_mcp_tools
 
 
 def _configurable(config: RunnableConfig) -> dict[str, Any]:

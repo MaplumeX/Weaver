@@ -39,7 +39,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 # Ensure repo root is on sys.path when running as:
 #   python scripts/browser_stream_probe.py ...
@@ -96,7 +96,7 @@ def _auth_headers(
     user_header: str,
     user: str,
     disable_auth: bool,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     if disable_auth:
         return {}
 
@@ -122,7 +122,7 @@ def _auth_headers(
 class ProbeStats:
     start_monotonic: float
     connected_monotonic: float
-    first_frame_monotonic: Optional[float] = None
+    first_frame_monotonic: float | None = None
 
     frames_total: int = 0
     frames_unique_total: int = 0
@@ -141,11 +141,11 @@ class ProbeStats:
     last_url: str = ""
     last_title: str = ""
 
-    last_frame_data: Optional[str] = None
+    last_frame_data: str | None = None
     last_frame_meta_sig: str = ""
 
 
-def _parse_frame_meta(meta: Any) -> Tuple[str, str, str]:
+def _parse_frame_meta(meta: Any) -> tuple[str, str, str]:
     if not isinstance(meta, dict):
         return "", "", "::"
     url = meta.get("url") or meta.get("page_url") or ""
@@ -328,7 +328,7 @@ async def _probe_stream(
     open_timeout = max(10.0, float(first_frame_timeout_s or 0.0))
     close_timeout = 10.0
 
-    connect_kwargs: Dict[str, Any] = {
+    connect_kwargs: dict[str, Any] = {
         "open_timeout": open_timeout,
         "close_timeout": close_timeout,
         # Disable built-in ping; the server already sends keepalive `ping` events.

@@ -12,7 +12,7 @@ Why this exists:
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from langchain.tools import tool
 
@@ -30,7 +30,7 @@ from tools.search.search import tavily_search
 logger = logging.getLogger(__name__)
 
 
-def _tavily(query: str, max_results: int) -> List[Dict[str, Any]]:
+def _tavily(query: str, max_results: int) -> list[dict[str, Any]]:
     return tavily_search.invoke({"query": query, "max_results": max_results})
 
 
@@ -59,8 +59,8 @@ def run_fallback_search(
     *,
     query: str,
     max_results: int = 5,
-    engines: Optional[List[str]] = None,
-) -> Tuple[Optional[str], List[Dict[str, Any]]]:
+    engines: list[str] | None = None,
+) -> tuple[str | None, list[dict[str, Any]]]:
     """
     Run a multi-engine API search and return (engine_used, results).
 
@@ -91,8 +91,8 @@ def run_fallback_search(
 def fallback_search(
     query: str,
     max_results: int = 5,
-    engines: Optional[List[str]] = None,
-) -> List[Dict[str, Any]]:
+    engines: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """
     Multi-engine search with fallback.
 

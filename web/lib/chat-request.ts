@@ -1,5 +1,5 @@
 import type { ImageAttachment } from '@/types/chat'
-import type { SearchMode } from '@/lib/chat-mode'
+import type { SearchModePayload } from '@/lib/chat-mode'
 
 export function buildChatRequestPayload({
   messageHistory,
@@ -10,7 +10,7 @@ export function buildChatRequestPayload({
 }: {
   messageHistory: Array<{ role: string; content: string }>
   model: string
-  searchMode: SearchMode
+  searchMode: SearchModePayload
   images: ImageAttachment[]
   threadId?: string | null
 }) {

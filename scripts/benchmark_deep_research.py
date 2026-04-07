@@ -9,9 +9,10 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -48,11 +49,11 @@ def _is_time_sensitive_query(query: str) -> bool:
 
 def _case_quality_targets(
     query: str,
-    constraints: Dict[str, Any],
-    expected_fields: List[str],
+    constraints: dict[str, Any],
+    expected_fields: list[str],
     base_query_coverage_target: float,
     base_freshness_target: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     freshness_days = constraints.get("freshness_days")
     freshness_days = int(freshness_days) if isinstance(freshness_days, (int, float)) else None
     time_sensitive = _is_time_sensitive_query(query) or (
@@ -82,7 +83,7 @@ def _case_quality_targets(
     }
 
 
-def _load_golden_entries(path: Path) -> Dict[str, Dict[str, Any]]:
+def _load_golden_entries(path: Path) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
 
@@ -90,7 +91,7 @@ def _load_golden_entries(path: Path) -> Dict[str, Dict[str, Any]]:
     if not isinstance(raw, list):
         return {}
 
-    by_id: Dict[str, Dict[str, Any]] = {}
+    by_id: dict[str, dict[str, Any]] = {}
     for item in raw:
         if not isinstance(item, dict):
             continue
@@ -100,7 +101,7 @@ def _load_golden_entries(path: Path) -> Dict[str, Dict[str, Any]]:
     return by_id
 
 
-def _maybe_float(value: Any) -> Optional[float]:
+def _maybe_float(value: Any) -> float | None:
     if value is None:
         return None
     try:
@@ -109,7 +110,7 @@ def _maybe_float(value: Any) -> Optional[float]:
         return None
 
 
-def _maybe_int(value: Any) -> Optional[int]:
+def _maybe_int(value: Any) -> int | None:
     if value is None:
         return None
     try:
@@ -118,7 +119,7 @@ def _maybe_int(value: Any) -> Optional[int]:
         return None
 
 
-def _parse_sse_frame(frame: str) -> Optional[Tuple[str, Any]]:
+def _parse_sse_frame(frame: str) -> tuple[str, Any] | None:
     """
     Parse a single SSE frame (without the trailing blank line).
 
@@ -130,7 +131,7 @@ def _parse_sse_frame(frame: str) -> Optional[Tuple[str, Any]]:
         return None
 
     event_name = ""
-    data_lines: List[str] = []
+    data_lines: list[str] = []
     for raw_line in frame.split("\n"):
         line = raw_line.rstrip("\r")
         if not line:
@@ -166,7 +167,7 @@ def _parse_sse_frame(frame: str) -> Optional[Tuple[str, Any]]:
     return (event_name, payload)
 
 
-async def _iter_sse_events(text_stream: AsyncIterator[str]) -> AsyncIterator[Tuple[str, Any]]:
+async def _iter_sse_events(text_stream: AsyncIterator[str]) -> AsyncIterator[tuple[str, Any]]:
     buffer = ""
     async for chunk in text_stream:
         if not chunk:
@@ -188,7 +189,7 @@ async def _execute_research_case(
     base_url: str,
     model: str,
     timeout_s: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Execute a real deep research run via POST /api/research/sse and return metrics.
 
@@ -204,10 +205,10 @@ async def _execute_research_case(
         return {"status": "failed", "error": "empty query"}
 
     started_at = time.monotonic()
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     final_report: str = ""
-    error_message: Optional[str] = None
-    last_quality_update: Optional[Dict[str, Any]] = None
+    error_message: str | None = None
+    last_quality_update: dict[str, Any] | None = None
 
     async def _run(client: AsyncClient) -> None:
         nonlocal thread_id, final_report, error_message, last_quality_update
@@ -267,7 +268,7 @@ async def _execute_research_case(
     async with client_ctx as client:
         try:
             await asyncio.wait_for(_run(client), timeout=max(1.0, float(timeout_s)))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Best-effort cancellation (shared cancel token id == thread id).
             try:
                 if thread_id:
@@ -283,8 +284,8 @@ async def _execute_research_case(
 
         duration_ms = round((time.monotonic() - started_at) * 1000, 2)
 
-        run_metrics: Optional[Dict[str, Any]] = None
-        evidence_summary: Optional[Dict[str, Any]] = None
+        run_metrics: dict[str, Any] | None = None
+        evidence_summary: dict[str, Any] | None = None
         try:
             if thread_id:
                 resp = await client.get(f"/api/runs/{thread_id}", timeout=10.0)
@@ -310,10 +311,10 @@ async def _execute_research_case(
 
 def _evaluate_case_quality(
     *,
-    actual: Dict[str, Any],
-    targets: Dict[str, Any],
+    actual: dict[str, Any],
+    targets: dict[str, Any],
     min_citation_coverage: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     evidence = actual.get("evidence_summary") if isinstance(actual, dict) else None
     if not isinstance(evidence, dict):
         return {"quality_pass": False, "reason": "missing evidence_summary"}
@@ -326,7 +327,7 @@ def _evaluate_case_quality(
     freshness_target = _maybe_float(targets.get("freshness_ratio_target")) or 0.0
     time_sensitive = bool(targets.get("time_sensitive"))
 
-    checks: Dict[str, Any] = {
+    checks: dict[str, Any] = {
         "query_coverage": {
             "actual": actual_query_coverage,
             "target": coverage_target,
@@ -362,13 +363,13 @@ def run_benchmark(
     base_url: str = "asgi",
     model: str = "",
     timeout_s: float = 180.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     tasks = load_benchmark_tasks(bench_file, max_cases=max_cases)
     golden = _load_golden_entries(DEFAULT_GOLDEN_FILE)
 
-    cases: List[Dict[str, Any]] = []
-    coverage_targets: List[float] = []
-    freshness_targets: List[float] = []
+    cases: list[dict[str, Any]] = []
+    coverage_targets: list[float] = []
+    freshness_targets: list[float] = []
     time_sensitive_cases = 0
 
     for task in tasks:
@@ -399,8 +400,8 @@ def run_benchmark(
 
     executed_cases = 0
     executed_passed = 0
-    evidence_summaries: List[Dict[str, Any]] = []
-    quality_updates: List[Dict[str, Any]] = []
+    evidence_summaries: list[dict[str, Any]] = []
+    quality_updates: list[dict[str, Any]] = []
 
     if execute and cases:
         # Best-effort: use the same defaults as the backend quality gates.
@@ -452,7 +453,7 @@ def run_benchmark(
             if isinstance(quality_update, dict):
                 quality_updates.append(quality_update)
 
-    def _avg(values: List[Optional[float]]) -> Optional[float]:
+    def _avg(values: list[float | None]) -> float | None:
         cleaned = [v for v in values if isinstance(v, (int, float))]
         if not cleaned:
             return None
@@ -478,7 +479,7 @@ def run_benchmark(
     )
 
     report = {
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "mode": mode,
         "execute": bool(execute),
         "base_url": base_url,

@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from typing import Any
 
 from langchain_core.messages import BaseMessage, ToolMessage
 
@@ -56,7 +57,7 @@ async def async_retry_call(fn: Callable, *, attempts: int, backoff: float, **kwa
     return None
 
 
-def enforce_tool_call_limit(state: Dict[str, Any], limit: int) -> None:
+def enforce_tool_call_limit(state: dict[str, Any], limit: int) -> None:
     """
     Increment and enforce per-run tool call limit stored on state.
     limit=0 means unlimited.
@@ -69,7 +70,7 @@ def enforce_tool_call_limit(state: Dict[str, Any], limit: int) -> None:
         raise RuntimeError(f"Tool call limit exceeded ({count}/{limit})")
 
 
-def maybe_strip_tool_messages(messages: List[BaseMessage]) -> List[BaseMessage]:
+def maybe_strip_tool_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
     """
     Optionally remove ToolMessage from history to save tokens.
     """

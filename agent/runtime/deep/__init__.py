@@ -5,13 +5,13 @@ Deep-research runtime entrypoints.
 from __future__ import annotations
 
 import importlib
-from typing import Any, Dict
+from typing import Any
 
 __all__ = [
     "run_deep_research",
 ]
 
-_SYMBOL_TO_MODULE: Dict[str, str] = {
+_SYMBOL_TO_MODULE: dict[str, str] = {
     "run_deep_research": "agent.runtime.deep.entrypoints",
 }
 

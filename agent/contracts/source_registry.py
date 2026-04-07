@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 _TRACKING_PARAMS = {
@@ -34,7 +33,7 @@ class SourceRegistry:
     """Tracks canonicalized sources and emits stable source ids."""
 
     def __init__(self) -> None:
-        self._by_canonical: Dict[str, SourceRecord] = {}
+        self._by_canonical: dict[str, SourceRecord] = {}
 
     def canonicalize_url(self, url: str) -> str:
         raw = (url or "").strip()
@@ -58,7 +57,7 @@ class SourceRegistry:
             if not path:
                 path = "/"
 
-        query_items: List[Tuple[str, str]] = []
+        query_items: list[tuple[str, str]] = []
         for key, value in parse_qsl(parsed.query, keep_blank_values=True):
             normalized_key = key.strip().lower()
             if normalized_key.startswith("utm_"):
@@ -75,7 +74,7 @@ class SourceRegistry:
         digest = hashlib.sha1(canonical_url.encode("utf-8")).hexdigest()
         return f"src_{digest[:12]}"
 
-    def register(self, url: str, title: str = "") -> Optional[SourceRecord]:
+    def register(self, url: str, title: str = "") -> SourceRecord | None:
         canonical_url = self.canonicalize_url(url)
         if not canonical_url:
             return None
@@ -96,11 +95,11 @@ class SourceRegistry:
         self._by_canonical[canonical_url] = record
         return record
 
-    def get(self, url: str) -> Optional[SourceRecord]:
+    def get(self, url: str) -> SourceRecord | None:
         canonical_url = self.canonicalize_url(url)
         if not canonical_url:
             return None
         return self._by_canonical.get(canonical_url)
 
-    def all(self) -> List[SourceRecord]:
+    def all(self) -> list[SourceRecord]:
         return list(self._by_canonical.values())

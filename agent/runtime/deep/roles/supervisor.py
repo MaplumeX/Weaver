@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
+
 import agent.runtime.deep.support.runtime_support as support
 from agent.runtime.deep.schema import OutlineArtifact, OutlineSection
 

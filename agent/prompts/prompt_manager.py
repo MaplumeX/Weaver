@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from agent.infrastructure.prompts import PromptRegistry, build_default_prompt_registry
 from common.config import settings
@@ -16,7 +16,7 @@ class PromptManager:
     def __init__(self, prompt_style: str = "enhanced", registry: PromptRegistry | None = None):
         self.prompt_style = prompt_style
         self._registry = registry or build_default_prompt_registry(prompt_style)
-        self._custom_prompts: Dict[str, str] = {}
+        self._custom_prompts: dict[str, str] = {}
 
     def set_custom_prompt(self, prompt_type: str, content: str):
         prompt_id = str(prompt_type or "").strip()
@@ -44,13 +44,13 @@ class PromptManager:
     def registry(self) -> PromptRegistry:
         return self._registry
 
-    def render(self, prompt_id: str, context: Optional[Dict[str, Any]] = None) -> str:
+    def render(self, prompt_id: str, context: dict[str, Any] | None = None) -> str:
         prompt_key = str(prompt_id or "").strip()
         if prompt_key in self._custom_prompts:
             return self._custom_prompts[prompt_key]
         return self._registry.render(prompt_key, context=context)
 
-    def get_agent_prompt(self, context: Optional[Dict[str, Any]] = None) -> str:
+    def get_agent_prompt(self, context: dict[str, Any] | None = None) -> str:
         return self.render("agent", context=context)
 
     def get_writer_prompt(self) -> str:
@@ -71,7 +71,7 @@ class PromptManager:
 # ============================================================================
 
 # Default instance (can be overridden)
-_default_prompt_manager: Optional[PromptManager] = None
+_default_prompt_manager: PromptManager | None = None
 
 
 def get_prompt_manager() -> PromptManager:
@@ -119,5 +119,5 @@ def get_prompt_registry() -> PromptRegistry:
     return get_prompt_manager().registry
 
 
-def render_prompt(prompt_id: str, context: Optional[Dict[str, Any]] = None) -> str:
+def render_prompt(prompt_id: str, context: dict[str, Any] | None = None) -> str:
     return get_prompt_manager().render(prompt_id, context=context)

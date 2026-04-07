@@ -6,7 +6,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -20,8 +20,8 @@ def _build_llm(
     *,
     model: str,
     temperature: float,
-    api_base_url: Optional[str] = None,
-    api_key: Optional[str] = None,
+    api_base_url: str | None = None,
+    api_key: str | None = None,
 ) -> ChatOpenAI:
     """
     Build a ChatOpenAI instance using `.env`/settings by default.
@@ -32,7 +32,7 @@ def _build_llm(
     resolved_base_url = api_base_url or settings.openai_base_url or None
     resolved_api_key = api_key or settings.openai_api_key or None
 
-    params: Dict[str, Any] = {
+    params: dict[str, Any] = {
         "model": model,
         "temperature": temperature,
         "timeout": settings.openai_timeout or None,
@@ -129,8 +129,8 @@ Prompt: {current_prompt}
         self,
         model: str = "gpt-4o",
         temperature: float = 0.3,
-        api_base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
+        api_base_url: str | None = None,
+        api_key: str | None = None,
     ):
         self.llm = _build_llm(
             model=model,
@@ -143,10 +143,10 @@ Prompt: {current_prompt}
     async def analyze(
         self,
         current_prompt: str,
-        correct_samples: List[Dict],
-        incorrect_samples: List[Dict],
+        correct_samples: list[dict],
+        incorrect_samples: list[dict],
         max_samples: int = 5,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         分析错误样本，返回改进建议
 
@@ -199,7 +199,7 @@ Prompt: {current_prompt}
         except Exception as e:
             logger.error(f"Analysis failed: {e}")
             return {
-                "error_patterns": [f"Analysis error: {str(e)}"],
+                "error_patterns": [f"Analysis error: {e!s}"],
                 "prompt_issues": [],
                 "improvement_suggestions": [],
                 "priority_fix": "Unable to analyze",
@@ -207,8 +207,8 @@ Prompt: {current_prompt}
             }
 
     async def quick_analyze(
-        self, current_prompt: str, incorrect_samples: List[Dict], max_samples: int = 3
-    ) -> Dict[str, str]:
+        self, current_prompt: str, incorrect_samples: list[dict], max_samples: int = 3
+    ) -> dict[str, str]:
         """
         快速分析，只返回主要问题和建议
 
@@ -242,10 +242,10 @@ Prompt: {current_prompt}
     def analyze_sync(
         self,
         current_prompt: str,
-        correct_samples: List[Dict],
-        incorrect_samples: List[Dict],
+        correct_samples: list[dict],
+        incorrect_samples: list[dict],
         max_samples: int = 5,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         同步版本的分析方法
         """
@@ -261,7 +261,7 @@ Prompt: {current_prompt}
             self.analyze(current_prompt, correct_samples, incorrect_samples, max_samples)
         )
 
-    def _format_samples(self, samples: List[Dict], sample_type: str = "sample") -> str:
+    def _format_samples(self, samples: list[dict], sample_type: str = "sample") -> str:
         """格式化样本为文本"""
         if not samples:
             return f"无{sample_type}样本"
@@ -282,7 +282,7 @@ Prompt: {current_prompt}
 
         return "\n".join(lines)
 
-    def _format_score_details(self, samples: List[Dict]) -> str:
+    def _format_score_details(self, samples: list[dict]) -> str:
         """格式化评分详情"""
         if not samples:
             return "无评分详情"
@@ -297,7 +297,7 @@ Prompt: {current_prompt}
 
         return "\n".join(lines)
 
-    def _parse_json_response(self, content: str) -> Dict[str, Any]:
+    def _parse_json_response(self, content: str) -> dict[str, Any]:
         """从响应中解析 JSON"""
         # 尝试直接解析
         try:
@@ -345,8 +345,8 @@ class ComparativeAnalyzer:
         self.llm = _build_llm(model=model, temperature=0.2)
 
     async def compare_prompts(
-        self, prompt_a: str, prompt_b: str, results_a: List[Dict], results_b: List[Dict]
-    ) -> Dict[str, Any]:
+        self, prompt_a: str, prompt_b: str, results_a: list[dict], results_b: list[dict]
+    ) -> dict[str, Any]:
         """
         对比两个 Prompt 的效果
 

@@ -4,13 +4,12 @@ Markdown to PDF/DOCX/HTML Converter.
 Converts markdown research reports to various export formats with styling.
 """
 
-import base64
 import io
 import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Union
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +38,13 @@ except ImportError:
 try:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Inches, Pt
     DOCX_AVAILABLE = True
 except ImportError:
     Document = None
     DOCX_AVAILABLE = False
 
 try:
-    from jinja2 import BaseLoader, Environment, FileSystemLoader
+    from jinja2 import Environment, FileSystemLoader
     JINJA2_AVAILABLE = True
 except ImportError:
     Environment = None
@@ -335,8 +333,8 @@ class MarkdownConverter:
 
     def __init__(
         self,
-        template_dir: Optional[str] = None,
-        css_path: Optional[str] = None,
+        template_dir: str | None = None,
+        css_path: str | None = None,
     ):
         """
         Initialize the converter.
@@ -434,9 +432,9 @@ class MarkdownConverter:
         self,
         markdown_text: str,
         title: str = "Research Report",
-        thread_id: Optional[str] = None,
-        sources: Optional[list] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        thread_id: str | None = None,
+        sources: list | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """
         Convert markdown to complete HTML document.
@@ -499,10 +497,10 @@ class MarkdownConverter:
     def to_pdf(
         self,
         markdown_text: str,
-        output_path: Optional[str] = None,
+        output_path: str | None = None,
         title: str = "Research Report",
-        thread_id: Optional[str] = None,
-        sources: Optional[list] = None,
+        thread_id: str | None = None,
+        sources: list | None = None,
     ) -> Union[bytes, str]:
         """
         Convert markdown to PDF.
@@ -541,10 +539,10 @@ class MarkdownConverter:
     def to_docx(
         self,
         markdown_text: str,
-        output_path: Optional[str] = None,
+        output_path: str | None = None,
         title: str = "Research Report",
-        thread_id: Optional[str] = None,
-        sources: Optional[list] = None,
+        thread_id: str | None = None,
+        sources: list | None = None,
     ) -> Union[bytes, str]:
         """
         Convert markdown to DOCX.
@@ -658,7 +656,7 @@ class MarkdownConverter:
             # Regular paragraphs
             else:
                 # Handle inline formatting
-                text = self._process_inline_formatting(doc, line)
+                self._process_inline_formatting(doc, line)
                 current_list = None
 
     def _process_inline_formatting(self, doc, text: str) -> None:
@@ -699,8 +697,8 @@ class MarkdownConverter:
 def to_html(
     markdown_text: str,
     title: str = "Research Report",
-    thread_id: Optional[str] = None,
-    sources: Optional[list] = None,
+    thread_id: str | None = None,
+    sources: list | None = None,
 ) -> str:
     """Convert markdown to HTML."""
     converter = MarkdownConverter()
@@ -709,10 +707,10 @@ def to_html(
 
 def to_pdf(
     markdown_text: str,
-    output_path: Optional[str] = None,
+    output_path: str | None = None,
     title: str = "Research Report",
-    thread_id: Optional[str] = None,
-    sources: Optional[list] = None,
+    thread_id: str | None = None,
+    sources: list | None = None,
 ) -> Union[bytes, str]:
     """Convert markdown to PDF."""
     converter = MarkdownConverter()
@@ -721,10 +719,10 @@ def to_pdf(
 
 def to_docx(
     markdown_text: str,
-    output_path: Optional[str] = None,
+    output_path: str | None = None,
     title: str = "Research Report",
-    thread_id: Optional[str] = None,
-    sources: Optional[list] = None,
+    thread_id: str | None = None,
+    sources: list | None = None,
 ) -> Union[bytes, str]:
     """Convert markdown to DOCX."""
     converter = MarkdownConverter()
@@ -734,10 +732,10 @@ def to_docx(
 def export_report(
     markdown_text: str,
     format: str = "html",
-    output_path: Optional[str] = None,
+    output_path: str | None = None,
     title: str = "Research Report",
-    thread_id: Optional[str] = None,
-    sources: Optional[list] = None,
+    thread_id: str | None = None,
+    sources: list | None = None,
 ) -> Union[bytes, str]:
     """
     Export markdown report to specified format.

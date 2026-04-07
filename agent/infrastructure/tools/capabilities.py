@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -10,7 +11,6 @@ from langchain_core.tools import BaseTool
 from agent.infrastructure.tools.providers import ProviderContext, StaticToolProvider
 from common.config import settings
 from tools import execute_python_code, tavily_search
-from tools.mcp import get_live_mcp_tools
 from tools.automation.ask_human_tool import ask_human
 from tools.automation.bash_tool import safe_bash
 from tools.automation.computer_use_tool import build_computer_use_tools
@@ -21,6 +21,7 @@ from tools.browser.browser_use_tool import build_browser_use_tools
 from tools.code.chart_viz_tool import chart_visualize
 from tools.crawl.crawl4ai_tool import crawl4ai
 from tools.crawl.crawl_tools import build_crawl_tools
+from tools.mcp import get_live_mcp_tools
 from tools.planning.planning_tool import plan_steps
 from tools.sandbox import (
     build_image_edit_tools,
@@ -296,10 +297,10 @@ def build_default_tool_providers() -> tuple[StaticToolProvider, ...]:
 
 
 __all__ = [
+    "TOOL_PROVIDER_SPECS",
     "ToolBuildContext",
     "ToolFactory",
     "ToolProviderSpec",
-    "TOOL_PROVIDER_SPECS",
     "build_default_tool_providers",
     "build_tool_context",
 ]

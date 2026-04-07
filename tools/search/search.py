@@ -1,7 +1,7 @@
 import json
 import logging
 import textwrap
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from langchain.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
@@ -21,7 +21,7 @@ def _trim_text(text: str, max_len: int = 4000) -> str:
     return text[:max_len]
 
 
-def _summarize_content(raw_content: str) -> Optional[str]:
+def _summarize_content(raw_content: str) -> str | None:
     """
     Summarize raw content to keep writer context small.
     Returns None on failure so callers can fallback gracefully.
@@ -32,7 +32,7 @@ def _summarize_content(raw_content: str) -> Optional[str]:
         return None
 
     try:
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "model": settings.primary_model,
             "temperature": 0.3,
             "api_key": settings.openai_api_key,
@@ -50,7 +50,7 @@ def _summarize_content(raw_content: str) -> Optional[str]:
         elif settings.openai_base_url:
             params["base_url"] = settings.openai_base_url
 
-        merged_extra: Dict[str, Any] = {}
+        merged_extra: dict[str, Any] = {}
         if settings.openai_extra_body:
             try:
                 merged_extra.update(json.loads(settings.openai_extra_body))
@@ -79,7 +79,7 @@ def _summarize_content(raw_content: str) -> Optional[str]:
 
 
 @tool
-def tavily_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+def tavily_search(query: str, max_results: int = 5) -> list[dict[str, Any]]:
     """
     Perform a deep search using Tavily API.
 
@@ -93,7 +93,7 @@ def tavily_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
     try:
         try:
             from tavily import TavilyClient  # type: ignore
-        except Exception as e:
+        except Exception:
             logger.error(
                 "Missing dependency: tavily-python. Install with `pip install tavily-python`."
             )
@@ -149,14 +149,14 @@ def tavily_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
         return results
 
     except Exception as e:
-        logger.error(f"Tavily search error: {str(e)}")
+        logger.error(f"Tavily search error: {e!s}")
         # Return empty list to let upstream fallback gracefully
         return []
 
 
 def search_multiple_queries(
-    queries: List[str], max_results_per_query: int = 5
-) -> List[Dict[str, Any]]:
+    queries: list[str], max_results_per_query: int = 5
+) -> list[dict[str, Any]]:
     """
     Execute multiple search queries in parallel.
 

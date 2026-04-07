@@ -16,7 +16,7 @@ import logging
 import re
 import time
 import uuid
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -42,7 +42,7 @@ def _build_scaffold_command(
     project_name: str,
     package_manager: str,
     typescript: bool,
-    extra_flags: Optional[str],
+    extra_flags: str | None,
 ) -> str:
     """Return the shell command to scaffold the project."""
     ts_flag = "--typescript" if typescript else ""
@@ -96,7 +96,7 @@ class ScaffoldWebProjectInput(BaseModel):
     install_deps: bool = Field(
         default=True, description="Install dependencies after scaffolding (recommended)"
     )
-    extra_flags: Optional[str] = Field(
+    extra_flags: str | None = Field(
         default=None, description="Additional CLI flags to pass to the scaffold command"
     )
 
@@ -120,8 +120,8 @@ class SandboxScaffoldWebProjectTool(_SandboxShellBaseTool):
         typescript: bool = True,
         overwrite: bool = False,
         install_deps: bool = True,
-        extra_flags: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        extra_flags: str | None = None,
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "scaffold_web_project",
             {
@@ -210,10 +210,10 @@ class DeployWebProjectInput(BaseModel):
     package_manager: Literal["npm", "yarn", "pnpm", "bun"] = Field(
         default="npm", description="Package manager to run build/start"
     )
-    build_command: Optional[str] = Field(
+    build_command: str | None = Field(
         default=None, description="Custom build command; defaults to <pm> run build"
     )
-    start_command: Optional[str] = Field(
+    start_command: str | None = Field(
         default=None,
         description="Custom start command; defaults to prod start if available, otherwise dev with host/port flags",
     )
@@ -235,11 +235,11 @@ class SandboxDeployWebProjectTool(_SandboxShellBaseTool):
         self,
         project_path: str,
         package_manager: str = "npm",
-        build_command: Optional[str] = None,
-        start_command: Optional[str] = None,
+        build_command: str | None = None,
+        start_command: str | None = None,
         port: int = 3000,
         expose: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "deploy_web_project",
             {
@@ -256,7 +256,8 @@ class SandboxDeployWebProjectTool(_SandboxShellBaseTool):
                 raise RuntimeError("Sandbox not initialized. Start sandbox browser first.")
 
             # Normalize path
-            rel_path = project_path.strip().lstrip("/workspace/").strip("/")
+            normalized_path = project_path.strip()
+            rel_path = normalized_path.removeprefix("/workspace/").strip("/")
             full_path = f"{self.workspace_path}/{rel_path}"
 
             # Build step
@@ -343,7 +344,7 @@ class SandboxDeployWebProjectTool(_SandboxShellBaseTool):
 def build_sandbox_web_dev_tools(
     thread_id: str,
     emit_events: bool = True,
-) -> List[BaseTool]:
+) -> list[BaseTool]:
     """Build sandbox web development tools (scaffold + deploy)."""
     return [
         SandboxScaffoldWebProjectTool(thread_id=thread_id, emit_events=emit_events),

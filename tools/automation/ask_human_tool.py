@@ -1,10 +1,9 @@
-from typing import Optional
 
 from langchain.tools import tool
 
 
 @tool
-def ask_human(prompt: str, note: Optional[str] = None) -> str:
+def ask_human(prompt: str, note: str | None = None) -> str:
     """
     Request human input. Front-end should intercept this tool call and prompt the user.
 

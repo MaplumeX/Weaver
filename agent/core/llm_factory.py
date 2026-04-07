@@ -7,7 +7,7 @@ Replaces duplicated _chat_model() functions.
 
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from langchain_openai import ChatOpenAI
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def create_chat_model(
     model: str,
     temperature: float,
-    extra_body: Optional[Dict[str, Any]] = None,
+    extra_body: dict[str, Any] | None = None,
 ) -> ChatOpenAI:
     """
     Create a ChatOpenAI instance with proper configuration.
@@ -38,7 +38,7 @@ def create_chat_model(
     Returns:
         Configured ChatOpenAI instance
     """
-    params: Dict[str, Any] = {
+    params: dict[str, Any] = {
         "temperature": temperature,
         "model": model,
         "api_key": settings.openai_api_key,
@@ -58,7 +58,7 @@ def create_chat_model(
         params["base_url"] = settings.openai_base_url
 
     # Merge extra body parameters
-    merged_extra: Dict[str, Any] = {}
+    merged_extra: dict[str, Any] = {}
     if settings.openai_extra_body:
         try:
             merged_extra.update(json.loads(settings.openai_extra_body))

@@ -4,7 +4,6 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Optional
 
 from common.config import settings
 from tools.research.models import FetchedPage
@@ -23,7 +22,7 @@ class FetchedPageCache:
         self._lock = threading.RLock()
         self._data: OrderedDict[str, _CacheEntry] = OrderedDict()
 
-    def get(self, key: str) -> Optional[FetchedPage]:
+    def get(self, key: str) -> FetchedPage | None:
         if not key:
             return None
 
@@ -61,11 +60,11 @@ class FetchedPageCache:
             self._data.clear()
 
 
-_cache: Optional[FetchedPageCache] = None
+_cache: FetchedPageCache | None = None
 _cache_lock = threading.RLock()
 
 
-def get_fetched_page_cache() -> Optional[FetchedPageCache]:
+def get_fetched_page_cache() -> FetchedPageCache | None:
     ttl_s = float(getattr(settings, "research_fetch_cache_ttl_s", 0.0) or 0.0)
     max_entries = int(getattr(settings, "research_fetch_cache_max_entries", 0) or 0)
 

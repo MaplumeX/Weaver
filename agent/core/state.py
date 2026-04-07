@@ -1,28 +1,34 @@
 import operator
-from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
+from agent.core.message_utils import summarize_messages
 from agent.domain.state import (
     ConversationState,
     DeepRuntimeSnapshot,
     ExecutionState,
     ResearchState,
     RuntimeSnapshot,
+)
+from agent.domain.state import (
     build_deep_runtime_snapshot as _build_deep_runtime_snapshot,
+)
+from agent.domain.state import (
     build_state_slices as _build_state_slices,
+)
+from agent.domain.state import (
     project_state_updates as _project_state_updates,
 )
-from agent.core.message_utils import summarize_messages
 from common.config import settings
 
 from .middleware import maybe_strip_tool_messages
 
 
 def capped_add_messages(
-    existing: List[BaseMessage] | None, new: List[BaseMessage] | None
-) -> List[BaseMessage]:
+    existing: list[BaseMessage] | None, new: list[BaseMessage] | None
+) -> list[BaseMessage]:
     """
     Aggregate messages and trim to keep context bounded.
 
@@ -50,14 +56,13 @@ def capped_add_messages(
     if settings.summary_messages and len(merged) > settings.summary_messages_trigger:
         middle = merged[keep_first : len(merged) - keep_last]
         summary_msg = summarize_messages(middle)
-        trimmed = head + [summary_msg] + tail
+        trimmed = [*head, summary_msg, *tail]
 
     return trimmed
 
 
 # Execution status type
 ExecutionStatus = Literal["pending", "running", "paused", "completed", "failed", "cancelled"]
-
 
 class AgentState(TypedDict):
     """
@@ -71,7 +76,7 @@ class AgentState(TypedDict):
     # User's original input/query
     input: str
     # Optional base64-encoded images from the user
-    images: List[Dict[str, Any]]
+    images: list[dict[str, Any]]
     # Final report/answer
     final_report: str
     # Draft report for evaluator/optimizer loop
@@ -89,7 +94,7 @@ class AgentState(TypedDict):
 
     # ============ Execution Control ============
     # Message history for LLM context (auto-trimmed via capped_add_messages)
-    messages: Annotated[List[BaseMessage], capped_add_messages]
+    messages: Annotated[list[BaseMessage], capped_add_messages]
     # Execution status
     status: ExecutionStatus
     # Completion flag
@@ -113,58 +118,58 @@ class AgentState(TypedDict):
 
     # ============ Research Data ============
     # All scraped content from searches
-    scraped_content: Annotated[List[Dict[str, Any]], operator.add]
+    scraped_content: Annotated[list[dict[str, Any]], operator.add]
     # Code execution results
-    code_results: Annotated[List[Dict[str, Any]], operator.add]
+    code_results: Annotated[list[dict[str, Any]], operator.add]
     # Summary notes from deep search
-    summary_notes: List[str]
+    summary_notes: list[str]
     # Sources collected
-    sources: List[Dict[str, str]]
+    sources: list[dict[str, str]]
     # Structured memory snippets used to build runtime prompt context
-    memory_context: Dict[str, List[str]]
+    memory_context: dict[str, list[str]]
     # Compact summary of tool results for finalize/logging
-    tool_observations: Annotated[List[Dict[str, Any]], operator.add]
+    tool_observations: Annotated[list[dict[str, Any]], operator.add]
 
     # ============ Tool Control ============
     # Tool approval gating
     tool_approved: bool
     # Pending tool calls awaiting approval
-    pending_tool_calls: List[Dict[str, Any]]
+    pending_tool_calls: list[dict[str, Any]]
     # Tool call accounting
     tool_call_count: int
     # Maximum tool calls allowed
     tool_call_limit: int
     # Concrete tools allowed for this session
-    available_tools: List[str]
+    available_tools: list[str]
     # Concrete tools explicitly blocked for this session
-    blocked_tools: List[str]
+    blocked_tools: list[str]
     # Concrete tools selected for the current turn
-    selected_tools: List[str]
+    selected_tools: list[str]
 
     # ============ Cancellation & Error ============
     # Cancellation support
-    cancel_token_id: Optional[str]  # 取消令牌 ID
+    cancel_token_id: str | None  # 取消令牌 ID
     is_cancelled: bool  # 是否已取消
     # Error tracking
-    errors: Annotated[List[str], operator.add]
+    errors: Annotated[list[str], operator.add]
     # Last error message
     last_error: str
 
     # ============ Research Topology ============
     # Deep Research topology snapshot (serialized dict)
-    research_topology: Dict[str, Any]
+    research_topology: dict[str, Any]
     # Current branch being explored
-    current_branch_id: Optional[str]
+    current_branch_id: str | None
 
     # ============ Domain Routing ============
     # Detected research domain (scientific, legal, financial, etc.)
     domain: str
     # Domain-specific configuration (search hints, sources, etc.)
-    domain_config: Dict[str, Any]
+    domain_config: dict[str, Any]
 
     # ============ Sub-Agent Context Isolation ============
     # Tracking of sub-agent contexts for parallel branches
-    sub_agent_contexts: Dict[str, Dict[str, Any]]
+    sub_agent_contexts: dict[str, dict[str, Any]]
 
     # ============ Deep Research Runtime ============
     # Nested runtime snapshot (preferred public shape)
@@ -184,10 +189,10 @@ class AgentState(TypedDict):
 def build_deep_runtime_snapshot(
     *,
     engine: str,
-    task_queue: Optional[Dict[str, Any]] = None,
-    artifact_store: Optional[Dict[str, Any]] = None,
-    runtime_state: Optional[Dict[str, Any]] = None,
-    agent_runs: Optional[List[Dict[str, Any]]] = None,
+    task_queue: dict[str, Any] | None = None,
+    artifact_store: dict[str, Any] | None = None,
+    runtime_state: dict[str, Any] | None = None,
+    agent_runs: list[dict[str, Any]] | None = None,
 ) -> DeepRuntimeSnapshot:
     """Build the preferred nested runtime snapshot while keeping old fields usable."""
 
@@ -200,12 +205,12 @@ def build_deep_runtime_snapshot(
     )
 
 
-def build_state_slices(state: Dict[str, Any] | None) -> Dict[str, Any]:
+def build_state_slices(state: dict[str, Any] | None) -> dict[str, Any]:
     return _build_state_slices(state)
 
 
 def project_state_updates(
-    state: Dict[str, Any] | None,
-    updates: Dict[str, Any] | None,
-) -> Dict[str, Any]:
+    state: dict[str, Any] | None,
+    updates: dict[str, Any] | None,
+) -> dict[str, Any]:
     return _project_state_updates(state, updates)

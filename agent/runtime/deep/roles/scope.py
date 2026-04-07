@@ -12,6 +12,7 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
+
 from agent.prompts.runtime_templates import DEEP_SCOPE_PROMPT as SCOPE_PROMPT
 
 logger = logging.getLogger(__name__)

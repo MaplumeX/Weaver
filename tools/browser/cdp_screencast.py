@@ -22,12 +22,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Awaitable, Callable, Dict, Optional, Union
+from collections.abc import Awaitable, Callable
+from typing import Any, Union
 
 logger = logging.getLogger(__name__)
 
 # Type for frame callback - can be sync or async
-FrameCallback = Callable[[str, Dict[str, Any]], Union[None, Awaitable[None]]]
+FrameCallback = Callable[[str, dict[str, Any]], Union[None, Awaitable[None]]]
 
 
 class CDPScreencast:
@@ -42,7 +43,7 @@ class CDPScreencast:
         self,
         page: Any,  # Playwright Page object
         on_frame: FrameCallback,
-        thread_id: Optional[str] = None,
+        thread_id: str | None = None,
     ):
         """
         Initialize CDPScreencast.
@@ -55,10 +56,10 @@ class CDPScreencast:
         self.page = page
         self.on_frame = on_frame
         self.thread_id = thread_id
-        self.cdp_session: Optional[Any] = None
+        self.cdp_session: Any | None = None
         self._running = False
         self._frame_count = 0
-        self._start_time: Optional[float] = None
+        self._start_time: float | None = None
         self._last_frame_time: float = 0
         self._min_frame_interval: float = 0  # Will be set based on max_fps
 
@@ -142,7 +143,7 @@ class CDPScreencast:
             self._running = False
             return False
 
-    async def _handle_frame(self, params: Dict[str, Any]) -> None:
+    async def _handle_frame(self, params: dict[str, Any]) -> None:
         """Handle incoming screencast frame from CDP."""
         if not self._running:
             return
@@ -211,7 +212,7 @@ class CDPScreencast:
         finally:
             self.cdp_session = None
 
-    async def capture_frame(self) -> Optional[str]:
+    async def capture_frame(self) -> str | None:
         """
         Capture a single frame immediately.
 
@@ -257,7 +258,7 @@ class ScreencastManager:
     """
 
     def __init__(self):
-        self._screencasts: Dict[str, CDPScreencast] = {}
+        self._screencasts: dict[str, CDPScreencast] = {}
         self._lock = asyncio.Lock()
 
     async def start_screencast(
@@ -306,7 +307,7 @@ class ScreencastManager:
                 await screencast.stop()
             self._screencasts.clear()
 
-    def get(self, thread_id: str) -> Optional[CDPScreencast]:
+    def get(self, thread_id: str) -> CDPScreencast | None:
         """Get screencast for a thread."""
         return self._screencasts.get(thread_id)
 
@@ -317,7 +318,7 @@ class ScreencastManager:
 
 
 # Global screencast manager instance
-_screencast_manager: Optional[ScreencastManager] = None
+_screencast_manager: ScreencastManager | None = None
 
 
 def get_screencast_manager() -> ScreencastManager:

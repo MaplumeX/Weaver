@@ -6,13 +6,13 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Any, Dict
+from typing import Any
 
 from langchain_core.messages import AIMessage
 
 import agent.infrastructure.agents.factory as _agent_factory
+import agent.infrastructure.tools as _tools
 import agent.runtime.nodes._shared as _shared
-from agent.infrastructure.tools import build_tools_for_names
 from agent.runtime.nodes.prompting import build_chat_runtime_messages
 
 project_state_updates = _shared.project_state_updates
@@ -21,6 +21,7 @@ handle_cancellation = _shared.handle_cancellation
 logger = _shared.logger
 settings = _shared.settings
 build_tool_agent = _agent_factory.build_tool_agent
+build_tools_for_names = _tools.build_tools_for_names
 
 
 def _needs_browser_hint(selected_tools: list[str] | None) -> bool:
@@ -40,11 +41,11 @@ def _resolve_deps(explicit_deps: Any = None) -> Any:
 
 
 def tool_agent_node(
-    state: Dict[str, Any],
+    state: dict[str, Any],
     config,
     *,
     _deps: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Escalated tool path that reuses the existing LangChain tool-calling agent.
     """

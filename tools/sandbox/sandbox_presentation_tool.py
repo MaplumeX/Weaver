@@ -18,12 +18,10 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
-import base64
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -73,7 +71,7 @@ class _SandboxPresentationBaseTool(BaseTool):
             return session._handles.sandbox
         return None
 
-    def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
+    def _emit_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Emit an event."""
         if not self.emit_events:
             return
@@ -84,7 +82,7 @@ class _SandboxPresentationBaseTool(BaseTool):
             except Exception as e:
                 logger.warning(f"[sandbox_presentation] Failed to emit event: {e}")
 
-    def _emit_tool_start(self, action: str, args: Dict[str, Any]) -> float:
+    def _emit_tool_start(self, action: str, args: dict[str, Any]) -> float:
         """Emit tool start event."""
         start_time = time.time()
         self._emit_event(
@@ -101,7 +99,7 @@ class _SandboxPresentationBaseTool(BaseTool):
     def _emit_tool_result(
         self,
         action: str,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         start_time: float,
         success: bool = True,
     ) -> None:
@@ -157,7 +155,7 @@ class SandboxCreatePresentationTool(_SandboxPresentationBaseTool):
         file_path: str,
         title: str = "",
         subtitle: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start("create_presentation", {"file_path": file_path})
 
         try:
@@ -229,10 +227,10 @@ class AddSlideInput(BaseModel):
         description="Slide layout: 'title', 'title_content', 'section', 'two_content', 'comparison', 'title_only', 'blank'",
     )
     title: str = Field(default="", description="Slide title")
-    content: Optional[str] = Field(
+    content: str | None = Field(
         default=None, description="Main content text (supports bullet points with newlines)"
     )
-    notes: Optional[str] = Field(default=None, description="Speaker notes")
+    notes: str | None = Field(default=None, description="Speaker notes")
 
 
 class SandboxAddSlideTool(_SandboxPresentationBaseTool):
@@ -251,9 +249,9 @@ class SandboxAddSlideTool(_SandboxPresentationBaseTool):
         file_path: str,
         layout: str = "title_content",
         title: str = "",
-        content: Optional[str] = None,
-        notes: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        content: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "add_slide",
             {
@@ -354,8 +352,8 @@ class AddImageToSlideInput(BaseModel):
     image_path: str = Field(description="Path to the image file in sandbox")
     left: float = Field(default=1.0, description="Left position in inches")
     top: float = Field(default=2.0, description="Top position in inches")
-    width: Optional[float] = Field(default=None, description="Width in inches (auto if not set)")
-    height: Optional[float] = Field(default=None, description="Height in inches (auto if not set)")
+    width: float | None = Field(default=None, description="Width in inches (auto if not set)")
+    height: float | None = Field(default=None, description="Height in inches (auto if not set)")
 
 
 class SandboxAddImageToSlideTool(_SandboxPresentationBaseTool):
@@ -376,9 +374,9 @@ class SandboxAddImageToSlideTool(_SandboxPresentationBaseTool):
         image_path: str,
         left: float = 1.0,
         top: float = 2.0,
-        width: Optional[float] = None,
-        height: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        width: float | None = None,
+        height: float | None = None,
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "add_image_to_slide",
             {
@@ -447,7 +445,7 @@ class AddTableToSlideInput(BaseModel):
 
     file_path: str = Field(description="Path to the presentation file")
     slide_number: int = Field(description="Slide number (1-based)")
-    data: List[List[str]] = Field(description="2D array of table data (first row as headers)")
+    data: list[list[str]] = Field(description="2D array of table data (first row as headers)")
     left: float = Field(default=1.0, description="Left position in inches")
     top: float = Field(default=2.0, description="Top position in inches")
     width: float = Field(default=8.0, description="Table width in inches")
@@ -468,12 +466,12 @@ class SandboxAddTableToSlideTool(_SandboxPresentationBaseTool):
         self,
         file_path: str,
         slide_number: int,
-        data: List[List[str]],
+        data: list[list[str]],
         left: float = 1.0,
         top: float = 2.0,
         width: float = 8.0,
         height: float = 3.0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "add_table_to_slide",
             {
@@ -564,8 +562,8 @@ class AddShapeToSlideInput(BaseModel):
     top: float = Field(description="Top position in inches")
     width: float = Field(description="Width in inches")
     height: float = Field(description="Height in inches")
-    text: Optional[str] = Field(default=None, description="Text inside the shape")
-    fill_color: Optional[str] = Field(default=None, description="Fill color (hex, e.g., '4472C4')")
+    text: str | None = Field(default=None, description="Text inside the shape")
+    fill_color: str | None = Field(default=None, description="Fill color (hex, e.g., '4472C4')")
 
 
 class SandboxAddShapeToSlideTool(_SandboxPresentationBaseTool):
@@ -587,9 +585,9 @@ class SandboxAddShapeToSlideTool(_SandboxPresentationBaseTool):
         top: float,
         width: float,
         height: float,
-        text: Optional[str] = None,
-        fill_color: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        text: str | None = None,
+        fill_color: str | None = None,
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "add_shape_to_slide",
             {
@@ -693,7 +691,7 @@ class SandboxGetPresentationInfoTool(_SandboxPresentationBaseTool):
     )
     args_schema: type[BaseModel] = GetPresentationInfoInput
 
-    def _run(self, file_path: str) -> Dict[str, Any]:
+    def _run(self, file_path: str) -> dict[str, Any]:
         start_time = self._emit_tool_start("get_presentation_info", {"file_path": file_path})
 
         try:
@@ -749,8 +747,8 @@ class UpdateSlideInput(BaseModel):
 
     file_path: str = Field(description="Path to the presentation file")
     slide_number: int = Field(description="Slide number (1-based)")
-    title: Optional[str] = Field(default=None, description="New title (None to keep existing)")
-    content: Optional[str] = Field(default=None, description="New content (None to keep existing)")
+    title: str | None = Field(default=None, description="New title (None to keep existing)")
+    content: str | None = Field(default=None, description="New content (None to keep existing)")
 
 
 class SandboxUpdateSlideTool(_SandboxPresentationBaseTool):
@@ -767,9 +765,9 @@ class SandboxUpdateSlideTool(_SandboxPresentationBaseTool):
         self,
         file_path: str,
         slide_number: int,
-        title: Optional[str] = None,
-        content: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        title: str | None = None,
+        content: str | None = None,
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "update_slide",
             {
@@ -859,7 +857,7 @@ class SandboxDeleteSlideTool(_SandboxPresentationBaseTool):
         self,
         file_path: str,
         slide_number: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         start_time = self._emit_tool_start(
             "delete_slide",
             {
@@ -915,7 +913,7 @@ print(f"Remaining slides: {{len(prs.slides)}}")
 def build_sandbox_presentation_tools(
     thread_id: str,
     emit_events: bool = True,
-) -> List[BaseTool]:
+) -> list[BaseTool]:
     """
     Build sandbox presentation tools for a thread.
 

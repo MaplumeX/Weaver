@@ -6,7 +6,7 @@ import re
 import sys
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Union
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -15,8 +15,8 @@ from langchain_openai import ChatOpenAI
 from agent.core.middleware import retry_call
 from agent.core.state import AgentState, project_state_updates
 from agent.prompts import render_prompt
-from agent.runtime.deep.shared import _auto_mode_prefers_linear
 from agent.research.source_url_utils import compact_unique_sources
+from agent.runtime.deep.shared import _auto_mode_prefers_linear
 from common.cancellation import check_cancellation as _check_cancellation
 from common.config import settings
 from tools import execute_python_code, tavily_search
@@ -144,7 +144,7 @@ _NARROW_COMPARE_BROAD_CUES = (
 )
 
 
-def check_cancellation(state: Union[AgentState, Dict[str, Any]]) -> None:
+def check_cancellation(state: Union[AgentState, dict[str, Any]]) -> None:
     """
     检查取消状态，如果已取消则抛出 CancelledError
 
@@ -158,7 +158,7 @@ def check_cancellation(state: Union[AgentState, Dict[str, Any]]) -> None:
         _check_cancellation(token_id)
 
 
-def handle_cancellation(state: AgentState, error: Exception) -> Dict[str, Any]:
+def handle_cancellation(state: AgentState, error: Exception) -> dict[str, Any]:
     """
     处理取消异常，返回取消状态
     """
@@ -166,7 +166,7 @@ def handle_cancellation(state: AgentState, error: Exception) -> Dict[str, Any]:
     result = {
         "is_cancelled": True,
         "is_complete": True,
-        "errors": [f"Cancelled: {str(error)}"],
+        "errors": [f"Cancelled: {error!s}"],
         "final_report": "任务已被用户取消。",
     }
     if isinstance(state, dict) and ("input" in state or "route" in state):
@@ -181,8 +181,8 @@ def _event_results_limit() -> int:
 def _build_compact_unique_source_preview(
     scraped_content: Any,
     limit: int,
-) -> List[Dict[str, Any]]:
-    candidates: List[Dict[str, Any]] = []
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
 
     for run in scraped_content or []:
         if not isinstance(run, dict):
@@ -201,7 +201,7 @@ def _build_compact_unique_source_preview(
     return compact_unique_sources(candidates, limit=limit)
 
 
-def _extract_exact_reply_target(user_input: str) -> Optional[str]:
+def _extract_exact_reply_target(user_input: str) -> str | None:
     text = (user_input or "").strip()
     if not text:
         return None
@@ -243,7 +243,7 @@ def _apply_output_contract(user_input: str, report: str) -> str:
     return report
 
 
-def _has_search_tools(profile: Dict[str, Any], default: bool = False) -> bool:
+def _has_search_tools(profile: dict[str, Any], default: bool = False) -> bool:
     tools = [str(item).strip() for item in (profile.get("tools") or []) if str(item).strip()]
     blocked = {str(item).strip() for item in (profile.get("blocked_tools") or []) if str(item).strip()}
     if not tools:
@@ -274,7 +274,7 @@ def _is_narrow_comparison_prompt(user_input: str) -> bool:
     return False
 
 
-def _configurable(config: RunnableConfig) -> Dict[str, Any]:
+def _configurable(config: RunnableConfig) -> dict[str, Any]:
     if isinstance(config, dict):
         cfg = config.get("configurable") or {}
         if isinstance(cfg, dict):
@@ -317,8 +317,8 @@ def _build_fast_agent_search_query(user_input: str) -> str:
     return text or str(user_input or "").strip()
 
 
-def _format_fast_search_results(results: List[Dict[str, Any]], limit: int = 3) -> str:
-    blocks: List[str] = []
+def _format_fast_search_results(results: list[dict[str, Any]], limit: int = 3) -> str:
+    blocks: list[str] = []
     for idx, item in enumerate(results[:limit], start=1):
         if not isinstance(item, dict):
             continue
@@ -345,7 +345,7 @@ def _format_fast_search_results(results: List[Dict[str, Any]], limit: int = 3) -
 def _run_fast_agent_search(
     query: str,
     config: RunnableConfig,
-) -> Tuple[Optional[str], List[Dict[str, Any]]]:
+) -> tuple[str | None, list[dict[str, Any]]]:
     if not query:
         return None, []
 
@@ -385,7 +385,7 @@ def _answer_simple_agent_query(
     state: AgentState,
     config: RunnableConfig,
     _deps: Any = None,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     deps = _resolve_deps(_deps)
     user_input = str(state.get("input", "") or "").strip()
     search_query = deps._build_fast_agent_search_query(user_input)
@@ -407,7 +407,7 @@ def _answer_simple_agent_query(
     if not evidence:
         return None
 
-    messages: List[Any] = []
+    messages: list[Any] = []
     for seeded in state.get("messages") or []:
         if isinstance(seeded, SystemMessage):
             messages.append(seeded)
@@ -459,12 +459,12 @@ def _answer_simple_agent_query(
 def _chat_model(
     model: str,
     temperature: float,
-    extra_body: Optional[Dict[str, Any]] = None,
+    extra_body: dict[str, Any] | None = None,
 ) -> ChatOpenAI:
     """
     Build a ChatOpenAI instance honoring custom base URL / Azure / timeout / extra body.
     """
-    params: Dict[str, Any] = {
+    params: dict[str, Any] = {
         "temperature": temperature,
         "model": model,
         "api_key": settings.openai_api_key,
@@ -483,7 +483,7 @@ def _chat_model(
     elif settings.openai_base_url:
         params["base_url"] = settings.openai_base_url
 
-    merged_extra: Dict[str, Any] = {}
+    merged_extra: dict[str, Any] = {}
     if settings.openai_extra_body:
         try:
             merged_extra.update(json.loads(settings.openai_extra_body))
@@ -547,7 +547,7 @@ def _model_for_task(task_type: str, config: RunnableConfig) -> str:
 
 def _extract_tool_call_fields(
     tool_call: Any,
-) -> Tuple[Optional[str], Dict[str, Any], Optional[str]]:
+) -> tuple[str | None, dict[str, Any], str | None]:
     """
     Normalize tool call objects across LangChain 0.x/1.x.
     Returns (name, args_dict, tool_call_id).
@@ -574,21 +574,21 @@ def _extract_tool_call_fields(
     return name, raw_args, tool_call_id
 
 
-def _get_writer_tools() -> List[Any]:
+def _get_writer_tools() -> list[Any]:
     return [execute_python_code]
 
 
-def _guess_mime(name: Optional[str]) -> str:
+def _guess_mime(name: str | None) -> str:
     mime, _ = mimetypes.guess_type(name or "")
     return mime or "image/png"
 
 
-def _normalize_images(images: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
+def _normalize_images(images: list[dict[str, Any]] | None) -> list[dict[str, str]]:
     """
     Normalize image payloads to data URLs for OpenAI-compatible multimodal inputs.
     Accepts items with either `data` (base64 without prefix) or `url` (already data URL).
     """
-    normalized: List[Dict[str, str]] = []
+    normalized: list[dict[str, str]] = []
     if not images:
         return normalized
 
@@ -616,13 +616,13 @@ def _normalize_images(images: Optional[List[Dict[str, Any]]]) -> List[Dict[str, 
 
 
 def _build_user_content(
-    text: str, images: Optional[List[Dict[str, Any]]]
-) -> Union[str, List[Dict[str, Any]]]:
+    text: str, images: list[dict[str, Any]] | None
+) -> Union[str, list[dict[str, Any]]]:
     """
     Build multimodal content for HumanMessage.
     Returns plain text if no images, otherwise a mixed list with text + image_url parts.
     """
-    parts: List[Dict[str, Any]] = []
+    parts: list[dict[str, Any]] = []
     text = text or ""
     normalized_images = _normalize_images(images)
 
@@ -657,7 +657,6 @@ __all__ = [
     "_get_writer_tools",
     "_guess_mime",
     "_is_narrow_comparison_prompt",
-    "_is_tool_enabled",
     "_log_usage",
     "_model_for_task",
     "_normalize_images",

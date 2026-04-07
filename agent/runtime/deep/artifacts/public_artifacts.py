@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.runtime.deep.state import read_deep_runtime_snapshot, resolve_deep_runtime_mode
 from agent.research.source_url_utils import canonicalize_source_url, compact_unique_sources
+from agent.runtime.deep.state import read_deep_runtime_snapshot, resolve_deep_runtime_mode
 
 _PUBLIC_SIGNAL_KEYS = (
     "queries",

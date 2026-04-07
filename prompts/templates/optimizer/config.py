@@ -2,10 +2,11 @@
 Prompt 优化配置模块
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 
 class TaskType(Enum):
@@ -41,7 +42,7 @@ class OptimizationConfig:
     task_name: str
     task_type: TaskType = TaskType.CUSTOM
     init_prompt: str = ""
-    eval_function: Optional[Callable[[List[Dict]], tuple]] = None
+    eval_function: Callable[[list[dict]], tuple] | None = None
 
     # 优化参数
     epochs: int = 3
@@ -65,8 +66,8 @@ class OptimizationConfig:
     no_improvement_rounds: int = 2  # 连续无提升轮数则停止
 
     # API 配置
-    api_base_url: Optional[str] = None
-    api_key: Optional[str] = None
+    api_base_url: str | None = None
+    api_key: str | None = None
     timeout: int = 60
 
     def __post_init__(self):
@@ -78,7 +79,7 @@ class OptimizationConfig:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    def for_planner(cls, init_prompt: Optional[str] = None, **kwargs) -> "OptimizationConfig":
+    def for_planner(cls, init_prompt: str | None = None, **kwargs) -> "OptimizationConfig":
         """
         创建 planner 任务配置
 
@@ -109,7 +110,7 @@ class OptimizationConfig:
         )
 
     @classmethod
-    def for_writer(cls, init_prompt: Optional[str] = None, **kwargs) -> "OptimizationConfig":
+    def for_writer(cls, init_prompt: str | None = None, **kwargs) -> "OptimizationConfig":
         """
         创建 writer 任务配置
         """
@@ -138,7 +139,7 @@ class OptimizationConfig:
             **kwargs,
         )
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """
         验证配置是否完整
 
@@ -164,7 +165,7 @@ class OptimizationConfig:
 
         return errors
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         return {
             "task_name": self.task_name,

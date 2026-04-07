@@ -10,9 +10,10 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Union
 
 from .models import (
     BaseTrigger,
@@ -24,8 +25,8 @@ from .models import (
     TriggerType,
     WebhookTrigger,
 )
-from .scheduler import TriggerScheduler, get_scheduler
-from .webhook import WebhookHandler, get_webhook_handler
+from .scheduler import get_scheduler
+from .webhook import get_webhook_handler
 
 logger = logging.getLogger(__name__)
 
@@ -58,26 +59,26 @@ class TriggerManager:
 
     def __init__(
         self,
-        config: Optional[TriggerConfig] = None,
-        storage_path: Optional[str] = None,
+        config: TriggerConfig | None = None,
+        storage_path: str | None = None,
     ):
         self.config = config or TriggerConfig()
         self.storage_path = Path(storage_path) if storage_path else None
 
         # Trigger storage
-        self.triggers: Dict[str, BaseTrigger] = {}
-        self.executions: List[TriggerExecution] = []
+        self.triggers: dict[str, BaseTrigger] = {}
+        self.executions: list[TriggerExecution] = []
 
         # Sub-managers
         self.scheduler = get_scheduler()
         self.webhook_handler = get_webhook_handler()
 
         # Event triggers
-        self.event_triggers: Dict[str, List[EventTrigger]] = {}  # event_type -> triggers
-        self.event_callbacks: Dict[str, Callable] = {}
+        self.event_triggers: dict[str, list[EventTrigger]] = {}  # event_type -> triggers
+        self.event_callbacks: dict[str, Callable] = {}
 
         # Execution callback (called when any trigger fires)
-        self.execution_callback: Optional[Callable] = None
+        self.execution_callback: Callable | None = None
 
         # Load from storage
         if self.storage_path and self.storage_path.exists():
@@ -101,7 +102,7 @@ class TriggerManager:
 
     def set_execution_callback(
         self,
-        callback: Callable[[BaseTrigger, Dict[str, Any]], Any],
+        callback: Callable[[BaseTrigger, dict[str, Any]], Any],
     ):
         """
         Set the callback for trigger execution.
@@ -225,16 +226,16 @@ class TriggerManager:
         self._save_triggers()
         return True
 
-    def get_trigger(self, trigger_id: str) -> Optional[BaseTrigger]:
+    def get_trigger(self, trigger_id: str) -> BaseTrigger | None:
         """Get a trigger by ID."""
         return self.triggers.get(trigger_id)
 
     def list_triggers(
         self,
-        trigger_type: Optional[TriggerType] = None,
-        status: Optional[TriggerStatus] = None,
-        user_id: Optional[str] = None,
-    ) -> List[BaseTrigger]:
+        trigger_type: TriggerType | None = None,
+        status: TriggerStatus | None = None,
+        user_id: str | None = None,
+    ) -> list[BaseTrigger]:
         """List triggers with optional filtering."""
         triggers = list(self.triggers.values())
 
@@ -253,11 +254,11 @@ class TriggerManager:
         self,
         trigger_id: str,
         method: str,
-        body: Optional[Dict[str, Any]] = None,
-        query_params: Optional[Dict[str, Any]] = None,
-        headers: Optional[Dict[str, str]] = None,
-        auth_header: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        body: dict[str, Any] | None = None,
+        query_params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        auth_header: str | None = None,
+    ) -> dict[str, Any]:
         """Handle incoming webhook request."""
         return await self.webhook_handler.handle_request(
             trigger_id=trigger_id,
@@ -271,8 +272,8 @@ class TriggerManager:
     async def emit_event(
         self,
         event_type: str,
-        event_data: Dict[str, Any],
-        source: Optional[str] = None,
+        event_data: dict[str, Any],
+        source: str | None = None,
     ):
         """
         Emit an internal event.
@@ -306,9 +307,9 @@ class TriggerManager:
 
     def get_executions(
         self,
-        trigger_id: Optional[str] = None,
+        trigger_id: str | None = None,
         limit: int = 50,
-    ) -> List[TriggerExecution]:
+    ) -> list[TriggerExecution]:
         """Get execution history."""
         executions = self.executions
 
@@ -323,7 +324,7 @@ class TriggerManager:
     async def _on_trigger_fired(
         self,
         trigger: BaseTrigger,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
     ):
         """Called when a trigger fires."""
         params = params or {}
@@ -352,9 +353,9 @@ class TriggerManager:
                 )
 
                 if asyncio.iscoroutinefunction(self.execution_callback):
-                    result = await self.execution_callback(trigger, execution.task_params)
+                    await self.execution_callback(trigger, execution.task_params)
                 else:
-                    result = self.execution_callback(trigger, execution.task_params)
+                    self.execution_callback(trigger, execution.task_params)
 
                 execution.mark_success(result={"status": "completed"})
                 logger.info(f"[trigger_manager] Trigger '{trigger.name}' completed successfully")
@@ -379,7 +380,7 @@ class TriggerManager:
                 t for t in self.event_triggers[trigger.event_type] if t.id != trigger.id
             ]
 
-    def _match_filters(self, data: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+    def _match_filters(self, data: dict[str, Any], filters: dict[str, Any]) -> bool:
         """Check if data matches the filters."""
         for key, expected in filters.items():
             # Support nested keys with dot notation
@@ -419,7 +420,7 @@ class TriggerManager:
             return
 
         try:
-            with open(self.storage_path, "r", encoding="utf-8") as f:
+            with open(self.storage_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             for trigger_data in data.get("triggers", []):
@@ -443,12 +444,12 @@ class TriggerManager:
 
 
 # Global trigger manager instance
-_trigger_manager: Optional[TriggerManager] = None
+_trigger_manager: TriggerManager | None = None
 
 
 def get_trigger_manager(
-    config: Optional[TriggerConfig] = None,
-    storage_path: Optional[str] = None,
+    config: TriggerConfig | None = None,
+    storage_path: str | None = None,
 ) -> TriggerManager:
     """Get or create the global trigger manager."""
     global _trigger_manager
@@ -463,8 +464,8 @@ def get_trigger_manager(
 
 
 async def init_trigger_manager(
-    config: Optional[TriggerConfig] = None,
-    storage_path: Optional[str] = None,
+    config: TriggerConfig | None = None,
+    storage_path: str | None = None,
 ) -> TriggerManager:
     """Initialize and start the trigger manager."""
     manager = get_trigger_manager(config, storage_path)

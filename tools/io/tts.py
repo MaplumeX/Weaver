@@ -10,7 +10,7 @@ import os
 import re
 import time
 from importlib import metadata
-from typing import Any, Dict, Optional
+from typing import Any
 
 import dashscope
 from dashscope.audio.tts_v2 import AudioFormat, SpeechSynthesizer
@@ -48,7 +48,7 @@ def _is_auth_error_message(message: str) -> bool:
     )
 
 
-def _extract_error_json(message: str) -> Optional[Dict[str, Any]]:
+def _extract_error_json(message: str) -> dict[str, Any] | None:
     """
     Best-effort extraction of JSON error payloads from DashScope websocket errors.
 
@@ -96,7 +96,7 @@ def _summarize_error(exc: Exception) -> str:
     return text or exc.__class__.__name__
 
 
-def _validate_dashscope_api_key(api_key: str) -> Optional[str]:
+def _validate_dashscope_api_key(api_key: str) -> str | None:
     """
     Validate DashScope credentials via a lightweight HTTP call.
 
@@ -110,8 +110,9 @@ def _validate_dashscope_api_key(api_key: str) -> Optional[str]:
     if not key:
         return "No API key configured"
     try:
-        from dashscope import Models  # type: ignore
         from http import HTTPStatus
+
+        from dashscope import Models  # type: ignore
 
         resp = Models.list(page=1, page_size=1, api_key=key)
         status = int(resp.get("status_code") or 0)
@@ -129,7 +130,7 @@ def _validate_dashscope_api_key(api_key: str) -> Optional[str]:
 class TTSService:
     """Text-to-speech service powered by DashScope."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY", "")
         if not self.api_key:
             self.enabled = False
@@ -138,8 +139,8 @@ class TTSService:
 
         dashscope.api_key = self.api_key
         self.enabled = True
-        self.last_error: Optional[str] = None
-        self.last_error_time: Optional[float] = None
+        self.last_error: str | None = None
+        self.last_error_time: float | None = None
         self._warn_if_old_sdk()
 
     def synthesize(
@@ -149,7 +150,7 @@ class TTSService:
         model: str = DEFAULT_MODEL,
         max_retries: int = 3,
         retry_delay: float = 1.0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run TTS and return a base64-encoded MP3 payload."""
         if not text or not text.strip():
             raise ValueError("Text cannot be empty.")
@@ -165,7 +166,7 @@ class TTSService:
             )
 
         audio_data = None
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for attempt in range(1, max_retries + 1):
             try:
                 # Explicitly set an audio format. DashScope SDK versions around 1.20.x
@@ -180,7 +181,7 @@ class TTSService:
                 if audio_data:
                     break
                 last_error = RuntimeError("No audio data returned from DashScope.")
-            except Exception as exc:  # noqa: PERF203
+            except Exception as exc:
                 # Preserve the most informative error (handshake/auth errors often appear only once).
                 exc_text = str(exc)
                 if last_error is None:
@@ -234,7 +235,7 @@ class TTSService:
             "error": None,
         }
 
-    def get_available_voices(self) -> Dict[str, str]:
+    def get_available_voices(self) -> dict[str, str]:
         return AVAILABLE_VOICES.copy()
 
     @staticmethod
@@ -254,10 +255,10 @@ class TTSService:
 
 
 # Global TTS service instance (lazy-init)
-_tts_service: Optional[TTSService] = None
+_tts_service: TTSService | None = None
 
 
-def get_tts_service(api_key: Optional[str] = None) -> TTSService:
+def get_tts_service(api_key: str | None = None) -> TTSService:
     global _tts_service
     if _tts_service is None:
         _tts_service = TTSService(api_key)

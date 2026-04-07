@@ -6,7 +6,7 @@ from pathlib import Path
 SDK_PYTHON_ROOT = Path(__file__).resolve().parent.parent / "sdk" / "python"
 sys.path.insert(0, str(SDK_PYTHON_ROOT))
 
-from weaver_sdk.sse import iter_sse_events_from_text, parse_sse_frame  # noqa: E402
+from weaver_sdk.sse import iter_sse_events_from_text, parse_sse_frame
 
 
 def test_parse_sse_frame_extracts_id_event_and_json_data() -> None:
