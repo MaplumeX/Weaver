@@ -477,6 +477,22 @@ def test_build_initial_graph_state_restores_scope_review_from_checkpoint(monkeyp
     assert initial_state["next_step"] == "scope_review"
 
 
+def test_lightweight_artifact_store_does_not_restore_legacy_snapshot_keys():
+    store = multi_agent_runtime.LightweightArtifactStore(
+        {
+            "branch_results": [
+                {"id": "legacy-branch", "section_id": "section_1", "summary": "legacy"},
+            ],
+            "validation_summaries": [
+                {"id": "legacy-review", "section_id": "section_1", "verdict": "passed"},
+            ],
+        }
+    )
+
+    assert store.section_drafts() == []
+    assert store.section_reviews() == []
+
+
 def test_multi_agent_graph_topology_exposes_section_role_nodes(monkeypatch):
     emitter = _DummyEmitter()
     _patch_runtime_deps(monkeypatch, emitter=emitter)

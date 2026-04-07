@@ -269,7 +269,7 @@ class LightweightArtifactStore:
         }
         section_draft_items = snapshot.get("section_drafts")
         if not isinstance(section_draft_items, list):
-            section_draft_items = snapshot.get("branch_results", [])
+            section_draft_items = []
         self._section_drafts = {
             str(item.get("section_id") or item.get("task_id") or item.get("id")): dict(item)
             for item in section_draft_items or []
@@ -277,7 +277,7 @@ class LightweightArtifactStore:
         }
         section_review_items = snapshot.get("section_reviews")
         if not isinstance(section_review_items, list):
-            section_review_items = snapshot.get("validation_summaries", [])
+            section_review_items = []
         self._section_reviews = {
             str(item.get("section_id") or item.get("task_id") or item.get("id")): dict(item)
             for item in section_review_items or []
@@ -342,12 +342,6 @@ class LightweightArtifactStore:
     def section_draft(self, section_id: str) -> dict[str, Any]:
         return copy.deepcopy(self._section_drafts.get(section_id, {}))
 
-    def branch_results(self) -> list[dict[str, Any]]:
-        return self.section_drafts()
-
-    def branch_result(self, task_or_section_id: str) -> dict[str, Any]:
-        return self.section_draft(task_or_section_id)
-
     def section_reviews(self) -> list[dict[str, Any]]:
         return [
             copy.deepcopy(item)
@@ -367,12 +361,6 @@ class LightweightArtifactStore:
 
     def section_review(self, section_id: str) -> dict[str, Any]:
         return copy.deepcopy(self._section_reviews.get(section_id, {}))
-
-    def validation_summaries(self) -> list[dict[str, Any]]:
-        return self.section_reviews()
-
-    def validation_summary(self, task_or_section_id: str) -> dict[str, Any]:
-        return self.section_review(task_or_section_id)
 
     def clear_section_review(self, section_id: str) -> None:
         key = str(section_id or "").strip()
@@ -1757,7 +1745,7 @@ class MultiAgentDeepResearchRuntime:
         store: LightweightArtifactStore,
         runtime_state: dict[str, Any],
     ) -> dict[str, Any]:
-        validations = store.validation_summaries()
+        validations = store.section_reviews()
         passed = [item for item in validations if item.get("status") == "passed"]
         retry = [item for item in validations if item.get("status") == "retry"]
         failed = [item for item in validations if item.get("status") == "failed"]
@@ -1807,7 +1795,7 @@ class MultiAgentDeepResearchRuntime:
         coverage_score = (
             round(covered_question_count / max(1, coverage_target_count), 3)
             if coverage_target_count > 0
-            else round(len(passed) / max(1, len(store.branch_results())), 3)
+            else round(len(passed) / max(1, len(store.section_drafts())), 3)
         )
         coverage_ready = (
             bool(passed) and not uncovered_questions
@@ -1815,7 +1803,7 @@ class MultiAgentDeepResearchRuntime:
             else bool(passed)
         )
         return {
-            "branch_count": len(store.branch_results()),
+            "branch_count": len(store.section_drafts()),
             "passed_branch_count": len(passed),
             "retry_branch_count": len(retry),
             "failed_branch_count": len(failed),

@@ -36,25 +36,6 @@ _PUBLIC_SIGNAL_KEYS = (
 )
 
 
-def _has_lightweight_snapshot(artifact_store: dict[str, Any]) -> bool:
-    if not isinstance(artifact_store, dict):
-        return False
-    return any(
-        key in artifact_store
-        for key in (
-            "scope",
-            "outline",
-            "plan",
-            "evidence_bundles",
-            "section_drafts",
-            "section_reviews",
-            "section_certifications",
-            "branch_results",
-            "validation_summaries",
-        )
-    )
-
-
 def _sorted_tasks(task_queue: dict[str, Any]) -> list[dict[str, Any]]:
     tasks = task_queue.get("tasks", []) if isinstance(task_queue, dict) else []
     if not isinstance(tasks, list):
@@ -114,54 +95,6 @@ def _normalize_public_sources(items: Any) -> list[dict[str, Any]]:
     return compact_unique_sources(candidates, limit=max(5, len(candidates) or 5))
 
 
-def _normalize_legacy_sources(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    candidates: list[dict[str, Any]] = []
-
-    evidence_cards = artifact_store.get("evidence_cards", []) if isinstance(artifact_store, dict) else []
-    for item in evidence_cards if isinstance(evidence_cards, list) else []:
-        if not isinstance(item, dict):
-            continue
-        candidates.append(
-            {
-                "title": item.get("source_title", ""),
-                "url": item.get("source_url", ""),
-                "provider": item.get("source_provider", ""),
-                "published_date": item.get("published_date"),
-            }
-        )
-
-    fetched_documents = artifact_store.get("fetched_documents", []) if isinstance(artifact_store, dict) else []
-    for item in fetched_documents if isinstance(fetched_documents, list) else []:
-        if not isinstance(item, dict):
-            continue
-        candidates.append(
-            {
-                "title": item.get("title", ""),
-                "url": item.get("url", ""),
-            }
-        )
-
-    source_candidates = artifact_store.get("source_candidates", []) if isinstance(artifact_store, dict) else []
-    for item in source_candidates if isinstance(source_candidates, list) else []:
-        if not isinstance(item, dict):
-            continue
-        candidates.append(
-            {
-                "title": item.get("title", ""),
-                "url": item.get("url", ""),
-                "provider": item.get("source_provider", ""),
-                "published_date": item.get("published_date"),
-            }
-        )
-
-    final_report = artifact_store.get("final_report", {}) if isinstance(artifact_store, dict) else {}
-    citation_urls = final_report.get("citation_urls", []) if isinstance(final_report, dict) else []
-    for url in citation_urls if isinstance(citation_urls, list) else []:
-        candidates.append({"title": str(url or ""), "url": url})
-
-    return compact_unique_sources(candidates, limit=max(5, len(candidates) or 5))
-
-
 def _normalize_public_fetched_pages(items: Any) -> list[dict[str, Any]]:
     pages: list[dict[str, Any]] = []
     for item in items if isinstance(items, list) else []:
@@ -191,31 +124,6 @@ def _normalize_public_fetched_pages(items: Any) -> list[dict[str, Any]]:
             "source_candidate_id": item.get("source_candidate_id"),
         }
         pages.append(page)
-    return pages
-
-
-def _normalize_legacy_fetched_pages(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    items = artifact_store.get("fetched_documents", []) if isinstance(artifact_store, dict) else []
-    pages: list[dict[str, Any]] = []
-    for item in items if isinstance(items, list) else []:
-        if not isinstance(item, dict):
-            continue
-        url = canonicalize_source_url(item.get("url"))
-        if not url:
-            continue
-        pages.append(
-            {
-                "id": item.get("id"),
-                "task_id": item.get("task_id"),
-                "section_id": item.get("section_id"),
-                "branch_id": item.get("branch_id"),
-                "url": url,
-                "title": str(item.get("title") or "").strip(),
-                "excerpt": str(item.get("excerpt") or "").strip(),
-                "content": str(item.get("content") or ""),
-                "source_candidate_id": item.get("source_candidate_id"),
-            }
-        )
     return pages
 
 
@@ -253,43 +161,8 @@ def _normalize_public_passages(items: Any) -> list[dict[str, Any]]:
                 "passage_kind": str(item.get("passage_kind") or "quote").strip(),
                 "admissible": bool(item.get("admissible", True)),
                 "authoritative": bool(item.get("authoritative", item.get("admissible", True))),
-            }
-        )
-    return passages
-
-
-def _normalize_legacy_passages(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
-    items = artifact_store.get("evidence_passages", []) if isinstance(artifact_store, dict) else []
-    passages: list[dict[str, Any]] = []
-    for item in items if isinstance(items, list) else []:
-        if not isinstance(item, dict):
-            continue
-        url = canonicalize_source_url(item.get("url"))
-        if not url:
-            continue
-        heading_path = item.get("heading_path")
-        heading_items = heading_path if isinstance(heading_path, list) else []
-        passages.append(
-            {
-                "id": item.get("id"),
-                "task_id": item.get("task_id"),
-                "section_id": item.get("section_id"),
-                "branch_id": item.get("branch_id"),
-                "document_id": item.get("document_id"),
-                "url": url,
-                "text": str(item.get("text") or ""),
-                "quote": str(item.get("quote") or "").strip(),
-                "source_title": str(item.get("source_title") or "").strip(),
-                "snippet_hash": str(item.get("snippet_hash") or "").strip(),
-                "heading": heading_items[0] if heading_items else None,
-                "heading_path": list(heading_items),
-                "locator": dict(item.get("locator") or {}),
-                "source_published_date": item.get("source_published_date"),
-                "passage_kind": str(item.get("passage_kind") or "quote").strip(),
-                "admissible": bool(item.get("admissible", True)),
-                "authoritative": bool(item.get("admissible", True)),
-            }
-        )
+                }
+            )
     return passages
 
 
@@ -730,7 +603,7 @@ def _normalize_lightweight_passages(artifact_store: dict[str, Any]) -> list[dict
 def _normalize_lightweight_branch_results(artifact_store: dict[str, Any]) -> list[dict[str, Any]]:
     items = artifact_store.get("section_drafts", []) if isinstance(artifact_store, dict) else []
     if not isinstance(items, list):
-        items = artifact_store.get("branch_results", []) if isinstance(artifact_store, dict) else []
+        items = []
     results = _normalize_public_section_drafts(items)
     return [
         {
@@ -754,7 +627,7 @@ def _normalize_lightweight_validation(artifact_store: dict[str, Any]) -> dict[st
     review_items = artifact_store.get("section_reviews", []) if isinstance(artifact_store, dict) else []
     certification_items = artifact_store.get("section_certifications", []) if isinstance(artifact_store, dict) else []
     if not isinstance(review_items, list):
-        review_items = artifact_store.get("validation_summaries", []) if isinstance(artifact_store, dict) else []
+        review_items = []
     reviews = _normalize_public_section_reviews(review_items)
     certifications = _normalize_public_section_certifications(certification_items)
     certified_ids = {
@@ -846,46 +719,6 @@ def _build_lightweight_public_artifacts(
     )
 
 
-def _build_legacy_public_artifacts(
-    *,
-    queue_snapshot: dict[str, Any],
-    store_snapshot: dict[str, Any],
-    research_topology: dict[str, Any] | None,
-    quality_summary: dict[str, Any] | None,
-    runtime_state: dict[str, Any] | None,
-    mode: str,
-    engine: str,
-) -> dict[str, Any]:
-    runtime_snapshot = runtime_state if isinstance(runtime_state, dict) else {}
-    final_report = store_snapshot.get("final_report")
-    final_report_payload = final_report if isinstance(final_report, dict) else {}
-    validation_summary = _normalize_validation_summary(runtime_snapshot.get("last_verification_summary"))
-
-    return _build_public_payload(
-        mode=mode,
-        engine=engine,
-        queries=_build_queries(queue_snapshot),
-        scope={},
-        outline={},
-        plan={},
-        tasks=_sorted_tasks(queue_snapshot),
-        research_topology=research_topology if isinstance(research_topology, dict) else {},
-        sources=_normalize_legacy_sources(store_snapshot),
-        section_drafts=[],
-        section_reviews=[],
-        section_certifications=[],
-        outline_gate_summary={},
-        branch_results=[],
-        validation_summary=validation_summary,
-        quality_summary=dict(quality_summary or {}),
-        final_report=str(final_report_payload.get("report_markdown") or ""),
-        executive_summary=str(final_report_payload.get("executive_summary") or ""),
-        runtime_state=runtime_snapshot,
-        fetched_pages=_normalize_legacy_fetched_pages(store_snapshot),
-        passages=_normalize_legacy_passages(store_snapshot),
-    )
-
-
 def build_public_deep_research_artifacts(
     *,
     task_queue: dict[str, Any] | None,
@@ -898,17 +731,7 @@ def build_public_deep_research_artifacts(
 ) -> dict[str, Any]:
     queue_snapshot = task_queue if isinstance(task_queue, dict) else {}
     store_snapshot = artifact_store if isinstance(artifact_store, dict) else {}
-    if _has_lightweight_snapshot(store_snapshot):
-        return _build_lightweight_public_artifacts(
-            queue_snapshot=queue_snapshot,
-            store_snapshot=store_snapshot,
-            research_topology=research_topology,
-            quality_summary=quality_summary,
-            runtime_state=runtime_state,
-            mode=mode,
-            engine=engine,
-        )
-    return _build_legacy_public_artifacts(
+    return _build_lightweight_public_artifacts(
         queue_snapshot=queue_snapshot,
         store_snapshot=store_snapshot,
         research_topology=research_topology,

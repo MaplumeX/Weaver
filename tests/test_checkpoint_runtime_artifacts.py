@@ -106,6 +106,45 @@ def test_extract_deep_research_artifacts_drops_legacy_claims_but_preserves_passa
   assert passage.get("url") == "https://example.com/earnings"
 
 
+def test_extract_deep_research_artifacts_ignores_legacy_nested_runtime_store() -> None:
+  state = {
+      "route": "deep",
+      "deep_runtime": {
+          "engine": "multi_agent",
+          "task_queue": {
+              "tasks": [
+                  {"id": "task_1", "query": "q1", "priority": 1, "created_at": "2026-04-02T00:00:00Z"},
+              ]
+          },
+          "artifact_store": {
+              "branch_results": [
+                  {"id": "legacy_branch", "task_id": "task_1", "summary": "legacy branch"},
+              ],
+              "validation_summaries": [
+                  {"id": "legacy_validation", "task_id": "task_1", "status": "passed"},
+              ],
+              "fetched_documents": [
+                  {"id": "legacy_doc", "url": "https://example.com/legacy-doc", "title": "Legacy doc"},
+              ],
+              "evidence_passages": [
+                  {"id": "legacy_passage", "url": "https://example.com/legacy-doc", "text": "legacy"},
+              ],
+              "final_report": {"report_markdown": ""},
+          },
+          "runtime_state": {},
+          "agent_runs": [],
+      },
+  }
+
+  artifacts = extract_deep_research_artifacts(state)
+  assert artifacts["queries"] == ["q1"]
+  assert artifacts["section_drafts"] == []
+  assert artifacts["section_reviews"] == []
+  assert artifacts["branch_results"] == []
+  assert artifacts["fetched_pages"] == []
+  assert artifacts["passages"] == []
+
+
 @pytest.mark.asyncio
 async def test_build_resume_state_preserves_canonical_artifacts_without_backfill() -> None:
   artifacts = {
