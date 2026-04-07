@@ -9,7 +9,6 @@ from agent.runtime.nodes import (
     chat_respond_node,
     deep_research_node,
     finalize_answer_node,
-    human_review_node,
     route_node,
     tool_agent_node,
 )
@@ -23,7 +22,7 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     Create the root research graph.
 
     The root graph only orchestrates top-level routing:
-    router -> chat_respond|deep_research -> tool_agent?|finalize -> human_review -> END
+    router -> chat_respond|deep_research -> tool_agent?|finalize -> END
     """
     from common.config import settings
 
@@ -33,7 +32,6 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
     workflow.add_node("chat_respond", chat_respond_node)
     workflow.add_node("tool_agent", tool_agent_node)
     workflow.add_node("finalize", finalize_answer_node)
-    workflow.add_node("human_review", human_review_node)
     workflow.add_node("deep_research", deep_research_node)
 
     workflow.set_entry_point("router")
@@ -59,12 +57,9 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
 
     workflow.add_conditional_edges("chat_respond", after_chat, ["tool_agent", "finalize"])
     workflow.add_edge("tool_agent", "finalize")
-    workflow.add_edge("finalize", "human_review")
-    workflow.add_edge("deep_research", "human_review")
-    workflow.add_edge("human_review", END)
+    workflow.add_edge("finalize", END)
+    workflow.add_edge("deep_research", END)
 
-    # HITL checkpoints are implemented via explicit review nodes that use
-    # `langgraph.types.interrupt()` (see agent/workflows/nodes.py).
     hitl_checkpoints = getattr(settings, "hitl_checkpoints", "") or ""
     if hitl_checkpoints.strip():
         logger.info(f"HITL checkpoints enabled: {hitl_checkpoints}")

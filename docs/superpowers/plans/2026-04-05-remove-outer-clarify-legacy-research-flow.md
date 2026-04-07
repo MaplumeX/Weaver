@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 删除根图外层 `clarify` 与整条旧 `planner/research/evaluator/reviser` 链路，收缩顶层公共状态与兼容层，只保留 `router -> agent|deep_research -> human_review` 和 Deep Research 内层正式编排。
+**Goal:** 删除根图外层 `clarify` 与整条旧 `planner/research/evaluator/reviser` 链路，收缩顶层公共状态与兼容层，只保留当前真实生产路径，并由根图直接收口到 `END`。
 
 **Architecture:** 先用根图契约测试锁定新的可达节点和路由结果，再分三层裁剪：根图/节点导出、公共状态/执行契约、`main.py` 流式与恢复输出。Deep Research 内层 `clarify/scope/review/report` 保持不变，旧 checkpoint 与旧 session 数据兼容全部放弃。
 
@@ -21,7 +21,8 @@
 - `agent/runtime/graph.py`
 - `agent/runtime/nodes/routing.py`
 - `agent/runtime/nodes/answer.py`
-- `agent/runtime/nodes/review.py`
+- `agent/runtime/nodes/chat.py`
+- `agent/runtime/nodes/finalize.py`
 - `agent/runtime/nodes/__init__.py`
 - `agent/runtime/__init__.py`
 - `agent/core/smart_router.py`
@@ -38,6 +39,7 @@
 **Delete**
 
 - `agent/runtime/nodes/planning.py`
+- `agent/runtime/nodes/review.py`
 - `tests/test_hitl_checkpoint_review_nodes.py`
 - `tests/test_evaluator_emits_quality_update.py`
 - `tests/test_evaluator_persists_quality_summary.py`
@@ -50,7 +52,7 @@
 
 - `agent/runtime/graph.py`：收缩根图，只保留真实生产路径。
 - `agent/runtime/nodes/routing.py`：移除外层 `clarify`，让低置信度直接回退到 `agent`。
-- `agent/runtime/nodes/answer.py` / `review.py`：去掉旧写作和评估节点，只保留 `agent_node` 与 `human_review_node`。
+- `agent/runtime/nodes/chat.py` / `answer.py` / `finalize.py`：分别承载普通对话、受控工具执行和最终收口；旧 `review.py` 删除。
 - `agent/core/smart_router.py` / `agent/domain/execution.py`：收缩公共路由与执行模式，不再存在外层 `clarify`。
 - `agent/core/state.py` / `agent/domain/state.py` / `agent/application/state.py`：删掉旧 research/planner 流字段。
 - `main.py`：删掉旧节点的 thinking/status 映射、恢复摘要和旧 revision loop 配置。
@@ -68,7 +70,7 @@
 - Modify: `agent/runtime/graph.py`
 - Modify: `agent/runtime/nodes/routing.py`
 
-- [x] **Step 1: 先写失败测试，锁定根图只保留 4 个生产节点，且低置信度不再走外层 clarify**
+- [x] **Step 1: 先写失败测试，锁定根图只保留 5 个生产节点，且低置信度不再走外层 clarify**
 
 ```python
 import agent.runtime.nodes.routing as routing
@@ -79,7 +81,7 @@ def test_create_research_graph_only_keeps_active_root_nodes():
     graph = create_research_graph()
     node_names = set(graph.get_graph().nodes.keys())
 
-    assert {"router", "agent", "deep_research", "human_review"} <= node_names
+    assert {"router", "chat_respond", "tool_agent", "finalize", "deep_research"} <= node_names
 
     removed = {
         "clarify",
@@ -140,10 +142,11 @@ from psycopg.rows import dict_row
 
 from agent.core.state import AgentState
 from agent.runtime.nodes import (
-    agent_node,
+    chat_respond_node,
     deep_research_node,
-    human_review_node,
+    finalize_answer_node,
     route_node,
+    tool_agent_node,
 )
 
 logger = logging.getLogger(__name__)
@@ -154,21 +157,27 @@ def create_research_graph(checkpointer=None, interrupt_before=None, store=None):
 
     workflow = StateGraph(AgentState)
     workflow.add_node("router", route_node)
-    workflow.add_node("agent", agent_node)
+    workflow.add_node("chat_respond", chat_respond_node)
+    workflow.add_node("tool_agent", tool_agent_node)
+    workflow.add_node("finalize", finalize_answer_node)
     workflow.add_node("deep_research", deep_research_node)
-    workflow.add_node("human_review", human_review_node)
     workflow.set_entry_point("router")
 
     def route_decision(state: AgentState) -> str:
         route = state.get("route", "agent")
         if route == "deep":
             return "deep_research"
-        return "agent"
+        return "chat_respond"
 
-    workflow.add_conditional_edges("router", route_decision, ["agent", "deep_research"])
-    workflow.add_edge("agent", "human_review")
-    workflow.add_edge("deep_research", "human_review")
-    workflow.add_edge("human_review", END)
+    workflow.add_conditional_edges("router", route_decision, ["chat_respond", "deep_research"])
+    workflow.add_conditional_edges(
+        "chat_respond",
+        lambda state: "tool_agent" if state.get("needs_tools") else "finalize",
+        ["tool_agent", "finalize"],
+    )
+    workflow.add_edge("tool_agent", "finalize")
+    workflow.add_edge("finalize", END)
+    workflow.add_edge("deep_research", END)
 
     hitl_checkpoints = getattr(settings, "hitl_checkpoints", "") or ""
     if hitl_checkpoints.strip():
@@ -246,7 +255,7 @@ Run: `uv run pytest tests/test_root_graph_contract.py -v`
 
 Expected: PASS  
 Expected passing shape:
-- 根图只暴露 `router/agent/deep_research/human_review`
+- 根图只暴露 `router/chat_respond/tool_agent/finalize/deep_research`
 - 低置信度时 `route_node()` 返回 `agent`
 
 ### Task 2: 删除旧节点模块并收缩 runtime 导出
@@ -254,8 +263,10 @@ Expected passing shape:
 **Files:**
 
 - Delete: `agent/runtime/nodes/planning.py`
+- Delete: `agent/runtime/nodes/review.py`
 - Modify: `agent/runtime/nodes/answer.py`
-- Modify: `agent/runtime/nodes/review.py`
+- Modify: `agent/runtime/nodes/chat.py`
+- Modify: `agent/runtime/nodes/finalize.py`
 - Modify: `agent/runtime/nodes/__init__.py`
 - Modify: `agent/runtime/__init__.py`
 - Modify: `tests/test_agent_runtime_public_contracts.py`
@@ -294,9 +305,10 @@ def test_removed_outer_runtime_nodes_are_not_exported():
 
 def test_runtime_node_entrypoints_are_importable():
     assert callable(runtime_nodes.route_node)
-    assert callable(runtime_nodes.agent_node)
+    assert callable(runtime_nodes.chat_respond_node)
     assert callable(runtime_nodes.deep_research_node)
-    assert callable(runtime_nodes.human_review_node)
+    assert callable(runtime_nodes.finalize_answer_node)
+    assert callable(runtime_nodes.tool_agent_node)
 ```
 
 - [x] **Step 2: 运行测试，确认当前 runtime 仍暴露旧导出**
@@ -315,51 +327,55 @@ Expected failure shape:
 
 ```python
 # agent/runtime/nodes/__init__.py
-from agent.runtime.nodes.answer import agent_node
+from agent.runtime.nodes.answer import tool_agent_node
+from agent.runtime.nodes.chat import chat_respond_node
 from agent.runtime.nodes.common import (
     check_cancellation,
     handle_cancellation,
     initialize_enhanced_tools,
 )
 from agent.runtime.nodes.deep_research import deep_research_node
-from agent.runtime.nodes.review import human_review_node
+from agent.runtime.nodes.finalize import finalize_answer_node
 from agent.runtime.nodes.routing import route_node
 
 __all__ = [
-    "agent_node",
+    "chat_respond_node",
     "check_cancellation",
     "deep_research_node",
+    "finalize_answer_node",
     "handle_cancellation",
-    "human_review_node",
     "initialize_enhanced_tools",
     "route_node",
+    "tool_agent_node",
 ]
 ```
 
 ```python
 # agent/runtime/__init__.py
 __all__ = [
-    "agent_node",
+    "chat_respond_node",
     "check_cancellation",
     "create_research_graph",
     "deep_research_node",
+    "finalize_answer_node",
     "handle_cancellation",
-    "human_review_node",
     "initialize_enhanced_tools",
     "route_node",
     "run_deep_research",
+    "tool_agent_node",
 ]
 
 _SYMBOL_TO_MODULE: Dict[str, str] = {
-    "agent_node": "agent.runtime.nodes",
+    "chat_respond_node": "agent.runtime.nodes",
     "check_cancellation": "agent.runtime.nodes",
     "create_research_graph": "agent.runtime.graph",
     "deep_research_node": "agent.runtime.nodes",
+    "finalize_answer_node": "agent.runtime.nodes",
     "handle_cancellation": "agent.runtime.nodes",
-    "human_review_node": "agent.runtime.nodes",
     "initialize_enhanced_tools": "agent.runtime.nodes",
     "route_node": "agent.runtime.nodes",
     "run_deep_research": "agent.runtime.deep",
+    "tool_agent_node": "agent.runtime.nodes",
 }
 ```
 
@@ -397,29 +413,9 @@ __all__ = ["agent_node"]
 
 ```python
 # agent/runtime/nodes/review.py
-# 文件最终只保留 human_review_node 及其必需辅助函数：
-# - _resolve_deps
-# - _hitl_checkpoints_enabled
-# - human_review_node
-#
-# 删除以下旧符号及其辅助函数：
-# - hitl_plan_review_node
-# - hitl_draft_review_node
-# - hitl_sources_review_node
-# - evaluator_node
-# - revise_report_node
-# - should_continue_research
-# - _parse_research_plan_content
-# - _format_sources_snapshot_for_instruction
-#
-# 删除后，文件内不得再引用：
-# - plan/draft/sources checkpoint interrupt 路径
-# - evaluator/reviser 的 ChatPromptTemplate 路径
-# - compressed_knowledge review 路径
-
-__all__ = [
-    "human_review_node",
-]
+# 文件已删除。
+# 根图直接由 `finalize_answer_node` 或 `deep_research_node` 产出终态后连到 `END`，
+# 不再保留单独 review 收口层。
 ```
 
 - [x] **Step 4: 重新运行 runtime 公共契约测试**
@@ -429,7 +425,7 @@ Run: `uv run pytest tests/test_agent_runtime_public_contracts.py -v`
 Expected: PASS  
 Expected passing shape:
 - `agent.runtime` 与 `agent.runtime.nodes` 不再导出旧外层节点
-- `route_node`、`agent_node`、`deep_research_node`、`human_review_node` 仍可导入
+- `route_node`、`chat_respond_node`、`tool_agent_node`、`finalize_answer_node`、`deep_research_node` 仍可导入
 
 ### Task 3: 收缩公共路由/状态契约与恢复摘要
 
@@ -692,7 +688,6 @@ configurable: Dict[str, Any] = {
     "user_id": user_id or settings.memory_user_id,
     "allow_interrupts": bool(checkpointer),
     "tool_approval": settings.tool_approval or False,
-    "human_review": settings.human_review or False,
 }
 ```
 

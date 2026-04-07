@@ -21,12 +21,12 @@ class _DummyGraph:
 
         yield {
             "event": "on_node_end",
-            "name": "human_review",
+            "name": "finalize",
             "data": {"output": final_output},
         }
         yield {
             "event": "on_graph_end",
-            "name": "human_review",
+            "name": "finalize",
             "data": {"output": final_output},
         }
 

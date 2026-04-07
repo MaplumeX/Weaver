@@ -501,7 +501,6 @@ def test_runtime_active_entrypoints_remain_importable():
     assert callable(runtime_nodes.chat_respond_node)
     assert callable(runtime_nodes.deep_research_node)
     assert callable(runtime_nodes.finalize_answer_node)
-    assert callable(runtime_nodes.human_review_node)
     assert callable(runtime_nodes.tool_agent_node)
     assert not hasattr(runtime_nodes, "initialize_enhanced_tools")
 ```

@@ -5,7 +5,7 @@
 当前仓库同时存在两套研究编排：
 
 - 外层根图中的旧研究链路：
-  `router -> clarify -> planner -> hitl_plan_review -> perform_parallel_search -> compressor -> hitl_sources_review -> writer -> hitl_draft_review -> evaluator -> revise/refine -> human_review`
+  `router -> clarify -> planner -> hitl_plan_review -> perform_parallel_search -> compressor -> hitl_sources_review -> writer -> hitl_draft_review -> evaluator -> revise/refine -> 根图最终收口`
 - 内层 Deep Research 正式链路：
   `deep_research -> multi_agent runtime`
 
@@ -91,11 +91,13 @@
 
 ```mermaid
 flowchart LR
-    Router["router"] --> Agent["agent"]
-    Router --> Deep["deep_research"]
-    Agent --> Human["human_review"]
-    Deep --> Human
-    Human --> END
+    Router["router"] -->|agent| Chat["chat_respond"]
+    Router -->|deep| Deep["deep_research"]
+    Chat -->|needs_tools=false| Finalize["finalize"]
+    Chat -->|needs_tools=true| Tool["tool_agent"]
+    Tool --> Finalize
+    Finalize --> END
+    Deep --> END
 ```
 
 说明：
@@ -143,32 +145,30 @@ flowchart LR
 #### 保留
 
 - `router`
-- `agent`
+- `chat_respond`
+- `tool_agent`
+- `finalize`
 - `deep_research`
-- `human_review`
 
 ### 6.2 运行时节点文件
 
 #### 删除整个文件
 
 - `agent/runtime/nodes/planning.py`
+- `agent/runtime/nodes/review.py`
 
 #### 删除文件内旧节点实现
 
 - `agent/runtime/nodes/routing.py`
   - 删除外层 `clarify_node`
   - `route_node` 只产出 `agent|deep`
+- `agent/runtime/nodes/chat.py`
+  - 保留 `chat_respond_node`
 - `agent/runtime/nodes/answer.py`
   - 删除 `writer_node`
-  - 保留 `agent_node`
-- `agent/runtime/nodes/review.py`
-  - 删除 `hitl_plan_review_node`
-  - 删除 `hitl_draft_review_node`
-  - 删除 `hitl_sources_review_node`
-  - 删除 `evaluator_node`
-  - 删除 `revise_report_node`
-  - 删除只服务这些函数的辅助逻辑
-  - 保留 `human_review_node`
+  - 保留 `tool_agent_node`
+- `agent/runtime/nodes/finalize.py`
+  - 保留 `finalize_answer_node`
 
 #### 更新导出
 

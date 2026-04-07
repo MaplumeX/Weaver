@@ -1,0 +1,8 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "行为改动需要配套回归测试并保持公共契约稳定"}
+{"file": "agent/runtime/deep/orchestration/graph.py", "reason": "deep runtime 自身已返回 is_complete=True，可作为根图直接终止的既有模式"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "根图与运行时节点需要保持在 agent/runtime 下的既有模块边界内"}
+{"file": "agent/runtime/nodes/finalize.py", "reason": "chat 路径的 finalize 需要改成真正终态节点"}
+{"file": "agent/runtime/graph.py", "reason": "根图当前通过 human_review 统一收口，需要在此处改为标准 END 收口"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "修改收口节点时保持终态与降级路径清晰，不引入额外异常处理歧义"}

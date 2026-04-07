@@ -2346,7 +2346,6 @@ def _build_agent_graph_config(
         "user_id": user_id or settings.memory_user_id,
         "allow_interrupts": bool(checkpointer),
         "tool_approval": settings.tool_approval or False,
-        "human_review": settings.human_review or False,
     }
     if resumed_from_checkpoint:
         configurable["resumed_from_checkpoint"] = True

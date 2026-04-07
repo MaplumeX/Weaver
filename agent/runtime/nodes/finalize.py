@@ -24,7 +24,7 @@ def finalize_answer_node(state: dict[str, Any], config: RunnableConfig) -> dict[
             "final_report": report,
             "draft_report": report,
             "messages": [AIMessage(content=report)],
-            "is_complete": False,
+            "is_complete": True,
         },
     )
 

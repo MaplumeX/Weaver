@@ -1,0 +1,5 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check-backend/SKILL.md", "reason": "Backend check spec"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "完成后按后端质量规范验证回归测试与契约稳定性"}
+{"file": "tests/test_root_graph_contract.py", "reason": "根图节点集合与边需要按新收口方式更新断言"}
+{"file": "tests/test_output_contracts.py", "reason": "finalize 节点现在承担最终收口职责，需更新输出契约断言"}

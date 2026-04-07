@@ -190,7 +190,6 @@ class Settings(BaseSettings):
     memory_top_k: int = 5
     enable_mcp: bool = False
     mcp_servers: str = ""  # JSON mapping for MultiServerMCPClient
-    human_review: bool = False  # require manual approval before final report
     tool_approval: bool = False  # require approval before executing tools
     max_revisions: int = 2
 

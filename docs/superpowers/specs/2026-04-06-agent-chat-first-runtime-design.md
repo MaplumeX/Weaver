@@ -6,11 +6,13 @@
 
 ```mermaid
 flowchart LR
-    Router["router"] --> Agent["agent"]
-    Router --> Deep["deep_research"]
-    Agent --> Human["human_review"]
-    Deep --> Human
-    Human --> END
+    Router["router"] -->|agent| Chat["chat_respond"]
+    Router -->|deep| Deep["deep_research"]
+    Chat -->|needs_tools=false| Finalize["finalize"]
+    Chat -->|needs_tools=true| Tool["tool_agent"]
+    Tool --> Finalize
+    Finalize --> END
+    Deep --> END
 ```
 
 但 `agent` 节点内部仍然是“tool-first”设计：
@@ -112,9 +114,8 @@ flowchart LR
     Chat -->|needs_tools=true| Tool["tool_agent"]
     Tool --> Finalize
 
-    Finalize --> Human["human_review"]
-    Deep --> Human
-    Human --> END
+    Finalize --> END
+    Deep --> END
 ```
 
 ### 5.1 设计含义
@@ -205,7 +206,7 @@ flowchart LR
 
 约束：
 
-- `is_complete` 仍由后继 `human_review` 收口。
+- `is_complete` 由 `finalize` 或 `deep_research` 自身产出终态，根图直接 `END`。
 - 不在聊天路径和工具路径分别复制收尾逻辑。
 
 ## 7. `needs_tools` 判定机制
@@ -350,8 +351,8 @@ flowchart LR
 
 ### 11.2 保留
 
-- `human_review` 节点
 - 顶层 `router`
+- 根图直接 `END` 收口
 - 现有 checkpointer / store / session 流程
 - 现有工具基础设施与 `create_agent` 执行能力
 
@@ -389,7 +390,8 @@ flowchart LR
 ```mermaid
 flowchart LR
     router --> agent
-    agent --> human_review
+    agent --> finalize
+    finalize --> END
 ```
 
 替换为：
@@ -400,7 +402,7 @@ flowchart LR
     chat_respond --> finalize
     chat_respond --> tool_agent
     tool_agent --> finalize
-    finalize --> human_review
+    finalize --> END
 ```
 
 ### 12.5 第五步：清理旧语义

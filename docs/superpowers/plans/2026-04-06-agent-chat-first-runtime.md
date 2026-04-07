@@ -14,12 +14,13 @@
 
 - 本计划记录了最初的实施路径。
 - 最终落地代码已经进一步收紧：`agent_node` 兼容层已删除，不再作为公开 runtime 入口存在。
+- 根图最终也已进一步简化：`finalize` 与 `deep_research` 直接连到 `END`，不再经过单独 review 节点。
 - 当前真实公开面以 `chat_respond_node`、`tool_agent_node`、`finalize_answer_node` 为准。
 
 **Scope Notes**
 
 - 本计划只实现 chat-first `agent` 分支，不改 Deep Research 内层 runtime 结构。
-- 保留现有 `human_review`、checkpointer、session persistence、tool provider 基建。
+- 保留现有 checkpointer、session persistence、tool provider 基建。
 - 按仓库约束，本计划不包含 `git commit` 步骤。
 - 最终公开面不再保留 `agent_node` 兼容入口，只暴露 chat-first 原生节点。
 
@@ -48,7 +49,7 @@
 - Modify: `agent/runtime/__init__.py`
   作用：收敛公开 runtime entrypoints，只保留 chat-first 原生节点。
 - Modify: `agent/runtime/graph.py`
-  作用：将根图从 `router -> agent -> human_review` 改为 `router -> chat_respond -> tool_agent?/finalize -> human_review`。
+  作用：将根图从旧单入口 `agent` 路径改为 `router -> chat_respond -> tool_agent?/finalize -> END`，并让 `deep_research` 直接终止。
 - Modify: `agent/runtime/nodes/deep_research.py`
   作用：移除简单 factual deep 查询回退到 `agent_node` 的逻辑，保持 deep 模式语义封闭。
 - Modify: `agent/runtime/nodes/_shared.py`
@@ -644,7 +645,7 @@ def test_create_research_graph_uses_chat_first_agent_path():
     graph = create_research_graph()
     node_names = set(graph.get_graph().nodes.keys())
 
-    assert {"router", "chat_respond", "tool_agent", "finalize", "deep_research", "human_review"} <= node_names
+    assert {"router", "chat_respond", "tool_agent", "finalize", "deep_research"} <= node_names
     assert "agent" not in node_names
 ```
 
@@ -708,7 +709,6 @@ from agent.runtime.nodes import (
     chat_respond_node,
     deep_research_node,
     finalize_answer_node,
-    human_review_node,
     route_node,
     tool_agent_node,
 )
@@ -718,7 +718,6 @@ workflow.add_node("router", route_node)
 workflow.add_node("chat_respond", chat_respond_node)
 workflow.add_node("tool_agent", tool_agent_node)
 workflow.add_node("finalize", finalize_answer_node)
-workflow.add_node("human_review", human_review_node)
 workflow.add_node("deep_research", deep_research_node)
 
 workflow.set_entry_point("router")
@@ -731,9 +730,8 @@ def after_chat(state: AgentState) -> str:
 
 workflow.add_conditional_edges("chat_respond", after_chat, ["tool_agent", "finalize"])
 workflow.add_edge("tool_agent", "finalize")
-workflow.add_edge("finalize", "human_review")
-workflow.add_edge("deep_research", "human_review")
-workflow.add_edge("human_review", END)
+workflow.add_edge("finalize", END)
+workflow.add_edge("deep_research", END)
 ```
 
 ```python
@@ -843,7 +841,7 @@ def test_finalize_answer_node_enforces_exact_reply_contract():
     assert result["final_report"] == "Paris"
 ```
 
-- [ ] **Step 2: 运行回归测试，确认旧 `human_review_node` 专属断言需要迁移到 finalize**
+- [ ] **Step 2: 运行回归测试，确认最终输出断言已经完全收敛到 `finalize`**
 
 Run: `pytest tests/test_agent_mode_selection.py tests/test_output_contracts.py tests/test_chat_session_persistence.py -v`
 

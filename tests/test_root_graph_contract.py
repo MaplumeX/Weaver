@@ -16,7 +16,7 @@ def test_create_research_graph_only_keeps_active_root_nodes():
     graph = create_research_graph()
     node_names = set(graph.get_graph().nodes.keys())
 
-    assert {"router", "chat_respond", "tool_agent", "finalize", "deep_research", "human_review"} <= node_names
+    assert {"router", "chat_respond", "tool_agent", "finalize", "deep_research"} <= node_names
 
     removed = {
         "agent",
@@ -31,6 +31,7 @@ def test_create_research_graph_only_keeps_active_root_nodes():
         "reviser",
         "compressor",
         "hitl_sources_review",
+        "human_review",
     }
     assert removed.isdisjoint(node_names)
 

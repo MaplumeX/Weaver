@@ -22,6 +22,7 @@ def test_removed_outer_runtime_nodes_are_not_exported():
         "clarify_node",
         "compressor_node",
         "evaluator_node",
+        "human_review_node",
         "hitl_draft_review_node",
         "hitl_plan_review_node",
         "hitl_sources_review_node",
@@ -37,6 +38,8 @@ def test_removed_outer_runtime_nodes_are_not_exported():
         assert name not in runtime_nodes.__all__
         assert name not in runtime_pkg.__all__
         with pytest.raises(AttributeError):
+            getattr(runtime_nodes, name)
+        with pytest.raises(AttributeError):
             getattr(runtime_pkg, name)
 
 
@@ -46,7 +49,6 @@ def test_runtime_active_entrypoints_remain_importable():
     assert callable(runtime_nodes.chat_respond_node)
     assert callable(runtime_nodes.deep_research_node)
     assert callable(runtime_nodes.finalize_answer_node)
-    assert callable(runtime_nodes.human_review_node)
     assert callable(runtime_nodes.tool_agent_node)
     assert not hasattr(runtime_nodes, removed_symbol)
 
