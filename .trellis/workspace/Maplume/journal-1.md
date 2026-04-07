@@ -53,3 +53,35 @@ Filled backend Trellis specs from actual repository patterns and archived the bo
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Redesign long-term memory system
+
+**Date**: 2026-04-07
+**Task**: Redesign long-term memory system
+
+### Summary
+
+Rebuilt long-term memory around a project-owned PostgreSQL memory store/service, unified chat/support/session ingestion around explicit user memory intent, added memory debug/admin APIs, migrated backend specs, and added regression tests for memory store/service/API/session integration.
+
+### Main Changes
+
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7c68373` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
