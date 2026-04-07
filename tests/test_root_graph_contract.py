@@ -10,8 +10,6 @@ class RouteState(TypedDict, total=False):
     input: str
     images: list[dict]
     route: str
-    routing_reasoning: str
-    routing_confidence: float
 
 
 def test_create_research_graph_only_keeps_active_root_nodes():
@@ -53,7 +51,8 @@ def test_route_node_low_confidence_falls_back_to_agent(monkeypatch):
     )
 
     assert result["route"] == "agent"
-    assert result["routing_confidence"] == 0.18
+    assert "routing_reasoning" not in result
+    assert "routing_confidence" not in result
     assert "needs_clarification" not in result
     assert "clarification_question" not in result
 
@@ -80,4 +79,5 @@ def test_route_node_receives_runnable_config_when_invoked_by_graph(monkeypatch):
     )
 
     assert result["route"] == "agent"
-    assert result["routing_confidence"] == 0.9
+    assert "routing_reasoning" not in result
+    assert "routing_confidence" not in result

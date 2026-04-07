@@ -16,9 +16,6 @@ from agent.domain.state import (
     build_deep_runtime_snapshot as _build_deep_runtime_snapshot,
 )
 from agent.domain.state import (
-    build_state_slices as _build_state_slices,
-)
-from agent.domain.state import (
     project_state_updates as _project_state_updates,
 )
 from common.config import settings
@@ -64,6 +61,19 @@ def capped_add_messages(
 # Execution status type
 ExecutionStatus = Literal["pending", "running", "paused", "completed", "failed", "cancelled"]
 
+__all__ = [
+    "AgentState",
+    "ConversationState",
+    "DeepRuntimeSnapshot",
+    "ExecutionState",
+    "ExecutionStatus",
+    "ResearchState",
+    "RuntimeSnapshot",
+    "build_deep_runtime_snapshot",
+    "capped_add_messages",
+    "project_state_updates",
+]
+
 class AgentState(TypedDict):
     """
     The state schema for the research agent.
@@ -99,46 +109,24 @@ class AgentState(TypedDict):
     status: ExecutionStatus
     # Completion flag
     is_complete: bool
-    # Start timestamp (ISO format)
-    started_at: str
-    # End timestamp (ISO format)
-    ended_at: str
 
     # ============ Routing ============
     # Routing decision: agent or deep
     route: str
-    # Routing reasoning (from smart router)
-    routing_reasoning: str
-    # Routing confidence (0-1)
-    routing_confidence: float
     # Whether this turn must escalate into the tool agent path
     needs_tools: bool
-    # Human-readable reason for escalation
-    tool_reason: str
 
     # ============ Research Data ============
     # All scraped content from searches
     scraped_content: Annotated[list[dict[str, Any]], operator.add]
-    # Code execution results
-    code_results: Annotated[list[dict[str, Any]], operator.add]
     # Summary notes from deep search
     summary_notes: list[str]
     # Sources collected
     sources: list[dict[str, str]]
     # Structured memory snippets used to build runtime prompt context
     memory_context: dict[str, list[str]]
-    # Compact summary of tool results for finalize/logging
-    tool_observations: Annotated[list[dict[str, Any]], operator.add]
 
     # ============ Tool Control ============
-    # Tool approval gating
-    tool_approved: bool
-    # Pending tool calls awaiting approval
-    pending_tool_calls: list[dict[str, Any]]
-    # Tool call accounting
-    tool_call_count: int
-    # Maximum tool calls allowed
-    tool_call_limit: int
     # Concrete tools allowed for this session
     available_tools: list[str]
     # Concrete tools explicitly blocked for this session
@@ -152,14 +140,10 @@ class AgentState(TypedDict):
     is_cancelled: bool  # 是否已取消
     # Error tracking
     errors: Annotated[list[str], operator.add]
-    # Last error message
-    last_error: str
 
     # ============ Research Topology ============
     # Deep Research topology snapshot (serialized dict)
     research_topology: dict[str, Any]
-    # Current branch being explored
-    current_branch_id: str | None
 
     # ============ Domain Routing ============
     # Detected research domain (scientific, legal, financial, etc.)
@@ -174,17 +158,6 @@ class AgentState(TypedDict):
     # ============ Deep Research Runtime ============
     # Nested runtime snapshot (preferred public shape)
     deep_runtime: DeepRuntimeSnapshot
-
-    # ============ Metrics ============
-    # Token usage tracking
-    total_input_tokens: int
-    total_output_tokens: int
-
-    # ============ Structured State Slices ============
-    conversation_state: ConversationState
-    execution_state: ExecutionState
-    research_state: ResearchState
-    runtime_snapshot: RuntimeSnapshot
 
 def build_deep_runtime_snapshot(
     *,
@@ -203,10 +176,6 @@ def build_deep_runtime_snapshot(
         runtime_state=runtime_state,
         agent_runs=agent_runs,
     )
-
-
-def build_state_slices(state: dict[str, Any] | None) -> dict[str, Any]:
-    return _build_state_slices(state)
 
 
 def project_state_updates(

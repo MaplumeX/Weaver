@@ -64,16 +64,15 @@ def route_node(
             f"Low confidence ({confidence:.2f} < {confidence_threshold}), routing to agent"
         )
         route = "agent"
-        result["route"] = "agent"
 
     if route not in {"agent", "deep"}:
         route = "agent"
-        result["route"] = "agent"
 
     logger.info(f"[route_node] Routing decision: {route} (confidence: {confidence:.2f})")
     logger.info(f"[route_node] search_mode from config: {mode_info}")
     logger.info(f"[route_node] override_mode: {override_mode}")
     logger.info(f"[route_node] Returning result with route='{route}'")
+    updates: dict[str, Any] = {"route": route}
 
     if getattr(settings, "domain_routing_enabled", False) and route == "deep":
         try:
@@ -84,8 +83,8 @@ def route_node(
 
             classification = classifier.classify(state.get("input", ""))
 
-            result["domain"] = classification.domain.value
-            result["domain_config"] = classification.to_dict()
+            updates["domain"] = classification.domain.value
+            updates["domain_config"] = classification.to_dict()
 
             logger.info(
                 f"[route_node] Domain classified: {classification.domain.value} "
@@ -94,10 +93,10 @@ def route_node(
 
         except Exception as e:
             logger.warning(f"[route_node] Domain classification failed: {e}")
-            result["domain"] = "general"
-            result["domain_config"] = {}
+            updates["domain"] = "general"
+            updates["domain_config"] = {}
 
-    return deps.project_state_updates(state, result)
+    return deps.project_state_updates(state, updates)
 
 
 __all__ = ["route_node"]

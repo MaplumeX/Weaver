@@ -9,7 +9,6 @@ from agent.domain import (
     AgentProfileConfig,
     ExecutionRequest,
     build_deep_runtime_snapshot,
-    build_state_slices,
     execution_mode_from_public_mode,
     route_name_for_mode,
 )
@@ -65,30 +64,20 @@ def build_initial_agent_state(
         "status": "pending",
         "is_complete": False,
         "route": route,
-        "routing_reasoning": "",
-        "routing_confidence": 0.0,
         "needs_tools": False,
-        "tool_reason": "",
         "scraped_content": [],
-        "code_results": [],
         "summary_notes": [],
         "sources": [],
         "memory_context": {
             "stored": store_items,
             "relevant": memory_items,
         },
-        "tool_observations": [],
-        "tool_approved": False,
-        "pending_tool_calls": [],
-        "tool_call_count": 0,
-        "tool_call_limit": int(request.options.get("tool_call_limit") or settings.tool_call_limit),
         "available_tools": list(request.agent_profile.tools),
         "blocked_tools": list(request.agent_profile.blocked_tools),
         "selected_tools": [],
         "cancel_token_id": request.thread_id,
         "is_cancelled": False,
         "errors": [],
-        "last_error": "",
         "research_topology": {},
         "domain": "",
         "domain_config": {},
@@ -96,8 +85,6 @@ def build_initial_agent_state(
         "deep_runtime": build_deep_runtime_snapshot(
             engine=deep_runtime_engine,
         ),
-        "total_input_tokens": 0,
-        "total_output_tokens": 0,
     }
 
     messages: list[Any] = []
@@ -106,5 +93,4 @@ def build_initial_agent_state(
 
     if messages:
         initial_state["messages"] = messages
-    initial_state.update(build_state_slices(initial_state))
     return initial_state

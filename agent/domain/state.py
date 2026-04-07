@@ -30,44 +30,29 @@ class ExecutionState(TypedDict, total=False):
     route: str
     status: str
     is_complete: bool
-    started_at: str
-    ended_at: str
-    routing_reasoning: str
-    routing_confidence: float
-    tool_approved: bool
-    pending_tool_calls: list[dict[str, Any]]
-    tool_call_count: int
-    tool_call_limit: int
     available_tools: list[str]
     blocked_tools: list[str]
     selected_tools: list[str]
     cancel_token_id: str | None
     is_cancelled: bool
     errors: list[str]
-    last_error: str
 
 
 class ResearchState(TypedDict, total=False):
     scraped_content: list[dict[str, Any]]
-    code_results: list[dict[str, Any]]
     summary_notes: list[str]
     sources: list[dict[str, str]]
     research_topology: dict[str, Any]
-    current_branch_id: str | None
     domain: str
     domain_config: dict[str, Any]
     sub_agent_contexts: dict[str, dict[str, Any]]
     memory_context: dict[str, list[str]]
     assistant_draft: str
     needs_tools: bool
-    tool_reason: str
-    tool_observations: list[dict[str, Any]]
 
 
 class RuntimeSnapshot(TypedDict, total=False):
     deep_runtime: DeepRuntimeSnapshot
-    total_input_tokens: int
-    total_output_tokens: int
 
 
 def build_deep_runtime_snapshot(
@@ -110,21 +95,12 @@ def build_execution_state(state: Mapping[str, Any] | None) -> ExecutionState:
         "route": route or "agent",
         "status": str(data.get("status") or "").strip(),
         "is_complete": bool(data.get("is_complete")),
-        "started_at": str(data.get("started_at") or "").strip(),
-        "ended_at": str(data.get("ended_at") or "").strip(),
-        "routing_reasoning": str(data.get("routing_reasoning") or "").strip(),
-        "routing_confidence": float(data.get("routing_confidence") or 0.0),
-        "tool_approved": bool(data.get("tool_approved")),
-        "pending_tool_calls": list(data.get("pending_tool_calls") or []),
-        "tool_call_count": int(data.get("tool_call_count") or 0),
-        "tool_call_limit": int(data.get("tool_call_limit") or 0),
         "available_tools": list(data.get("available_tools") or []),
         "blocked_tools": list(data.get("blocked_tools") or []),
         "selected_tools": list(data.get("selected_tools") or []),
         "cancel_token_id": data.get("cancel_token_id"),
         "is_cancelled": bool(data.get("is_cancelled")),
         "errors": list(data.get("errors") or []),
-        "last_error": str(data.get("last_error") or ""),
     }
 
 
@@ -132,19 +108,15 @@ def build_research_state(state: Mapping[str, Any] | None) -> ResearchState:
     data = state or {}
     return {
         "scraped_content": list(data.get("scraped_content") or []),
-        "code_results": list(data.get("code_results") or []),
         "summary_notes": list(data.get("summary_notes") or []),
         "sources": list(data.get("sources") or []),
         "research_topology": dict(data.get("research_topology") or {}),
-        "current_branch_id": data.get("current_branch_id"),
         "domain": str(data.get("domain") or "").strip(),
         "domain_config": dict(data.get("domain_config") or {}),
         "sub_agent_contexts": dict(data.get("sub_agent_contexts") or {}),
         "memory_context": dict(data.get("memory_context") or {"stored": [], "relevant": []}),
         "assistant_draft": str(data.get("assistant_draft") or ""),
         "needs_tools": bool(data.get("needs_tools")),
-        "tool_reason": str(data.get("tool_reason") or ""),
-        "tool_observations": list(data.get("tool_observations") or []),
     }
 
 
@@ -172,8 +144,6 @@ def build_runtime_snapshot(state: Mapping[str, Any] | None) -> RuntimeSnapshot:
                 else []
             ),
         ),
-        "total_input_tokens": int(data.get("total_input_tokens") or 0),
-        "total_output_tokens": int(data.get("total_output_tokens") or 0),
     }
 
 
@@ -190,8 +160,5 @@ def project_state_updates(
     state: Mapping[str, Any] | None,
     updates: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    merged = dict(state or {})
-    merged.update(dict(updates or {}))
-    projected = dict(updates or {})
-    projected.update(build_state_slices(merged))
-    return projected
+    _ = state
+    return dict(updates or {})

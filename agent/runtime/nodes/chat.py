@@ -79,7 +79,6 @@ def chat_respond_node(
                 {
                     "assistant_draft": "",
                     "needs_tools": True,
-                    "tool_reason": "deterministic capability rules matched the user request",
                     "selected_tools": selected_tools,
                 },
             )
@@ -94,7 +93,6 @@ def chat_respond_node(
             {
                 "assistant_draft": content,
                 "needs_tools": False,
-                "tool_reason": "",
                 "selected_tools": [],
             },
         )
@@ -108,7 +106,6 @@ def chat_respond_node(
             {
                 "assistant_draft": msg,
                 "needs_tools": False,
-                "tool_reason": "",
                 "selected_tools": [],
                 "errors": [msg],
             },

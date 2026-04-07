@@ -79,7 +79,6 @@ def tool_agent_node(
             state,
             {
                 "assistant_draft": text,
-                "tool_observations": [{"tool": getattr(tool, "name", "")} for tool in tools],
                 "messages": [AIMessage(content=text)],
             },
         )
