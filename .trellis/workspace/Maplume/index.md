@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
+- **Total Sessions**: 9
 - **Last Active**: 2026-04-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~370 | Active |
+| `journal-1.md` | ~411 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits |
 |---|------|-------|---------|
+| 9 | 2026-04-07 | Remove root human review node | `260870c` |
 | 8 | 2026-04-07 | Improve chat short-term memory pipeline | `82cff32` |
 | 7 | 2026-04-07 | Prune deep research legacy runtime snapshots | `9bc3f7b` |
 | 6 | 2026-04-07 | Prune Unused AgentState Root Fields | `9f9e386` |

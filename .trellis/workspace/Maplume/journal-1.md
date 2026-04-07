@@ -368,3 +368,44 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Remove root human review node
+
+**Date**: 2026-04-07
+**Task**: Remove root human review node
+
+### Summary
+
+删除根图 human review 收口层和 human_review_node 模块，收敛到标准 END 收口，并同步测试与设计文档。
+
+### Main Changes
+
+| 项目 | 说明 |
+|------|------|
+| Root runtime | 删除根图 `human_review` 收口层，改为 `finalize` / `deep_research` 直接连到 `END` |
+| Runtime exports | 删除 `human_review_node` 模块与公开导出，同时清理 `common/config.py` 和 `main.py` 中的死配置 |
+| Tests & docs | 更新 root graph / output contract / stream 去重测试，并清理 `docs/superpowers` 下的实现文档残留 |
+
+**验证**
+- `uv run pytest tests/test_root_graph_contract.py tests/test_output_contracts.py tests/test_chat_stream_report_artifact_dedup.py tests/test_agent_runtime_public_contracts.py`
+- `uv run ruff check agent/runtime/__init__.py agent/runtime/nodes/__init__.py common/config.py main.py tests/test_agent_runtime_public_contracts.py tests/test_output_contracts.py`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `260870c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
