@@ -177,11 +177,17 @@ class RecordingAsyncConn:
                 and row["checkpoint_id"] == params[2]
             ]
         if "FROM session_messages" in sql:
-            return [
+            rows = [
                 row
                 for row in self.rows["session_messages"]
                 if row["thread_id"] == params[0]
             ]
+            if "ORDER BY seq DESC" in sql:
+                rows = sorted(rows, key=lambda row: int(row["seq"]), reverse=True)
+                if len(params) > 1:
+                    rows = rows[: int(params[1])]
+                return rows
+            return rows
         if "FROM sessions" in sql:
             user_id = params[0]
             return [row for row in self.rows["sessions"] if row["user_id"] == user_id]

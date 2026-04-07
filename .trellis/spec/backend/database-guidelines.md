@@ -226,6 +226,95 @@ await self.conn.execute(
 )
 ```
 
+## Scenario: SessionStore Shared Async Connection Concurrency
+
+### 1. Scope / Trigger
+
+- Trigger: changing `common/session_store.py`, `common/session_service.py`, or
+  `main.py` request paths that issue session persistence reads/writes during
+  chat handling.
+- This is an infra contract between:
+  FastAPI request concurrency -> shared `SessionStore` instance ->
+  shared `psycopg.AsyncConnection`.
+- Treat the `SessionStore` connection as a shared runtime resource, not a
+  per-request isolated cursor manager.
+
+### 2. Signatures
+
+- `common/session_store.py`
+  - `SessionStore.get_session(thread_id: str) -> dict[str, Any] | None`
+  - `SessionStore.get_snapshot(thread_id: str) -> dict[str, Any]`
+  - `SessionStore.list_messages(thread_id: str, *, limit: int = 50) -> list[dict[str, Any]]`
+  - `SessionStore.create_session(...) -> None`
+  - `SessionStore.append_message(...) -> None`
+  - `SessionStore.update_session_metadata(...) -> dict[str, Any] | None`
+- `main.py`
+  - `POST /api/chat`
+  - `GET /api/sessions/{thread_id}/snapshot`
+  - any request path that reuses the global `session_service`
+
+### 3. Contracts
+
+- A shared `psycopg.AsyncConnection` cannot execute multiple commands at the
+  same time.
+- `SessionStore` must serialize access to its shared async connection for all
+  execute/fetch operations.
+- Concurrent chat/session requests must not surface:
+  `psycopg.OperationalError: another command is already in progress`.
+- Read helpers and write helpers must use the same serialization mechanism so
+  mixed read/write interleaving is also safe.
+- New helper methods added to `SessionStore` must go through the same guarded
+  connection path instead of calling `self.conn.execute(...)` directly.
+
+### 4. Validation & Error Matrix
+
+| Change Area | Required Behavior | If Broken | Typical Symptom |
+|-------------|-------------------|-----------|-----------------|
+| Shared async connection access | All DB commands are serialized | Concurrent requests overlap on one connection | `/api/chat` returns 500 with `another command is already in progress` |
+| New read helpers | Use the guarded fetch path | One new helper bypasses serialization | Only follow-up history loads fail under load |
+| Mixed read/write traffic | Reads and writes share one guard | Read path is safe but write path still races | Session create succeeds, append or metadata update fails intermittently |
+
+### 5. Good/Base/Bad Cases
+
+- Good:
+  two concurrent `get_session()` calls on one shared `SessionStore` both
+  succeed without raising a concurrency error.
+- Base:
+  a single request reads or writes session rows and behaves exactly as before.
+- Bad:
+  one request enters `get_session()` while another request is still using the
+  same async connection, and the second request crashes with
+  `another command is already in progress`.
+
+### 6. Tests Required
+
+- `tests/test_session_store.py`
+  - assert concurrent reads on one shared async connection are serialized
+  - keep snapshot/list-message persistence coverage intact
+- `tests/test_chat_session_persistence.py`
+  - keep coverage that `/api/chat` persists session start/final assistant flows
+- Assertion points:
+  - no raised concurrency error
+  - returned session payloads stay correct
+  - recent message ordering remains stable
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+async def _fetchrow(self, sql, params):
+    return await self.conn.fetchrow(sql, params)
+```
+
+#### Correct
+
+```python
+async def _fetchrow(self, sql, params):
+    async with self._conn_lock:
+        return await self.conn.fetchrow(sql, params)
+```
+
 ## Examples
 
 - `common/persistence_schema.py`: source of truth for runtime-managed Postgres

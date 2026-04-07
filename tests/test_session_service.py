@@ -72,6 +72,26 @@ async def test_list_sessions_without_user_filter_delegates_to_store() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_messages_falls_back_to_snapshot_when_store_has_no_direct_api() -> None:
+    class FakeStore:
+        async def get_snapshot(self, thread_id: str):
+            return {
+                "session": {"thread_id": thread_id, "title": "hello", "status": "running"},
+                "messages": [
+                    {"id": "m1", "role": "user", "content": "hello"},
+                    {"id": "m2", "role": "assistant", "content": "world"},
+                    {"id": "m3", "role": "user", "content": "follow up"},
+                ],
+            }
+
+    service = SessionService(store=FakeStore(), checkpointer=None)
+
+    messages = await service.list_messages("thread-11", limit=2)
+
+    assert [message["content"] for message in messages] == ["world", "follow up"]
+
+
+@pytest.mark.asyncio
 async def test_start_session_run_reuses_existing_session_and_appends_user_message() -> None:
     captured: list[tuple[str, object]] = []
 

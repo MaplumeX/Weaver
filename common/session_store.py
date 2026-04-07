@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -15,22 +16,29 @@ from common.persistence_schema import SESSION_DDL_STATEMENTS
 class SessionStore:
     def __init__(self, conn: Any):
         self.conn = conn
+        self._conn_lock = asyncio.Lock()
 
     async def setup(self) -> None:
         for statement in SESSION_DDL_STATEMENTS:
-            await self.conn.execute(statement)
+            await self._execute(statement)
+
+    async def _execute(self, sql: str, params: tuple[Any, ...] | None = None) -> Any:
+        async with self._conn_lock:
+            return await self.conn.execute(sql, params)
 
     async def _fetchrow(self, sql: str, params: tuple[Any, ...]) -> Any:
-        if hasattr(self.conn, "fetchrow"):
-            return await self.conn.fetchrow(sql, params)
-        cursor = await self.conn.execute(sql, params)
-        return await cursor.fetchone()
+        async with self._conn_lock:
+            if hasattr(self.conn, "fetchrow"):
+                return await self.conn.fetchrow(sql, params)
+            cursor = await self.conn.execute(sql, params)
+            return await cursor.fetchone()
 
     async def _fetchall(self, sql: str, params: tuple[Any, ...]) -> list[Any]:
-        if hasattr(self.conn, "fetch"):
-            return list(await self.conn.fetch(sql, params))
-        cursor = await self.conn.execute(sql, params)
-        return list(await cursor.fetchall())
+        async with self._conn_lock:
+            if hasattr(self.conn, "fetch"):
+                return list(await self.conn.fetch(sql, params))
+            cursor = await self.conn.execute(sql, params)
+            return list(await cursor.fetchall())
 
     def _normalize_value(self, value: Any) -> Any:
         if isinstance(value, uuid.UUID):
@@ -60,7 +68,7 @@ class SessionStore:
         route: str,
         status: str,
     ) -> None:
-        await self.conn.execute(
+        await self._execute(
             "INSERT INTO sessions (thread_id, user_id, title, route, status) VALUES (%s, %s, %s, %s, %s)",
             (thread_id, user_id, title, route, status),
         )
@@ -81,7 +89,7 @@ class SessionStore:
         process_events = payload.get("process_events")
         metrics = payload.get("metrics")
         completed_at = payload.get("completed_at")
-        await self.conn.execute(
+        await self._execute(
             "INSERT INTO session_messages ("
             "id, thread_id, seq, role, content, attachments, sources, tool_invocations, "
             "process_events, metrics, created_at, completed_at"
@@ -122,6 +130,17 @@ class SessionStore:
             "session": self._normalize_row(session),
             "messages": [self._normalize_row(message) for message in messages],
         }
+
+    async def list_messages(self, thread_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+
+        rows = await self._fetchall(
+            "SELECT id, role, content, attachments, sources, tool_invocations, process_events, metrics, created_at, completed_at "
+            "FROM session_messages WHERE thread_id = %s ORDER BY seq DESC LIMIT %s",
+            (thread_id, limit),
+        )
+        return [self._normalize_row(row) for row in reversed(rows)]
 
     async def get_session(self, thread_id: str) -> dict[str, Any] | None:
         session = await self._fetchrow(
@@ -168,7 +187,7 @@ class SessionStore:
             return snapshot.get("session") if snapshot else None
 
         values.append(thread_id)
-        await self.conn.execute(
+        await self._execute(
             f"UPDATE sessions SET {', '.join(assignments)} WHERE thread_id = %s",
             tuple(values),
         )
@@ -176,8 +195,8 @@ class SessionStore:
         return snapshot.get("session") if snapshot else None
 
     async def delete_session(self, thread_id: str) -> bool:
-        await self.conn.execute("DELETE FROM session_messages WHERE thread_id = %s", (thread_id,))
-        await self.conn.execute("DELETE FROM sessions WHERE thread_id = %s", (thread_id,))
+        await self._execute("DELETE FROM session_messages WHERE thread_id = %s", (thread_id,))
+        await self._execute("DELETE FROM sessions WHERE thread_id = %s", (thread_id,))
         return True
 
 

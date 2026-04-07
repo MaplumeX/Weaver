@@ -37,11 +37,33 @@ def capped_add_messages(
     """
     merged = add_messages(existing, new)
     merged = maybe_strip_tool_messages(merged)
-    if not settings.trim_messages:
+    if not settings.trim_messages and not settings.summary_messages:
         return merged
 
     keep_first = max(int(getattr(settings, "trim_messages_keep_first", 1)), 0)
     keep_last = max(int(getattr(settings, "trim_messages_keep_last", 8)), 0)
+
+    # Optional summarization of middle history
+    if settings.summary_messages and len(merged) > settings.summary_messages_trigger:
+        summary_keep_last = max(
+            int(getattr(settings, "summary_messages_keep_last", keep_last)),
+            0,
+        )
+        if keep_first + summary_keep_last >= len(merged):
+            return merged
+
+        head = merged[:keep_first] if keep_first else []
+        tail = merged[-summary_keep_last:] if summary_keep_last else []
+        middle_end = len(merged) - summary_keep_last if summary_keep_last else len(merged)
+        middle = merged[keep_first:middle_end]
+        if not middle:
+            return [*head, *tail]
+        summary_msg = summarize_messages(middle)
+        return [*head, summary_msg, *tail]
+
+    if not settings.trim_messages:
+        return merged
+
     if keep_first + keep_last == 0 or len(merged) <= keep_first + keep_last:
         return merged
 
@@ -49,13 +71,14 @@ def capped_add_messages(
     tail = merged[-keep_last:] if keep_last else []
     trimmed = head + tail
 
-    # Optional summarization of middle history
-    if settings.summary_messages and len(merged) > settings.summary_messages_trigger:
-        middle = merged[keep_first : len(merged) - keep_last]
-        summary_msg = summarize_messages(middle)
-        trimmed = [*head, summary_msg, *tail]
-
     return trimmed
+
+
+def prepare_seed_messages(messages: list[BaseMessage] | None) -> list[BaseMessage]:
+    """
+    Apply the same short-term memory policy to seeded history before first node execution.
+    """
+    return capped_add_messages([], messages or [])
 
 
 # Execution status type
@@ -71,6 +94,7 @@ __all__ = [
     "RuntimeSnapshot",
     "build_deep_runtime_snapshot",
     "capped_add_messages",
+    "prepare_seed_messages",
     "project_state_updates",
 ]
 

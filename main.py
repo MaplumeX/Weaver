@@ -26,7 +26,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 from prometheus_client import (
@@ -2264,6 +2264,53 @@ async def _restore_thread_stream_context(thread_id: str) -> dict[str, Any]:
     return restored
 
 
+def _chat_history_backfill_limit() -> int:
+    keep_first = max(int(getattr(settings, "trim_messages_keep_first", 2)), 0)
+    keep_last = max(int(getattr(settings, "trim_messages_keep_last", 8)), 0)
+    summary_trigger = max(int(getattr(settings, "summary_messages_trigger", 12)), 0)
+    summary_keep_last = max(int(getattr(settings, "summary_messages_keep_last", keep_last)), 0)
+    derived = max(keep_first + keep_last + 4, summary_trigger + summary_keep_last + 1, 12)
+    return min(derived, 50)
+
+
+def _session_message_to_langchain_message(message: dict[str, Any]) -> Any | None:
+    role = str(message.get("role") or "").strip().lower()
+    content = str(message.get("content") or "").strip()
+    if not content:
+        return None
+    if role in {"human", "user"}:
+        return HumanMessage(content=content)
+    if role in {"ai", "assistant"}:
+        return AIMessage(content=content)
+    if role == "system":
+        return SystemMessage(content=content)
+    return None
+
+
+async def _load_chat_history_messages(thread_id: str) -> list[Any]:
+    if session_service is None or not str(thread_id or "").strip():
+        return []
+
+    loader = getattr(session_service, "list_messages", None)
+    if not callable(loader):
+        return []
+
+    try:
+        raw_messages = await loader(thread_id, limit=_chat_history_backfill_limit())
+    except Exception as e:
+        logger.warning("Failed to load session history | thread_id=%s | error=%s", thread_id, e)
+        return []
+
+    history: list[Any] = []
+    for message in raw_messages:
+        if not isinstance(message, dict):
+            continue
+        normalized = _session_message_to_langchain_message(message)
+        if normalized is not None:
+            history.append(normalized)
+    return history
+
+
 def _mode_info_from_session_state(state: dict[str, Any]) -> dict[str, Any]:
     route = str(state.get("route") or "").strip().lower()
     deep_runtime = state.get("deep_runtime")
@@ -2335,6 +2382,7 @@ def _build_initial_agent_state(
     images: list[dict[str, Any]] | None = None,
     user_id: str | None = None,
     agent_profile: AgentProfile | None = None,
+    history_messages: list[Any] | None = None,
 ) -> AgentState:
     images = images or []
     user_id = user_id or settings.memory_user_id
@@ -2359,6 +2407,7 @@ def _build_initial_agent_state(
         request,
         stored_memories=runtime_memory_context.get("stored"),
         relevant_memories=runtime_memory_context.get("relevant"),
+        history_messages=history_messages,
     )
 
 
@@ -2989,6 +3038,7 @@ async def stream_agent_events(
     agent_id: str | None = None,
     images: list[dict[str, Any]] | None = None,
     user_id: str | None = None,
+    history_messages: list[Any] | None = None,
 ):
     """
     Stream agent execution events in real-time.
@@ -3017,6 +3067,7 @@ async def stream_agent_events(
         images=images,
         user_id=user_id,
         agent_profile=agent_profile,
+        history_messages=history_messages,
     )
     async for chunk in _stream_graph_execution(
         input_text=input_text,
@@ -3207,6 +3258,7 @@ async def chat(request: Request, payload: ChatRequest):
             requested_thread_id = str(payload.thread_id or "").strip()
             thread_id = requested_thread_id or f"thread_{uuid.uuid4().hex}"
             logger.info(f"Starting streaming response | Thread: {thread_id}")
+            history_messages = await _load_chat_history_messages(thread_id) if requested_thread_id else []
             if requested_thread_id:
                 await _require_thread_owner(request, thread_id)
             else:
@@ -3244,6 +3296,7 @@ async def chat(request: Request, payload: ChatRequest):
                     agent_id=payload.agent_id,
                     images=_normalize_images_payload(payload.images),
                     user_id=user_id,
+                    history_messages=history_messages,
                 ):
                     if isinstance(chunk, str) and chunk.startswith("0:"):
                         try:
@@ -3285,6 +3338,7 @@ async def chat(request: Request, payload: ChatRequest):
             # Non-streaming response (fallback)
             requested_thread_id = str(payload.thread_id or "").strip()
             thread_id = requested_thread_id or thread_id or f"thread_{uuid.uuid4().hex}"
+            history_messages = await _load_chat_history_messages(thread_id) if requested_thread_id else []
             if requested_thread_id:
                 await _require_thread_owner(request, thread_id)
             else:
@@ -3310,6 +3364,7 @@ async def chat(request: Request, payload: ChatRequest):
                 images=_normalize_images_payload(payload.images),
                 user_id=user_id,
                 agent_profile=agent_profile,
+                history_messages=history_messages,
             )
             config = _build_agent_graph_config(
                 thread_id=thread_id,
@@ -5231,9 +5286,25 @@ async def get_share(share_id: str):
         if not link:
             raise HTTPException(status_code=404, detail="Share link not found or expired")
 
-        # Get session state if checkpointer available
         session_data = None
-        if checkpointer:
+        if session_service is not None:
+            snapshot = await session_service.load_snapshot(link["thread_id"])
+            if snapshot:
+                snapshot_session = snapshot.get("session") if isinstance(snapshot.get("session"), dict) else {}
+                snapshot_messages = snapshot.get("messages") if isinstance(snapshot.get("messages"), list) else []
+                session_data = {
+                    "id": link["thread_id"],
+                    "title": str(snapshot_session.get("title") or link["thread_id"]).strip() or link["thread_id"],
+                    "messages": [
+                        {
+                            "role": str(item.get("role") or "").strip().lower(),
+                            "content": str(item.get("content") or ""),
+                        }
+                        for item in snapshot_messages[-50:]
+                        if isinstance(item, dict) and str(item.get("content") or "").strip()
+                    ],
+                }
+        if session_data is None and checkpointer:
             state = await get_thread_runtime_state(checkpointer, link["thread_id"])
             if state and isinstance(state, dict):
                 raw_messages = state.get("messages", [])

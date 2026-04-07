@@ -13,7 +13,6 @@ from typing import Any
 __all__ = [
     "AgentProcessorConfig",
     "AgentState",
-    "ContextWindowManager",
     "ConversationState",
     "Event",
     "EventEmitter",
@@ -28,7 +27,6 @@ __all__ = [
     "create_research_graph",
     "enforce_tool_call_limit",
     "event_stream_generator",
-    "get_context_window_manager",
     "get_emitter",
     "get_emitter_sync",
     "maybe_strip_tool_messages",
@@ -55,9 +53,6 @@ _SYMBOL_TO_MODULE: dict[str, str] = {
     "get_emitter": "agent.core.events",
     "get_emitter_sync": "agent.core.events",
     "remove_emitter": "agent.core.events",
-    # Context
-    "ContextWindowManager": "agent.core.context_manager",
-    "get_context_window_manager": "agent.core.context_manager",
     # Routing
     "smart_route": "agent.core.smart_router",
     # Middleware

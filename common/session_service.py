@@ -33,6 +33,18 @@ class SessionService:
     async def get_session(self, thread_id: str) -> dict[str, Any] | None:
         return await self.store.get_session(thread_id)
 
+    async def list_messages(self, thread_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+        if hasattr(self.store, "list_messages"):
+            return await self.store.list_messages(thread_id, limit=limit)
+
+        snapshot = await self.store.get_snapshot(thread_id)
+        if not snapshot:
+            return []
+        messages = snapshot.get("messages")
+        if not isinstance(messages, list):
+            return []
+        return list(messages[-limit:]) if limit > 0 else []
+
     async def start_session_run(
         self,
         *,

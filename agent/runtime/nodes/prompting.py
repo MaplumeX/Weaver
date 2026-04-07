@@ -59,8 +59,15 @@ def build_chat_runtime_messages(
     if system_parts:
         messages.append(SystemMessage(content="\n\n".join(system_parts)))
 
-    messages.extend(list(state.get("messages") or []))
-    messages.append(HumanMessage(content=str(state.get("input") or "")))
+    state_messages = list(state.get("messages") or [])
+    messages.extend(state_messages)
+
+    current_input = str(state.get("input") or "")
+    last_message = state_messages[-1] if state_messages else None
+    last_type = str(getattr(last_message, "type", "") or "").strip().lower()
+    last_content = getattr(last_message, "content", "")
+    if current_input and not (last_type == "human" and str(last_content) == current_input):
+        messages.append(HumanMessage(content=current_input))
     return messages
 
 

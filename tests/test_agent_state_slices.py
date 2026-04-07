@@ -1,8 +1,11 @@
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+import agent.core.state as state_module
 from agent.application import build_execution_request, build_initial_agent_state
 from agent.core.state import project_state_updates
 
 
-def test_build_initial_agent_state_keeps_agent_messages_clean_and_stores_memory_context():
+def test_build_initial_agent_state_seeds_agent_history_and_current_input():
     request = build_execution_request(
         input_text="帮我解释一下 FastAPI 的依赖注入",
         thread_id="thread-chat-1",
@@ -19,9 +22,17 @@ def test_build_initial_agent_state_keeps_agent_messages_clean_and_stores_memory_
         request,
         stored_memories=["用户喜欢简洁回答"],
         relevant_memories=["上次问过 FastAPI 路由组织"],
+        history_messages=[
+            HumanMessage(content="先解释一下 FastAPI 路由"),
+            AIMessage(content="可以，先从 APIRouter 开始。"),
+        ],
     )
 
-    assert state["messages"] == []
+    assert [message.content for message in state["messages"]] == [
+        "先解释一下 FastAPI 路由",
+        "可以，先从 APIRouter 开始。",
+        "帮我解释一下 FastAPI 的依赖注入",
+    ]
     assert state["memory_context"] == {
         "stored": ["用户喜欢简洁回答"],
         "relevant": ["上次问过 FastAPI 路由组织"],
@@ -96,6 +107,57 @@ def test_build_initial_agent_state_keeps_runtime_state_minimal():
     assert "needs_clarification" not in state
     assert "clarification_question" not in state
     assert "max_revisions" not in state
+
+
+def test_prepare_seed_messages_applies_trim_policy_to_seeded_history(monkeypatch):
+    monkeypatch.setattr(state_module.settings, "trim_messages", True)
+    monkeypatch.setattr(state_module.settings, "trim_messages_keep_first", 1)
+    monkeypatch.setattr(state_module.settings, "trim_messages_keep_last", 2)
+    monkeypatch.setattr(state_module.settings, "summary_messages", False)
+
+    prepared = state_module.prepare_seed_messages(
+        [
+            SystemMessage(content="system"),
+            HumanMessage(content="u1"),
+            AIMessage(content="a1"),
+            HumanMessage(content="u2"),
+            AIMessage(content="a2"),
+        ]
+    )
+
+    assert [message.content for message in prepared] == ["system", "u2", "a2"]
+
+
+def test_prepare_seed_messages_can_summarize_without_plain_trim(monkeypatch):
+    monkeypatch.setattr(state_module.settings, "trim_messages", False)
+    monkeypatch.setattr(state_module.settings, "trim_messages_keep_first", 1)
+    monkeypatch.setattr(state_module.settings, "trim_messages_keep_last", 2)
+    monkeypatch.setattr(state_module.settings, "summary_messages", True)
+    monkeypatch.setattr(state_module.settings, "summary_messages_trigger", 4)
+    monkeypatch.setattr(state_module.settings, "summary_messages_keep_last", 1)
+    monkeypatch.setattr(
+        state_module,
+        "summarize_messages",
+        lambda middle: SystemMessage(
+            content="Conversation summary:\n" + " | ".join(message.content for message in middle)
+        ),
+    )
+
+    prepared = state_module.prepare_seed_messages(
+        [
+            SystemMessage(content="system"),
+            HumanMessage(content="u1"),
+            AIMessage(content="a1"),
+            HumanMessage(content="u2"),
+            AIMessage(content="a2"),
+        ]
+    )
+
+    assert [message.content for message in prepared] == [
+        "system",
+        "Conversation summary:\nu1 | a1 | u2",
+        "a2",
+    ]
 
 
 def test_project_state_updates_returns_explicit_updates_only():

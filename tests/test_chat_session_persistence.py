@@ -1,5 +1,6 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
+from langchain_core.messages import AIMessage, HumanMessage
 
 import main
 
@@ -178,6 +179,65 @@ async def test_chat_non_stream_persists_session_and_final_report(monkeypatch):
     assert captured[1][0] == "assistant"
     assert captured[1][1]["content"] == "final answer"
     assert captured[1][1]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_chat_non_stream_backfills_recent_session_history_into_runtime_state(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeSessionService:
+        async def list_messages(self, thread_id: str, *, limit: int = 50):
+            captured["thread_id"] = thread_id
+            captured["limit"] = limit
+            return [
+                {"id": "m1", "role": "user", "content": "hello"},
+                {"id": "m2", "role": "assistant", "content": "world"},
+            ]
+
+        async def start_session_run(self, **payload):
+            captured["start"] = payload
+
+        async def finalize_assistant_message(self, **payload):
+            captured["assistant"] = payload
+
+    class FakeGraph:
+        async def ainvoke(self, state, config=None):
+            captured["messages"] = state["messages"]
+            return {"final_report": "final answer"}
+
+    async def fake_require_thread_owner(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(main, "session_service", FakeSessionService(), raising=False)
+    monkeypatch.setattr(main, "_require_thread_owner", fake_require_thread_owner)
+    monkeypatch.setattr(main, "get_agent_profile", lambda _agent_id: None)
+    monkeypatch.setattr(
+        main,
+        "_build_agent_graph_config",
+        lambda **_kwargs: {"configurable": {"thread_id": "thread-existing"}},
+    )
+    monkeypatch.setattr(main, "research_graph", FakeGraph())
+
+    transport = ASGITransport(app=main.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post(
+            "/api/chat",
+            json={
+                "messages": [
+                    {"role": "user", "content": "hello"},
+                    {"role": "assistant", "content": "world"},
+                    {"role": "user", "content": "follow up"},
+                ],
+                "stream": False,
+                "search_mode": {"mode": "agent"},
+                "thread_id": "thread-existing",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert captured["thread_id"] == "thread-existing"
+    assert [type(message) for message in captured["messages"]] == [HumanMessage, AIMessage, HumanMessage]
+    assert [message.content for message in captured["messages"]] == ["hello", "world", "follow up"]
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,11 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check-backend/SKILL.md", "reason": "Backend check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Validate module ownership for runtime/session changes"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Check session store query changes and DDL safety"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify new read paths degrade safely"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review test coverage and API stability"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Confirm ContextWindowManager removal leaves one context strategy"}
+{"file": "common/session_service.py", "reason": "Review session/runtime consistency after changes"}
+{"file": "agent/runtime/nodes/prompting.py", "reason": "Review prompt assembly after history backfill changes"}
+{"file": "agent/core/state.py", "reason": "Review runtime trimming/summary behavior"}
+{"file": "main.py", "reason": "Review chat/session/share contract stability"}

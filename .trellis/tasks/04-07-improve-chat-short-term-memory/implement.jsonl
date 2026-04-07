@@ -1,0 +1,11 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Module ownership for main.py/common/agent changes"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Persistence adapter rules for session history reads"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Graceful fallback rules for missing history/checkpoint data"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Regression test expectations for behavior changes"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Remove duplicate context-management mechanism"}
+{"file": "common/session_service.py", "reason": "Existing session persistence pattern and memory ingestion hooks"}
+{"file": "agent/runtime/nodes/prompting.py", "reason": "Current runtime prompt assembly for history and memory context"}
+{"file": "agent/core/state.py", "reason": "Single runtime message aggregation/trimming entrypoint"}
+{"file": "main.py", "reason": "Chat request composition and session restore wiring"}

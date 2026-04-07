@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -142,3 +143,79 @@ async def test_get_snapshot_serializes_datetime_and_uuid_fields() -> None:
     assert snapshot["session"]["updated_at"] == session_created_at.isoformat()
     assert snapshot["messages"][0]["id"] == str(message_id)
     assert snapshot["messages"][0]["created_at"] == message_created_at.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_list_messages_returns_recent_messages_in_ascending_order() -> None:
+    conn = build_fake_pg_conn()
+    store = SessionStore(conn)
+    await store.setup()
+    await store.create_session(
+        thread_id="thread-recent",
+        user_id="alice",
+        title="Recent messages",
+        route="agent",
+        status="running",
+    )
+    await store.append_message(
+        thread_id="thread-recent",
+        role="user",
+        content="first",
+        created_at="2026-04-06T08:00:00Z",
+    )
+    await store.append_message(
+        thread_id="thread-recent",
+        role="assistant",
+        content="second",
+        created_at="2026-04-06T08:00:01Z",
+    )
+    await store.append_message(
+        thread_id="thread-recent",
+        role="user",
+        content="third",
+        created_at="2026-04-06T08:00:02Z",
+    )
+
+    messages = await store.list_messages("thread-recent", limit=2)
+
+    assert [message["content"] for message in messages] == ["second", "third"]
+
+
+@pytest.mark.asyncio
+async def test_session_store_serializes_concurrent_reads_on_shared_async_connection() -> None:
+    class BusyConn:
+        def __init__(self) -> None:
+            self.busy = False
+            self.row = {
+                "thread_id": "thread-busy",
+                "user_id": "alice",
+                "title": "Busy session",
+                "summary": "",
+                "status": "running",
+                "route": "agent",
+                "is_pinned": False,
+                "tags": [],
+                "created_at": "2026-04-06T00:00:00Z",
+                "updated_at": "2026-04-06T00:00:00Z",
+            }
+
+        async def fetchrow(self, sql: str, params: tuple | None = None):
+            assert "FROM sessions" in sql
+            if self.busy:
+                raise RuntimeError("another command is already in progress")
+            self.busy = True
+            try:
+                await asyncio.sleep(0.01)
+                return self.row
+            finally:
+                self.busy = False
+
+    store = SessionStore(BusyConn())
+
+    first, second = await asyncio.gather(
+        store.get_session("thread-busy"),
+        store.get_session("thread-busy"),
+    )
+
+    assert first["thread_id"] == "thread-busy"
+    assert second["thread_id"] == "thread-busy"

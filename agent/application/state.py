@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
+from agent.core.state import prepare_seed_messages
 from agent.domain import (
     AgentProfileConfig,
     ExecutionRequest,
@@ -46,6 +47,7 @@ def build_initial_agent_state(
     *,
     stored_memories: Iterable[str] | None = None,
     relevant_memories: Iterable[str] | None = None,
+    history_messages: Iterable[BaseMessage] | None = None,
 ) -> dict[str, Any]:
     route = route_name_for_mode(request.mode)
     deep_runtime_engine = SUPPORTED_DEEP_RESEARCH_RUNTIME if route == "deep" else ""
@@ -87,10 +89,16 @@ def build_initial_agent_state(
         ),
     }
 
-    messages: list[Any] = []
+    messages: list[BaseMessage] = [
+        message
+        for message in (history_messages or [])
+        if isinstance(message, BaseMessage)
+    ]
+    if route == "agent" and request.input_text.strip():
+        messages.append(HumanMessage(content=request.input_text))
     if route == "deep":
-        messages.append(SystemMessage(content=get_deep_agent_prompt()))
+        messages = [SystemMessage(content=get_deep_agent_prompt())]
 
     if messages:
-        initial_state["messages"] = messages
+        initial_state["messages"] = prepare_seed_messages(messages)
     return initial_state
