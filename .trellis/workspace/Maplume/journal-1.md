@@ -314,3 +314,57 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Improve chat short-term memory pipeline
+
+**Date**: 2026-04-07
+**Task**: Improve chat short-term memory pipeline
+
+### Summary
+
+统一 chat 短期记忆链路，删除未使用 ContextWindowManager，并修复 SessionStore 共享连接并发问题
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Chat runtime | 从 session history 回填最近对话到 runtime messages，并统一 seed history 与运行期裁剪/摘要策略 |
+| Persistence | 为 SessionStore 共享 AsyncConnection 增加串行化保护，避免并发请求触发 another command is already in progress |
+| Cleanup | 删除未接入主链路的 `agent/core/context_manager.py` 与相关导出 |
+| Spec | 补充 backend database guideline，记录 SessionStore 单连接并发约束 |
+
+**Validated**:
+- `uv run ruff check` on touched Python files
+- targeted pytest for session store/service, chat persistence, prompt/runtime state paths
+
+**Updated Files**:
+- `main.py`
+- `common/session_store.py`
+- `common/session_service.py`
+- `agent/application/state.py`
+- `agent/core/state.py`
+- `agent/runtime/nodes/prompting.py`
+- `agent/core/__init__.py`
+- `agent/core/context_manager.py` (removed)
+- `.trellis/spec/backend/database-guidelines.md`
+- related tests under `tests/`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `82cff32` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

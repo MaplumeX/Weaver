@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-04-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~316 | Active |
+| `journal-1.md` | ~370 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits |
 |---|------|-------|---------|
+| 8 | 2026-04-07 | Improve chat short-term memory pipeline | `82cff32` |
 | 7 | 2026-04-07 | Prune deep research legacy runtime snapshots | `9bc3f7b` |
 | 6 | 2026-04-07 | Prune Unused AgentState Root Fields | `9f9e386` |
 | 5 | 2026-04-07 | Repo-wide lint pass and runtime export fixes | `ac7a5eb` |
