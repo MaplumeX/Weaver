@@ -161,3 +161,107 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Repo-wide lint pass and runtime export fixes
+
+**Date**: 2026-04-07
+**Task**: Repo-wide lint pass and runtime export fixes
+
+### Summary
+
+完成全仓库 Ruff 收口，修复 agent facade / deep research runtime 导出缺口，并对齐前端 search_mode 类型与相关回归测试。
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Lint | 配置 Ruff 忽略 `.trellis/`，修复全仓库历史 lint 问题，并修正 `scripts/ruff_changed_files.sh` 的空结果边界行为 |
+| Runtime Exports | 恢复 `agent/api.py` 的公共导出，修复 `agent.runtime.deep.orchestration.graph` 的依赖容器导出，消除 `ImportError` / `AttributeError` |
+| Backend Compatibility | 补齐 `answer.py` 与 deep runtime 模块级依赖绑定，恢复测试中的 monkeypatch 入口 |
+| Frontend Types | 修复 `web/lib/chat-request.ts` 的 `search_mode` payload 类型，打通 `tsc --noEmit` |
+
+**Verification**:
+- `make lint-all`
+- `make test` (`379 passed, 1 skipped, 2 warnings`，由人工确认)
+- `pnpm -C web lint`
+- `pnpm -C web exec tsc --noEmit`
+- `pnpm -C web test`
+
+**Notes**:
+- 本次未归档 `.trellis/tasks/04-07-prune-agentstate-fields`，因为它仍是未完成且未跟踪的独立任务。
+- 为避免误提交该任务目录，本次 session 记录使用 `--no-commit`。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ac7a5eb` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 6: Prune Unused AgentState Root Fields
+
+**Date**: 2026-04-07
+**Task**: Prune Unused AgentState Root Fields
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Runtime state | Removed unused root `AgentState` fields from the root graph contract and initial state builder |
+| Node updates | Stopped returning unused routing/tool bookkeeping fields from root graph nodes |
+| Tests | Updated root graph and state slice tests to assert the leaner state contract |
+| Verification | Ran targeted Ruff and pytest checks for the touched backend files |
+
+**Updated Files**:
+- `agent/application/state.py`
+- `agent/core/state.py`
+- `agent/domain/state.py`
+- `agent/runtime/nodes/answer.py`
+- `agent/runtime/nodes/chat.py`
+- `agent/runtime/nodes/routing.py`
+- `tests/test_agent_state_slices.py`
+- `tests/test_root_graph_contract.py`
+
+**Checks Run**:
+- `uv run ruff check agent/application/state.py agent/core/state.py agent/domain/state.py agent/runtime/nodes/chat.py agent/runtime/nodes/answer.py agent/runtime/nodes/routing.py tests/test_agent_state_slices.py tests/test_root_graph_contract.py`
+- `uv run pytest tests/test_agent_state_slices.py tests/test_root_graph_contract.py`
+
+**Task Status**:
+- Archived `04-07-prune-agentstate-fields`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9f9e386` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

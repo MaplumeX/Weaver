@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep backend runtime ownership clear while pruning state fields."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Preserve existing safe fallbacks and resume/error behavior while shrinking state."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "State-contract changes require regression coverage for touched runtime paths."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Treat AgentState as a cross-layer contract across graph, checkpoint, and artifact builders."}
