@@ -5,7 +5,6 @@ class FakeMemoryStore:
     def __init__(self, entries=None):
         self.entries = list(entries or [])
         self.events = []
-        self.migrations = {}
         self.touched_ids = []
 
     def upsert_entry(self, **kwargs):
@@ -45,24 +44,6 @@ class FakeMemoryStore:
 
     def touch_entries(self, *, entry_ids):
         self.touched_ids = list(entry_ids)
-
-    def get_migration_status(self, *, user_id: str, source: str):
-        return self.migrations.get((user_id, source))
-
-    def upsert_migration_status(self, *, user_id: str, source: str, status: str, imported_count=0, skipped_count=0, details=None):
-        payload = {
-            "user_id": user_id,
-            "source": source,
-            "status": status,
-            "imported_count": imported_count,
-            "skipped_count": skipped_count,
-            "details": details or {},
-        }
-        self.migrations[(user_id, source)] = payload
-        return payload
-
-    def list_migration_statuses(self, *, user_id: str):
-        return [value for (owner, _), value in self.migrations.items() if owner == user_id]
 
 
 def test_ingest_user_message_requires_explicit_memory_intent():

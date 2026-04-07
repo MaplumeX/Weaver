@@ -37,23 +37,7 @@ async def _noop_async(*args, **kwargs):
 
 @pytest.mark.asyncio
 async def test_stream_emits_single_final_report_artifact_for_duplicate_end_events(monkeypatch):
-    memory_calls: list[str] = []
-    interaction_calls: list[tuple[str, str]] = []
-    store_calls: list[tuple[str, str, str | None]] = []
-
     monkeypatch.setattr(main, "research_graph", _DummyGraph())
-    monkeypatch.setattr(main, "add_memory_entry", lambda report: memory_calls.append(report))
-    monkeypatch.setattr(
-        main,
-        "store_interaction",
-        lambda prompt, report: interaction_calls.append((prompt, report)),
-    )
-    monkeypatch.setattr(
-        main,
-        "_store_add",
-        lambda prompt, report, user_id=None: store_calls.append((prompt, report, user_id)),
-    )
-    monkeypatch.setattr(main, "fetch_memories", lambda *args, **kwargs: [])
     monkeypatch.setattr(main, "remove_emitter", _noop_async)
     monkeypatch.setattr(main.browser_sessions, "reset", lambda *args, **kwargs: None)
     monkeypatch.setattr(main.sandbox_browser_sessions, "reset", lambda *args, **kwargs: None)
@@ -83,7 +67,3 @@ async def test_stream_emits_single_final_report_artifact_for_duplicate_end_event
 
     assert len(source_payloads) == 1
     assert source_payloads[0]["data"]["items"][0]["url"] == "https://example.com/report"
-
-    assert memory_calls == []
-    assert interaction_calls == []
-    assert store_calls == []

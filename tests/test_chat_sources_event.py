@@ -33,9 +33,6 @@ async def _noop_async(*args, **kwargs):
 @pytest.mark.asyncio
 async def test_stream_emits_sources_before_completion(monkeypatch):
     monkeypatch.setattr(main, "research_graph", _DummyGraph())
-    monkeypatch.setattr(main, "add_memory_entry", lambda *args, **kwargs: None)
-    monkeypatch.setattr(main, "store_interaction", lambda *args, **kwargs: None)
-    monkeypatch.setattr(main, "fetch_memories", lambda *args, **kwargs: [])
     monkeypatch.setattr(main, "remove_emitter", _noop_async)
     monkeypatch.setattr(main.browser_sessions, "reset", lambda *args, **kwargs: None)
     monkeypatch.setattr(main.sandbox_browser_sessions, "reset", lambda *args, **kwargs: None)

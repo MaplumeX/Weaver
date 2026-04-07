@@ -13,9 +13,6 @@ class FakeMemoryService:
     def is_configured(self):
         return True
 
-    def ensure_user_migrated(self, user_id: str):
-        return [{"user_id": user_id, "source": "legacy_memory_client", "status": "skipped"}]
-
     def list_entries(self, *, user_id: str, limit: int, status=None, memory_type=None):
         self.list_calls.append(
             {
@@ -52,7 +49,6 @@ class FakeMemoryService:
             "relevant": ["用户偏好: 用中文回答"],
             "stored_entries": [],
             "relevant_entries": [],
-            "migration_statuses": [],
         }
 
     def list_events(self, *, user_id: str, entry_id=None, limit=50):

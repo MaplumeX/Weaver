@@ -88,10 +88,9 @@ def test_create_memory_store_uses_psycopg_connection_settings(monkeypatch):
     assert captured["setup_called"] is True
 
 
-def test_init_store_uses_database_url_when_backend_is_redis(monkeypatch):
+def test_init_store_uses_database_url_when_backend_is_postgres(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "")
     monkeypatch.setenv("MEMORY_STORE_BACKEND", "memory")
-    monkeypatch.setenv("MEMORY_STORE_URL", "")
     main = sys.modules.get("main") or importlib.import_module("main")
 
     captured: dict[str, object] = {}
@@ -103,8 +102,7 @@ def test_init_store_uses_database_url_when_backend_is_redis(monkeypatch):
         captured["database_url"] = database_url
         return DummyStore()
 
-    monkeypatch.setattr(main.settings, "memory_store_backend", "redis")
-    monkeypatch.setattr(main.settings, "memory_store_url", "redis://cache")
+    monkeypatch.setattr(main.settings, "memory_store_backend", "postgres")
     monkeypatch.setattr(main.settings, "database_url", "postgresql://primary")
     monkeypatch.setattr(main, "create_memory_store", fake_create_memory_store)
 

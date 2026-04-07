@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 CHECKPOINT_DDL_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS graph_checkpoints (
@@ -123,17 +122,5 @@ MEMORY_DDL_STATEMENTS = (
     """
     CREATE INDEX IF NOT EXISTS idx_memory_entry_events_user_created
     ON memory_entry_events (user_id, created_at DESC)
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS memory_user_migrations (
-        user_id TEXT NOT NULL,
-        source TEXT NOT NULL,
-        status TEXT NOT NULL,
-        imported_count INTEGER NOT NULL DEFAULT 0,
-        skipped_count INTEGER NOT NULL DEFAULT 0,
-        details JSONB NOT NULL DEFAULT '{}'::jsonb,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        PRIMARY KEY (user_id, source)
-    )
     """,
 )

@@ -252,66 +252,6 @@ class MemoryStore:
             (user_id, int(limit)),
         )
 
-    def get_migration_status(self, *, user_id: str, source: str) -> dict[str, Any] | None:
-        return self._fetchone(
-            """
-            SELECT *
-            FROM memory_user_migrations
-            WHERE user_id = %s AND source = %s
-            """,
-            (user_id, source),
-        )
-
-    def list_migration_statuses(self, *, user_id: str) -> list[dict[str, Any]]:
-        return self._fetchall(
-            """
-            SELECT *
-            FROM memory_user_migrations
-            WHERE user_id = %s
-            ORDER BY source ASC
-            """,
-            (user_id,),
-        )
-
-    def upsert_migration_status(
-        self,
-        *,
-        user_id: str,
-        source: str,
-        status: str,
-        imported_count: int = 0,
-        skipped_count: int = 0,
-        details: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return self._fetchone(
-            """
-            INSERT INTO memory_user_migrations (
-                user_id,
-                source,
-                status,
-                imported_count,
-                skipped_count,
-                details
-            ) VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (user_id, source)
-            DO UPDATE SET
-                status = EXCLUDED.status,
-                imported_count = EXCLUDED.imported_count,
-                skipped_count = EXCLUDED.skipped_count,
-                details = EXCLUDED.details,
-                updated_at = NOW()
-            RETURNING *
-            """,
-            (
-                user_id,
-                source,
-                status,
-                int(imported_count),
-                int(skipped_count),
-                Jsonb(details if isinstance(details, dict) else {}),
-            ),
-        ) or {}
-
 
 def create_memory_store(database_url: str) -> MemoryStore:
     if not database_url:

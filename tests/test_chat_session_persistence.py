@@ -1,6 +1,5 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
-from langchain_core.messages import AIMessage
 
 import main
 
@@ -162,9 +161,6 @@ async def test_chat_non_stream_persists_session_and_final_report(monkeypatch):
         lambda **_kwargs: {"configurable": {"thread_id": "thread-test"}},
     )
     monkeypatch.setattr(main, "research_graph", FakeGraph())
-    monkeypatch.setattr(main, "add_memory_entry", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "store_interaction", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "_store_add", lambda *_args, **_kwargs: None)
 
     transport = ASGITransport(app=main.app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

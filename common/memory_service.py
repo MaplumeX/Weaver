@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import logging
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from common.config import settings
-
-logger = logging.getLogger(__name__)
 
 _EPHEMERAL_HINTS = (
     "当前任务",
@@ -60,16 +56,8 @@ class MemoryCandidate:
 
 
 class MemoryService:
-    def __init__(
-        self,
-        *,
-        store: Any = None,
-        legacy_message_fetcher: Callable[[str, int], list[str]] | None = None,
-        legacy_store_loader: Callable[[str, int], list[str]] | None = None,
-    ):
+    def __init__(self, *, store: Any = None):
         self.store = store
-        self.legacy_message_fetcher = legacy_message_fetcher
-        self.legacy_store_loader = legacy_store_loader
 
     def is_configured(self) -> bool:
         return self.store is not None
@@ -141,10 +129,8 @@ class MemoryService:
                 "relevant_entries": [],
                 "stored": [],
                 "relevant": [],
-                "migration_statuses": [],
             }
 
-        self.ensure_user_migrated(user_id)
         size = max(1, int(limit or settings.memory_top_k or 5))
         entries = self.store.list_entries(
             user_id=user_id,
@@ -174,7 +160,6 @@ class MemoryService:
             "relevant_entries": relevant_entries,
             "stored": [str(item.get("content") or "") for item in stored_entries],
             "relevant": [str(item.get("content") or "") for item in relevant_entries],
-            "migration_statuses": self.store.list_migration_statuses(user_id=user_id),
         }
 
     def list_entries(
@@ -187,7 +172,6 @@ class MemoryService:
     ) -> list[dict[str, Any]]:
         if not self.store:
             return []
-        self.ensure_user_migrated(user_id)
         return self.store.list_entries(
             user_id=user_id,
             limit=limit,
@@ -253,110 +237,6 @@ class MemoryService:
         )
         return True
 
-    def ensure_user_migrated(self, user_id: str) -> list[dict[str, Any]]:
-        if not self.store:
-            return []
-
-        if self.legacy_message_fetcher is not None:
-            self._ensure_source_migrated(
-                user_id=user_id,
-                source="legacy_memory_client",
-                loader=self.legacy_message_fetcher,
-            )
-        if self.legacy_store_loader is not None:
-            self._ensure_source_migrated(
-                user_id=user_id,
-                source="legacy_langgraph_store",
-                loader=self.legacy_store_loader,
-            )
-        else:
-            existing = self.store.get_migration_status(
-                user_id=user_id,
-                source="legacy_langgraph_store",
-            )
-            if not existing:
-                self.store.upsert_migration_status(
-                    user_id=user_id,
-                    source="legacy_langgraph_store",
-                    status="skipped",
-                    details={
-                        "note": "legacy langgraph store migration is unavailable in the redesigned memory service",
-                    },
-                )
-        return self.store.list_migration_statuses(user_id=user_id)
-
-    def _ensure_source_migrated(
-        self,
-        *,
-        user_id: str,
-        source: str,
-        loader: Callable[[str, int], list[str]],
-    ) -> None:
-        existing = self.store.get_migration_status(user_id=user_id, source=source)
-        if existing and str(existing.get("status") or "").strip() in {"completed", "skipped", "failed"}:
-            return
-
-        try:
-            raw_items = list(loader(user_id, max(int(settings.memory_max_entries or 20) * 5, 20)) or [])
-        except Exception as e:
-            logger.warning("Legacy memory migration failed | source=%s | user_id=%s | error=%s", source, user_id, e)
-            self.store.upsert_migration_status(
-                user_id=user_id,
-                source=source,
-                status="failed",
-                details={"error": str(e)},
-            )
-            return
-
-        imported = 0
-        skipped = 0
-        for item in raw_items:
-            candidate = self._extract_candidate_from_legacy_text(item)
-            if candidate is None:
-                skipped += 1
-                continue
-            entry = self.store.upsert_entry(
-                user_id=user_id,
-                memory_type=candidate.memory_type,
-                content=candidate.content,
-                normalized_key=candidate.normalized_key,
-                source_kind=source,
-                source_message=candidate.source_message,
-                importance=candidate.importance,
-                metadata={"migration_source": source},
-            )
-            self.store.record_event(
-                entry_id=entry.get("id"),
-                user_id=user_id,
-                event_type="ingested",
-                actor_type="migration",
-                actor_id=source,
-                reason="migrated legacy explicit user memory",
-                payload={"content": candidate.content},
-            )
-            imported += 1
-
-        status = "completed" if imported else "skipped"
-        details: dict[str, Any] = {}
-        if source == "legacy_langgraph_store" and not imported:
-            details["note"] = "legacy store records are not structured enough to auto-convert into fact cards"
-        self.store.upsert_migration_status(
-            user_id=user_id,
-            source=source,
-            status=status,
-            imported_count=imported,
-            skipped_count=skipped,
-            details=details,
-        )
-        self.store.record_event(
-            user_id=user_id,
-            event_type=f"migration_{status}",
-            actor_type="migration",
-            actor_id=source,
-            reason=f"{source} migration {status}",
-            payload={"imported_count": imported, "skipped_count": skipped, **details},
-        )
-
     def _select_relevant_entries(
         self,
         entries: list[dict[str, Any]],
@@ -396,21 +276,6 @@ class MemoryService:
             }
             for _, entry, reason in scored[:limit]
         ]
-
-    def _extract_candidate_from_legacy_text(self, text: str) -> MemoryCandidate | None:
-        normalized = self._clean_text(text)
-        if not normalized:
-            return None
-
-        user_lines = [
-            line.split(":", 1)[1].strip()
-            for line in normalized.splitlines()
-            if line.lower().startswith("user:")
-        ]
-        if user_lines:
-            normalized = user_lines[0]
-
-        return self._extract_candidate_from_user_text(normalized)
 
     def _extract_candidate_from_user_text(self, text: str) -> MemoryCandidate | None:
         normalized = self._clean_text(text)

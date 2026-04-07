@@ -16,7 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover
     # Python 3.10 fallback
     import tomli as tomllib  # type: ignore
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
@@ -186,9 +186,6 @@ class Settings(BaseSettings):
     e2b_api_key: str = ""
     anthropic_api_key: str = ""
     dashscope_api_key: str = ""  # 阿里云 DashScope API Key (语音识别)
-    mem0_api_key: str = ""
-    enable_memory: bool = False
-    memory_namespace: str = "default"
     memory_user_id: str = "default_user"
     memory_max_entries: int = 20
     memory_top_k: int = 5
@@ -324,9 +321,8 @@ class Settings(BaseSettings):
     agent_max_auto_continues: int = 25  # 最大自动续写次数
     agent_tool_execution_strategy: str = "sequential"  # sequential | parallel
 
-    # LangGraph Store (long-term memory)
-    memory_store_backend: str = "memory"  # memory | postgres | redis
-    memory_store_url: str = ""  # connection string for store backend
+    # Long-term memory store
+    memory_store_backend: str = "memory"  # memory | postgres
 
     # Message trimming (short-term memory)
     trim_messages: bool = False

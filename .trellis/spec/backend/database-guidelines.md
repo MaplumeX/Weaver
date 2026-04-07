@@ -67,6 +67,9 @@ What this means in practice:
 - Extend `CHECKPOINT_DDL_STATEMENTS` or `SESSION_DDL_STATEMENTS` when changing
   checkpoint/session persistence.
 - Extend `MEMORY_DDL_STATEMENTS` when changing long-term memory persistence.
+- When removing a runtime-managed DDL statement from one of the `*_DDL_STATEMENTS`
+  tuples, delete the entire tuple item and then run a schema smoke check to
+  catch dangling delimiters or malformed SQL strings before startup.
 - Avoid destructive migrations in startup code.
 - If a breaking storage change is unavoidable, stage it through additive schema
   changes plus read-path compatibility code first.

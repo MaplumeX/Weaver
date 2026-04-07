@@ -51,13 +51,13 @@ from agent import (
 )
 from agent.application import (
     build_execution_request,
+)
+from agent.application import (
     build_initial_agent_state as build_application_initial_agent_state,
 )
 from agent.contracts.research import extract_message_sources
 from agent.contracts.search_cache import clear_search_cache, get_search_cache
-from agent.runtime.deep.config import (
-    SUPPORTED_DEEP_RESEARCH_RUNTIME,
-)
+from agent.infrastructure.tools import build_tool_catalog_snapshot, build_tool_inventory
 from common.agents_store import (
     AgentProfile,
     ensure_default_agent,
@@ -75,6 +75,12 @@ from common.agents_store import (
 from common.cancellation import TaskStatus, cancellation_manager
 from common.chat_stream_translate import translate_legacy_line_to_sse
 from common.checkpoint_ops import aget_checkpoint_tuple
+from common.checkpoint_runtime import (
+    build_resume_state,
+    can_resume_thread,
+    extract_deep_research_artifacts,
+    get_thread_runtime_state,
+)
 from common.config import settings
 from common.langsmith import (
     build_langsmith_metadata,
@@ -88,12 +94,6 @@ from common.memory_service import MemoryService
 from common.memory_store import create_memory_store
 from common.metrics import metrics_registry
 from common.proxy_env import normalize_socks_proxy_env
-from common.checkpoint_runtime import (
-    build_resume_state,
-    can_resume_thread,
-    extract_deep_research_artifacts,
-    get_thread_runtime_state,
-)
 from common.session_service import SessionService
 from common.session_store import create_session_store
 from common.sse import (
@@ -104,9 +104,7 @@ from common.sse import (
 )
 from common.thread_ownership import get_thread_owner, set_thread_owner
 from support_agent import create_support_graph
-from agent.infrastructure.tools import build_tool_catalog_snapshot, build_tool_inventory
 from tools.browser.browser_session import browser_sessions
-from tools.core.memory_client import fetch_memories as legacy_fetch_memories
 from tools.io.asr import get_asr_service, init_asr_service
 from tools.io.screenshot_service import get_screenshot_service
 from tools.io.tts import AVAILABLE_VOICES, get_tts_service, init_tts_service
@@ -467,22 +465,10 @@ def _init_store():
         logger.info("Using in-memory mode (persistent long-term memory disabled)")
         return None
 
-    database_url = ""
     if backend == "postgres":
-        database_url = settings.memory_store_url.strip() or settings.database_url.strip()
-        if not database_url:
-            raise ValueError(
-                "database_url or memory_store_url is required when memory_store_backend=postgres"
-            )
-    elif backend == "redis":
         database_url = settings.database_url.strip()
         if not database_url:
-            raise ValueError(
-                "database_url is required when memory_store_backend=redis because the redesigned memory store is PostgreSQL-backed"
-            )
-        logger.warning(
-            "MEMORY_STORE_BACKEND=redis is deprecated for the redesigned long-term memory system; using PostgreSQL memory store via DATABASE_URL"
-        )
+            raise ValueError("database_url is required when memory_store_backend=postgres")
     else:
         raise ValueError(f"Unsupported memory_store_backend: {backend}")
 
@@ -492,13 +478,10 @@ def _init_store():
 
 
 def _memory_store_backend_name() -> str:
-    if settings.memory_store_backend.lower().strip() == "memory":
-        return "memory"
-    return "postgres"
-
-
-def _legacy_memory_fetcher(user_id: str, limit: int) -> list[str]:
-    return legacy_fetch_memories(query="*", user_id=user_id, limit=limit)
+    backend = settings.memory_store_backend.lower().strip()
+    if backend in {"memory", "postgres"}:
+        return backend
+    return "invalid"
 
 
 def _compile_runtime_graphs() -> None:
@@ -577,10 +560,7 @@ async def _initialize_runtime_state() -> None:
             _store_status = "ready"
             runtime_changed = True
 
-        memory_service = MemoryService(
-            store=store,
-            legacy_message_fetcher=_legacy_memory_fetcher,
-        )
+        memory_service = MemoryService(store=store)
         if session_store is not None:
             session_service = SessionService(
                 store=session_store,
@@ -2923,68 +2903,6 @@ async def _stream_graph_execution(
                     except Exception:
                         pass
 
-
-def _store_search(query: str, user_id: str, limit: int = 3) -> List[str]:
-    if memory_service is None:
-        return []
-    try:
-        context = memory_service.build_runtime_context(user_id=user_id, query=query or "", limit=limit)
-        texts = list(context.get("stored") or [])
-        return [str(text) for text in texts[:limit] if str(text).strip()]
-    except Exception as e:
-        logger.debug(f"Store search failed: {e}")
-        return []
-
-
-def _store_add(query: str, content: str, user_id: str):
-    if memory_service is None or not query:
-        return
-    try:
-        memory_service.ingest_user_message(
-            user_id=user_id,
-            text=query,
-            source_kind="legacy_store_add",
-        )
-    except Exception as e:
-        logger.debug(f"Store add failed: {e}")
-
-
-def fetch_memories(query: str = "*", user_id: Optional[str] = None, limit: Optional[int] = None) -> List[str]:
-    owner = str(user_id or settings.memory_user_id).strip() or settings.memory_user_id
-    if memory_service is None:
-        return []
-    context = memory_service.build_runtime_context(user_id=owner, query=query, limit=limit)
-    return [str(item) for item in (context.get("relevant") or context.get("stored") or []) if str(item).strip()]
-
-
-def add_memory_entry(content: str, user_id: Optional[str] = None) -> bool:
-    owner = str(user_id or settings.memory_user_id).strip() or settings.memory_user_id
-    if memory_service is None or not content:
-        return False
-    return bool(
-        memory_service.ingest_user_message(
-            user_id=owner,
-            text=content,
-            source_kind="legacy_add_memory",
-        )
-    )
-
-
-def store_interaction(
-    user_input: str, assistant_output: str, user_id: Optional[str] = None
-) -> bool:
-    owner = str(user_id or settings.memory_user_id).strip() or settings.memory_user_id
-    if memory_service is None or not user_input:
-        return False
-    return bool(
-        memory_service.ingest_user_message(
-            user_id=owner,
-            text=user_input,
-            source_kind="legacy_store_interaction",
-        )
-    )
-
-
 def _ingest_explicit_memory_if_needed(
     *,
     user_id: str,
@@ -3985,9 +3903,7 @@ class MemoryStatusResponse(BaseModel):
     configured_backend: str
     url_configured: bool
     checkpointer: bool
-    mem0_enabled: bool
     memory_service_enabled: bool
-    migration_mode: str
 
 
 class MemoryEntryPayload(BaseModel):
@@ -4013,7 +3929,6 @@ class MemoryEntryPayload(BaseModel):
 class MemoryEntriesResponse(BaseModel):
     count: int
     entries: List[MemoryEntryPayload]
-    migration_statuses: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class MemoryContextResponse(BaseModel):
@@ -4021,7 +3936,6 @@ class MemoryContextResponse(BaseModel):
     relevant: List[str] = Field(default_factory=list)
     stored_entries: List[MemoryEntryPayload] = Field(default_factory=list)
     relevant_entries: List[MemoryEntryPayload] = Field(default_factory=list)
-    migration_statuses: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class MemoryInvalidateRequest(BaseModel):
@@ -4059,11 +3973,9 @@ async def memory_status():
     return {
         "backend": _memory_store_backend_name(),
         "configured_backend": settings.memory_store_backend,
-        "url_configured": bool(settings.database_url.strip() or settings.memory_store_url.strip()),
+        "url_configured": bool(settings.database_url.strip()),
         "checkpointer": bool(checkpointer),
-        "mem0_enabled": settings.enable_memory,
         "memory_service_enabled": bool(memory_service and memory_service.is_configured()),
-        "migration_mode": "on_demand",
     }
 
 
@@ -4085,12 +3997,7 @@ async def list_memory_entries(
             status=status,
             memory_type=memory_type,
         )
-        migration_statuses = service.ensure_user_migrated(owner)
-        return {
-            "count": len(entries),
-            "entries": entries,
-            "migration_statuses": migration_statuses,
-        }
+        return {"count": len(entries), "entries": entries}
     except HTTPException:
         raise
     except Exception as e:

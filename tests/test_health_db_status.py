@@ -40,6 +40,7 @@ async def test_initialize_runtime_state_leaves_checkpointer_disabled_without_dat
         return None
 
     monkeypatch.setattr(main.settings, "database_url", "")
+    monkeypatch.setattr(main.settings, "memory_store_backend", "memory")
     monkeypatch.setattr(main, "checkpointer", object())
     monkeypatch.setattr(main, "store", None)
     monkeypatch.setattr(main, "_close_runtime_resources", fake_close_runtime_resources)
