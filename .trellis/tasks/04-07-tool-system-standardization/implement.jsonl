@@ -1,0 +1,12 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Keep new runtime and API contract failures aligned with backend error conventions."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "The refactor changes backend/frontend event and profile contracts across layers."}
+{"file": "agent/domain/execution.py", "reason": "Existing typed execution request/profile contract to evolve toward capability-based profiles."}
+{"file": "web/hooks/useChatStream.ts", "reason": "Frontend consumer of process/tool event contracts that informs the new canonical event shape."}
+{"file": "agent/application/state.py", "reason": "Existing initial graph state construction and tool/profile projection pattern."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Use stable, structured logging in new runtime and policy modules."}
+{"file": "agent/core/events.py", "reason": "Current event envelope and emitter contract that will be standardized."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Unify scattered tool metadata, runtime context, and event envelope logic instead of duplicating glue code."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Preserve typed boundaries and add regression coverage for contract changes."}

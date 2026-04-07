@@ -409,3 +409,48 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: Fix deep research pre-execution timeline labeling
+
+**Date**: 2026-04-07
+**Task**: Fix deep research pre-execution timeline labeling
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Item | Description |
+|------|-------------|
+| Fix | Prevented Deep Research timeline from showing section/iteration metrics before section research actually starts |
+| Frontend | Reclassified pre-execution `research_task_update` events (`ready`, `planned`, `dispatch`) into outline/control-plane instead of section research |
+| Validation | Added regression coverage for outline-only event streams so the UI no longer shows research iterations too early |
+
+**Updated Files**:
+- `web/lib/deep-research-timeline.ts`
+- `web/tests/deep-research-timeline.test.ts`
+
+**Verification**:
+- `pnpm -C web test`
+- `pnpm -C web lint`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9f0b3a5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
