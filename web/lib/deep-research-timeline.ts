@@ -268,6 +268,15 @@ function formatReviewOutcome(status: string): string {
   }
 }
 
+function isPreExecutionTaskUpdate(payload: any): boolean {
+  const status = text(payload?.status)
+  const stage = text(payload?.stage)
+  return (
+    (status === 'ready' || status === 'in_progress') &&
+    (!stage || stage === 'planned' || stage === 'dispatch')
+  )
+}
+
 function describeDecision(decisionType: string, reason: string): string {
   switch (decisionType) {
     case 'clarify_required':
@@ -443,9 +452,11 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
   const role = text(payload?.role)
   const decisionType = text(payload?.decision_type)
   const artifactType = text(payload?.artifact_type)
+  const status = text(payload?.status)
   const stage = text(payload?.stage)
   const taskKind = text(payload?.task_kind)
   const phase = text(payload?.phase)
+  const reason = text(payload?.reason)
 
   if (eventType === 'research_agent_start' || eventType === 'research_agent_complete') {
     if (role === 'clarify') return 'intake'
@@ -464,6 +475,11 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
   if (eventType === 'research_task_update') {
     if (stage === 'final_claim_gate') return 'final_claim_gate'
     if (taskKind === 'section_revision' || stage === 'revision') return 'section_review'
+    if (isPreExecutionTaskUpdate(payload)) {
+      if (reason === 'review_research_retry') return 'section_review'
+      if (status === 'in_progress' && reason === 'checkpoint_resume') return 'section_research'
+      return 'outline'
+    }
     return 'section_research'
   }
 
@@ -587,13 +603,9 @@ function shouldTrackSectionHistory(
   phase: DeepResearchPhaseKey,
   payload: any,
   sectionId: string | null,
-  taskId: string | null,
-  taskKind: string,
 ): boolean {
   if (!sectionId) return false
   if (phase === 'section_research' || phase === 'section_review') return true
-  if (taskKind === 'section_research' || taskKind === 'section_revision') return true
-  if (taskId) return true
   return SECTION_ARTIFACT_TYPES.has(text(payload?.artifact_type))
 }
 
@@ -734,8 +746,6 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
     const sectionId = text(payload?.section_id || payload?.branch_id)
     const taskKind = text(payload?.task_kind)
     const labelHint = sectionLabelHint(payload)
-    const iteration = positiveNumber(payload?.iteration)
-
     if (taskId && sectionId) {
       taskMetaById.set(taskId, {
         sectionId,
@@ -755,12 +765,6 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
     if (sectionId) {
       if (!sectionOrderById.has(sectionId)) sectionOrderById.set(sectionId, index)
       if (labelHint && !sectionLabelById.has(sectionId)) sectionLabelById.set(sectionId, labelHint)
-    }
-
-    if (iteration !== null) {
-      latestIteration = Math.max(latestIteration ?? 0, iteration)
-      if (taskId) taskIterationById.set(taskId, iteration)
-      if (sectionId) sectionIterationById.set(sectionId, iteration)
     }
   })
 
@@ -792,7 +796,13 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
       latestIteration,
     )
 
-    if (iteration !== null) {
+    if (
+      iteration !== null &&
+      (phase === 'section_research' ||
+        phase === 'section_review' ||
+        phase === 'report' ||
+        phase === 'final_claim_gate')
+    ) {
       latestIteration = Math.max(latestIteration ?? 0, iteration)
       if (taskId) taskIterationById.set(taskId, iteration)
       if (sectionId) sectionIterationById.set(sectionId, iteration)
@@ -824,7 +834,7 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
       new Set<string>(),
     )
 
-    if (!shouldTrackSectionHistory(phase, payload, sectionId, taskId, taskKind) || !sectionId) {
+    if (!shouldTrackSectionHistory(phase, payload, sectionId) || !sectionId) {
       continue
     }
 

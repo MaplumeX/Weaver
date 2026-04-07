@@ -174,3 +174,54 @@ test('projects deep research events into stable phases and branch history', () =
   assert.ok(reviewPhase)
   assert.ok(reviewPhase.metrics.includes('1 certified'))
 })
+
+test('does not show section iteration metrics before section research actually starts', () => {
+  const events: ProcessEvent[] = [
+    event('scope-approved', 'research_decision', 10, {
+      decision_type: 'scope_approved',
+    }),
+    event('outline', 'research_artifact_update', 20, {
+      artifact_id: 'outline-1',
+      artifact_type: 'outline',
+      status: 'created',
+      summary: 'Generated 2 required sections',
+      iteration: 1,
+    }),
+    event('plan', 'research_artifact_update', 21, {
+      artifact_id: 'plan-1',
+      artifact_type: 'plan',
+      status: 'completed',
+      summary: 'Generated 2 section tasks',
+      iteration: 1,
+    }),
+    event('task-ready-1', 'research_task_update', 22, {
+      task_id: 'task-1',
+      section_id: 'section-1',
+      task_kind: 'section_research',
+      title: 'Supply chain resilience',
+      status: 'ready',
+      stage: 'planned',
+      iteration: 1,
+    }),
+    event('task-ready-2', 'research_task_update', 23, {
+      task_id: 'task-2',
+      section_id: 'section-2',
+      task_kind: 'section_research',
+      title: 'Packaging capacity',
+      status: 'ready',
+      stage: 'planned',
+      iteration: 1,
+    }),
+  ]
+
+  const projection = projectDeepResearchTimeline(events)
+
+  assert.ok(projection)
+  assert.ok(!projection.headerMetrics.some((metric) => metric.includes('section')))
+  assert.ok(!projection.headerMetrics.some((metric) => metric.startsWith('Iteration ')))
+  assert.ok(!projection.phases.some((phase) => phase.key === 'section_research'))
+  assert.deepEqual(
+    projection.phases.map((phase) => phase.key),
+    ['scope', 'outline'],
+  )
+})
