@@ -14,7 +14,7 @@ modular runtime/tooling layer.
 - `agent/` contains runtime orchestration, domain contracts, prompt assembly,
   and reusable agent-facing APIs.
 - `common/` contains shared infrastructure such as config, logging,
-  persistence, metrics, and session services.
+  persistence, metrics, session services, and long-term memory services.
 - `tools/` contains tool integrations grouped by capability.
 - `triggers/` contains the scheduled/webhook/event trigger subsystem.
 

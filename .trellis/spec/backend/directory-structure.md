@@ -39,6 +39,8 @@ repo. Follow the current ownership boundaries instead.
 ├── common/
 │   ├── config.py
 │   ├── logger.py
+│   ├── memory_service.py
+│   ├── memory_store.py
 │   ├── persistence_schema.py
 │   ├── session_service.py
 │   └── session_store.py
@@ -114,6 +116,10 @@ Anti-patterns:
   handlers, and API routes.
 - `common/logger.py`: shared infrastructure module with a single clear
   responsibility.
+- `common/memory_store.py`: project-owned persistence adapter for long-term
+  memory.
+- `common/memory_service.py`: shared memory ingestion/retrieval service used by
+  chat and support flows.
 - `agent/runtime/graph.py`: runtime orchestration code placed under `agent/`
   instead of the HTTP layer.
 - `triggers/manager.py`: subsystem-specific management logic kept inside

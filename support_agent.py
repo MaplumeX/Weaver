@@ -1,27 +1,28 @@
 """
-Customer Support Agent with Mem0 memory.
+Customer Support Agent with runtime memory context.
 
 Provides a simple LangGraph that:
-- Retrieves relevant memories for the user
+- Receives structured memory context from the caller
 - Adds a system prompt with context
-- Stores the interaction back to memory
+- Returns the assistant response
 """
 
 import json
-from typing import Annotated, List, TypedDict
+from contextlib import suppress
+from typing import Annotated, TypedDict
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
 from common.config import settings
-from tools.core.memory_client import fetch_memories, store_interaction
 
 
 class SupportState(TypedDict):
-    messages: Annotated[List[BaseMessage], add_messages]
+    messages: Annotated[list[BaseMessage], add_messages]
     user_id: str
+    memory_context: dict[str, list[str]]
 
 
 def _support_model() -> ChatOpenAI:
@@ -45,10 +46,8 @@ def _support_model() -> ChatOpenAI:
 
     extra = {}
     if settings.openai_extra_body:
-        try:
+        with suppress(Exception):
             extra.update(json.loads(settings.openai_extra_body))
-        except Exception:
-            pass
     if extra:
         params["extra_body"] = extra
     return ChatOpenAI(**params)
@@ -56,32 +55,22 @@ def _support_model() -> ChatOpenAI:
 
 def support_node(state: SupportState):
     messages = state["messages"]
-    user_id = state.get("user_id") or settings.memory_user_id
-    last_user_message = ""
-    for msg in reversed(messages):
-        if isinstance(msg, HumanMessage):
-            last_user_message = msg.content
-            break
-
-    # Retrieve memories
-    mem_entries = fetch_memories(query=last_user_message, user_id=user_id)
-    context = ""
-    if mem_entries:
-        context = "Relevant information from previous conversations:\n" + "\n".join(
-            f"- {m}" for m in mem_entries
-        )
+    memory_context = state.get("memory_context") or {}
+    stored = [str(item).strip() for item in (memory_context.get("stored") or []) if str(item).strip()]
+    relevant = [str(item).strip() for item in (memory_context.get("relevant") or []) if str(item).strip()]
+    context_parts: list[str] = []
+    if stored:
+        context_parts.append("Stored user memory:\n" + "\n".join(f"- {item}" for item in stored))
+    if relevant:
+        context_parts.append("Relevant user memory:\n" + "\n".join(f"- {item}" for item in relevant))
 
     system_prompt = "You are a helpful customer support assistant. Use provided context to personalize and remember user preferences."
-    if context:
-        system_prompt += f"\n{context}"
+    if context_parts:
+        system_prompt += "\n" + "\n\n".join(context_parts)
 
     llm = _support_model()
-    response = llm.invoke([SystemMessage(content=system_prompt)] + messages)
+    response = llm.invoke([SystemMessage(content=system_prompt), *messages])
     reply_text = response.content if hasattr(response, "content") else str(response)
-
-    # Store interaction
-    if last_user_message:
-        store_interaction(last_user_message, reply_text, user_id=user_id)
 
     return {"messages": [AIMessage(content=reply_text)]}
 

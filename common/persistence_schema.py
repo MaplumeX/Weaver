@@ -78,3 +78,62 @@ SESSION_DDL_STATEMENTS = (
     )
     """,
 )
+
+
+MEMORY_DDL_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS memory_entries (
+        id UUID PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        memory_type TEXT NOT NULL,
+        content TEXT NOT NULL,
+        normalized_key TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        source_thread_id TEXT NOT NULL DEFAULT '',
+        source_message TEXT NOT NULL DEFAULT '',
+        importance INTEGER NOT NULL DEFAULT 50,
+        status TEXT NOT NULL DEFAULT 'active',
+        retrieval_count INTEGER NOT NULL DEFAULT 0,
+        last_retrieved_at TIMESTAMPTZ NULL,
+        invalidated_at TIMESTAMPTZ NULL,
+        invalidation_reason TEXT NOT NULL DEFAULT '',
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, memory_type, normalized_key)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_user_status_updated
+    ON memory_entries (user_id, status, updated_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS memory_entry_events (
+        id UUID PRIMARY KEY,
+        entry_id UUID NULL,
+        user_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        actor_type TEXT NOT NULL,
+        actor_id TEXT NOT NULL DEFAULT '',
+        reason TEXT NOT NULL DEFAULT '',
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_memory_entry_events_user_created
+    ON memory_entry_events (user_id, created_at DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS memory_user_migrations (
+        user_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        status TEXT NOT NULL,
+        imported_count INTEGER NOT NULL DEFAULT 0,
+        skipped_count INTEGER NOT NULL DEFAULT 0,
+        details JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, source)
+    )
+    """,
+)

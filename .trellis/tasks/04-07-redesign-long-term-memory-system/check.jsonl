@@ -1,0 +1,5 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check-backend/SKILL.md", "reason": "Backend check spec"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "检查 memory API 与初始化错误是否符合统一约定"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "检查 memory schema 和适配器是否保持 additive/idempotent"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "完成后按 backend 质量要求检查 persistence/API/regression tests"}

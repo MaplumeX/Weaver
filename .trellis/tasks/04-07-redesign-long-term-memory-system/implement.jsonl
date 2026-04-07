@@ -1,0 +1,10 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "新增 memory store/service 时遵守现有 backend 模块边界"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "memory DDL 和 psycopg 适配器要沿用现有持久化模式"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "memory 初始化、迁移、治理接口的错误处理要与 backend 一致"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "memory 数据流跨 API/service/store/runtime 注入，需要显式边界"}
+{"file": "agent/runtime/nodes/prompting.py", "reason": "memory 最终仍需通过结构化 context 注入 prompt"}
+{"file": "common/session_store.py", "reason": "复用现有 Postgres store 适配器模式"}
+{"file": "common/session_service.py", "reason": "复用现有 service 层模式，把 session 与 memory ingestion 收口"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "新增 memory 初始化与迁移日志时遵守现有 logging 规范"}

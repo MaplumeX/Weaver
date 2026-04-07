@@ -15,7 +15,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-import psycopg
 from fastapi import (
     FastAPI,
     File,
@@ -37,7 +36,6 @@ from prometheus_client import (
     Gauge,
     generate_latest,
 )
-from psycopg.rows import dict_row
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
@@ -86,6 +84,8 @@ from common.langsmith import (
     with_langsmith_context,
 )
 from common.logger import get_logger, setup_logging
+from common.memory_service import MemoryService
+from common.memory_store import create_memory_store
 from common.metrics import metrics_registry
 from common.proxy_env import normalize_socks_proxy_env
 from common.checkpoint_runtime import (
@@ -106,7 +106,7 @@ from common.thread_ownership import get_thread_owner, set_thread_owner
 from support_agent import create_support_graph
 from agent.infrastructure.tools import build_tool_catalog_snapshot, build_tool_inventory
 from tools.browser.browser_session import browser_sessions
-from tools.core.memory_client import add_memory_entry, fetch_memories, store_interaction
+from tools.core.memory_client import fetch_memories as legacy_fetch_memories
 from tools.io.asr import get_asr_service, init_asr_service
 from tools.io.screenshot_service import get_screenshot_service
 from tools.io.tts import AVAILABLE_VOICES, get_tts_service, init_tts_service
@@ -447,6 +447,7 @@ async def _cleanup_rate_limit_buckets():
 # Initialize agent graphs with short-term memory (checkpointer)
 checkpointer = None
 store = None
+memory_service = None
 session_store = None
 session_service = None
 research_graph = None
@@ -462,38 +463,42 @@ _store_error = ""
 
 def _init_store():
     backend = settings.memory_store_backend.lower().strip()
-    url = settings.memory_store_url.strip()
+    if backend == "memory":
+        logger.info("Using in-memory mode (persistent long-term memory disabled)")
+        return None
+
+    database_url = ""
     if backend == "postgres":
-        if not url:
-            raise ValueError("memory_store_url is required when memory_store_backend=postgres")
-        from langgraph.store.postgres import PostgresStore
-
-        try:
-            conn = psycopg.connect(
-                url,
-                autocommit=True,
-                prepare_threshold=0,
-                row_factory=dict_row,
+        database_url = settings.memory_store_url.strip() or settings.database_url.strip()
+        if not database_url:
+            raise ValueError(
+                "database_url or memory_store_url is required when memory_store_backend=postgres"
             )
-        except Exception as e:
-            raise RuntimeError(f"Failed to connect to Postgres for memory store: {e}") from e
+    elif backend == "redis":
+        database_url = settings.database_url.strip()
+        if not database_url:
+            raise ValueError(
+                "database_url is required when memory_store_backend=redis because the redesigned memory store is PostgreSQL-backed"
+            )
+        logger.warning(
+            "MEMORY_STORE_BACKEND=redis is deprecated for the redesigned long-term memory system; using PostgreSQL memory store via DATABASE_URL"
+        )
+    else:
+        raise ValueError(f"Unsupported memory_store_backend: {backend}")
 
-        store_obj = PostgresStore(conn)
-        store_obj.setup()
-        logger.info("Initialized PostgresStore for long-term memory")
-        return store_obj
-    if backend == "redis":
-        if not url:
-            raise ValueError("memory_store_url is required when memory_store_backend=redis")
-        from langgraph.store.redis import RedisStore
+    store_obj = create_memory_store(database_url)
+    logger.info("Initialized PostgreSQL memory store for long-term memory")
+    return store_obj
 
-        store_obj = RedisStore.from_conn_string(url)
-        store_obj.setup()
-        logger.info("Initialized RedisStore for long-term memory")
-        return store_obj
 
-    logger.info("Using in-memory store (disabled persistent store)")
-    return None
+def _memory_store_backend_name() -> str:
+    if settings.memory_store_backend.lower().strip() == "memory":
+        return "memory"
+    return "postgres"
+
+
+def _legacy_memory_fetcher(user_id: str, limit: int) -> list[str]:
+    return legacy_fetch_memories(query="*", user_id=user_id, limit=limit)
 
 
 def _compile_runtime_graphs() -> None:
@@ -501,9 +506,9 @@ def _compile_runtime_graphs() -> None:
     research_graph = create_research_graph(
         checkpointer=checkpointer,
         interrupt_before=settings.interrupt_nodes_list,
-        store=store,
+        store=None,
     )
-    support_graph = create_support_graph(checkpointer=checkpointer, store=store)
+    support_graph = create_support_graph(checkpointer=checkpointer, store=None)
 
 
 _compile_runtime_graphs()
@@ -529,7 +534,7 @@ async def _close_runtime_resources() -> None:
 
 
 async def _initialize_runtime_state() -> None:
-    global checkpointer, session_store, session_service, store
+    global checkpointer, session_store, session_service, store, memory_service
     global _checkpointer_conn, _session_store_conn, _store_conn
     global _checkpointer_status, _checkpointer_error, _store_status, _store_error
 
@@ -545,7 +550,6 @@ async def _initialize_runtime_state() -> None:
             _checkpointer_conn = getattr(checkpointer, "conn", None)
             session_store = await create_session_store(settings.database_url)
             _session_store_conn = getattr(session_store, "conn", None)
-            session_service = SessionService(store=session_store, checkpointer=checkpointer)
             _checkpointer_status = "ready"
             runtime_changed = True
         else:
@@ -573,6 +577,19 @@ async def _initialize_runtime_state() -> None:
             _store_status = "ready"
             runtime_changed = True
 
+        memory_service = MemoryService(
+            store=store,
+            legacy_message_fetcher=_legacy_memory_fetcher,
+        )
+        if session_store is not None:
+            session_service = SessionService(
+                store=session_store,
+                checkpointer=checkpointer,
+                memory_service=memory_service,
+            )
+        else:
+            session_service = None
+
         if runtime_changed:
             _compile_runtime_graphs()
     except Exception as e:
@@ -590,6 +607,7 @@ async def _initialize_runtime_state() -> None:
             _checkpointer_error = "DATABASE_URL is required for session persistence"
 
         store = None
+        memory_service = MemoryService(store=None)
         if settings.memory_store_backend.lower().strip() == "memory":
             _store_status = "disabled"
             _store_error = ""
@@ -670,7 +688,7 @@ async def startup_event():
     logger.info(f"Database: {_checkpointer_status}")
     logger.info(f"Checkpointer backend: {_checkpointer_backend_name()}")
     logger.info(f"Checkpointer: {'Enabled' if checkpointer else 'Disabled'}")
-    logger.info(f"Store backend: {settings.memory_store_backend.lower().strip()}")
+    logger.info(f"Store backend: {_memory_store_backend_name()}")
     logger.info(f"Store status: {_store_status}")
     logger.info(
         "LangSmith tracing: %s",
@@ -1650,7 +1668,7 @@ async def health():
         "database_backend": _checkpointer_backend_name(),
         "database_error": _checkpointer_error if _checkpointer_status == "failed" else "",
         "store": _store_status,
-        "store_backend": settings.memory_store_backend.lower().strip(),
+        "store_backend": _memory_store_backend_name(),
         "version": app.version,
         "uptime_seconds": time.monotonic() - APP_STARTED_AT,
         "timestamp": datetime.now().isoformat(),
@@ -2340,6 +2358,12 @@ def _build_initial_agent_state(
 ) -> AgentState:
     images = images or []
     user_id = user_id or settings.memory_user_id
+    runtime_memory_context = {"stored": [], "relevant": []}
+    if memory_service is not None:
+        runtime_memory_context = memory_service.build_runtime_context(
+            user_id=user_id,
+            query=input_text,
+        )
     request = build_execution_request(
         input_text=input_text,
         thread_id=thread_id,
@@ -2353,8 +2377,8 @@ def _build_initial_agent_state(
     )
     return build_application_initial_agent_state(
         request,
-        stored_memories=_store_search(input_text, user_id=user_id),
-        relevant_memories=fetch_memories(query=input_text, user_id=user_id),
+        stored_memories=runtime_memory_context.get("stored"),
+        relevant_memories=runtime_memory_context.get("relevant"),
     )
 
 
@@ -2829,9 +2853,6 @@ async def _stream_graph_execution(
                         "content": final_report,
                     },
                 )
-                add_memory_entry(final_report)
-                store_interaction(input_text, final_report)
-                _store_add(input_text, final_report, user_id=user_id)
 
         duration = time.time() - start_time
         cancel_token.mark_completed()
@@ -2904,40 +2925,89 @@ async def _stream_graph_execution(
 
 
 def _store_search(query: str, user_id: str, limit: int = 3) -> List[str]:
-    if not store:
+    if memory_service is None:
         return []
-    namespace = (user_id, "memories")
     try:
-        results = store.search(namespace, query=query or "", limit=limit)
-        texts: List[str] = []
-        for item in results:
-            value = getattr(item, "value", {}) or {}
-            if isinstance(value, dict):
-                text = value.get("content") or value.get("text") or value.get("data")
-                if text:
-                    texts.append(str(text))
-            elif isinstance(value, str):
-                texts.append(value)
-        return texts[:limit]
+        context = memory_service.build_runtime_context(user_id=user_id, query=query or "", limit=limit)
+        texts = list(context.get("stored") or [])
+        return [str(text) for text in texts[:limit] if str(text).strip()]
     except Exception as e:
         logger.debug(f"Store search failed: {e}")
         return []
 
 
 def _store_add(query: str, content: str, user_id: str):
-    if not store or not content:
+    if memory_service is None or not query:
         return
-    namespace = (user_id, "memories")
     try:
-        key = f"mem_{uuid.uuid4().hex}"
-        store.put(namespace, key, {"query": query, "content": content})
+        memory_service.ingest_user_message(
+            user_id=user_id,
+            text=query,
+            source_kind="legacy_store_add",
+        )
     except Exception as e:
         logger.debug(f"Store add failed: {e}")
 
 
+def fetch_memories(query: str = "*", user_id: Optional[str] = None, limit: Optional[int] = None) -> List[str]:
+    owner = str(user_id or settings.memory_user_id).strip() or settings.memory_user_id
+    if memory_service is None:
+        return []
+    context = memory_service.build_runtime_context(user_id=owner, query=query, limit=limit)
+    return [str(item) for item in (context.get("relevant") or context.get("stored") or []) if str(item).strip()]
+
+
+def add_memory_entry(content: str, user_id: Optional[str] = None) -> bool:
+    owner = str(user_id or settings.memory_user_id).strip() or settings.memory_user_id
+    if memory_service is None or not content:
+        return False
+    return bool(
+        memory_service.ingest_user_message(
+            user_id=owner,
+            text=content,
+            source_kind="legacy_add_memory",
+        )
+    )
+
+
+def store_interaction(
+    user_input: str, assistant_output: str, user_id: Optional[str] = None
+) -> bool:
+    owner = str(user_id or settings.memory_user_id).strip() or settings.memory_user_id
+    if memory_service is None or not user_input:
+        return False
+    return bool(
+        memory_service.ingest_user_message(
+            user_id=owner,
+            text=user_input,
+            source_kind="legacy_store_interaction",
+        )
+    )
+
+
+def _ingest_explicit_memory_if_needed(
+    *,
+    user_id: str,
+    text: str,
+    source_kind: str,
+    thread_id: str = "",
+) -> None:
+    if memory_service is None or not str(text or "").strip():
+        return
+    try:
+        memory_service.ingest_user_message(
+            user_id=user_id,
+            text=text,
+            source_kind=source_kind,
+            thread_id=thread_id,
+        )
+    except Exception as e:
+        logger.warning("Memory ingestion failed | source=%s | user_id=%s | error=%s", source_kind, user_id, e)
+
+
 @app.post("/api/support/chat")
 async def support_chat(request: Request, payload: SupportChatRequest):
-    """Simple customer support chat backed by Mem0 memory."""
+    """Simple customer support chat backed by structured runtime memory."""
     try:
         internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
         principal_id = (getattr(request.state, "principal_id", "") or "").strip()
@@ -2946,12 +3016,24 @@ async def support_chat(request: Request, payload: SupportChatRequest):
             if internal_key and principal_id
             else (payload.user_id or "default_user")
         )
+        _ingest_explicit_memory_if_needed(
+            user_id=user_id,
+            text=payload.message,
+            source_kind="support",
+            thread_id=user_id or "support_default",
+        )
+        memory_context = (
+            memory_service.build_runtime_context(user_id=user_id, query=payload.message)
+            if memory_service is not None
+            else {"stored": [], "relevant": []}
+        )
         state = {
             "messages": [
                 SystemMessage(content="You are a helpful support assistant."),
                 HumanMessage(content=payload.message),
             ],
             "user_id": user_id,
+            "memory_context": memory_context,
         }
         config = {"configurable": {"thread_id": user_id or "support_default"}}
         config = with_langsmith_context(
@@ -2967,16 +3049,6 @@ async def support_chat(request: Request, payload: SupportChatRequest):
                 app_env=settings.app_env,
             ),
         )
-        # Inject stored memories if present
-        store_memories = _store_search(payload.message, user_id=state["user_id"])
-        if store_memories:
-            state["messages"].insert(
-                0,
-                SystemMessage(
-                    content="Stored memories:\n" + "\n".join(f"- {m}" for m in store_memories)
-                ),
-            )
-
         result = await support_graph.ainvoke(state, config=config)
         messages = result.get("messages", [])
         reply = ""
@@ -2986,7 +3058,6 @@ async def support_chat(request: Request, payload: SupportChatRequest):
                 break
         if not reply:
             reply = "No response generated."
-        _store_add(payload.message, reply, user_id=state["user_id"])
         return SupportChatResponse(content=reply, timestamp=datetime.now().isoformat())
     except Exception as e:
         logger.error(f"Support chat error: {e}", exc_info=True)
@@ -3231,6 +3302,13 @@ async def chat(request: Request, payload: ChatRequest):
                     route=mode_info.get("mode", "agent"),
                     initial_user_message=last_message,
                 )
+            else:
+                _ingest_explicit_memory_if_needed(
+                    user_id=user_id,
+                    text=last_message,
+                    source_kind="chat",
+                    thread_id=thread_id,
+                )
 
             async def _session_persisted_stream():
                 persistence_state: Dict[str, Any] = {
@@ -3301,6 +3379,13 @@ async def chat(request: Request, payload: ChatRequest):
                     route=mode_info.get("mode", "agent"),
                     initial_user_message=last_message,
                 )
+            else:
+                _ingest_explicit_memory_if_needed(
+                    user_id=user_id,
+                    text=last_message,
+                    source_kind="chat",
+                    thread_id=thread_id,
+                )
             initial_state = _build_initial_agent_state(
                 input_text=last_message,
                 thread_id=thread_id,
@@ -3331,9 +3416,6 @@ async def chat(request: Request, payload: ChatRequest):
                     if metrics_registry.get(thread_id)
                     else {},
                 )
-            add_memory_entry(final_report)
-            store_interaction(last_message, final_report)
-            _store_add(last_message, final_report, user_id=user_id)
             metrics_registry.finish(thread_id, cancelled=False)
 
             return ChatResponse(
@@ -3413,6 +3495,13 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
                     thread_id=payload.thread_id,
                     content=user_text,
                 )
+            elif user_text:
+                _ingest_explicit_memory_if_needed(
+                    user_id=user_id,
+                    text=user_text,
+                    source_kind="chat_resume",
+                    thread_id=payload.thread_id,
+                )
             async for chunk in stream_resumed_agent_events(
                 thread_id=payload.thread_id,
                 resume_payload=resume_payload,
@@ -3456,6 +3545,19 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
             },
         )
 
+    user_text = _resume_payload_user_text(resume_payload)
+    if session_service is not None and user_text:
+        await session_service.append_user_message(
+            thread_id=payload.thread_id,
+            content=user_text,
+        )
+    elif user_text:
+        _ingest_explicit_memory_if_needed(
+            user_id=user_id,
+            text=user_text,
+            source_kind="chat_resume",
+            thread_id=payload.thread_id,
+        )
     result = await research_graph.ainvoke(Command(resume=resume_payload), config=config)
     interrupts = _serialize_interrupts(result.get("__interrupt__"))
     if interrupts:
@@ -3878,18 +3980,209 @@ async def metrics():
     data = generate_latest()
     return StreamingResponse(iter([data]), media_type=CONTENT_TYPE_LATEST)
 
+class MemoryStatusResponse(BaseModel):
+    backend: str
+    configured_backend: str
+    url_configured: bool
+    checkpointer: bool
+    mem0_enabled: bool
+    memory_service_enabled: bool
+    migration_mode: str
 
-@app.get("/api/memory/status")
+
+class MemoryEntryPayload(BaseModel):
+    id: str
+    user_id: str
+    memory_type: str
+    content: str
+    source_kind: str
+    source_thread_id: str = ""
+    source_message: str = ""
+    importance: int
+    status: str
+    retrieval_count: int = 0
+    last_retrieved_at: Optional[str] = None
+    invalidated_at: Optional[str] = None
+    invalidation_reason: str = ""
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    updated_at: str
+    reason: Optional[str] = None
+
+
+class MemoryEntriesResponse(BaseModel):
+    count: int
+    entries: List[MemoryEntryPayload]
+    migration_statuses: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class MemoryContextResponse(BaseModel):
+    stored: List[str] = Field(default_factory=list)
+    relevant: List[str] = Field(default_factory=list)
+    stored_entries: List[MemoryEntryPayload] = Field(default_factory=list)
+    relevant_entries: List[MemoryEntryPayload] = Field(default_factory=list)
+    migration_statuses: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class MemoryInvalidateRequest(BaseModel):
+    reason: str = "manual invalidation"
+
+
+class MemoryEventsResponse(BaseModel):
+    count: int
+    events: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+def _require_memory_service() -> MemoryService:
+    if memory_service is None or not memory_service.is_configured():
+        raise HTTPException(status_code=503, detail="Memory service is not configured")
+    return memory_service
+
+
+def _resolve_memory_user_id(request: Request, requested_user_id: Optional[str] = None) -> str:
+    internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
+    if internal_key:
+        return (getattr(request.state, "principal_id", "") or "").strip() or "internal"
+    return str(requested_user_id or settings.memory_user_id).strip() or settings.memory_user_id
+
+
+def _validate_memory_filters(status: Optional[str], memory_type: Optional[str]) -> None:
+    if status is not None and status not in {"active", "invalidated"}:
+        raise HTTPException(status_code=400, detail="Invalid memory status filter")
+    if memory_type is not None and memory_type not in {"preference", "user_fact"}:
+        raise HTTPException(status_code=400, detail="Invalid memory type filter")
+
+
+@app.get("/api/memory/status", response_model=MemoryStatusResponse)
 async def memory_status():
     """Return memory backend status and configuration."""
-    backend = settings.memory_store_backend
-    url = settings.memory_store_url
     return {
-        "backend": backend,
-        "url_configured": bool(url),
+        "backend": _memory_store_backend_name(),
+        "configured_backend": settings.memory_store_backend,
+        "url_configured": bool(settings.database_url.strip() or settings.memory_store_url.strip()),
         "checkpointer": bool(checkpointer),
         "mem0_enabled": settings.enable_memory,
+        "memory_service_enabled": bool(memory_service and memory_service.is_configured()),
+        "migration_mode": "on_demand",
     }
+
+
+@app.get("/api/memory/entries", response_model=MemoryEntriesResponse)
+async def list_memory_entries(
+    request: Request,
+    limit: int = 50,
+    status: Optional[str] = None,
+    memory_type: Optional[str] = None,
+    user_id: Optional[str] = None,
+):
+    service = _require_memory_service()
+    _validate_memory_filters(status, memory_type)
+    owner = _resolve_memory_user_id(request, user_id)
+    try:
+        entries = service.list_entries(
+            user_id=owner,
+            limit=limit,
+            status=status,
+            memory_type=memory_type,
+        )
+        migration_statuses = service.ensure_user_migrated(owner)
+        return {
+            "count": len(entries),
+            "entries": entries,
+            "migration_statuses": migration_statuses,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"List memory entries error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/memory/context", response_model=MemoryContextResponse)
+async def get_memory_context(
+    request: Request,
+    query: str = "",
+    limit: int = 5,
+    user_id: Optional[str] = None,
+):
+    service = _require_memory_service()
+    owner = _resolve_memory_user_id(request, user_id)
+    try:
+        return service.debug_context(user_id=owner, query=query, limit=limit)
+    except Exception as e:
+        logger.error(f"Get memory context error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/memory/events", response_model=MemoryEventsResponse)
+async def get_memory_events(
+    request: Request,
+    entry_id: Optional[str] = None,
+    limit: int = 50,
+    user_id: Optional[str] = None,
+):
+    service = _require_memory_service()
+    owner = _resolve_memory_user_id(request, user_id)
+    try:
+        events = service.list_events(user_id=owner, entry_id=entry_id, limit=limit)
+        return {"count": len(events), "events": events}
+    except Exception as e:
+        logger.error(f"Get memory events error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/memory/entries/{entry_id}/invalidate", response_model=MemoryEntryPayload)
+async def invalidate_memory_entry(
+    entry_id: str,
+    request: Request,
+    payload: MemoryInvalidateRequest,
+    user_id: Optional[str] = None,
+):
+    service = _require_memory_service()
+    owner = _resolve_memory_user_id(request, user_id)
+    actor_id = (getattr(request.state, "principal_id", "") or "").strip() or "internal"
+    try:
+        entry = service.invalidate_entry(
+            user_id=owner,
+            entry_id=entry_id,
+            actor_id=actor_id,
+            reason=payload.reason,
+        )
+        if not entry:
+            raise HTTPException(status_code=404, detail="Memory entry not found")
+        return entry
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Invalidate memory entry error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/memory/entries/{entry_id}")
+async def delete_memory_entry(
+    entry_id: str,
+    request: Request,
+    reason: str = "manual delete",
+    user_id: Optional[str] = None,
+):
+    service = _require_memory_service()
+    owner = _resolve_memory_user_id(request, user_id)
+    actor_id = (getattr(request.state, "principal_id", "") or "").strip() or "internal"
+    try:
+        deleted = service.delete_entry(
+            user_id=owner,
+            entry_id=entry_id,
+            actor_id=actor_id,
+            reason=reason,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Memory entry not found")
+        return {"success": True, "message": f"Memory entry {entry_id} deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete memory entry error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/config/public", response_model=PublicConfigResponse)

@@ -84,6 +84,6 @@ async def test_stream_emits_single_final_report_artifact_for_duplicate_end_event
     assert len(source_payloads) == 1
     assert source_payloads[0]["data"]["items"][0]["url"] == "https://example.com/report"
 
-    assert memory_calls == ["FINAL"]
-    assert interaction_calls == [("hi", "FINAL")]
-    assert store_calls == [("hi", "FINAL", main.settings.memory_user_id)]
+    assert memory_calls == []
+    assert interaction_calls == []
+    assert store_calls == []

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from common.checkpoint_runtime import get_thread_runtime_state
 
 
 class SessionService:
-    def __init__(self, *, store: Any, checkpointer: Any):
+    def __init__(self, *, store: Any, checkpointer: Any, memory_service: Any = None):
         self.store = store
         self.checkpointer = checkpointer
+        self.memory_service = memory_service
 
     async def load_snapshot(self, thread_id: str) -> dict[str, Any] | None:
         snapshot = await self.store.get_snapshot(thread_id)
@@ -40,7 +41,7 @@ class SessionService:
         route: str,
         initial_user_message: str,
     ) -> None:
-        created_at = datetime.now(timezone.utc).isoformat()
+        created_at = datetime.now(UTC).isoformat()
         title = str(initial_user_message or "").strip()[:40] or "New Conversation"
         existing = await self.store.get_session(thread_id)
         if existing:
@@ -65,15 +66,23 @@ class SessionService:
             content=initial_user_message,
             created_at=created_at,
         )
+        if self.memory_service is not None:
+            self.memory_service.ingest_user_message(
+                user_id=user_id,
+                text=initial_user_message,
+                source_kind="chat",
+                thread_id=thread_id,
+            )
 
     async def append_user_message(self, *, thread_id: str, content: str) -> None:
         if not str(content or "").strip():
             return
+        session = await self.store.get_session(thread_id)
         await self.store.append_message(
             thread_id=thread_id,
             role="user",
             content=content,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
         await self.store.update_session_metadata(
             thread_id,
@@ -81,6 +90,14 @@ class SessionService:
                 "status": "running",
             },
         )
+        owner = str((session or {}).get("user_id") or "").strip()
+        if self.memory_service is not None and owner:
+            self.memory_service.ingest_user_message(
+                user_id=owner,
+                text=content,
+                source_kind="chat_resume",
+                thread_id=thread_id,
+            )
 
     async def finalize_assistant_message(
         self,
@@ -93,7 +110,7 @@ class SessionService:
         process_events: list[dict[str, Any]] | None = None,
         metrics: dict[str, Any] | None = None,
     ) -> None:
-        created_at = datetime.now(timezone.utc).isoformat()
+        created_at = datetime.now(UTC).isoformat()
         if str(content or "").strip():
             await self.store.append_message(
                 thread_id=thread_id,

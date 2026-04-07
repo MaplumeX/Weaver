@@ -11,8 +11,9 @@ This project does not use a single ORM-centric data layer.
 Current persistence patterns are:
 
 - PostgreSQL via `psycopg` for LangGraph checkpoints and session persistence.
-- LangGraph store backends (`PostgresStore` or `RedisStore`) for long-term
-  memory, selected by configuration.
+- PostgreSQL via project-owned adapters for long-term memory
+  (`common/memory_store.py`), even when `MEMORY_STORE_BACKEND` is set for
+  compatibility.
 - ChromaDB for RAG vector storage.
 - JSON files for lightweight configuration/state where avoiding schema churn is
   more valuable than centralizing everything in SQL.
@@ -39,6 +40,8 @@ Examples:
 
 - `common/session_store.py` inserts and fetches session rows with positional
   parameters.
+- `common/memory_store.py` owns long-term memory tables, query helpers, and
+  event logging.
 - `agent/runtime/graph.py` creates the Postgres checkpointer with
   `dict_row`, `autocommit=True`, and `prepare_threshold=0`.
 - `main.py` keeps `_init_store()` as the composition point, while the actual
@@ -63,6 +66,7 @@ What this means in practice:
 
 - Extend `CHECKPOINT_DDL_STATEMENTS` or `SESSION_DDL_STATEMENTS` when changing
   checkpoint/session persistence.
+- Extend `MEMORY_DDL_STATEMENTS` when changing long-term memory persistence.
 - Avoid destructive migrations in startup code.
 - If a breaking storage change is unavoidable, stage it through additive schema
   changes plus read-path compatibility code first.
@@ -72,9 +76,11 @@ What this means in practice:
 ## Naming Conventions
 
 - Table names are lowercase snake case: `sessions`, `session_messages`,
-  `graph_checkpoints`, `graph_checkpoint_writes`.
+  `graph_checkpoints`, `graph_checkpoint_writes`, `memory_entries`,
+  `memory_entry_events`, `memory_user_migrations`.
 - Column names are lowercase snake case.
 - `thread_id` is the primary partition key across session/checkpoint tables.
+- `user_id` is the primary partition key for long-term memory tables.
 - Timestamps use `TIMESTAMPTZ`.
 - Structured arrays/objects that must be queryable or preserved as JSON use
   `JSONB`.
@@ -98,6 +104,8 @@ What this means in practice:
 - `common/persistence_schema.py`: source of truth for runtime-managed Postgres
   DDL.
 - `common/session_store.py`: direct SQL, `Jsonb`, and row normalization.
+- `common/memory_store.py`: direct SQL for memory entries, events, and migration
+  status.
 - `common/agents_store.py`: file-backed persistence chosen explicitly to avoid
   migrations.
 - `tests/test_checkpointer_config.py`: regression tests that lock in Postgres
