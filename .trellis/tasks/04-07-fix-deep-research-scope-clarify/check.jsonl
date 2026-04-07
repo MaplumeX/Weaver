@@ -1,0 +1,4 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check-backend/SKILL.md", "reason": "Backend check spec"}
+{"file": "tests/test_weaver_checkpointer.py", "reason": "Regression coverage for latest checkpoint selection"}
+{"file": "common/weaver_checkpointer.py", "reason": "Validate ordering semantics match expected checkpoint behavior"}

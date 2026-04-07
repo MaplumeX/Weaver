@@ -1,0 +1,8 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Regression test expectations for backend behavior changes"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Module ownership for runtime vs HTTP vs common infra"}
+{"file": "common/weaver_checkpointer.py", "reason": "Owns custom latest-checkpoint retrieval logic"}
+{"file": "tests/test_deepsearch_multi_agent_runtime.py", "reason": "Existing graph-level clarify/scope behavior baseline"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Checkpoint retrieval affects API resume/status and runtime flow"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Keep resume/checkpointer failures boundary-friendly"}

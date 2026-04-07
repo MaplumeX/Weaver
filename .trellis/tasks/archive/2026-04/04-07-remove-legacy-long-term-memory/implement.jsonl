@@ -1,0 +1,8 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep legacy cleanup scoped to existing backend ownership boundaries"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Remove deprecated memory persistence compatibility without breaking current store ownership"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Keep startup and API failures explicit while simplifying memory configuration"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Memory cleanup changes config, startup wiring, store/service, and API responses"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Keep memory initialization logs high-signal after removing legacy branches"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Delete duplicated legacy memory paths instead of keeping parallel code"}
