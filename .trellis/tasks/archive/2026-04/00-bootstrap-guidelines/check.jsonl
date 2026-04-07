@@ -1,0 +1,6 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check-backend/SKILL.md", "reason": "Backend check spec"}
+{"file": "common/persistence_schema.py", "reason": "Verify schema and migration guidance against runtime DDL"}
+{"file": "common/logger.py", "reason": "Verify logging guidance against actual logger bootstrap"}
+{"file": "AGENTS.md", "reason": "Repository-level build, test, and project structure guidance"}
+{"file": "main.py", "reason": "Verify documented patterns against the live FastAPI entrypoint"}

@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": "AGENTS.md", "reason": "Repository-level build, test, and project structure guidance"}
+{"file": "common/persistence_schema.py", "reason": "Runtime-managed DDL for checkpoints and session tables"}
+{"file": "common/logger.py", "reason": "Logging bootstrap, JSON formatter, and rotation policy"}
+{"file": "main.py", "reason": "FastAPI entrypoint, middleware, exception handling, and API layout"}
+{"file": "common/session_store.py", "reason": "Postgres session persistence patterns without ORM"}
+{"file": "tests/test_checkpointer_config.py", "reason": "Representative persistence regression tests"}
+{"file": "common/agents_store.py", "reason": "JSON-file persistence pattern used to avoid schema churn"}
