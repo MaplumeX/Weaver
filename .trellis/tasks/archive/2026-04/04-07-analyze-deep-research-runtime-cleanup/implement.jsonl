@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "清理不能破坏 deep research 错误与降级行为"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "运行时清理需遵守现有模块归属"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "涉及 checkpoint/artifact/API 边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "回归测试与稳定契约检查"}

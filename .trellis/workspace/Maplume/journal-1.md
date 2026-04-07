@@ -265,3 +265,52 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Prune deep research legacy runtime snapshots
+
+**Date**: 2026-04-07
+**Task**: Prune deep research legacy runtime snapshots
+
+### Summary
+
+收口 deep research 运行时到当前 multi_agent 契约，删除旧 nested runtime snapshot 兼容读取，并补充回归测试。
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Deep Runtime Flow | 梳理并确认当前执行链路为 bootstrap -> clarify -> scope -> scope_review -> research_brief -> outline_plan -> dispatch -> researcher/revisor -> merge -> reviewer -> supervisor_decide -> outline_gate -> report -> final_claim_gate -> finalize |
+| Artifact Projection | 删除 legacy artifact_store 适配，只保留 lightweight snapshot 到 public artifacts 的投影 |
+| Runtime Store | 去掉 `branch_results` / `validation_summaries` 等旧键恢复与别名入口，统一使用 `section_drafts` / `section_reviews` |
+| Regression Tests | 增加测试，明确旧 nested runtime snapshot 不再恢复 public artifacts，且 runtime store 不再接受旧键名 |
+
+**Updated Files**:
+- `agent/runtime/deep/artifacts/public_artifacts.py`
+- `agent/runtime/deep/orchestration/graph.py`
+- `tests/test_checkpoint_runtime_artifacts.py`
+- `tests/test_deepsearch_multi_agent_runtime.py`
+
+**Validation**:
+- `uv run ruff check agent/runtime/deep/artifacts/public_artifacts.py agent/runtime/deep/orchestration/graph.py tests/test_checkpoint_runtime_artifacts.py tests/test_deepsearch_multi_agent_runtime.py`
+- `uv run pytest tests/test_checkpoint_runtime_artifacts.py tests/test_deepsearch_multi_agent_runtime.py tests/test_deepsearch_mode_selection.py tests/test_resume_session_deepsearch.py`
+- `uv run pytest tests/test_session_evidence_api.py tests/test_export_json.py`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9bc3f7b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
