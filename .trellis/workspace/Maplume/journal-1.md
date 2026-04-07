@@ -129,3 +129,35 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: 修复 Deep Research interrupt 恢复状态
+
+**Date**: 2026-04-07
+**Task**: 修复 Deep Research interrupt 恢复状态
+
+### Summary
+
+修复自定义 checkpointer 的最新 checkpoint 选择与特殊 __interrupt__/__resume__ 写入覆盖语义，补充回归测试，并更新相关 backend/cross-layer spec。
+
+### Main Changes
+
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `efaf856` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
