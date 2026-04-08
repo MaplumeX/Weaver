@@ -785,3 +785,52 @@ Removed confirmed dead code from common/, deleted the unused agent_runs module, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Clean tools dead code and remove RAG support
+
+**Date**: 2026-04-08
+**Task**: Clean tools dead code and remove RAG support
+**Branch**: `main`
+
+### Summary
+
+Removed confirmed dead code under tools/, deleted the RAG tool and document APIs, tightened package facades, and regenerated OpenAPI TypeScript outputs.
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Dead code cleanup | Removed unused browser/content-extractor and tool collection modules, plus unused crawler helpers. |
+| RAG removal | Deleted `tools/rag/`, removed `rag_search` registration, removed `/api/documents/*`, and dropped RAG config fields. |
+| Facades | Replaced wildcard package exports in `tools/*/__init__.py` with explicit facades. |
+| API sync | Regenerated `web/lib/api-types.ts` and `sdk/typescript/src/openapi-types.ts`, then rebuilt SDK declarations. |
+| Spec sync | Updated backend spec docs to remove stale RAG references. |
+
+**Verification**:
+- `uv run ruff check agent/infrastructure/tools/capabilities.py common/config.py main.py scripts/live_api_smoke.py tests/test_agent_tools.py tests/test_tools_facades.py`
+- `uv run pytest tests/test_agent_tools.py tests/test_tool_catalog_api.py tests/test_tools_facades.py tests/test_browser_session_reuses_httpx_client.py tests/test_content_fetcher_render.py tests/test_content_fetcher_render_heuristics.py tests/test_computer_use_optional_dep.py`
+- `pnpm -C web lint`
+- `pnpm -C web exec tsc --noEmit`
+
+**Note**:
+- `pnpm -C web build` still failed with a generic webpack error and did not emit a detailed stack trace in this environment.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dbce153` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
