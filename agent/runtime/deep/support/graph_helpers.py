@@ -16,7 +16,6 @@ from agent.runtime.deep.schema import (
     is_control_plane_agent,
     validate_control_plane_agent,
 )
-from agent.runtime.deep.services.knowledge_gap import GapAnalysisResult
 
 _COVERAGE_STOPWORDS = {
     "the",
@@ -109,7 +108,6 @@ class MultiAgentGraphState(TypedDict, total=False):
     current_iteration: int
     planning_mode: str
     next_step: str
-    latest_gap_result: dict[str, Any]
     latest_decision: dict[str, Any]
     latest_verification_summary: dict[str, Any]
     pending_worker_tasks: list[dict[str, Any]]
@@ -125,12 +123,6 @@ def restore_agent_runs(items: list[dict[str, Any]]) -> list[AgentRunRecord]:
             continue
         restored.append(AgentRunRecord(**item))
     return restored
-
-
-def gap_result_from_payload(payload: dict[str, Any] | None) -> GapAnalysisResult | None:
-    if not isinstance(payload, dict) or not payload:
-        return None
-    return GapAnalysisResult.from_dict(payload)
 
 
 def derive_role_counters(agent_runs: list[AgentRunRecord]) -> dict[str, int]:
@@ -394,7 +386,6 @@ __all__ = [
     "derive_role_counters",
     "extract_interrupt_text",
     "format_scope_draft_markdown",
-    "gap_result_from_payload",
     "normalize_control_plane_agent",
     "reduce_worker_payloads",
     "restore_agent_runs",

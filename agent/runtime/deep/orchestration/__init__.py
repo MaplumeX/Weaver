@@ -6,13 +6,11 @@ import importlib
 from typing import Any
 
 __all__ = [
-    "GapAnalysisResult",
     "MultiAgentDeepResearchRuntime",
     "run_multi_agent_deep_research",
 ]
 
 _SYMBOL_TO_MODULE = {
-    "GapAnalysisResult": "agent.runtime.deep.orchestration.graph",
     "MultiAgentDeepResearchRuntime": "agent.runtime.deep.orchestration.graph",
     "run_multi_agent_deep_research": "agent.runtime.deep.orchestration.graph",
 }

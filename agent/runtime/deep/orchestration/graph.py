@@ -65,12 +65,6 @@ from agent.runtime.deep.schema import (
     SectionReviewArtifact,
     _now_iso,
 )
-from agent.runtime.deep.services.knowledge_gap import (
-    GapAnalysisResult,
-)
-from agent.runtime.deep.services.knowledge_gap import (
-    KnowledgeGapAnalyzer as KnowledgeGapAnalyzer,
-)
 from agent.runtime.deep.state import read_deep_runtime_snapshot
 from agent.runtime.deep.store import ResearchTaskQueue
 from agent.runtime.deep.support.graph_helpers import (
@@ -129,24 +123,6 @@ def _coverage_tokens(text: str) -> list[str]:
     return [token for token in tokens if len(token) >= 2]
 
 
-def _score_acceptance_match(task: ResearchTask, summary: str) -> float:
-    criteria = list(task.acceptance_criteria or [])
-    if not criteria:
-        return 0.0
-    summary_tokens = set(_coverage_tokens(summary))
-    if not summary_tokens:
-        return 0.0
-    matched = 0
-    for criterion in criteria:
-        tokens = set(_coverage_tokens(criterion))
-        if not tokens:
-            continue
-        overlap = len(summary_tokens & tokens)
-        if overlap >= min(2, len(tokens)):
-            matched += 1
-    return matched / max(1, len(criteria))
-
-
 def _text_overlap_score(left: str, right: str) -> float:
     left_tokens = set(_coverage_tokens(left))
     right_tokens = set(_coverage_tokens(right))
@@ -172,12 +148,6 @@ def _branch_summary_payload(result: dict[str, Any]) -> dict[str, Any]:
         "validation_status": result.get("validation_status", "pending"),
         "source_urls": list(result.get("source_urls") or []),
     }
-
-
-def _branch_validation_text(result: dict[str, Any]) -> str:
-    summary = str(result.get("summary") or "").strip()
-    findings = [str(item).strip() for item in result.get("key_findings", []) or [] if str(item).strip()]
-    return "\n".join([summary, *findings]).strip()
 
 
 def _section_title(payload: dict[str, Any]) -> str:
@@ -497,21 +467,6 @@ class MultiAgentDeepResearchRuntime:
             1,
             support._configurable_int(self.config, "deep_research_task_retry_limit", 2),
         )
-        self.max_gap_branches_per_iteration = max(
-            1,
-            support._configurable_int(
-                self.config,
-                "deep_research_max_gap_branches_per_iteration",
-                getattr(settings, "deep_research_max_gap_branches_per_iteration", 2),
-            ),
-        )
-        configured_max_total_tasks = support._configurable_int(
-            self.config,
-            "deep_research_max_total_tasks",
-            getattr(settings, "deep_research_max_total_tasks", 0),
-        )
-        default_max_total_tasks = max(1, self.query_num) + (self.max_epochs * self.max_gap_branches_per_iteration)
-        self.max_total_tasks = configured_max_total_tasks if configured_max_total_tasks > 0 else default_max_total_tasks
         self.max_clarify_rounds = max(
             1,
             support._configurable_int(self.config, "deep_research_clarify_round_limit", 2),
@@ -1639,87 +1594,6 @@ class MultiAgentDeepResearchRuntime:
             plan["coverage_target_source"] = str(parts.runtime_state.get("coverage_target_source") or "")
         parts.artifact_store.set_plan(plan)
 
-    def _build_gap_branch_tasks(
-        self,
-        parts: _RuntimeParts,
-        aggregate: dict[str, Any],
-    ) -> tuple[list[ResearchTask], dict[str, list[str]]]:
-        uncovered_questions = _dedupe_texts(aggregate.get("uncovered_questions") or [])
-        if not uncovered_questions:
-            return [], {}
-
-        all_tasks = parts.task_queue.all_tasks()
-        remaining_capacity = max(0, self.max_total_tasks - len(all_tasks))
-        if remaining_capacity <= 0:
-            return [], {}
-
-        task_coverage_map = {
-            str(task_id): _dedupe_texts(targets)
-            for task_id, targets in dict(parts.runtime_state.get("task_coverage_map") or {}).items()
-            if str(task_id).strip()
-        }
-        active_questions = {
-            target
-            for task in all_tasks
-            if task.status in {"ready", "in_progress"}
-            for target in task_coverage_map.get(task.id, [])
-        }
-        related_task_map = {
-            str(question): [
-                str(task_id).strip()
-                for task_id in task_ids
-                if str(task_id).strip()
-            ]
-            for question, task_ids in dict(aggregate.get("coverage_question_task_ids") or {}).items()
-        }
-        query_map = {
-            str(question): _dedupe_texts(queries)
-            for question, queries in dict(aggregate.get("recommended_gap_queries_by_question") or {}).items()
-        }
-        existing_queries = {
-            str(task.query or "").strip().lower()
-            for task in all_tasks
-            if str(task.query or "").strip()
-        }
-        scope = parts.artifact_store.scope()
-        base_priority = max((task.priority for task in all_tasks), default=0)
-        branch_limit = min(self.max_gap_branches_per_iteration, remaining_capacity)
-        new_tasks: list[ResearchTask] = []
-        assignments: dict[str, list[str]] = {}
-
-        for question in uncovered_questions:
-            if len(new_tasks) >= branch_limit:
-                break
-            if question in active_questions:
-                continue
-            candidate_queries = _dedupe_texts(query_map.get(question) or [question, f"{self.topic} {question}"])
-            query = next(
-                (item for item in candidate_queries if item.lower() not in existing_queries),
-                candidate_queries[0] if candidate_queries else question,
-            )
-            query_hints = _dedupe_texts([query, *candidate_queries, question])
-            task = ResearchTask(
-                id=support._new_id("task"),
-                goal=question,
-                query=query,
-                priority=base_priority + len(new_tasks) + 1,
-                objective=question,
-                task_kind="branch_research",
-                acceptance_criteria=[question],
-                allowed_tools=["search", "read", "extract", "synthesize"],
-                input_artifact_ids=[str(scope.get("id") or "")] if scope.get("id") else [],
-                query_hints=query_hints,
-                title=f"补齐覆盖: {question}",
-                aspect="coverage_gap",
-                branch_id=support._new_id("branch"),
-                parent_task_id=(related_task_map.get(question) or [None])[0],
-            )
-            new_tasks.append(task)
-            assignments[task.id] = [question]
-            existing_queries.update(item.lower() for item in query_hints if item)
-
-        return new_tasks, assignments
-
     def _build_evidence_bundle(self, task: ResearchTask, outcome: dict[str, Any], created_by: str) -> dict[str, Any]:
         sources = [
             item
@@ -1780,136 +1654,6 @@ class MultiAgentDeepResearchRuntime:
             ],
             "evidence_bundle_id": str(bundle.get("id") or "") or None,
             "created_by": created_by,
-        }
-
-    def _build_validation_summary(
-        self,
-        task: ResearchTask,
-        branch_result: dict[str, Any],
-        gap_result: GapAnalysisResult,
-        runtime_state: dict[str, Any],
-    ) -> dict[str, Any]:
-        acceptance_score = _score_acceptance_match(task, _branch_validation_text(branch_result))
-        advisory_only = acceptance_score >= 1.0
-        if gap_result.overall_coverage >= 0.6 or advisory_only:
-            status = "passed"
-        elif task.attempts < self.task_retry_limit and self.max_epochs > 1:
-            status = "retry"
-        else:
-            status = "failed"
-        assigned_targets = _dedupe_texts((runtime_state.get("task_coverage_map") or {}).get(task.id) or [])
-        coverage_hits = assigned_targets if status == "passed" and bool(branch_result.get("source_urls")) else []
-        coverage_misses = [item for item in assigned_targets if item not in coverage_hits]
-        missing_aspects = _dedupe_texts([gap.aspect for gap in gap_result.gaps] + coverage_misses)
-        notes = gap_result.analysis or ""
-        if advisory_only and missing_aspects:
-            notes = f"{notes}; acceptance criteria 已满足, 缺口作为 advisory hints 记录".strip("; ")
-        payload = {
-            "id": support._new_id("validation"),
-            "task_id": task.id,
-            "section_id": task.section_id,
-            "branch_id": task.branch_id,
-            "status": status,
-            "score": float(gap_result.overall_coverage),
-            "missing_aspects": missing_aspects,
-            "retry_queries": _dedupe_texts(gap_result.suggested_queries or [task.query]),
-            "notes": notes,
-            "status_reason": "advisory_only" if advisory_only and missing_aspects else "",
-        }
-        payload["coverage_hits"] = coverage_hits
-        payload["coverage_misses"] = coverage_misses
-        payload["coverage_confidence"] = round(max(float(gap_result.overall_coverage), acceptance_score), 3)
-        payload["suggested_follow_up_queries"] = _dedupe_texts(gap_result.suggested_queries or [task.query])
-        return payload
-
-    def _aggregate_validation(
-        self,
-        queue: ResearchTaskQueue,
-        store: LightweightArtifactStore,
-        runtime_state: dict[str, Any],
-    ) -> dict[str, Any]:
-        validations = store.section_reviews()
-        passed = [item for item in validations if item.get("status") == "passed"]
-        retry = [item for item in validations if item.get("status") == "retry"]
-        failed = [item for item in validations if item.get("status") == "failed"]
-        advisory = [
-            item
-            for item in validations
-            if item.get("status") == "passed" and item.get("status_reason") == "advisory_only"
-        ]
-        coverage_targets = _dedupe_texts(runtime_state.get("coverage_targets") or [])
-        coverage_question_task_ids: dict[str, list[str]] = {}
-        recommended_gap_queries_by_question: dict[str, list[str]] = {}
-        covered_questions: list[str] = []
-
-        for item in validations:
-            if not isinstance(item, dict):
-                continue
-            task_id = str(item.get("task_id") or "").strip()
-            for question in _dedupe_texts(item.get("coverage_hits") or []):
-                if task_id:
-                    coverage_question_task_ids.setdefault(question, []).append(task_id)
-                if question not in covered_questions:
-                    covered_questions.append(question)
-            for question in _dedupe_texts(item.get("coverage_misses") or []):
-                if task_id:
-                    coverage_question_task_ids.setdefault(question, []).append(task_id)
-                suggested = _dedupe_texts(
-                    item.get("suggested_follow_up_queries") or item.get("retry_queries") or [question]
-                )
-                existing = recommended_gap_queries_by_question.setdefault(question, [])
-                recommended_gap_queries_by_question[question] = _dedupe_texts([*existing, *suggested])
-
-        uncovered_questions = [item for item in coverage_targets if item not in covered_questions]
-        for question in uncovered_questions:
-            recommended_gap_queries_by_question.setdefault(question, [question])
-
-        coverage_by_question = [
-            {
-                "question": question,
-                "status": "covered" if question in covered_questions else "uncovered",
-                "task_ids": coverage_question_task_ids.get(question, []),
-                "suggested_queries": recommended_gap_queries_by_question.get(question, []),
-            }
-            for question in coverage_targets
-        ]
-        coverage_target_count = len(coverage_targets)
-        covered_question_count = len(covered_questions)
-        coverage_score = (
-            round(covered_question_count / max(1, coverage_target_count), 3)
-            if coverage_target_count > 0
-            else round(len(passed) / max(1, len(store.section_drafts())), 3)
-        )
-        coverage_ready = (
-            bool(passed) and not uncovered_questions
-            if coverage_target_count > 0
-            else bool(passed)
-        )
-        return {
-            "branch_count": len(store.section_drafts()),
-            "passed_branch_count": len(passed),
-            "retry_branch_count": len(retry),
-            "failed_branch_count": len(failed),
-            "advisory_gap_count": len(advisory),
-            "coverage_ready": coverage_ready,
-            "coverage_target_count": coverage_target_count,
-            "covered_question_count": covered_question_count,
-            "coverage_score": coverage_score,
-            "coverage_by_question": coverage_by_question,
-            "uncovered_questions": uncovered_questions,
-            "recommended_gap_queries": _dedupe_texts(
-                query
-                for question in uncovered_questions
-                for query in recommended_gap_queries_by_question.get(question, [])
-            ),
-            "recommended_gap_queries_by_question": recommended_gap_queries_by_question,
-            "coverage_question_task_ids": coverage_question_task_ids,
-            "coverage_target_source": str(runtime_state.get("coverage_target_source") or ""),
-            "retry_task_ids": [item.get("task_id") for item in retry if item.get("task_id")],
-            "passed_task_ids": [item.get("task_id") for item in passed if item.get("task_id")],
-            "validation_summary_ids": [item.get("id") for item in validations if item.get("id")],
-            "ready_task_count": queue.ready_count(),
-            "source_count": len(store.all_sources()),
         }
 
     def _quality_summary(self, queue: ResearchTaskQueue, store: LightweightArtifactStore, runtime_state: dict[str, Any]) -> dict[str, Any]:
@@ -2065,7 +1809,6 @@ class MultiAgentDeepResearchRuntime:
             "current_iteration": int(runtime_state.get("current_iteration") or 0),
             "planning_mode": "",
             "next_step": next_step,
-            "latest_gap_result": {},
             "latest_decision": {},
             "latest_verification_summary": copy.deepcopy(runtime_state.get("last_review_summary") or {}),
             "pending_worker_tasks": [],
@@ -3198,7 +2941,6 @@ def run_multi_agent_deep_research(state: dict[str, Any], config: dict[str, Any])
 
 
 __all__ = [
-    "GapAnalysisResult",
     "MultiAgentDeepResearchRuntime",
     "_format_scope_draft_markdown",
     "run_multi_agent_deep_research",

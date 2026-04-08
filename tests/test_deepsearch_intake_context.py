@@ -2,7 +2,6 @@ from types import SimpleNamespace
 
 from agent.runtime.deep.roles.clarify import DeepResearchClarifyAgent
 from agent.runtime.deep.roles.scope import DeepResearchScopeAgent
-from agent.runtime.deep.services.knowledge_gap import KnowledgeGapAnalyzer
 
 
 class _CaptureLLM:
@@ -120,32 +119,3 @@ def test_scope_agent_turns_unresolved_slots_into_assumptions():
 
     assert "Clarification still needed for time_range." in result["assumptions"]
     assert "Clarification still needed for source_preferences." in result["assumptions"]
-
-
-def test_gap_analysis_prompt_avoids_fixed_score_examples():
-    llm = _CaptureLLM(
-        """```json
-        {
-          "overall_coverage": 0.42,
-          "confidence": 0.63,
-          "gaps": [],
-          "suggested_queries": [],
-          "covered_aspects": ["最新动态"],
-          "analysis": "coverage remains partial"
-        }
-        ```"""
-    )
-    analyzer = KnowledgeGapAnalyzer(llm)
-
-    result = analyzer.analyze(
-        "AI chips",
-        executed_queries=["AI chips 2024 annual report"],
-        collected_knowledge="Collected evidence about annual filings and roadmap updates.",
-    )
-
-    prompt = llm.messages[0].content
-    assert '"overall_coverage": 0.65' not in prompt
-    assert '"confidence": 0.7' not in prompt
-    assert "不是默认值或示例值" in prompt
-    assert "必须根据本次输入重新计算" in prompt
-    assert result.overall_coverage == 0.42

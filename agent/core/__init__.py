@@ -11,7 +11,6 @@ import importlib
 from typing import Any
 
 __all__ = [
-    "AgentProcessorConfig",
     "AgentState",
     "ConversationState",
     "Event",
@@ -59,8 +58,6 @@ _SYMBOL_TO_MODULE: dict[str, str] = {
     "enforce_tool_call_limit": "agent.core.middleware",
     "retry_call": "agent.core.middleware",
     "maybe_strip_tool_messages": "agent.core.middleware",
-    # Config
-    "AgentProcessorConfig": "agent.core.processor_config",
     # Cache
     "SearchCache": "agent.core.search_cache",
     "QueryDeduplicator": "agent.core.search_cache",

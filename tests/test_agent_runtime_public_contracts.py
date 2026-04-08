@@ -1,5 +1,8 @@
+import importlib
+
 import pytest
 
+import agent.core as core_pkg
 import agent.runtime as runtime_pkg
 import agent.runtime.nodes as runtime_nodes
 from agent.contracts.events import ToolEventType
@@ -60,6 +63,16 @@ def test_legacy_agent_node_is_no_longer_exported():
         _ = runtime_nodes.agent_node
     with pytest.raises(AttributeError):
         _ = runtime_pkg.agent_node
+
+
+def test_legacy_core_config_export_is_no_longer_exposed():
+    assert "AgentProcessorConfig" not in core_pkg.__all__
+    with pytest.raises(AttributeError):
+        _ = core_pkg.AgentProcessorConfig
+
+
+def test_legacy_xml_parser_module_is_no_longer_importable():
+    assert importlib.util.find_spec("agent.parsers.xml_parser") is None
 
 
 def test_public_search_cache_contract_uses_core_singleton():

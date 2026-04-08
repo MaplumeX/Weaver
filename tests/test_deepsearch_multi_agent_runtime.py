@@ -265,23 +265,6 @@ class _FlakyResearchAgent(_FakeResearchAgent):
         )
 
 
-class _FakeVerifier:
-    def __init__(self, _llm, _config=None):
-        pass
-
-    def analyze(self, topic, executed_queries, collected_knowledge):
-        return multi_agent_runtime.GapAnalysisResult.from_dict(
-            {
-                "overall_coverage": 0.92,
-                "confidence": 0.88,
-                "gaps": [],
-                "suggested_queries": [],
-                "covered_aspects": ["aspect 1", "aspect 2"],
-                "analysis": "coverage is sufficient",
-            }
-        )
-
-
 class _FakeReporter:
     def __init__(self, _llm, _config=None):
         pass
@@ -350,7 +333,6 @@ def _patch_runtime_deps(
     scope=_FakeScopeAgent,
     supervisor=_FakeSupervisor,
     researcher=_FakeResearchAgent,
-    verifier=_FakeVerifier,
     reporter=_FakeReporter,
 ):
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
@@ -358,7 +340,6 @@ def _patch_runtime_deps(
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", scope)
     monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", supervisor)
     monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", researcher)
-    monkeypatch.setattr(multi_agent_runtime, "KnowledgeGapAnalyzer", verifier)
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", reporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
