@@ -214,8 +214,6 @@ class ResearchReporter:
             summary = section.summary.strip() or "无章节摘要"
             branch_text = "\n".join(f"- {item}" for item in section.branch_summaries if item)
             finding_text = "\n".join(f"- {item}" for item in section.findings if item)
-            risk_text = "\n".join(f"- {item}" for item in section.risk_highlights if item)
-            manual_review_text = "\n".join(f"- {item}" for item in section.manual_review_items if item)
             citations = [
                 f"[{source_index_by_url[url]}] {url}"
                 for url in section.citation_urls
@@ -224,21 +222,14 @@ class ResearchReporter:
             source_text = "\n".join(f"- {item}" for item in citations) if citations else "- 无可用来源"
             block = [
                 f"## 章节 {index}: {title}",
-                f"置信等级:\n{section.confidence_level.strip() or 'low'}",
                 f"章节摘要:\n{summary}",
-                "限制摘要:",
-                section.limitation_summary.strip() or "- 暂无额外限制摘要",
-                "风险提示:",
-                risk_text or "- 无显式风险提示",
-                "待人工复核:",
-                manual_review_text or "- 暂无人工复核项",
-                "关联分支结论:",
-                branch_text or "- 无分支补充",
                 "可展开细节:",
                 finding_text or "- 无额外细节",
                 "本章节可引用来源:",
                 source_text,
             ]
+            if branch_text:
+                block[2:2] = ["补充上下文:", branch_text]
             blocks.append("\n".join(block))
         return "\n\n".join(blocks) if blocks else "暂无章节素材"
 
@@ -512,6 +503,8 @@ class ResearchReporter:
         self,
         report: str,
         topic: str,
+        *,
+        report_context: ReportContext | None = None,
     ) -> str:
         """
         Generate an executive summary for the report.
@@ -523,9 +516,25 @@ class ResearchReporter:
             ("user", DEEP_REPORTER_EXEC_SUMMARY_PROMPT)
         ])
 
+        summary_source = report[:5000]
+        if report_context is not None and report_context.sections:
+            lines: list[str] = []
+            for section in report_context.sections:
+                summary = str(section.summary or "").strip()
+                if summary:
+                    lines.append(summary)
+                lines.extend(
+                    str(item).strip()
+                    for item in section.findings[:2]
+                    if str(item).strip()
+                )
+            context_summary = "\n".join(lines).strip()
+            if context_summary:
+                summary_source = context_summary[:5000]
+
         msg = prompt.format_messages(
             topic=topic,
-            report=report[:5000],
+            report=summary_source,
         )
 
         response = self.llm.invoke(msg, config=self.config)

@@ -322,7 +322,7 @@ class _FakeReporter:
             )
         return normalized, urls
 
-    def generate_executive_summary(self, report, topic):
+    def generate_executive_summary(self, report, topic, *, report_context=None):
         return f"{topic} executive summary"
 
 
@@ -777,7 +777,7 @@ def test_multi_agent_dispatch_records_budget_stop_reason_when_search_budget_exha
     assert "stop" not in decision_types
 
 
-def test_low_confidence_sections_still_generate_report(monkeypatch):
+def test_low_confidence_sections_do_not_generate_report(monkeypatch):
     emitter = _DummyEmitter()
     _patch_runtime_deps(
         monkeypatch,
@@ -803,14 +803,116 @@ def test_low_confidence_sections_still_generate_report(monkeypatch):
     review = public_artifacts["section_reviews"][0]
 
     assert result["is_complete"] is True
-    assert result["final_report"]
-    assert result["terminal_status"] == ""
+    assert result["final_report"] == "Deep Research 未能完成：required sections remain blocked"
+    assert result["terminal_status"] == "blocked"
     assert review["reportability"] == "low"
     assert review["needs_manual_review"] is True
-    assert public_artifacts["validation_summary"]["report_ready"] is True
-    assert public_artifacts["quality_summary"]["report_ready"] is True
-    assert "report_partial" in decision_types
-    assert "outline_partial" in decision_types
+    assert public_artifacts["validation_summary"]["report_ready"] is False
+    assert public_artifacts["quality_summary"]["report_ready"] is False
+    assert "report_partial" not in decision_types
+    assert "outline_partial" not in decision_types
+
+
+def test_build_report_sections_skips_non_admitted_sections_and_truncates_medium_findings(monkeypatch):
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(monkeypatch, emitter=emitter)
+
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_report_section_filter"}},
+    )
+    store = multi_agent_runtime.LightweightArtifactStore()
+
+    store.set_section_draft(
+        {
+            "id": "draft-1",
+            "task_id": "task-1",
+            "section_id": "section_1",
+            "title": "Admitted section",
+            "summary": "stable summary",
+            "key_findings": ["f1", "f2", "f3"],
+            "source_urls": ["https://example.com/a"],
+            "contradiction_summary": {},
+            "section_order": 1,
+        }
+    )
+    store.set_section_review(
+        {
+            "id": "review-1",
+            "task_id": "task-1",
+            "section_id": "section_1",
+            "reportability": "medium",
+            "needs_manual_review": False,
+            "advisory_issues": [],
+            "blocking_issues": [],
+        }
+    )
+    store.set_section_certification(
+        {
+            "id": "cert-1",
+            "section_id": "section_1",
+            "certified": True,
+            "reportability": "medium",
+        }
+    )
+
+    store.set_section_draft(
+        {
+            "id": "draft-2",
+            "task_id": "task-2",
+            "section_id": "section_2",
+            "title": "Conflicting section",
+            "summary": "should be omitted",
+            "key_findings": ["g1", "g2"],
+            "source_urls": ["https://example.com/b"],
+            "contradiction_summary": {"has_material_conflict": True},
+            "section_order": 2,
+        }
+    )
+    store.set_section_review(
+        {
+            "id": "review-2",
+            "task_id": "task-2",
+            "section_id": "section_2",
+            "reportability": "medium",
+            "needs_manual_review": False,
+            "advisory_issues": [],
+            "blocking_issues": [],
+        }
+    )
+    store.set_section_certification(
+        {
+            "id": "cert-2",
+            "section_id": "section_2",
+            "certified": True,
+            "reportability": "medium",
+        }
+    )
+
+    sections = runtime._build_report_sections(store)
+
+    assert [section.title for section in sections] == ["Admitted section"]
+    assert sections[0].findings == ["f1", "f2"]
+    assert sections[0].citation_urls == ["https://example.com/a"]
+
+
+def test_medium_section_report_uses_admitted_content_only(monkeypatch):
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(monkeypatch, emitter=emitter, reporter=_ContextCheckingReporter)
+
+    result = run_deep_research(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_admitted_report",
+                "deep_research_query_num": 1,
+            }
+        },
+    )
+
+    assert result["final_report"]
+    assert result["terminal_status"] == ""
+    assert result["deep_research_artifacts"]["quality_summary"]["report_ready"] is True
 
 
 def test_final_claim_gate_records_review_needed_without_blocking(monkeypatch):

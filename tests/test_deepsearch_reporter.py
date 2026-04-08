@@ -112,3 +112,61 @@ def test_normalize_report_uses_sanitized_fallback_title_when_query_is_instructio
 
     assert normalized_report.startswith("# 2026年NIPS和CCF的冲突")
     assert "## 影响" in normalized_report
+
+
+def test_generate_report_prompt_omits_noisy_review_blocks():
+    llm = _RecordingLLM(content="# AI chips\n\nStructured report")
+    reporter = ResearchReporter(llm, {})
+    context = ReportContext(
+        topic="AI chips",
+        sections=[
+            ReportSectionContext(
+                title="市场概览",
+                summary="市场仍在高速扩张。",
+                branch_summaries=["仅供内部使用的补充上下文"],
+                findings=["资本开支持续增加"],
+                citation_urls=["https://example.com/report"],
+                confidence_level="medium",
+                limitation_summary="不要进入 prompt",
+                risk_highlights=["不要进入 prompt"],
+                manual_review_items=["不要进入 prompt"],
+            )
+        ],
+        sources=[ReportSource(url="https://example.com/report", title="Annual Report")],
+    )
+
+    reporter.generate_report(context)
+
+    assert llm.messages is not None
+    prompt_text = llm.messages[0].content
+    assert "风险提示" not in prompt_text
+    assert "待人工复核" not in prompt_text
+    assert "限制摘要" not in prompt_text
+    assert "本章节可引用来源" in prompt_text
+
+
+def test_generate_executive_summary_prefers_report_context_sections():
+    llm = _RecordingLLM(content="summary")
+    reporter = ResearchReporter(llm, {})
+    context = ReportContext(
+        topic="AI chips",
+        sections=[
+            ReportSectionContext(
+                title="市场概览",
+                summary="章节摘要A",
+                findings=["要点A1", "要点A2"],
+            )
+        ],
+    )
+
+    reporter.generate_executive_summary(
+        "RAW-ONLY-SHOULD-NOT-APPEAR\n" * 400,
+        "AI chips",
+        report_context=context,
+    )
+
+    assert llm.messages is not None
+    prompt_text = llm.messages[0].content
+    assert "章节摘要A" in prompt_text
+    assert "要点A1" in prompt_text
+    assert "RAW-ONLY-SHOULD-NOT-APPEAR" not in prompt_text

@@ -183,6 +183,32 @@ def _issue_messages(*issue_groups: list[dict[str, Any]]) -> list[str]:
     return messages
 
 
+def _resolved_section_reportability(
+    draft: dict[str, Any],
+    review: dict[str, Any],
+    certification: dict[str, Any],
+) -> str:
+    return str(
+        certification.get("reportability")
+        or review.get("reportability")
+        or ("high" if certification.get("certified") or draft.get("certified") else "low")
+    ).strip().lower()
+
+
+def _section_admitted_for_report(
+    draft: dict[str, Any],
+    review: dict[str, Any],
+    certification: dict[str, Any],
+) -> bool:
+    reportability = _resolved_section_reportability(draft, review, certification)
+    contradiction_summary = dict(draft.get("contradiction_summary") or {})
+    if reportability not in {"high", "medium"}:
+        return False
+    if bool(contradiction_summary.get("has_material_conflict")):
+        return False
+    return True
+
+
 def _issue_types(*issue_groups: list[dict[str, Any]]) -> list[str]:
     issue_types: list[str] = []
     seen: set[str] = set()
@@ -1666,10 +1692,21 @@ class MultiAgentDeepResearchRuntime:
             for item in store.section_reviews()
             if str(item.get("section_id") or "").strip()
         }
+        drafts = store.section_drafts()
+        draft_by_section = {
+            str(item.get("section_id") or "").strip(): item
+            for item in drafts
+            if str(item.get("section_id") or "").strip()
+        }
         reportable_section_ids = [
             str(item.get("section_id") or "").strip()
-            for item in store.reportable_section_drafts()
+            for item in drafts
             if str(item.get("section_id") or "").strip()
+            and _section_admitted_for_report(
+                item,
+                reviews.get(str(item.get("section_id") or "").strip(), {}),
+                certifications.get(str(item.get("section_id") or "").strip(), {}),
+            )
         ]
         if not required_section_ids and reviews:
             required_section_ids = list(reviews.keys())
@@ -1697,20 +1734,25 @@ class MultiAgentDeepResearchRuntime:
         supportive_section_ids = [
             section_id
             for section_id in required_section_ids
-            if str(
-                certifications.get(section_id, {}).get("reportability")
-                or reviews.get(section_id, {}).get("reportability")
-                or ("high" if certifications.get(section_id, {}).get("certified") else "")
-            ).strip().lower() in {"high", "medium"}
+            if _section_admitted_for_report(
+                draft_by_section.get(section_id, {}),
+                reviews.get(section_id, {}),
+                certifications.get(section_id, {}),
+            )
         ]
         high_confidence_section_ids = [
             section_id
             for section_id in required_section_ids
-            if str(
-                certifications.get(section_id, {}).get("reportability")
-                or reviews.get(section_id, {}).get("reportability")
-                or ("high" if certifications.get(section_id, {}).get("certified") else "")
-            ).strip().lower() == "high"
+            if _section_admitted_for_report(
+                draft_by_section.get(section_id, {}),
+                reviews.get(section_id, {}),
+                certifications.get(section_id, {}),
+            )
+            and _resolved_section_reportability(
+                draft_by_section.get(section_id, {}),
+                reviews.get(section_id, {}),
+                certifications.get(section_id, {}),
+            ) == "high"
         ]
         review_needed_section_ids = [
             section_id
@@ -1772,51 +1814,26 @@ class MultiAgentDeepResearchRuntime:
             section_id = str(item.get("section_id") or "").strip()
             review = store.section_review(section_id) if section_id else {}
             certification = store.section_certification(section_id) if section_id else {}
-            reportability = str(
-                certification.get("reportability")
-                or review.get("reportability")
-                or ("high" if item.get("certified") else "low")
-            ).strip().lower()
+            reportability = _resolved_section_reportability(item, review, certification)
+            if not _section_admitted_for_report(item, review, certification):
+                continue
             summary = str(item.get("summary") or "").strip()
             findings = _dedupe_texts(
                 [str(value).strip() for value in item.get("key_findings", []) or [] if str(value).strip()]
             )
-            issue_messages = _issue_messages(
-                list(review.get("advisory_issues") or []),
-                list(review.get("blocking_issues") or []),
-            )
-            limitation_messages = _dedupe_texts(
-                [
-                    *[str(value).strip() for value in item.get("limitations", []) or [] if str(value).strip()],
-                    *[
-                        str(value).strip()
-                        for value in certification.get("limitations", []) or []
-                        if str(value).strip()
-                    ],
-                    *issue_messages,
-                ]
-            )
-            if not bool(item.get("certified")):
-                limitation_messages = _dedupe_texts(
-                    [
-                        "该章节基于当前可得信息整理，尚未达到完全认证标准",
-                        *limitation_messages,
-                    ]
-                )
+            if reportability == "medium":
+                findings = findings[:2]
             sections.append(
                 ReportSectionContext(
                     title=str(item.get("title") or "研究章节"),
                     summary=summary or (findings[0] if findings else "暂无充分章节摘要"),
-                    branch_summaries=[
-                        f"置信等级: {_section_reportability_label(reportability)}",
-                        *[f"限制: {message}" for message in limitation_messages],
-                    ],
+                    branch_summaries=[],
                     findings=findings,
                     citation_urls=list(item.get("source_urls") or []),
                     confidence_level=reportability,
-                    limitation_summary="；".join(limitation_messages[:2]) if limitation_messages else "",
-                    risk_highlights=issue_messages[:3],
-                    manual_review_items=issue_messages[:3] if bool(review.get("needs_manual_review")) else [],
+                    limitation_summary="",
+                    risk_highlights=[],
+                    manual_review_items=[],
                 )
             )
         return sections
@@ -3031,7 +3048,7 @@ class MultiAgentDeepResearchRuntime:
             parts.runtime_state["terminal_reason"] = ""
             self._emit_decision(
                 "report_partial",
-                decision_reason or "reportable sections available with limitations",
+                decision_reason or "supported sections are available for reporting",
                 iteration=max(1, parts.current_iteration or 1),
                 extra=aggregate,
             )
@@ -3041,7 +3058,7 @@ class MultiAgentDeepResearchRuntime:
             parts.runtime_state["terminal_reason"] = ""
             self._emit_decision(
                 "report_partial",
-                decision_reason or budget_stop_reason or "using best available section drafts",
+                decision_reason or budget_stop_reason or "using admitted section drafts only",
                 iteration=max(1, parts.current_iteration or 1),
                 extra={
                     **aggregate,
@@ -3057,7 +3074,7 @@ class MultiAgentDeepResearchRuntime:
         elif aggregate.get("pending_section_count"):
             parts.runtime_state["terminal_reason"] = "required sections are not yet certified"
         else:
-            parts.runtime_state["terminal_reason"] = decision_reason or "no certified sections available"
+            parts.runtime_state["terminal_reason"] = decision_reason or "no admitted sections available"
         self._emit_decision("stop", parts.runtime_state["terminal_reason"], iteration=max(1, parts.current_iteration or 1))
         return self._patch(parts, next_step="finalize")
 
@@ -3078,7 +3095,7 @@ class MultiAgentDeepResearchRuntime:
                 parts.runtime_state["terminal_reason"] = ""
                 self._emit_decision(
                     "outline_partial",
-                    "required sections are incomplete; generating a partial report with limitations",
+                    "required sections are incomplete; generating a report from admitted sections",
                     iteration=max(1, parts.current_iteration or 1),
                     extra={
                         **aggregate,
@@ -3096,7 +3113,7 @@ class MultiAgentDeepResearchRuntime:
 
     def _report_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)
-        parts.runtime_state["active_agent"] = "supervisor"
+        parts.runtime_state["active_agent"] = "reporter"
         record = self._start_agent_run(parts, role="reporter", phase="report", attempt=self.graph_attempt)
         report_sections = self._build_report_sections(parts.artifact_store)
         if not report_sections:
@@ -3139,7 +3156,11 @@ class MultiAgentDeepResearchRuntime:
         report_context = ReportContext(topic=self.topic, sections=report_sections, sources=sources)
         report_markdown = self.reporter.generate_report(report_context)
         normalized_report, citation_urls = self.reporter.normalize_report(report_markdown, sources, title=self.topic)
-        executive_summary = self.reporter.generate_executive_summary(normalized_report, self.topic)
+        executive_summary = self.reporter.generate_executive_summary(
+            normalized_report,
+            self.topic,
+            report_context=report_context,
+        )
         final_report = FinalReportArtifact(
             id=support._new_id("final_report"),
             report_markdown=normalized_report,

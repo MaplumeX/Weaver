@@ -628,6 +628,32 @@ Reviewer/reporter consumption rules:
   recomputing all branch quality from raw text only.
 - `grounding_summary.primary_grounding_ratio` is the primary hard-gate input
   for claim grounding.
+- File: `agent/runtime/deep/orchestration/graph.py`
+  - `_build_report_sections(store) -> list[ReportSectionContext]`
+  - `_aggregate_sections(queue, store, runtime_state) -> dict[str, Any]`
+- File: `agent/runtime/deep/roles/reporter.py`
+  - `ResearchReporter.generate_report(topic_or_context, findings=None, sources=None) -> str`
+  - `ResearchReporter.generate_executive_summary(report, topic, *, report_context=None) -> str`
+- Reporter admission contract:
+  - Sections with `reportability in {"high", "medium"}` may enter the final
+    report context.
+  - Sections with `reportability in {"low", "insufficient"}` must be excluded
+    from the final report context.
+  - Sections with `contradiction_summary.has_material_conflict == true` must be
+    excluded from the final report context even if `reportability == "medium"`.
+  - `quality_summary.report_ready` / `outline_gate_summary.report_ready` mean
+    "at least one admitted section is available for reporting", not merely
+    "some section draft has non-empty text".
+- Reporter prompt contract:
+  - Reporter input may use `summary`, `key_findings`, and admitted
+    `source_urls`.
+  - Reporter input must not rely on `limitations`, `open_questions`,
+    `manual_review_items`, or advisory/blocking issue text for final body
+    generation in the "silent denoise" path.
+- Executive summary contract:
+  - `generate_executive_summary(...)` should prefer admitted section
+    `summary`/`findings` when `report_context` is available, instead of
+    truncating only the final markdown body.
 - Missing branch artifact lists in the store/public payload must degrade to
   `[]`/`{}` instead of raising.
 
@@ -639,6 +665,9 @@ Reviewer/reporter consumption rules:
 | No new evidence and no follow-up queries | bounded stop | `stop_reason="evidence_stagnated"` or `no_follow_up_queries` |
 | Only weak snippet evidence exists | draft may still be produced | reviewer can mark section `reportability=low` and `needs_manual_review=true` |
 | Evidence dominated by one source domain | contradiction artifact requests counterevidence | advisory follow-up, not hard failure by itself |
+| Draft has `reportability=low` or `insufficient` | reporter excludes it from final report context | `report_ready=false` when no admitted sections remain |
+| Draft has `reportability=medium` but `contradiction_summary.has_material_conflict=true` | reporter excludes it from final report context | final report omits the section |
+| Final report is long but admitted `report_context` is available | executive summary uses admitted section summaries/findings first | avoids summary drift from truncated markdown |
 | Branch artifacts omitted from merge/public adapters | merge must not crash | empty plural lists / empty summary dicts |
 
 ### 5. Good / Base / Bad Cases
@@ -669,6 +698,30 @@ task = {
 }
 ```
 
+Good reporter-admission case:
+
+```python
+draft = {
+    "summary": "Cloud demand remains concentrated in a few hyperscalers.",
+    "key_findings": ["NVIDIA remains the dominant training supplier."],
+    "contradiction_summary": {"has_material_conflict": False},
+}
+review = {"reportability": "medium"}
+certification = {"certified": True, "reportability": "medium"}
+```
+
+Base reporter-admission case:
+
+```python
+draft = {
+    "summary": "Supply remains constrained.",
+    "key_findings": [],
+    "contradiction_summary": {},
+}
+review = {"reportability": "high"}
+certification = {"certified": True}
+```
+
 Bad:
 
 ```python
@@ -682,6 +735,20 @@ payload = {
 Bad because downstream merge/public adapters and reviewer logic are keyed on
 `branch_artifacts` plus the plural snapshot keys listed above.
 
+Bad reporter-admission case:
+
+```python
+draft = {
+    "summary": "Unverified market share claim",
+    "key_findings": ["Vendor X holds 80% share"],
+    "contradiction_summary": {"has_material_conflict": True},
+}
+review = {"reportability": "medium"}
+```
+
+Bad because final report generation must not surface materially conflicting
+sections just because the draft text is non-empty.
+
 ### 6. Tests Required
 
 - `tests/test_deepsearch_researcher.py`
@@ -692,7 +759,17 @@ Bad because downstream merge/public adapters and reviewer logic are keyed on
 - `tests/test_deepsearch_multi_agent_runtime.py`
   - assert artifact store/public payload expose `branch_*` snapshot keys
   - assert section drafts carry structured coverage/quality/grounding summaries
-  - assert report generation still works for low-confidence sections
+  - assert report generation excludes `low`/`insufficient` sections from the
+    admitted reporter context
+  - assert materially conflicting sections are excluded from the admitted
+    reporter context
+  - assert admitted `medium` sections keep only the truncated reporter finding
+    set when the silent-denoise path is active
+- `tests/test_deepsearch_reporter.py`
+  - assert reporter prompt omits risk/manual-review/limitation blocks in the
+    silent-denoise path
+  - assert executive summary prefers admitted `report_context` summaries over
+    raw markdown truncation
 
 ### 7. Wrong vs Correct
 
