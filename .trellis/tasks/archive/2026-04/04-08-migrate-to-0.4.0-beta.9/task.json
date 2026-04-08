@@ -1,14 +1,14 @@
 {
   "title": "Migrate to v0.4.0-beta.9",
   "description": "Breaking change migration from v0.3.10 to v0.4.0-beta.9",
-  "status": "planning",
-  "dev_type": null,
+  "status": "completed",
+  "dev_type": "backend",
   "scope": "migration",
   "priority": "P1",
   "creator": "trellis-update",
   "assignee": "name=Maplume\ninitialized_at=2026-04-07T11:06:38.496227",
   "createdAt": "2026-04-08",
-  "completedAt": null,
+  "completedAt": "2026-04-08",
   "branch": null,
   "base_branch": null,
   "worktree_path": null,
@@ -36,5 +36,6 @@
   "subtasks": [],
   "children": [],
   "parent": null,
-  "meta": {}
+  "meta": {},
+  "package": null
 }

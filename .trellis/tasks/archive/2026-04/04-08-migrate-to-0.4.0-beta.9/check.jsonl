@@ -1,0 +1,6 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Review file placement and command ownership after migration"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review migration result against repository quality rules"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Check for missed old command references or duplicate command paths"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify update behavior, task context, and skills remain aligned"}
