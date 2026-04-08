@@ -8,7 +8,6 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from functools import wraps
 from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -174,60 +173,6 @@ class ConcurrencyController:
         tasks = [self.run_with_limit(func(item)) for item in items]
         return await asyncio.gather(*tasks, return_exceptions=True)
 
-
-class RateLimiter:
-    """
-    简单的速率限制器
-
-    使用令牌桶算法控制 API 调用频率
-    """
-
-    def __init__(self, calls_per_second: float = 1.0, burst: int = 1):
-        self.calls_per_second = calls_per_second
-        self.burst = burst
-        self.tokens = burst
-        self.last_update = time.time()
-        self._lock = asyncio.Lock()
-
-    async def acquire(self):
-        """获取一个令牌（如果没有可用令牌则等待）"""
-        async with self._lock:
-            now = time.time()
-            elapsed = now - self.last_update
-            self.last_update = now
-
-            # 补充令牌
-            self.tokens = min(self.burst, self.tokens + elapsed * self.calls_per_second)
-
-            if self.tokens < 1:
-                wait_time = (1 - self.tokens) / self.calls_per_second
-                logger.debug(f"RateLimiter: waiting {wait_time:.3f}s for token")
-                await asyncio.sleep(wait_time)
-                self.tokens = 0
-            else:
-                self.tokens -= 1
-
-
-def with_concurrency_limit(controller: ConcurrencyController):
-    """
-    装饰器：为异步函数添加并发限制
-
-    使用示例:
-        @with_concurrency_limit(controller)
-        async def fetch_data(url):
-            ...
-    """
-
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
-        @wraps(func)
-        async def wrapper(*args, **kwargs) -> T:
-            return await controller.run_with_limit(func(*args, **kwargs))
-
-        return wrapper
-
-    return decorator
-
-
 # 默认全局实例（延迟初始化，在实际使用时根据配置创建）
 _default_controller: ConcurrencyController | None = None
 
@@ -243,9 +188,3 @@ def get_concurrency_controller() -> ConcurrencyController:
             rate_limit=getattr(settings, "api_rate_limit", 0.5),
         )
     return _default_controller
-
-
-def reset_concurrency_controller():
-    """重置默认控制器（用于测试或配置更新）"""
-    global _default_controller
-    _default_controller = None

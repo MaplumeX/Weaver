@@ -129,27 +129,3 @@ def get_logger(name: str) -> logging.Logger:
         Configured logger instance
     """
     return logging.getLogger(name)
-
-
-class LogContext:
-    """Context manager for adding extra context to log records."""
-
-    def __init__(self, logger: logging.Logger, **kwargs):
-        self.logger = logger
-        self.context = kwargs
-        self.old_factory = None
-
-    def __enter__(self):
-        self.old_factory = logging.getLogRecordFactory()
-
-        def record_factory(*args, **kwargs):
-            record = self.old_factory(*args, **kwargs)
-            for key, value in self.context.items():
-                setattr(record, key, value)
-            return record
-
-        logging.setLogRecordFactory(record_factory)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        logging.setLogRecordFactory(self.old_factory)
