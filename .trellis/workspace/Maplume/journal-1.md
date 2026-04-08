@@ -706,3 +706,49 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: Consolidate web_search runtime
+
+**Date**: 2026-04-08
+**Task**: Consolidate web_search runtime
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Summary |
+|------|---------|
+| Public API | Consolidated all public API search entrypoints into `web_search` and removed legacy `fallback_search` / `search` surfaces |
+| Runtime | Split shared search contracts into `tools/search/contracts.py`, moved internal orchestration to `tools/search/orchestrator.py`, and routed callers through `run_web_search(...)` |
+| Deep Research | Removed the extra outer search cache layer and updated Deep Research search event payloads to report `web_search` |
+| Sandbox | Removed dead Tavily-specific fallback helpers, rejected `tavily` as a fake browser engine, and normalized API fallback rendering through the unified runtime |
+| Profiles/Migrations | Migrated built-in/default profiles and persisted agent tool names to `web_search` |
+| Tests/Spec | Renamed search test files to the new runtime terminology and updated backend tool/logging specs to match |
+
+**Validation**:
+- `uv run pytest tests/test_web_search.py tests/test_deepsearch_web_search.py tests/test_search_cache_ttl.py tests/test_search_reliability.py tests/test_search_ranking.py tests/test_search_provider_profiles.py tests/test_search_providers_endpoint.py`
+- `uv run pytest tests/test_sandbox_web_search_inputs.py ...`
+- `uv run ruff check ...`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d8a76a7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
