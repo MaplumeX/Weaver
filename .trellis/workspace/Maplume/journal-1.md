@@ -926,3 +926,51 @@ Implemented a bounded branch-scoped agentic researcher runtime, propagated riche
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: Deep Research reporter 静默降噪
+
+**Date**: 2026-04-08
+**Task**: Deep Research reporter 静默降噪
+**Branch**: `main`
+
+### Summary
+
+收紧 Deep Research reporter 的准入规则与写作输入，静默过滤低置信/冲突章节，并同步测试与 runtime contract 说明。
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Reporter admission | 仅允许 `high/medium` 且无实质冲突的章节进入 final report context，低置信章节被静默过滤 |
+| Prompting | 去掉 reporter 的强制长文倾向，要求只写被素材稳定支持的内容 |
+| Executive summary | 优先基于 admitted `report_context` 的摘要与 findings 生成，避免正文与摘要漂移 |
+| Runtime contract | 更新 `.trellis/spec/backend/tool-runtime-contracts.md`，写明 reporter 准入、`report_ready` 口径与摘要合同 |
+| Regression tests | 增加 reporter prompt/summary 回归测试，以及 deep runtime 对 admitted sections 的验证 |
+
+**Validation**:
+- `uv run pytest tests/test_deepsearch_reporter.py tests/test_deepsearch_multi_agent_runtime.py -q`
+- `uv run ruff check agent/runtime/deep/orchestration/graph.py agent/runtime/deep/roles/reporter.py agent/prompts/runtime_templates.py tests/test_deepsearch_reporter.py tests/test_deepsearch_multi_agent_runtime.py`
+- Human verified `make test` and manual testing
+
+**Notes**:
+- 当前 `get_context.py --mode record` 仍显示旧的 current task path，但 `.trellis/tasks/` 下已无 active tasks，故本次仅记录 session，不做 task archive。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5a2abed` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
