@@ -521,3 +521,50 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Archive beta.9 migration task
+
+**Date**: 2026-04-08
+**Task**: Archive beta.9 migration task
+**Branch**: `main`
+
+### Summary
+
+确认 Trellis beta.9 迁移已完成，补齐任务上下文与完成说明，并归档 04-08-migrate-to-0.4.0-beta.9 任务。
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Migration review | 确认仓库已处于 `0.4.0-beta.9`，`.agents/skills/` 下不存在旧的拆分技能文件，统一 `before-dev` / `check` 已生效 |
+| Task completion | 为迁移任务初始化并校验 `implement/check/debug` 上下文，补充 `prd.md` 完成说明，并将任务标记为 `completed` |
+| Task archival | 将 `04-08-migrate-to-0.4.0-beta.9` 归档到 `.trellis/tasks/archive/2026-04/04-08-migrate-to-0.4.0-beta.9/` |
+
+**Validation**:
+- `trellis update --dry-run --migrate`
+- `trellis update --migrate`
+- `python3 ./.trellis/scripts/task.py validate ".trellis/tasks/04-08-migrate-to-0.4.0-beta.9"`
+- `python3 ./.trellis/scripts/task.py list`
+
+**Archived Task**:
+- `.trellis/tasks/archive/2026-04/04-08-migrate-to-0.4.0-beta.9/task.json`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9038363` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
