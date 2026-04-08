@@ -1,4 +1,4 @@
-import { projectDeepResearchTimeline } from '@/lib/deep-research-timeline'
+import { projectUserFacingDeepResearchProgress } from '@/lib/deep-research-progress'
 import type { ProcessEvent, ToolInvocation } from '@/types/chat'
 
 export type ProcessSummaryTone = 'running' | 'completed' | 'error' | 'interrupted'
@@ -36,59 +36,26 @@ function summarizeDeepResearch(
   events: ProcessEvent[],
   isThinking: boolean,
 ): ProcessDisplayProjection | null {
-  const timeline = projectDeepResearchTimeline(events)
-  if (!timeline) return null
+  const progress = projectUserFacingDeepResearchProgress(events, isThinking)
+  if (!progress) return null
 
-  const latestTask = [...events]
-    .reverse()
-    .find((event) => event.type === 'research_task_update' && event.data?.status === 'in_progress')
-  const latestArtifact = [...events]
-    .reverse()
-    .find((event) => event.type === 'research_artifact_update')
-
-  let label = isThinking ? '处理中' : '已完成'
-  if (latestTask?.data?.stage === 'search') {
-    label = '正在检索资料'
-  } else if (
-    latestTask?.data?.stage === 'synthesize' ||
-    latestArtifact?.data?.artifact_type === 'section_draft'
-  ) {
-    label = '正在整理答案'
-  } else if (isThinking) {
-    label = '处理中'
-  }
-
-  const details: ProcessDisplayItem[] = []
-  if (
-    events.some(
-      (event) =>
-        event.type === 'research_decision' && event.data?.decision_type === 'scope_approved',
-    )
-  ) {
-    details.push({ id: 'scope', label: '研究范围', detail: '已确认范围并进入正式研究' })
-  }
-  if (latestTask?.data?.stage === 'search') {
-    details.push({
-      id: 'search',
-      label: '检索资料',
-      detail: String(latestTask.data?.title || '当前章节'),
-    })
-  }
-  if (latestArtifact?.data?.artifact_type === 'section_draft') {
-    details.push({
-      id: 'synthesize',
-      label: '汇总信息',
-      detail: String(latestArtifact.data?.title || '生成章节草稿'),
-    })
-  }
+  const hasError = hasEvent(events, 'error')
+  const hasInterrupt = hasEvent(events, 'interrupt', 'cancelled')
+  const tone: ProcessSummaryTone = hasError
+    ? 'error'
+    : hasInterrupt
+      ? 'interrupted'
+      : isThinking
+        ? 'running'
+        : 'completed'
 
   return {
     summary: {
-      label,
-      tone: isThinking ? 'running' : 'completed',
-      metrics: timeline.headerMetrics,
+      label: hasError ? '处理失败' : hasInterrupt ? '已中断' : progress.summaryLabel,
+      tone,
+      metrics: progress.metrics,
     },
-    details,
+    details: progress.details as ProcessDisplayItem[],
   }
 }
 

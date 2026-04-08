@@ -57,7 +57,23 @@ test('projects deep research events into the same two-level display model', () =
     tools: [],
     events: [
       event('scope-approved', 'research_decision', 10, { decision_type: 'scope_approved' }),
-      event('task-search', 'research_task_update', 20, {
+      event('task-ready-1', 'research_task_update', 20, {
+        task_id: 'task-1',
+        section_id: 'section-1',
+        task_kind: 'section_research',
+        title: 'Supply chain resilience',
+        status: 'ready',
+        stage: 'planned',
+      }),
+      event('task-ready-2', 'research_task_update', 21, {
+        task_id: 'task-2',
+        section_id: 'section-2',
+        task_kind: 'section_research',
+        title: 'Packaging capacity',
+        status: 'ready',
+        stage: 'planned',
+      }),
+      event('task-search', 'research_task_update', 30, {
         task_id: 'task-1',
         section_id: 'section-1',
         task_kind: 'section_research',
@@ -66,23 +82,79 @@ test('projects deep research events into the same two-level display model', () =
         stage: 'search',
         iteration: 1,
       }),
-      event('section-draft', 'research_artifact_update', 30, {
-        artifact_id: 'section-draft-1',
-        artifact_type: 'section_draft',
-        status: 'created',
+      event('section-certified', 'research_artifact_update', 40, {
+        artifact_id: 'cert-1',
+        artifact_type: 'section_certification',
+        status: 'completed',
         task_id: 'task-1',
         section_id: 'section-1',
         task_kind: 'section_research',
         title: 'Supply chain resilience',
         iteration: 1,
       }),
+      event('task-search-2', 'research_task_update', 50, {
+        task_id: 'task-2',
+        section_id: 'section-2',
+        task_kind: 'section_research',
+        title: 'Packaging capacity',
+        status: 'in_progress',
+        stage: 'search',
+        iteration: 1,
+      }),
     ],
   })
 
   assert.equal(projection.summary.label, '正在检索资料')
-  assert.ok(projection.summary.metrics.includes('1 section'))
+  assert.deepEqual(projection.summary.metrics, ['1/2 章节完成'])
   assert.deepEqual(
-    projection.details.map((item) => item.label),
-    ['研究范围', '检索资料', '汇总信息'],
+    projection.details.map((item) => `${item.label}:${item.detail}`),
+    ['Supply chain resilience:已完成', 'Packaging capacity:检索资料中'],
+  )
+})
+
+test('keeps pre-research planning in chapter view without leaking technical iteration state', () => {
+  const projection = projectProcessDisplay({
+    isThinking: true,
+    tools: [],
+    events: [
+      event('scope-approved', 'research_decision', 10, { decision_type: 'scope_approved' }),
+      event('outline', 'research_artifact_update', 20, {
+        artifact_id: 'outline-1',
+        artifact_type: 'outline',
+        status: 'created',
+      }),
+      event('task-ready-1', 'research_task_update', 30, {
+        task_id: 'task-1',
+        section_id: 'section-1',
+        task_kind: 'section_research',
+        title: 'Supply chain resilience',
+        status: 'ready',
+        stage: 'planned',
+        iteration: 1,
+      }),
+      event('task-ready-2', 'research_task_update', 31, {
+        task_id: 'task-2',
+        section_id: 'section-2',
+        task_kind: 'section_research',
+        title: 'Packaging capacity',
+        status: 'ready',
+        stage: 'planned',
+        iteration: 1,
+      }),
+    ],
+  })
+
+  assert.equal(projection.summary.label, '正在制定研究计划')
+  assert.deepEqual(projection.summary.metrics, ['已规划 2 个章节'])
+  assert.deepEqual(projection.details, [
+    {
+      id: 'pending-sections',
+      label: '待开始章节',
+      detail: '还有 2 个章节尚未开始',
+    },
+  ])
+  assert.equal(
+    buildProcessHeaderText({ projection, durationLabel: '12s' }),
+    '正在制定研究计划 · 12s · 已规划 2 个章节',
   )
 })

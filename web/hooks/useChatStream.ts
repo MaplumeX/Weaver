@@ -5,9 +5,11 @@ import { ChatMode, createSearchModePayload } from '@/lib/chat-mode'
 import { buildChatRequestPayload } from '@/lib/chat-request'
 import { createLegacyChatStreamState, consumeLegacyChatStreamChunk } from '@/lib/chatStreamProtocol'
 import { appendProcessEvent, createStreamingAssistantMessage } from '@/lib/chat-stream-state'
+import { getDeepResearchAutoStatusText } from '@/lib/deep-research-progress'
 import {
   buildInterruptResumePayload,
   getInterruptConversationMessage,
+  InterruptReview,
   normalizeInterruptReview,
 } from '@/lib/interrupt-review'
 
@@ -18,161 +20,19 @@ interface UseChatStreamProps {
 
 type ToolLifecycleEventType = 'tool'
 
-export function getDeepResearchAutoStatus(eventType: string, payload: any): string | null {
-  const role = String(payload?.role || '').trim()
-  const agentId = String(payload?.agent_id || payload?.agentId || '').trim()
-  const taskTitle = String(
-    payload?.title || payload?.objective_summary || payload?.query || payload?.task_id || '',
-  ).trim()
-  const decisionType = String(payload?.decision_type || '').trim()
-  const artifactType = String(payload?.artifact_type || '').trim()
-  const status = String(payload?.status || '').trim()
-  const stage = String(payload?.stage || '').trim()
-  const validationStage = String(payload?.validation_stage || '').trim()
-  const attempt = typeof payload?.attempt === 'number' ? payload.attempt : undefined
-  const resumed = Boolean(payload?.resumed_from_checkpoint)
-
-  const researcherStageLabel =
-    stage === 'search'
-      ? '搜索来源'
-      : stage === 'read'
-        ? '读取文档'
-        : stage === 'extract'
-          ? '抽取证据'
-          : stage === 'synthesize'
-            ? '综合章节草稿'
-            : '执行章节任务'
-
-  if (eventType === 'research_agent_start') {
-    if (role === 'clarify') return '多 Agent 调研：正在澄清研究目标与约束…'
-    if (role === 'scope') {
-      return resumed ? '多 Agent 调研：正在根据反馈重写研究范围草案…' : '多 Agent 调研：正在生成研究范围草案…'
-    }
-    if (role === 'supervisor') {
-      return resumed
-        ? '多 Agent 调研：已确认范围，正在继续评估大纲并派发章节任务…'
-        : '多 Agent 调研：正在评估大纲并派发章节任务…'
-    }
-    if (role === 'researcher') {
-      const target = taskTitle || agentId || 'researcher'
-      if (attempt && attempt > 1) return `多 Agent 调研：重试章节 · ${target} · ${researcherStageLabel}`
-      if (resumed) return `多 Agent 调研：恢复章节 · ${target} · ${researcherStageLabel}`
-      return `多 Agent 调研：开始章节 · ${target} · ${researcherStageLabel}`
-    }
-    if (role === 'reviewer') {
-      return resumed ? '多 Agent 调研：已恢复执行，正在审查章节草稿…' : '多 Agent 调研：正在审查章节草稿…'
-    }
-    if (role === 'revisor') {
-      return resumed ? '多 Agent 调研：已恢复执行，正在修订章节草稿…' : '多 Agent 调研：正在修订章节草稿…'
-    }
-    if (role === 'verifier') {
-      if (validationStage === 'claim_check' || stage === 'final_claim_gate') {
-        return resumed ? '多 Agent 调研：已恢复执行，正在核对 claim 与 citation…' : '多 Agent 调研：正在核对 claim 与 citation…'
-      }
-      if (validationStage === 'coverage_check') {
-        return resumed ? '多 Agent 调研：已恢复执行，正在检查 coverage 与 gap…' : '多 Agent 调研：正在检查 coverage 与 gap…'
-      }
-      return resumed ? '多 Agent 调研：已恢复执行，正在执行最终 claim gate…' : '多 Agent 调研：正在执行最终 claim gate…'
-    }
-    if (role === 'reporter') return resumed ? '多 Agent 调研：已恢复执行，正在生成最终报告…' : '多 Agent 调研：正在生成最终报告…'
-  }
-
-  if (eventType === 'research_agent_complete') {
-    if (role === 'clarify' && status === 'completed') return '多 Agent 调研：需求澄清完成'
-    if (role === 'scope' && status === 'completed') return '多 Agent 调研：范围草案已生成'
-    if (role === 'reporter' && status === 'completed') return '多 Agent 调研：最终报告已生成'
-    if (role === 'reviewer' && status === 'completed') return '多 Agent 调研：章节审查完成'
-    if (role === 'revisor' && status === 'completed') return '多 Agent 调研：章节修订完成'
-    if (role === 'verifier' && status === 'completed') {
-      if (validationStage === 'claim_check') return '多 Agent 调研：claim/citation 检查完成'
-      if (validationStage === 'coverage_check') return '多 Agent 调研：coverage/gap 检查完成'
-      return '多 Agent 调研：最终 claim gate 完成'
-    }
-    if (role === 'researcher' && status === 'completed') {
-      return `多 Agent 调研：章节完成 · ${taskTitle || agentId || 'researcher'}`
-    }
-  }
-
-  if (eventType === 'research_task_update') {
-    if (status === 'ready') return `多 Agent 调研：章节已入队 · ${taskTitle || '未命名章节'}`
-    if (status === 'in_progress') {
-      if (attempt && attempt > 1) return `多 Agent 调研：重试章节 · ${taskTitle || '未命名章节'} · ${researcherStageLabel}`
-      return `多 Agent 调研：执行章节 · ${taskTitle || '未命名章节'} · ${researcherStageLabel}`
-    }
-    if (status === 'completed') return `多 Agent 调研：章节完成 · ${taskTitle || '未命名章节'}`
-    if (status === 'failed' || status === 'blocked') return `多 Agent 调研：章节${status === 'failed' ? '失败' : '阻塞'} · ${taskTitle || '未命名章节'}`
-  }
-
-  if (eventType === 'research_artifact_update') {
-    if (artifactType === 'scope_draft') {
-      if (status === 'approved') return '多 Agent 调研：研究范围已批准，准备开始规划'
-      if (status === 'revision_requested') return '多 Agent 调研：已收到范围修改意见，正在重写草案'
-      return '多 Agent 调研：新的研究范围草案已生成'
-    }
-    if (artifactType === 'scope') return '多 Agent 调研：研究范围已固化，准备生成大纲'
-    if (artifactType === 'plan') return '多 Agent 调研：已生成章节任务计划'
-    if (artifactType === 'outline') return '多 Agent 调研：已生成研究大纲与必需章节'
-    if (artifactType === 'evidence_bundle') {
-      const sourceCount = typeof payload?.source_count === 'number' ? payload.source_count : 0
-      return sourceCount > 0
-        ? `多 Agent 调研：已记录章节证据包 · ${sourceCount} 个来源`
-        : '多 Agent 调研：已记录章节证据包'
-    }
-    if (artifactType === 'section_draft' || artifactType === 'branch_result') return '多 Agent 调研：已生成章节草稿'
-    if (artifactType === 'section_review') return '多 Agent 调研：章节审查结果已更新'
-    if (artifactType === 'section_certification') return '多 Agent 调研：章节已认证，可进入汇总'
-    if (artifactType === 'validation_summary') {
-      const validationStatus = String(payload?.validation_status || '').trim()
-      if (validationStatus === 'passed') return '多 Agent 调研：章节验证通过'
-      if (validationStatus === 'retry') return '多 Agent 调研：章节验证要求补充研究'
-      if (validationStatus === 'failed') return '多 Agent 调研：章节验证未通过'
-      return '多 Agent 调研：章节验证摘要已更新'
-    }
-    if (artifactType === 'final_report') return '多 Agent 调研：已落盘最终报告产物'
-  }
-
-  if (eventType === 'research_decision') {
-    if (decisionType === 'clarify_required') return '多 Agent 调研：需要补充研究背景与约束'
-    if (decisionType === 'scope_ready') return '多 Agent 调研：研究范围已准备好进入审阅'
-    if (decisionType === 'scope_revision_requested') return '多 Agent 调研：根据反馈重写研究范围'
-    if (decisionType === 'scope_approved') return '多 Agent 调研：研究范围已确认，开始正式规划'
-    if (decisionType === 'research_brief_ready') return '多 Agent 调研：研究范围已固化，准备生成研究大纲'
-    if (decisionType === 'outline_plan') return '多 Agent 调研：已生成研究大纲与章节计划'
-    if (decisionType === 'retry_branch' || decisionType === 'verification_retry_requested') return '多 Agent 调研：验证要求重试当前章节'
-    if (decisionType === 'review_updated') return '多 Agent 调研：章节审查已更新，正在决定下一步'
-    if (decisionType === 'review_passed') return '多 Agent 调研：章节审查已通过，准备汇总'
-    if (decisionType === 'coverage_gap_detected') return '多 Agent 调研：验证发现 coverage gap，准备补充规划'
-    if (decisionType === 'verification_passed') return '多 Agent 调研：章节验证通过，准备汇总'
-    if (decisionType === 'plan' || decisionType === 'replan' || decisionType === 'supervisor_plan') {
-      return '多 Agent 调研：supervisor 已更新研究大纲'
-    }
-    if (decisionType === 'research') return '多 Agent 调研：supervisor 决定继续章节研究'
-    if (decisionType === 'report' || decisionType === 'outline_ready') return '多 Agent 调研：章节已认证，准备生成最终报告'
-    if (decisionType === 'report_partial' || decisionType === 'outline_partial') {
-      return '多 Agent 调研：章节未全部认证，正在基于当前证据生成带限制说明的报告'
-    }
-    if (decisionType === 'final_claim_gate_passed') return '多 Agent 调研：最终 claim gate 已通过'
-    if (decisionType === 'final_claim_gate_review_needed') {
-      return '多 Agent 调研：最终 claim 检查发现待复核项，结果已保留并附带质量提示'
-    }
-    if (decisionType === 'final_claim_gate_blocked') return '多 Agent 调研：最终 claim gate 检出冲突，流程已阻塞'
-    if (decisionType === 'synthesize' || decisionType === 'complete') return '多 Agent 调研：supervisor 决定进入汇总阶段'
-    if (decisionType === 'budget_stop') return '多 Agent 调研：触发预算停止条件'
-    if (decisionType === 'stop') return '多 Agent 调研：调研流程已停止'
-  }
-
-  return null
+export function getDeepResearchAutoStatus(eventType: string, payload: unknown): string | null {
+  return getDeepResearchAutoStatusText(eventType, payload)
 }
 
-function getInterruptStatusText(review: any, message: string): string {
+function getInterruptStatusText(review: InterruptReview | null, message: string): string {
   if (review?.kind === 'clarify_question') return '继续补充你的研究目标与约束'
   if (review?.kind === 'scope_review') return '请确认研究范围，或继续修改'
   return review?.title || message || 'Review required before continuing'
 }
 
 function normalizeToolEvent(
-  eventType: ToolLifecycleEventType,
-  payload: any,
+  _eventType: ToolLifecycleEventType,
+  payload: Record<string, unknown> | undefined,
 ) {
   const toolName = String(payload?.name || payload?.tool || payload?.tool_id || '').trim() || 'unknown'
   const args =
@@ -211,7 +71,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
   const [isLoading, setIsLoading] = useState(false)
   const [currentStatus, setCurrentStatus] = useState<string>('')
   const [artifacts, setArtifacts] = useState<Artifact[]>([])
-  const [pendingInterrupt, setPendingInterrupt] = useState<any>(null)
+  const [pendingInterrupt, setPendingInterrupt] = useState<InterruptReview | null>(null)
   const [threadId, setThreadId] = useState<string | null>(null)
   
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -269,7 +129,7 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
         )
       }
 
-      const pushProcessEvent = (type: string, payload: any) => {
+      const pushProcessEvent = (type: string, payload: unknown) => {
         assistantMessage = appendProcessEvent(assistantMessage, type, payload)
       }
 
@@ -553,9 +413,9 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
       const assistantMessage = createStreamingAssistantMessage()
       setMessages((prev) => [...prev, assistantMessage])
       await consumeStreamingResponse(response, assistantMessage)
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        console.log('Request aborted')
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        // Ignore aborts triggered by the user.
       } else {
         console.error('Error:', error)
         setMessages((prev) => [
@@ -618,9 +478,9 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
       setPendingInterrupt(null)
       setMessages((prev) => [...prev, assistantMessage])
       await consumeStreamingResponse(res, assistantMessage, reader)
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        console.log('Resume request aborted')
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Ignore aborts triggered by the user.
       } else {
         console.error('Failed to resume interrupt', err)
         setMessages(prev => [

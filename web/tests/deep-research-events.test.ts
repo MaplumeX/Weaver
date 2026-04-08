@@ -14,7 +14,7 @@ test('maps research task updates to readable auto status', () => {
     query: 'latest AI chip roadmap',
   })
 
-  assert.equal(text, '多 Agent 调研：执行章节 · latest AI chip roadmap · 执行章节任务')
+  assert.equal(text, '多 Agent 调研：正在检索资料 · latest AI chip roadmap')
 })
 
 test('maps supervisor decisions to readable auto status', () => {
@@ -22,7 +22,7 @@ test('maps supervisor decisions to readable auto status', () => {
     decision_type: 'synthesize',
   })
 
-  assert.equal(text, '多 Agent 调研：supervisor 决定进入汇总阶段')
+  assert.equal(text, '多 Agent 调研：正在生成最终答案')
 })
 
 test('maps retry task updates to readable auto status', () => {
@@ -32,7 +32,7 @@ test('maps retry task updates to readable auto status', () => {
     attempt: 2,
   })
 
-  assert.equal(text, '多 Agent 调研：重试章节 · latest AI chip roadmap · 执行章节任务')
+  assert.equal(text, '多 Agent 调研：正在补充研究 · latest AI chip roadmap')
 })
 
 test('maps clarify lifecycle to readable auto status', () => {
@@ -40,7 +40,7 @@ test('maps clarify lifecycle to readable auto status', () => {
     role: 'clarify',
   })
 
-  assert.equal(text, '多 Agent 调研：正在澄清研究目标与约束…')
+  assert.equal(text, '多 Agent 调研：正在明确问题')
 })
 
 test('maps scope approval decisions to readable auto status', () => {
@@ -48,7 +48,7 @@ test('maps scope approval decisions to readable auto status', () => {
     decision_type: 'scope_approved',
   })
 
-  assert.equal(text, '多 Agent 调研：研究范围已确认，开始正式规划')
+  assert.equal(text, '多 Agent 调研：研究范围已确认')
 })
 
 test('maps scope draft artifact revisions to readable auto status', () => {
@@ -57,7 +57,7 @@ test('maps scope draft artifact revisions to readable auto status', () => {
     status: 'revision_requested',
   })
 
-  assert.equal(text, '多 Agent 调研：已收到范围修改意见，正在重写草案')
+  assert.equal(text, '多 Agent 调研：需要调整研究范围')
 })
 
 test('maps resumed supervisor lifecycle to readable auto status', () => {
@@ -66,7 +66,7 @@ test('maps resumed supervisor lifecycle to readable auto status', () => {
     resumed_from_checkpoint: true,
   })
 
-  assert.equal(text, '多 Agent 调研：已确认范围，正在继续评估大纲并派发章节任务…')
+  assert.equal(text, '多 Agent 调研：正在制定研究计划')
 })
 
 test('maps verifier claim-check lifecycle to readable auto status', () => {
@@ -75,7 +75,7 @@ test('maps verifier claim-check lifecycle to readable auto status', () => {
     validation_stage: 'claim_check',
   })
 
-  assert.equal(text, '多 Agent 调研：正在核对 claim 与 citation…')
+  assert.equal(text, '多 Agent 调研：正在复核结论')
 })
 
 test('maps section review artifact to readable auto status', () => {
@@ -83,9 +83,10 @@ test('maps section review artifact to readable auto status', () => {
     artifact_type: 'section_review',
     status: 'created',
     review_verdict: 'accept_section',
+    title: 'Supply chain resilience',
   })
 
-  assert.equal(text, '多 Agent 调研：章节审查结果已更新')
+  assert.equal(text, '多 Agent 调研：章节已通过复核 · Supply chain resilience')
 })
 
 test('maps final claim gate decision to readable auto status', () => {
@@ -93,7 +94,7 @@ test('maps final claim gate decision to readable auto status', () => {
     decision_type: 'final_claim_gate_passed',
   })
 
-  assert.equal(text, '多 Agent 调研：最终 claim gate 已通过')
+  assert.equal(text, '多 Agent 调研：最终结论已复核')
 })
 
 test('continuation message keeps resumed process events in order', () => {
