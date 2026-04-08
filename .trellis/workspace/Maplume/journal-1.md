@@ -621,3 +621,40 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: 清理 agent 模块未使用代码
+
+**Date**: 2026-04-08
+**Task**: 清理 agent 模块未使用代码
+**Branch**: `main`
+
+### Summary
+
+删除 agent 模块中确认无消费者的 legacy runtime 代码，收窄公开导出，移除 deep research 中已废弃的 knowledge_gap 链路，并同步更新回归测试。
+
+### Main Changes
+
+- 清理 `agent/core/processor_config.py`、`agent/parsers/` 以及 `agent/core` 中确认无人调用的辅助逻辑，收窄 `agent.core` 公共导出。
+- 删除 deep research 中未接入主流程的 `knowledge_gap` 实现、悬空状态字段和相关 facade/export。
+- 更新 `tests/test_agent_runtime_public_contracts.py`、`tests/test_deepsearch_multi_agent_runtime.py`、`tests/test_deepsearch_intake_context.py` 以匹配当前真实运行链。
+- 验证通过：`uv run ruff check ...`、`uv run pytest tests/test_agent_runtime_public_contracts.py`、`uv run pytest tests/test_deepsearch_multi_agent_runtime.py tests/test_deepsearch_intake_context.py`。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7963add` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
