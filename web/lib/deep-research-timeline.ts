@@ -310,8 +310,14 @@ function describeDecision(decisionType: string, reason: string): string {
       return 'Preparing final report'
     case 'outline_ready':
       return 'Outline gate passed'
+    case 'report_partial':
+      return 'Preparing partial report'
+    case 'outline_partial':
+      return 'Outline gate advisory only'
     case 'final_claim_gate_passed':
       return 'Final claim gate passed'
+    case 'final_claim_gate_review_needed':
+      return 'Final claim gate needs review'
     case 'final_claim_gate_blocked':
       return 'Final claim gate blocked'
     case 'budget_stop':
@@ -515,10 +521,21 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
     ) {
       return 'section_review'
     }
-    if (decisionType === 'report' || decisionType === 'outline_ready' || decisionType === 'budget_stop' || decisionType === 'stop') {
+    if (
+      decisionType === 'report' ||
+      decisionType === 'report_partial' ||
+      decisionType === 'outline_ready' ||
+      decisionType === 'outline_partial' ||
+      decisionType === 'budget_stop' ||
+      decisionType === 'stop'
+    ) {
       return 'report'
     }
-    if (decisionType === 'final_claim_gate_passed' || decisionType === 'final_claim_gate_blocked') {
+    if (
+      decisionType === 'final_claim_gate_passed' ||
+      decisionType === 'final_claim_gate_review_needed' ||
+      decisionType === 'final_claim_gate_blocked'
+    ) {
       return 'final_claim_gate'
     }
     if (decisionType === 'synthesize' || decisionType === 'complete') return 'report'
@@ -696,8 +713,9 @@ function buildPhaseSummary(
   }
 
   if (key === 'final_claim_gate') {
+    const reviewNeeded = events.some((event) => text(event.payload?.decision_type) === 'final_claim_gate_review_needed')
     const blocked = events.some((event) => text(event.payload?.decision_type) === 'final_claim_gate_blocked')
-    metrics.push(blocked ? 'Blocked' : 'Passed')
+    metrics.push(blocked ? 'Blocked' : reviewNeeded ? 'Review needed' : 'Passed')
   }
 
   const highlights = events

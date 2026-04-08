@@ -148,7 +148,13 @@ export function getDeepResearchAutoStatus(eventType: string, payload: any): stri
     }
     if (decisionType === 'research') return '多 Agent 调研：supervisor 决定继续章节研究'
     if (decisionType === 'report' || decisionType === 'outline_ready') return '多 Agent 调研：章节已认证，准备生成最终报告'
+    if (decisionType === 'report_partial' || decisionType === 'outline_partial') {
+      return '多 Agent 调研：章节未全部认证，正在基于当前证据生成带限制说明的报告'
+    }
     if (decisionType === 'final_claim_gate_passed') return '多 Agent 调研：最终 claim gate 已通过'
+    if (decisionType === 'final_claim_gate_review_needed') {
+      return '多 Agent 调研：最终 claim 检查发现待复核项，结果已保留并附带质量提示'
+    }
     if (decisionType === 'final_claim_gate_blocked') return '多 Agent 调研：最终 claim gate 检出冲突，流程已阻塞'
     if (decisionType === 'synthesize' || decisionType === 'complete') return '多 Agent 调研：supervisor 决定进入汇总阶段'
     if (decisionType === 'budget_stop') return '多 Agent 调研：触发预算停止条件'

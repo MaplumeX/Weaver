@@ -400,6 +400,19 @@ class LightweightArtifactStore:
             if bool(item.get("certified"))
         ]
 
+    def reportable_section_drafts(self) -> list[dict[str, Any]]:
+        reportable: list[dict[str, Any]] = []
+        for item in self.section_drafts():
+            summary = str(item.get("summary") or "").strip()
+            findings = [
+                str(value).strip()
+                for value in item.get("key_findings", []) or []
+                if str(value).strip()
+            ]
+            if summary or findings:
+                reportable.append(item)
+        return reportable
+
     def all_sources(self) -> list[dict[str, Any]]:
         sources: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -1490,6 +1503,54 @@ class MultiAgentDeepResearchRuntime:
             "ready_task_count": queue.ready_count(),
             "source_count": len(store.all_sources()),
         }
+
+    def _build_report_sections(self, store: LightweightArtifactStore) -> list[ReportSectionContext]:
+        sections: list[ReportSectionContext] = []
+        for item in store.reportable_section_drafts():
+            section_id = str(item.get("section_id") or "").strip()
+            review = store.section_review(section_id) if section_id else {}
+            certification = store.section_certification(section_id) if section_id else {}
+            summary = str(item.get("summary") or "").strip()
+            findings = _dedupe_texts(
+                [str(value).strip() for value in item.get("key_findings", []) or [] if str(value).strip()]
+            )
+            limitation_messages = _dedupe_texts(
+                [
+                    *[str(value).strip() for value in item.get("limitations", []) or [] if str(value).strip()],
+                    *[
+                        str(value).strip()
+                        for value in certification.get("limitations", []) or []
+                        if str(value).strip()
+                    ],
+                    *[
+                        str(issue.get("message") or "").strip()
+                        for issue in review.get("advisory_issues", []) or []
+                        if str(issue.get("message") or "").strip()
+                    ],
+                    *[
+                        str(issue.get("message") or "").strip()
+                        for issue in review.get("blocking_issues", []) or []
+                        if str(issue.get("message") or "").strip()
+                    ],
+                ]
+            )
+            if not bool(item.get("certified")):
+                limitation_messages = _dedupe_texts(
+                    [
+                        "该章节基于当前可得信息整理，尚未达到完全认证标准",
+                        *limitation_messages,
+                    ]
+                )
+            sections.append(
+                ReportSectionContext(
+                    title=str(item.get("title") or "研究章节"),
+                    summary=summary or (findings[0] if findings else "暂无充分章节摘要"),
+                    branch_summaries=[f"限制: {message}" for message in limitation_messages],
+                    findings=findings,
+                    citation_urls=list(item.get("source_urls") or []),
+                )
+            )
+        return sections
 
     def _normalize_passages_for_claim_gate(self, store: LightweightArtifactStore) -> list[dict[str, Any]]:
         passages: list[dict[str, Any]] = []
@@ -2801,6 +2862,7 @@ class MultiAgentDeepResearchRuntime:
         parts = self._unpack(graph_state)
         parts.runtime_state["active_agent"] = "supervisor"
         aggregate = self._aggregate_sections(parts.task_queue, parts.artifact_store, parts.runtime_state)
+        reportable_sections = self._build_report_sections(parts.artifact_store)
         budget_stop_reason = self._budget_stop_reason(parts.runtime_state)
         previous_budget_stop_reason = str(parts.runtime_state.get("budget_stop_reason") or "")
         parts.runtime_state["budget_stop_reason"] = budget_stop_reason
@@ -2826,7 +2888,22 @@ class MultiAgentDeepResearchRuntime:
             decision_action = str(decision.get("action") or "").strip().lower()
             decision_reason = str(decision.get("reasoning") or "").strip()
         if decision_action == "report" and bool(aggregate.get("outline_ready")):
+            parts.runtime_state["terminal_status"] = ""
+            parts.runtime_state["terminal_reason"] = ""
             self._emit_decision("report", decision_reason, iteration=max(1, parts.current_iteration or 1), extra=aggregate)
+            return self._patch(parts, next_step="outline_gate")
+        if reportable_sections:
+            parts.runtime_state["terminal_status"] = ""
+            parts.runtime_state["terminal_reason"] = ""
+            self._emit_decision(
+                "report_partial",
+                decision_reason or budget_stop_reason or "using best available section drafts",
+                iteration=max(1, parts.current_iteration or 1),
+                extra={
+                    **aggregate,
+                    "reportable_section_count": len(reportable_sections),
+                },
+            )
             return self._patch(parts, next_step="outline_gate")
         parts.runtime_state["terminal_status"] = "blocked"
         if budget_stop_reason:
@@ -2850,10 +2927,26 @@ class MultiAgentDeepResearchRuntime:
         parts = self._unpack(graph_state)
         aggregate = self._aggregate_sections(parts.task_queue, parts.artifact_store, parts.runtime_state)
         parts.runtime_state["outline_gate_summary"] = aggregate
+        reportable_sections = self._build_report_sections(parts.artifact_store)
         if not bool(aggregate.get("outline_ready")):
+            if reportable_sections:
+                parts.runtime_state["terminal_status"] = ""
+                parts.runtime_state["terminal_reason"] = ""
+                self._emit_decision(
+                    "outline_partial",
+                    "required sections are incomplete; generating a partial report with limitations",
+                    iteration=max(1, parts.current_iteration or 1),
+                    extra={
+                        **aggregate,
+                        "reportable_section_count": len(reportable_sections),
+                    },
+                )
+                return self._patch(parts, next_step="report")
             parts.runtime_state["terminal_status"] = "blocked"
             parts.runtime_state["terminal_reason"] = "required sections are not fully certified"
             return self._patch(parts, next_step="finalize")
+        parts.runtime_state["terminal_status"] = ""
+        parts.runtime_state["terminal_reason"] = ""
         self._emit_decision("outline_ready", "certified sections ready for final report", iteration=max(1, parts.current_iteration or 1), extra=aggregate)
         return self._patch(parts, next_step="report")
 
@@ -2861,9 +2954,9 @@ class MultiAgentDeepResearchRuntime:
         parts = self._unpack(graph_state)
         parts.runtime_state["active_agent"] = "supervisor"
         record = self._start_agent_run(parts, role="reporter", phase="report", attempt=self.graph_attempt)
-        certified_sections = parts.artifact_store.certified_section_drafts()
-        if not certified_sections:
-            self._finish_agent_run(parts, record, status="failed", summary="no certified sections")
+        report_sections = self._build_report_sections(parts.artifact_store)
+        if not report_sections:
+            self._finish_agent_run(parts, record, status="failed", summary="no reportable sections")
             return self._patch(parts, next_step="finalize")
 
         all_sources = [
@@ -2876,23 +2969,9 @@ class MultiAgentDeepResearchRuntime:
             for item in parts.artifact_store.all_sources()
             if str(item.get("url") or "").strip()
         ]
-        sections = [
-            ReportSectionContext(
-                title=str(item.get("title") or "研究章节"),
-                summary=str(item.get("summary") or ""),
-                branch_summaries=[
-                    f"限制: {message}"
-                    for message in list(item.get("limitations") or [])
-                    if str(message).strip()
-                ],
-                findings=list(item.get("key_findings") or []),
-                citation_urls=list(item.get("source_urls") or []),
-            )
-            for item in certified_sections
-        ]
         referenced_urls: list[str] = []
         seen_referenced_urls: set[str] = set()
-        for section in sections:
+        for section in report_sections:
             for raw_url in section.citation_urls:
                 normalized_url = canonicalize_source_url(raw_url)
                 if not normalized_url or normalized_url in seen_referenced_urls:
@@ -2913,7 +2992,7 @@ class MultiAgentDeepResearchRuntime:
         else:
             sources = all_sources
 
-        report_context = ReportContext(topic=self.topic, sections=sections, sources=sources)
+        report_context = ReportContext(topic=self.topic, sections=report_sections, sources=sources)
         report_markdown = self.reporter.generate_report(report_context)
         normalized_report, citation_urls = self.reporter.normalize_report(report_markdown, sources, title=self.topic)
         executive_summary = self.reporter.generate_executive_summary(normalized_report, self.topic)
@@ -2967,12 +3046,18 @@ class MultiAgentDeepResearchRuntime:
                 "claim_verifier_unsupported": len(unsupported),
                 "claim_verifier_contradicted": len(contradicted),
                 "passed": len(contradicted) == 0,
+                "review_needed": bool(contradicted or unsupported),
             }
             parts.runtime_state["final_claim_gate_summary"] = gate_summary
-            if contradicted:
-                parts.runtime_state["terminal_status"] = "blocked"
-                parts.runtime_state["terminal_reason"] = "final claim gate found contradicted claims"
-                self._emit_decision("final_claim_gate_blocked", parts.runtime_state["terminal_reason"], iteration=max(1, parts.current_iteration or 1), extra=gate_summary)
+            parts.runtime_state["terminal_status"] = ""
+            parts.runtime_state["terminal_reason"] = ""
+            if contradicted or unsupported:
+                self._emit_decision(
+                    "final_claim_gate_review_needed",
+                    "final claim gate found claims that need manual review",
+                    iteration=max(1, parts.current_iteration or 1),
+                    extra=gate_summary,
+                )
             else:
                 self._emit_decision("final_claim_gate_passed", "final claim gate passed", iteration=max(1, parts.current_iteration or 1), extra=gate_summary)
             self._finish_agent_run(parts, record, status="completed", summary="final claim gate completed")

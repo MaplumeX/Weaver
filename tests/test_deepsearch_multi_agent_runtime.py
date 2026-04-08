@@ -2,6 +2,7 @@ import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
+import agent.contracts.claim_verifier as claim_verifier_module
 import agent.runtime.deep.orchestration.graph as multi_agent_runtime
 from agent.core.state import build_deep_runtime_snapshot
 from agent.runtime.deep.entrypoints import run_deep_research
@@ -741,10 +742,51 @@ def test_multi_agent_dispatch_records_budget_stop_reason_when_search_budget_exha
     assert runtime["runtime_state"]["budget_stop_reason"] == "search_budget_exceeded"
     assert result["deep_research_artifacts"]["quality_summary"]["budget_stop_reason"] == "search_budget_exceeded"
     assert result["deep_research_artifacts"]["quality_summary"]["coverage_ready"] is False
-    assert result["terminal_status"] == "blocked"
+    assert result["terminal_status"] == ""
+    assert result["final_report"]
     assert "budget_stop" in decision_types
-    assert "report" not in decision_types
-    assert "stop" in decision_types
+    assert "report_partial" in decision_types
+    assert "outline_partial" in decision_types
+    assert "stop" not in decision_types
+
+
+def test_final_claim_gate_records_review_needed_without_blocking(monkeypatch):
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(monkeypatch, emitter=emitter)
+
+    class _ReviewNeededClaimVerifier:
+        def verify_report(self, report, scraped_content, max_claims=10, passages=None):
+            return [
+                claim_verifier_module.ClaimCheck(
+                    claim="AI chips grew 30% in 2026",
+                    status=claim_verifier_module.ClaimStatus.CONTRADICTED,
+                    evidence_urls=["https://example.com/conflict"],
+                    notes="conflicting evidence found",
+                )
+            ]
+
+    monkeypatch.setattr(claim_verifier_module, "ClaimVerifier", _ReviewNeededClaimVerifier)
+
+    result = run_deep_research(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_claim_review_needed",
+                "deep_research_query_num": 1,
+            }
+        },
+    )
+
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    claim_summary = result["deep_runtime"]["runtime_state"]["final_claim_gate_summary"]
+
+    assert result["is_complete"] is True
+    assert result["final_report"]
+    assert result["terminal_status"] == ""
+    assert claim_summary["claim_verifier_contradicted"] == 1
+    assert claim_summary["review_needed"] is True
+    assert "final_claim_gate_review_needed" in decision_types
+    assert "final_claim_gate_blocked" not in decision_types
 
 
 def test_supervisor_decide_accepts_enum_report_action(monkeypatch):

@@ -1,0 +1,7 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "runtime logic belongs in agent/ and should follow existing ownership"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "soft validation should degrade gracefully instead of failing the whole request"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "behavior changes require focused regression tests"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "research events and public artifacts are consumed across backend and frontend"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "quality warnings should stay observable without leaking details"}
