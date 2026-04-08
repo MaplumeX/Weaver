@@ -269,6 +269,18 @@ def _normalize_source_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _group_artifacts_by_task(items: Any) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("task_id") or item.get("id") or "").strip()
+        if not key:
+            continue
+        grouped.setdefault(key, []).append(dict(item))
+    return grouped
+
+
 class LightweightArtifactStore:
     def __init__(self, snapshot: dict[str, Any] | None = None) -> None:
         snapshot = snapshot if isinstance(snapshot, dict) else {}
@@ -300,6 +312,46 @@ class LightweightArtifactStore:
             str(item.get("section_id") or item.get("id")): dict(item)
             for item in snapshot.get("section_certifications", []) or []
             if isinstance(item, dict) and (item.get("section_id") or item.get("id"))
+        }
+        self._branch_query_rounds = {
+            str(item.get("task_id") or item.get("id")): [dict(entry) for entry in items if isinstance(entry, dict)]
+            for item, items in (
+                (
+                    {"task_id": task_id},
+                    round_items,
+                )
+                for task_id, round_items in _group_artifacts_by_task(snapshot.get("branch_query_rounds", [])).items()
+            )
+        }
+        self._branch_coverages = {
+            str(item.get("task_id") or item.get("id")): dict(item)
+            for item in snapshot.get("branch_coverages", []) or []
+            if isinstance(item, dict) and (item.get("task_id") or item.get("id"))
+        }
+        self._branch_qualities = {
+            str(item.get("task_id") or item.get("id")): dict(item)
+            for item in snapshot.get("branch_qualities", []) or []
+            if isinstance(item, dict) and (item.get("task_id") or item.get("id"))
+        }
+        self._branch_contradictions = {
+            str(item.get("task_id") or item.get("id")): dict(item)
+            for item in snapshot.get("branch_contradictions", []) or []
+            if isinstance(item, dict) and (item.get("task_id") or item.get("id"))
+        }
+        self._branch_groundings = {
+            str(item.get("task_id") or item.get("id")): dict(item)
+            for item in snapshot.get("branch_groundings", []) or []
+            if isinstance(item, dict) and (item.get("task_id") or item.get("id"))
+        }
+        self._branch_decisions = {
+            str(item.get("task_id") or item.get("id")): [dict(entry) for entry in items if isinstance(entry, dict)]
+            for item, items in (
+                (
+                    {"task_id": task_id},
+                    decision_items,
+                )
+                for task_id, decision_items in _group_artifacts_by_task(snapshot.get("branch_decisions", [])).items()
+            )
         }
         self._final_report = dict(snapshot.get("final_report") or {})
 
@@ -400,6 +452,63 @@ class LightweightArtifactStore:
     def section_certification(self, section_id: str) -> dict[str, Any]:
         return copy.deepcopy(self._section_certifications.get(section_id, {}))
 
+    def branch_query_rounds(self) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for rounds in self._branch_query_rounds.values():
+            items.extend(copy.deepcopy(rounds))
+        return sorted(items, key=lambda value: (str(value.get("task_id") or ""), int(value.get("round_index", 0) or 0)))
+
+    def set_branch_query_rounds(self, task_id: str, rounds: list[dict[str, Any]]) -> None:
+        key = str(task_id or "").strip()
+        if key:
+            self._branch_query_rounds[key] = [copy.deepcopy(item) for item in rounds if isinstance(item, dict)]
+
+    def branch_coverage(self, task_id: str) -> dict[str, Any]:
+        return copy.deepcopy(self._branch_coverages.get(str(task_id or "").strip(), {}))
+
+    def set_branch_coverage(self, coverage: dict[str, Any]) -> None:
+        key = str(coverage.get("task_id") or coverage.get("id") or "").strip()
+        if key:
+            self._branch_coverages[key] = copy.deepcopy(coverage)
+
+    def branch_qualities(self) -> list[dict[str, Any]]:
+        return [copy.deepcopy(item) for item in self._branch_qualities.values()]
+
+    def branch_quality(self, task_id: str) -> dict[str, Any]:
+        return copy.deepcopy(self._branch_qualities.get(str(task_id or "").strip(), {}))
+
+    def set_branch_quality(self, quality: dict[str, Any]) -> None:
+        key = str(quality.get("task_id") or quality.get("id") or "").strip()
+        if key:
+            self._branch_qualities[key] = copy.deepcopy(quality)
+
+    def branch_contradiction(self, task_id: str) -> dict[str, Any]:
+        return copy.deepcopy(self._branch_contradictions.get(str(task_id or "").strip(), {}))
+
+    def set_branch_contradiction(self, contradiction: dict[str, Any]) -> None:
+        key = str(contradiction.get("task_id") or contradiction.get("id") or "").strip()
+        if key:
+            self._branch_contradictions[key] = copy.deepcopy(contradiction)
+
+    def branch_grounding(self, task_id: str) -> dict[str, Any]:
+        return copy.deepcopy(self._branch_groundings.get(str(task_id or "").strip(), {}))
+
+    def set_branch_grounding(self, grounding: dict[str, Any]) -> None:
+        key = str(grounding.get("task_id") or grounding.get("id") or "").strip()
+        if key:
+            self._branch_groundings[key] = copy.deepcopy(grounding)
+
+    def branch_decisions(self) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for decisions in self._branch_decisions.values():
+            items.extend(copy.deepcopy(decisions))
+        return sorted(items, key=lambda value: (str(value.get("task_id") or ""), int(value.get("round_index", 0) or 0)))
+
+    def set_branch_decisions(self, task_id: str, decisions: list[dict[str, Any]]) -> None:
+        key = str(task_id or "").strip()
+        if key:
+            self._branch_decisions[key] = [copy.deepcopy(item) for item in decisions if isinstance(item, dict)]
+
     def final_report(self) -> dict[str, Any]:
         return copy.deepcopy(self._final_report)
 
@@ -450,6 +559,12 @@ class LightweightArtifactStore:
             "section_drafts": self.section_drafts(),
             "section_reviews": self.section_reviews(),
             "section_certifications": self.section_certifications(),
+            "branch_query_rounds": self.branch_query_rounds(),
+            "branch_coverages": [copy.deepcopy(item) for item in self._branch_coverages.values()],
+            "branch_qualities": [copy.deepcopy(item) for item in self._branch_qualities.values()],
+            "branch_contradictions": [copy.deepcopy(item) for item in self._branch_contradictions.values()],
+            "branch_groundings": [copy.deepcopy(item) for item in self._branch_groundings.values()],
+            "branch_decisions": self.branch_decisions(),
             "final_report": copy.deepcopy(self._final_report),
         }
 
@@ -1033,6 +1148,25 @@ class MultiAgentDeepResearchRuntime:
                 task_kind="section_research",
                 acceptance_criteria=_dedupe_texts(section.get("acceptance_checks") or [core_question]),
                 allowed_tools=["search", "read", "extract", "synthesize"],
+                source_preferences=_dedupe_texts(
+                    section.get("source_preferences") or scope.get("source_preferences") or []
+                ),
+                authority_preferences=_dedupe_texts(
+                    section.get("authority_preferences") or scope.get("source_preferences") or []
+                ),
+                coverage_targets=_dedupe_texts(
+                    section.get("coverage_targets") or section.get("acceptance_checks") or [core_question]
+                ),
+                language_hints=_dedupe_texts((self.state.get("domain_config") or {}).get("language_hints") or []),
+                deliverable_constraints=_dedupe_texts(
+                    section.get("deliverable_constraints")
+                    or scope.get("deliverable_constraints")
+                    or scope.get("deliverable_preferences")
+                    or []
+                ),
+                source_requirements=_dedupe_texts(section.get("source_requirements") or []),
+                freshness_policy=str(section.get("freshness_policy") or "default_advisory").strip(),
+                time_boundary=str(section.get("time_boundary") or scope.get("time_boundary") or "").strip(),
                 input_artifact_ids=[
                     str(item).strip()
                     for item in [
@@ -1063,7 +1197,12 @@ class MultiAgentDeepResearchRuntime:
                     "至少 1 个可引用来源",
                     "至少 1 段可定位 passage 支撑主结论",
                 ],
+                coverage_targets=[question],
+                source_preferences=_dedupe_texts(scope.get("source_preferences") or []),
+                authority_preferences=_dedupe_texts(scope.get("source_preferences") or []),
                 freshness_policy="default_advisory",
+                follow_up_policy="bounded",
+                branch_stop_policy="coverage_or_budget",
                 section_order=index,
                 status="planned",
             ).to_dict()
@@ -1189,6 +1328,10 @@ class MultiAgentDeepResearchRuntime:
             source_urls=[str(item.get("url") or "").strip() for item in bundle.get("sources", []) if item.get("url")],
             claim_units=claim_units,
             limitations=list(outcome.get("limitations") or []),
+            coverage_summary=copy.deepcopy(outcome.get("coverage_summary") or {}),
+            quality_summary=copy.deepcopy(outcome.get("quality_summary") or {}),
+            contradiction_summary=copy.deepcopy(outcome.get("contradiction_summary") or {}),
+            grounding_summary=copy.deepcopy(outcome.get("grounding_summary") or {}),
             evidence_bundle_id=str(bundle.get("id") or "") or None,
             created_by=created_by,
         ).to_dict()
@@ -1218,13 +1361,26 @@ class MultiAgentDeepResearchRuntime:
         objective_overlap = _text_overlap_score(objective, draft_text)
         objective_score = 1.0 if objective_overlap >= 0.15 else (0.8 if objective_overlap >= 0.05 else 0.55)
 
-        grounding_ratio = _claim_grounding_ratio(draft)
+        coverage_summary = dict(draft.get("coverage_summary") or {})
+        quality_summary = dict(draft.get("quality_summary") or {})
+        contradiction_summary = dict(draft.get("contradiction_summary") or {})
+        grounding_summary = dict(draft.get("grounding_summary") or {})
+
+        grounding_ratio = float(
+            grounding_summary.get("primary_grounding_ratio")
+            if grounding_summary.get("primary_grounding_ratio") is not None
+            else _claim_grounding_ratio(draft)
+        )
         grounding_score = round(grounding_ratio, 3)
         source_count = len(bundle.get("sources") or [])
         has_primary_sources = source_count > 0 and len(bundle.get("passages") or []) > 0
         has_summary = bool(str(draft.get("summary") or "").strip())
         has_findings = bool([item for item in draft.get("key_findings", []) or [] if str(item).strip()])
         objective_met = bool(str(draft.get("summary") or "").strip()) and (
+            bool(coverage_summary.get("coverage_ready"))
+            or bool(quality_summary.get("quality_ready"))
+            or bool(grounding_summary.get("grounding_ready"))
+            or
             objective_score >= _SECTION_OBJECTIVE_HARD_GATE_THRESHOLD
             or source_count > 0
         )
@@ -1256,13 +1412,37 @@ class MultiAgentDeepResearchRuntime:
                 )
             )
             follow_up_queries.extend(
-                _dedupe_texts(draft.get("open_questions") or [objective, str(section.get("core_question") or "")])
+                _dedupe_texts(
+                    [
+                        *(coverage_summary.get("missing_topics") or []),
+                        *(draft.get("open_questions") or []),
+                        objective,
+                        str(section.get("core_question") or ""),
+                    ]
+                )
             )
         elif grounding_ratio < 1.0:
             advisory_issues.append(
                 self._build_review_issue(
                     "secondary_claim_ungrounded",
                     "仍有部分结论未完全绑定证据，建议在报告中保留限制说明",
+                        blocking=False,
+                    )
+                )
+
+        if bool(contradiction_summary.get("has_material_conflict")):
+            advisory_issues.append(
+                self._build_review_issue(
+                    "conflicting_evidence",
+                    "存在需要人工复核的证据冲突，报告中应保留限制说明",
+                    blocking=False,
+                )
+            )
+        elif bool(contradiction_summary.get("needs_counterevidence_query")):
+            advisory_issues.append(
+                self._build_review_issue(
+                    "limited_source_diversity",
+                    "当前结论主要来自单一来源域，建议补充对比来源",
                     blocking=False,
                 )
             )
@@ -2175,6 +2355,18 @@ class MultiAgentDeepResearchRuntime:
         if not approved_scope:
             return self._patch(parts, next_step="scope_review")
         scope = approved_scope
+        if "coverage_dimensions" not in scope:
+            scope["coverage_dimensions"] = _dedupe_texts(scope.get("core_questions") or scope.get("in_scope") or [])
+        if "deliverable_constraints" not in scope:
+            scope["deliverable_constraints"] = _dedupe_texts(
+                scope.get("deliverable_preferences") or scope.get("constraints") or []
+            )
+        if not scope.get("time_boundary"):
+            for item in scope.get("constraints", []) or []:
+                text = str(item or "").strip()
+                if text.lower().startswith("time range:"):
+                    scope["time_boundary"] = text.split(":", 1)[1].strip()
+                    break
         scope["status"] = "approved"
         parts.artifact_store.set_scope(scope)
         parts.runtime_state["active_agent"] = "scope"
@@ -2358,6 +2550,7 @@ class MultiAgentDeepResearchRuntime:
                         "result_status": "completed",
                         "section_draft": section_draft,
                         "evidence_bundle": bundle,
+                        "branch_artifacts": copy.deepcopy(outcome.get("branch_artifacts") or {}),
                         "raw_results": copy.deepcopy(results),
                         "tokens_used": (
                             support._estimate_tokens_from_results(results)
@@ -2514,10 +2707,23 @@ class MultiAgentDeepResearchRuntime:
             if payload.get("result_status") == "completed":
                 bundle = copy.deepcopy(payload.get("evidence_bundle") or {})
                 section_draft = copy.deepcopy(payload.get("section_draft") or {})
+                branch_artifacts = copy.deepcopy(payload.get("branch_artifacts") or {})
                 if bundle:
                     parts.artifact_store.set_evidence_bundle(bundle)
                 if section_draft:
                     parts.artifact_store.set_section_draft(section_draft)
+                if isinstance(branch_artifacts.get("query_rounds"), list):
+                    parts.artifact_store.set_branch_query_rounds(task.id, branch_artifacts.get("query_rounds") or [])
+                if isinstance(branch_artifacts.get("coverage"), dict):
+                    parts.artifact_store.set_branch_coverage(branch_artifacts.get("coverage") or {})
+                if isinstance(branch_artifacts.get("quality"), dict):
+                    parts.artifact_store.set_branch_quality(branch_artifacts.get("quality") or {})
+                if isinstance(branch_artifacts.get("contradiction"), dict):
+                    parts.artifact_store.set_branch_contradiction(branch_artifacts.get("contradiction") or {})
+                if isinstance(branch_artifacts.get("grounding"), dict):
+                    parts.artifact_store.set_branch_grounding(branch_artifacts.get("grounding") or {})
+                if isinstance(branch_artifacts.get("decisions"), list):
+                    parts.artifact_store.set_branch_decisions(task.id, branch_artifacts.get("decisions") or [])
                 updated_task = parts.task_queue.update_status(task.id, "completed")
                 if updated_task:
                     self._emit_task_update(updated_task, "completed", iteration=max(1, parts.current_iteration or 1))
@@ -2579,6 +2785,39 @@ class MultiAgentDeepResearchRuntime:
                             "source_urls": list(section_draft.get("source_urls") or []),
                             "finding_count": len(section_draft.get("key_findings") or []),
                         },
+                    )
+                if isinstance(branch_artifacts.get("coverage"), dict):
+                    coverage = branch_artifacts.get("coverage") or {}
+                    self._emit_artifact_update(
+                        artifact_id=str(coverage.get("id") or support._new_id("branch_coverage")),
+                        artifact_type="branch_coverage",
+                        summary=f"covered {coverage.get('covered_count', 0)} / {max(1, int(coverage.get('covered_count', 0) or 0) + int(coverage.get('partial_count', 0) or 0) + int(coverage.get('missing_count', 0) or 0))}",
+                        task_id=task.id,
+                        section_id=task.section_id,
+                        branch_id=task.branch_id,
+                        iteration=max(1, parts.current_iteration or 1),
+                    )
+                if isinstance(branch_artifacts.get("quality"), dict):
+                    quality = branch_artifacts.get("quality") or {}
+                    self._emit_artifact_update(
+                        artifact_id=str(quality.get("id") or support._new_id("branch_quality")),
+                        artifact_type="branch_quality",
+                        summary=str(quality.get("notes") or "branch quality updated"),
+                        task_id=task.id,
+                        section_id=task.section_id,
+                        branch_id=task.branch_id,
+                        iteration=max(1, parts.current_iteration or 1),
+                    )
+                if isinstance(branch_artifacts.get("grounding"), dict):
+                    grounding = branch_artifacts.get("grounding") or {}
+                    self._emit_artifact_update(
+                        artifact_id=str(grounding.get("id") or support._new_id("branch_grounding")),
+                        artifact_type="branch_grounding",
+                        summary=f"primary grounding {grounding.get('primary_grounding_ratio', 0.0)}",
+                        task_id=task.id,
+                        section_id=task.section_id,
+                        branch_id=task.branch_id,
+                        iteration=max(1, parts.current_iteration or 1),
                     )
             else:
                 reason = str(payload.get("error") or "researcher returned no results")

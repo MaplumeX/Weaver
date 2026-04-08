@@ -360,6 +360,151 @@ DEEP_RESEARCHER_EVIDENCE_SYNTHESIS_PROMPT = """
 """.strip()
 
 
+DEEP_RESEARCHER_GAP_ANALYSIS_PROMPT = """
+# 角色
+你是一名严谨的研究评估员，负责判断当前 branch 证据是否足以回答研究目标。
+
+# 研究主题
+{topic}
+
+# Branch 目标
+{branch_objective}
+
+# 验收标准
+{acceptance_criteria}
+
+# 已执行查询
+{executed_queries}
+
+# 当前证据摘要
+{evidence_summary}
+
+# 任务
+判断当前证据在哪些方面已经覆盖、部分覆盖或仍然缺失，并总结最重要的缺口。
+
+# 输出要求
+1. 仅基于提供的证据判断，不要臆造未出现的事实。
+2. `criteria` 中每项都必须给出 `covered`、`partial` 或 `missing`。
+3. `missing_topics` 只保留最重要的 0-4 项。
+4. 返回 JSON 对象，不要输出额外解释。
+
+# 输出格式
+```json
+{{
+  "criteria": [
+    {{
+      "criterion": "需要覆盖的标准",
+      "status": "covered",
+      "notes": "为什么这样判断"
+    }}
+  ],
+  "missing_topics": ["仍缺失的话题"],
+  "notes": "整体覆盖情况总结"
+}}
+```
+""".strip()
+
+
+DEEP_RESEARCHER_QUERY_REFINE_PROMPT = """
+# 角色
+你是一名研究查询优化员，负责为当前 branch 生成下一轮高价值检索查询。
+
+# 研究主题
+{topic}
+
+# Branch 目标
+{branch_objective}
+
+# 验收标准
+{acceptance_criteria}
+
+# 已执行查询
+{executed_queries}
+
+# 当前缺口
+{missing_topics}
+
+# 质量限制
+{quality_notes}
+
+# 约束
+- 最多生成 {max_queries} 条新查询
+- 不要重复已有查询
+- 优先生成能补齐官方来源、时间边界、关键数据或对比视角的查询
+
+# 输出格式
+```json
+{{
+  "queries": ["新的查询 1", "新的查询 2"],
+  "reasoning": "为什么这些查询最有价值"
+}}
+```
+""".strip()
+
+
+DEEP_RESEARCHER_COUNTEREVIDENCE_PROMPT = """
+# 角色
+你是一名反证搜索专家，负责为当前 branch 设计反向验证查询。
+
+# 研究主题
+{topic}
+
+# Branch 目标
+{branch_objective}
+
+# 当前主要结论
+{key_findings}
+
+# 当前来源摘要
+{source_summary}
+
+# 任务
+生成能检验、挑战或对比当前主要结论的查询，优先寻找官方来源、不同立场来源或更新的数据。
+
+# 输出格式
+```json
+{{
+  "queries": ["反证查询 1", "反证查询 2"],
+  "reasoning": "这些查询将如何验证或挑战当前结论"
+}}
+```
+""".strip()
+
+
+DEEP_RESEARCHER_CLAIM_GROUNDING_PROMPT = """
+# 角色
+你是一名证据绑定分析员，负责将 claim 绑定到可定位的 passage。
+
+# Claims
+{claims}
+
+# Passages
+{passages}
+
+# 任务
+为每条 claim 选择最能支撑它的 0-2 个 passage id。
+
+# 输出要求
+1. 不要捏造不存在的 passage id。
+2. 若没有足够证据，`evidence_passage_ids` 允许为空。
+3. 返回 JSON 对象，不要输出额外解释。
+
+# 输出格式
+```json
+{{
+  "claims": [
+    {{
+      "text": "claim 文本",
+      "importance": "primary",
+      "evidence_passage_ids": ["passage_a"],
+      "notes": "绑定原因"
+    }}
+  ]
+}}
+```
+""".strip()
+
+
 DEEP_REPORTER_PROMPT = """
 # 角色
 你是一名专业的研究报告撰写者。基于已经过整理和验证的研究材料，撰写一份全面的深度研究报告。
@@ -455,6 +600,10 @@ RUNTIME_PROMPT_TEMPLATES = {
     "deep.supervisor.decision": DEEP_SUPERVISOR_DECISION_PROMPT,
     "deep.researcher.select_urls": DEEP_RESEARCHER_SELECT_URLS_PROMPT,
     "deep.researcher.summarize": DEEP_RESEARCHER_SUMMARIZE_PROMPT,
+    "deep.researcher.gap_analysis": DEEP_RESEARCHER_GAP_ANALYSIS_PROMPT,
+    "deep.researcher.query_refine": DEEP_RESEARCHER_QUERY_REFINE_PROMPT,
+    "deep.researcher.counterevidence": DEEP_RESEARCHER_COUNTEREVIDENCE_PROMPT,
+    "deep.researcher.claim_grounding": DEEP_RESEARCHER_CLAIM_GROUNDING_PROMPT,
     "deep.researcher.evidence_synthesis": DEEP_RESEARCHER_EVIDENCE_SYNTHESIS_PROMPT,
     "deep.reporter": DEEP_REPORTER_PROMPT,
     "deep.reporter.refine": DEEP_REPORTER_REFINE_PROMPT,

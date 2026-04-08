@@ -103,6 +103,27 @@ class ResearchSupervisor:
 
         sections: list[dict[str, Any]] = []
         question_map: dict[str, str] = {}
+        shared_source_preferences = [
+            str(item).strip()
+            for item in (scope.get("source_preferences") or [])
+            if str(item).strip()
+        ]
+        deliverable_preferences = [
+            str(item).strip()
+            for item in (scope.get("deliverable_preferences") or scope.get("deliverable_constraints") or [])
+            if str(item).strip()
+        ]
+        constraints = [
+            str(item).strip()
+            for item in (scope.get("constraints") or [])
+            if str(item).strip()
+        ]
+        time_boundary = str(scope.get("time_boundary") or "").strip()
+        if not time_boundary:
+            for item in constraints:
+                if item.lower().startswith("time range:"):
+                    time_boundary = item.split(":", 1)[1].strip()
+                    break
         for index, question in enumerate(questions, 1):
             section = OutlineSection(
                 id=support._new_id("section"),
@@ -114,11 +135,23 @@ class ResearchSupervisor:
                     "至少 1 个可引用来源",
                     "至少 1 段可定位 passage 支撑主结论",
                 ],
+                coverage_targets=[question],
+                source_preferences=list(shared_source_preferences),
+                authority_preferences=list(shared_source_preferences),
                 freshness_policy="default_advisory",
+                follow_up_policy="bounded",
+                branch_stop_policy="coverage_or_budget",
                 section_order=index,
                 status="planned",
             )
-            sections.append(section.to_dict())
+            payload = section.to_dict()
+            if deliverable_preferences:
+                payload["deliverable_constraints"] = list(deliverable_preferences)
+            if constraints:
+                payload["constraints"] = list(constraints)
+            if time_boundary:
+                payload["time_boundary"] = time_boundary
+            sections.append(payload)
             question_map[question] = section.id
 
         return OutlineArtifact(

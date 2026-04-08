@@ -434,10 +434,16 @@ def test_run_deep_research_emits_section_artifacts_and_events(monkeypatch):
     assert result["is_complete"] is True
     assert queue_stats["completed"] == 2
     assert set(artifact_store) == {
+        "branch_contradictions",
+        "branch_coverages",
+        "branch_decisions",
+        "branch_groundings",
+        "branch_qualities",
+        "branch_query_rounds",
+        "evidence_bundles",
         "scope",
         "outline",
         "plan",
-        "evidence_bundles",
         "section_drafts",
         "section_reviews",
         "section_certifications",
@@ -450,6 +456,12 @@ def test_run_deep_research_emits_section_artifacts_and_events(monkeypatch):
     assert len(public_artifacts["section_drafts"]) == 2
     assert len(public_artifacts["section_reviews"]) == 2
     assert len(public_artifacts["section_certifications"]) == 2
+    assert "branch_query_rounds" in public_artifacts
+    assert "branch_coverages" in public_artifacts
+    assert "branch_qualities" in public_artifacts
+    assert "branch_contradictions" in public_artifacts
+    assert "branch_groundings" in public_artifacts
+    assert "branch_decisions" in public_artifacts
     assert public_artifacts["outline_gate_summary"]["outline_ready"] is True
     assert public_artifacts["coverage_summary"]["ready"] is True
     researcher_runs = [run for run in runtime["agent_runs"] if run["role"] == "researcher"]

@@ -15,6 +15,8 @@ These contracts apply when backend work changes any of:
 - tool catalog payloads (`/api/tools/catalog`)
 - tool event streaming payloads (`/api/chat`, `/api/events/{thread_id}`)
 - Deep Research runtime tool policy snapshots (`deep_runtime.runtime_state`)
+- Deep Research branch runtime artifacts (`deep_research_artifacts`,
+  `artifact_store`, `section_drafts`)
 
 This document is mandatory for cross-layer tool-system work because the same
 payloads are consumed by:
@@ -23,6 +25,7 @@ payloads are consumed by:
 - runtime graphs (`chat`, `tool_agent`, Deep Research)
 - frontend hooks (`useChatStream`, `useBrowserEvents`)
 - generated OpenAPI TypeScript clients
+- report/review stages that consume Deep Research draft artifacts
 
 ---
 
@@ -517,6 +520,194 @@ yield await format_stream_event(
     _normalize_tool_event_data("tool_start", payload),
 )
 ```
+
+---
+
+## Scenario: Deep Research Branch Runtime Contract
+
+### 1. Scope / Trigger
+
+- Trigger: changing `agent/runtime/deep/schema.py`,
+  `agent/runtime/deep/roles/researcher.py`,
+  `agent/runtime/deep/researcher_runtime/*`,
+  `agent/runtime/deep/orchestration/graph.py`, or
+  `agent/runtime/deep/artifacts/public_artifacts.py`.
+- This is mandatory when the branch-scoped researcher loop, artifact-store
+  snapshot keys, or public `deep_research_artifacts` payload shape changes.
+
+### 2. Signatures
+
+- File: `agent/runtime/deep/roles/supervisor.py`
+  - `ResearchSupervisor.create_outline_plan(topic, *, approved_scope=None) -> dict[str, Any]`
+- File: `agent/runtime/deep/roles/researcher.py`
+  - `ResearchAgent.research_branch(task, *, topic, existing_summary="", max_results_per_query=5) -> dict[str, Any]`
+- File: `agent/runtime/deep/researcher_runtime/runner.py`
+  - `BranchResearchRunner.run(task, *, topic, existing_summary, max_results_per_query) -> dict[str, Any]`
+- File: `agent/runtime/deep/orchestration/graph.py`
+  - `LightweightArtifactStore.snapshot() -> dict[str, Any]`
+- File: `agent/runtime/deep/artifacts/public_artifacts.py`
+  - `build_public_deep_research_artifacts(...) -> dict[str, Any]`
+
+### 3. Contracts
+
+`ResearchTask` fields consumed by the branch runtime:
+
+- required: `id`, `goal`, `query`, `priority`
+- optional branch-policy fields:
+  - `source_preferences: list[str]`
+  - `authority_preferences: list[str]`
+  - `coverage_targets: list[str]`
+  - `language_hints: list[str]`
+  - `deliverable_constraints: list[str]`
+  - `source_requirements: list[str]`
+  - `freshness_policy: str`
+  - `time_boundary: str`
+
+`OutlineSection` fields that must flow into section tasks when present:
+
+- `coverage_targets`
+- `source_preferences`
+- `authority_preferences`
+- `follow_up_policy`
+- `branch_stop_policy`
+- `deliverable_constraints`
+- `constraints`
+- `time_boundary`
+
+`ResearchAgent.research_branch(...)` must return these top-level keys:
+
+- `queries`
+- `search_results`
+- `sources`
+- `documents`
+- `passages`
+- `summary`
+- `key_findings`
+- `open_questions`
+- `confidence_note`
+- `claim_units`
+- `coverage_summary`
+- `quality_summary`
+- `contradiction_summary`
+- `grounding_summary`
+- `research_decisions`
+- `limitations`
+- `stop_reason`
+- `branch_artifacts`
+
+`branch_artifacts` must contain:
+
+- `query_rounds`
+- `coverage`
+- `quality`
+- `contradiction`
+- `grounding`
+- `decisions`
+
+`SectionDraftArtifact` must persist the structured branch summaries:
+
+- `coverage_summary`
+- `quality_summary`
+- `contradiction_summary`
+- `grounding_summary`
+
+`LightweightArtifactStore.snapshot()` and public
+`deep_research_artifacts` payloads must expose these plural keys:
+
+- `branch_query_rounds`
+- `branch_coverages`
+- `branch_qualities`
+- `branch_contradictions`
+- `branch_groundings`
+- `branch_decisions`
+
+Reviewer/reporter consumption rules:
+
+- Reviewer should prefer `coverage_summary`, `quality_summary`,
+  `contradiction_summary`, and `grounding_summary` from the draft instead of
+  recomputing all branch quality from raw text only.
+- `grounding_summary.primary_grounding_ratio` is the primary hard-gate input
+  for claim grounding.
+- Missing branch artifact lists in the store/public payload must degrade to
+  `[]`/`{}` instead of raising.
+
+### 4. Validation & Error Matrix
+
+| Condition | Expected behavior | Fallback / output |
+|-----------|-------------------|-------------------|
+| Coverage + quality thresholds met inside branch loop | branch decision becomes `synthesize` | `stop_reason=""` |
+| No new evidence and no follow-up queries | bounded stop | `stop_reason="evidence_stagnated"` or `no_follow_up_queries` |
+| Only weak snippet evidence exists | draft may still be produced | reviewer can mark section `reportability=low` and `needs_manual_review=true` |
+| Evidence dominated by one source domain | contradiction artifact requests counterevidence | advisory follow-up, not hard failure by itself |
+| Branch artifacts omitted from merge/public adapters | merge must not crash | empty plural lists / empty summary dicts |
+
+### 5. Good / Base / Bad Cases
+
+Good:
+
+```python
+task = {
+    "id": "task_1",
+    "goal": "Research AI chips",
+    "query": "AI chips market share",
+    "priority": 1,
+    "coverage_targets": ["Cloud training workload concentration"],
+    "source_preferences": ["official filings"],
+    "freshness_policy": "default_advisory",
+    "time_boundary": "2025-2026",
+}
+```
+
+Base:
+
+```python
+task = {
+    "id": "task_1",
+    "goal": "Research AI chips",
+    "query": "AI chips market share",
+    "priority": 1,
+}
+```
+
+Bad:
+
+```python
+payload = {
+    "summary": "...",
+    "key_findings": ["..."],
+    "branch_artifact": {"coverage": {}},  # wrong key and missing required summaries
+}
+```
+
+Bad because downstream merge/public adapters and reviewer logic are keyed on
+`branch_artifacts` plus the plural snapshot keys listed above.
+
+### 6. Tests Required
+
+- `tests/test_deepsearch_researcher.py`
+  - assert branch runtime emits structured summaries and branch artifacts
+  - assert bounded multi-round query refinement can cover missing criteria
+- `tests/test_deepsearch_supervisor.py`
+  - assert outline sections propagate richer branch policy fields
+- `tests/test_deepsearch_multi_agent_runtime.py`
+  - assert artifact store/public payload expose `branch_*` snapshot keys
+  - assert section drafts carry structured coverage/quality/grounding summaries
+  - assert report generation still works for low-confidence sections
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Return only branch summary text from `research_branch(...)`.
+- Recompute coverage/grounding later from free-form text only.
+- Introduce singular or ad-hoc artifact-store keys such as `branch_quality`.
+
+#### Correct
+
+- Treat branch runtime output as a structured contract.
+- Persist branch summaries into `SectionDraftArtifact`.
+- Mirror branch artifact lists through `artifact_store.snapshot()` and the
+  public `deep_research_artifacts` payload using the plural key names above.
 
 ---
 

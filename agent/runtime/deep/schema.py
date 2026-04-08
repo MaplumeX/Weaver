@@ -101,6 +101,14 @@ class ResearchTask:
     stage: TaskStage = "planned"
     title: str = ""
     aspect: str = ""
+    source_preferences: list[str] = field(default_factory=list)
+    authority_preferences: list[str] = field(default_factory=list)
+    coverage_targets: list[str] = field(default_factory=list)
+    language_hints: list[str] = field(default_factory=list)
+    deliverable_constraints: list[str] = field(default_factory=list)
+    source_requirements: list[str] = field(default_factory=list)
+    freshness_policy: str = ""
+    time_boundary: str = ""
     section_id: str | None = None
     branch_id: str | None = None
     parent_task_id: str | None = None
@@ -158,7 +166,12 @@ class OutlineSection:
     core_question: str
     acceptance_checks: list[str] = field(default_factory=list)
     source_requirements: list[str] = field(default_factory=list)
+    coverage_targets: list[str] = field(default_factory=list)
+    source_preferences: list[str] = field(default_factory=list)
+    authority_preferences: list[str] = field(default_factory=list)
     freshness_policy: str = "default_advisory"
+    follow_up_policy: str = "bounded"
+    branch_stop_policy: str = "default"
     section_order: int = 1
     status: str = "planned"
     created_at: str = field(default_factory=_now_iso)
@@ -286,6 +299,10 @@ class SectionDraftArtifact:
     source_urls: list[str] = field(default_factory=list)
     claim_units: list[dict[str, Any]] = field(default_factory=list)
     limitations: list[str] = field(default_factory=list)
+    coverage_summary: dict[str, Any] = field(default_factory=dict)
+    quality_summary: dict[str, Any] = field(default_factory=dict)
+    contradiction_summary: dict[str, Any] = field(default_factory=dict)
+    grounding_summary: dict[str, Any] = field(default_factory=dict)
     review_artifact_id: str | None = None
     certification_artifact_id: str | None = None
     evidence_bundle_id: str | None = None
@@ -318,6 +335,129 @@ class ScopeDraft:
     feedback: str = ""
     status: ScopeDraftStatus = "awaiting_review"
     created_by: str = "scope"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BranchQueryRoundArtifact:
+    id: str
+    task_id: str
+    section_id: str | None
+    branch_id: str | None
+    round_index: int
+    queries: list[str] = field(default_factory=list)
+    search_result_count: int = 0
+    source_count: int = 0
+    document_count: int = 0
+    passage_count: int = 0
+    new_source_count: int = 0
+    coverage_ready: bool = False
+    notes: str = ""
+    created_by: str = "researcher"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BranchCoverageArtifact:
+    id: str
+    task_id: str
+    section_id: str | None
+    branch_id: str | None
+    criteria: list[dict[str, Any]] = field(default_factory=list)
+    covered_count: int = 0
+    partial_count: int = 0
+    missing_count: int = 0
+    missing_topics: list[str] = field(default_factory=list)
+    coverage_ready: bool = False
+    created_by: str = "researcher"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BranchQualityArtifact:
+    id: str
+    task_id: str
+    section_id: str | None
+    branch_id: str | None
+    authority_score: float = 0.0
+    freshness_score: float = 0.0
+    source_diversity_score: float = 0.0
+    evidence_density_score: float = 0.0
+    objective_alignment_score: float = 0.0
+    quality_ready: bool = False
+    notes: str = ""
+    created_by: str = "researcher"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BranchContradictionArtifact:
+    id: str
+    task_id: str
+    section_id: str | None
+    branch_id: str | None
+    has_material_conflict: bool = False
+    conflict_count: int = 0
+    conflict_source_urls: list[str] = field(default_factory=list)
+    conflict_notes: list[str] = field(default_factory=list)
+    needs_counterevidence_query: bool = False
+    created_by: str = "researcher"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BranchGroundingArtifact:
+    id: str
+    task_id: str
+    section_id: str | None
+    branch_id: str | None
+    claims: list[dict[str, Any]] = field(default_factory=list)
+    total_claim_count: int = 0
+    grounded_claim_count: int = 0
+    primary_grounding_ratio: float = 0.0
+    secondary_grounding_ratio: float = 0.0
+    grounding_ready: bool = False
+    created_by: str = "researcher"
+    created_at: str = field(default_factory=_now_iso)
+    updated_at: str = field(default_factory=_now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class BranchDecisionArtifact:
+    id: str
+    task_id: str
+    section_id: str | None
+    branch_id: str | None
+    round_index: int
+    action: str
+    reason: str = ""
+    follow_up_queries: list[str] = field(default_factory=list)
+    stop_reason: str = ""
+    notes: str = ""
+    created_by: str = "researcher"
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
@@ -360,6 +500,12 @@ __all__ = [
     "AgentRole",
     "AgentRunRecord",
     "ArtifactStatus",
+    "BranchContradictionArtifact",
+    "BranchCoverageArtifact",
+    "BranchDecisionArtifact",
+    "BranchGroundingArtifact",
+    "BranchQualityArtifact",
+    "BranchQueryRoundArtifact",
     "ClaimUnit",
     "ControlPlaneAgent",
     "ControlPlaneHandoff",

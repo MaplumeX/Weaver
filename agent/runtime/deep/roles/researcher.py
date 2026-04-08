@@ -11,13 +11,35 @@ import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
-from urllib.parse import urlsplit
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
-from agent.prompts.runtime_templates import DEEP_RESEARCHER_EVIDENCE_SYNTHESIS_PROMPT
+from agent.prompts.runtime_templates import (
+    DEEP_RESEARCHER_CLAIM_GROUNDING_PROMPT,
+    DEEP_RESEARCHER_EVIDENCE_SYNTHESIS_PROMPT,
+)
 from agent.research.evidence_passages import split_into_passages
+from agent.runtime.deep.researcher_runtime import BranchResearchRunner
+from agent.runtime.deep.researcher_runtime.planner import BranchQueryPlanner
+from agent.runtime.deep.researcher_runtime.shared import (
+    canonical_url as _shared_canonical_url,
+)
+from agent.runtime.deep.researcher_runtime.shared import (
+    clamp_text as _shared_clamp_text,
+)
+from agent.runtime.deep.researcher_runtime.shared import (
+    dedupe_strings as _shared_dedupe_strings,
+)
+from agent.runtime.deep.researcher_runtime.shared import (
+    source_domain as _shared_source_domain,
+)
+from agent.runtime.deep.researcher_runtime.shared import (
+    task_texts as _shared_task_texts,
+)
+from agent.runtime.deep.researcher_runtime.shared import (
+    tokenize as _shared_tokenize,
+)
 from agent.runtime.deep.schema import ClaimUnit, ResearchTask
 from tools.research.content_fetcher import ContentFetcher
 
@@ -28,69 +50,27 @@ _JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.I)
 
 
 def _task_texts(task: ResearchTask) -> list[str]:
-    texts = [
-        task.goal,
-        task.objective,
-        task.query,
-        task.title,
-        task.aspect,
-        *list(task.acceptance_criteria or []),
-        *list(task.query_hints or []),
-    ]
-    return [str(item).strip() for item in texts if str(item).strip()]
+    return _shared_task_texts(task)
 
 
 def _tokenize(text: str) -> set[str]:
-    normalized = str(text or "").strip().lower()
-    if not normalized:
-        return set()
-    return {
-        token
-        for token in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]{1,6}", normalized)
-        if len(token) >= 2 or re.fullmatch(r"[\u4e00-\u9fff]", token)
-    }
+    return _shared_tokenize(text)
 
 
 def _canonical_url(url: str) -> str:
-    text = str(url or "").strip()
-    if not text:
-        return ""
-    parts = urlsplit(text)
-    scheme = (parts.scheme or "").lower()
-    netloc = (parts.netloc or "").lower()
-    path = parts.path.rstrip("/")
-    if not scheme or not netloc:
-        return text.rstrip("/")
-    return f"{scheme}://{netloc}{path}"
+    return _shared_canonical_url(url)
 
 
 def _source_domain(url: str) -> str:
-    try:
-        return urlsplit(url).netloc.lower()
-    except Exception:
-        return ""
+    return _shared_source_domain(url)
 
 
 def _clamp_text(text: str, limit: int) -> str:
-    value = str(text or "").strip()
-    return value[:limit] if limit > 0 else value
+    return _shared_clamp_text(text, limit)
 
 
 def _dedupe_strings(values: list[Any], *, limit: int = 0) -> list[str]:
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for item in values:
-        text = str(item or "").strip()
-        if not text:
-            continue
-        key = text.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(text)
-        if limit > 0 and len(deduped) >= limit:
-            break
-    return deduped
+    return _shared_dedupe_strings(values, limit=limit)
 
 
 @dataclass
@@ -105,6 +85,14 @@ class BranchResearchOutcome:
     open_questions: list[str] = field(default_factory=list)
     confidence_note: str = ""
     claim_units: list[dict[str, Any]] = field(default_factory=list)
+    coverage_summary: dict[str, Any] = field(default_factory=dict)
+    quality_summary: dict[str, Any] = field(default_factory=dict)
+    contradiction_summary: dict[str, Any] = field(default_factory=dict)
+    grounding_summary: dict[str, Any] = field(default_factory=dict)
+    research_decisions: list[dict[str, Any]] = field(default_factory=list)
+    limitations: list[str] = field(default_factory=list)
+    stop_reason: str = ""
+    branch_artifacts: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -134,6 +122,7 @@ class ResearchAgent:
         self.search_func = search_func
         self.config = config or {}
         self.fetcher = fetcher or ContentFetcher()
+        self.query_planner = BranchQueryPlanner(llm, self.config)
 
     def research_branch(
         self,
@@ -144,48 +133,38 @@ class ResearchAgent:
         max_results_per_query: int = 5,
     ) -> dict[str, Any]:
         normalized_task = task if isinstance(task, ResearchTask) else ResearchTask(**task)
-        queries = _dedupe_strings(list(normalized_task.query_hints or []) or [normalized_task.query], limit=6)
-        if not queries:
-            raise RuntimeError("branch task has no executable queries")
-
-        search_results = self._search(queries, max_results_per_query=max_results_per_query)
-        if not search_results:
-            raise RuntimeError("branch agent returned no search evidence")
-
-        ranked_results = self._rank_search_results(normalized_task, search_results)
-        documents, sources = self._build_documents_and_sources(
-            normalized_task,
-            ranked_results,
-            fetch_limit=max(2, min(max_results_per_query, 6)),
-        )
-        if not documents:
-            raise RuntimeError("branch agent returned no readable evidence")
-
-        passages = self._build_passages(normalized_task, documents)
-        synthesis = self._synthesize(
-            normalized_task,
-            topic=topic,
-            passages=passages,
-            documents=documents,
-            existing_summary=existing_summary,
-        )
-
         outcome = BranchResearchOutcome(
-            queries=queries,
-            search_results=ranked_results,
-            sources=sources,
-            documents=documents,
-            passages=passages,
-            summary=synthesis["summary"],
-            key_findings=synthesis["key_findings"],
-            open_questions=synthesis["open_questions"],
-            confidence_note=synthesis["confidence_note"],
-            claim_units=self._build_claim_units(
-                summary=synthesis["summary"],
-                key_findings=synthesis["key_findings"],
-                passages=passages,
-                sources=sources,
-            ),
+            **BranchResearchRunner(
+                llm=self.llm,
+                config=self.config,
+                query_planner=self.query_planner,
+                search_cb=self._search,
+                rank_cb=self._rank_search_results,
+                build_documents_cb=lambda branch_task, ranked_results, fetch_limit: self._build_documents_and_sources(
+                    branch_task,
+                    ranked_results,
+                    fetch_limit=fetch_limit,
+                ),
+                build_passages_cb=self._build_passages,
+                synthesize_cb=lambda branch_task, *, topic, passages, documents, existing_summary: self._synthesize(
+                    branch_task,
+                    topic=topic,
+                    passages=passages,
+                    documents=documents,
+                    existing_summary=existing_summary,
+                ),
+                claim_builder_cb=lambda summary, key_findings, passages, sources: self._build_claim_units(
+                    summary=summary,
+                    key_findings=key_findings,
+                    passages=passages,
+                    sources=sources,
+                ),
+            ).run(
+                normalized_task,
+                topic=topic,
+                existing_summary=existing_summary,
+                max_results_per_query=max_results_per_query,
+            )
         )
         return outcome.to_dict()
 
@@ -223,6 +202,11 @@ class ResearchAgent:
         results: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         task_tokens = _tokenize("\n".join(_task_texts(task)))
+        preferred_sources = [
+            str(item).strip().lower()
+            for item in [*(task.source_preferences or []), *(task.authority_preferences or [])]
+            if str(item).strip()
+        ]
         deduped: dict[str, dict[str, Any]] = {}
         for item in results:
             url = _canonical_url(item.get("url") or "")
@@ -236,7 +220,14 @@ class ResearchAgent:
                 ]
             )
             overlap = len(task_tokens & _tokenize(text))
-            rank_score = float(item.get("score", 0.0) or 0.0) + (overlap * 0.15)
+            lowered_url = url.lower()
+            authority_bonus = 0.0
+            if any(preference in lowered_url for preference in preferred_sources):
+                authority_bonus += 0.25
+            if lowered_url.startswith("https://") and any(marker in lowered_url for marker in (".gov", ".edu", ".org")):
+                authority_bonus += 0.1
+            freshness_bonus = 0.1 if str(item.get("published_date") or "").strip() else 0.0
+            rank_score = float(item.get("score", 0.0) or 0.0) + (overlap * 0.15) + authority_bonus + freshness_bonus
             candidate = {
                 **item,
                 "url": url,
@@ -574,6 +565,16 @@ class ResearchAgent:
         passages: list[dict[str, Any]],
         sources: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
+        grounded_claims = self._build_claim_units_with_llm(
+            summary=summary,
+            key_findings=key_findings,
+            passages=passages,
+        )
+        if grounded_claims:
+            finalized = self._finalize_claim_units(grounded_claims, passages, sources)
+            if finalized:
+                return finalized
+
         claims: list[tuple[str, str]] = []
         summary_text = str(summary or "").strip()
         if summary_text:
@@ -626,6 +627,102 @@ class ResearchAgent:
                     id=f"claim_{index}",
                     text=claim_text,
                     importance=importance,
+                    evidence_passage_ids=evidence_passage_ids,
+                    evidence_urls=evidence_urls,
+                    grounded=bool(evidence_passage_ids),
+                ).to_dict()
+            )
+        return built
+
+    def _build_claim_units_with_llm(
+        self,
+        *,
+        summary: str,
+        key_findings: list[str],
+        passages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not passages:
+            return []
+
+        claims: list[dict[str, Any]] = []
+        summary_text = str(summary or "").strip()
+        if summary_text:
+            claims.append({"text": summary_text, "importance": "primary"})
+        for index, finding in enumerate(_dedupe_strings(key_findings or [], limit=4), 1):
+            claims.append({"text": finding, "importance": "primary" if index <= 2 else "secondary"})
+        if not claims:
+            return []
+
+        passage_lines: list[dict[str, Any]] = []
+        for item in passages[:8]:
+            passage_id = str(item.get("id") or "").strip()
+            if not passage_id:
+                continue
+            passage_lines.append(
+                {
+                    "id": passage_id,
+                    "url": str(item.get("url") or "").strip(),
+                    "source_title": str(item.get("source_title") or item.get("page_title") or "").strip(),
+                    "quote": _clamp_text(item.get("quote") or item.get("text") or "", 200),
+                }
+            )
+        if not passage_lines:
+            return []
+
+        prompt = ChatPromptTemplate.from_messages([("user", DEEP_RESEARCHER_CLAIM_GROUNDING_PROMPT)])
+        messages = prompt.format_messages(
+            claims=json.dumps(claims, ensure_ascii=False, indent=2),
+            passages=json.dumps(passage_lines, ensure_ascii=False, indent=2),
+        )
+        try:
+            response = self.llm.invoke(messages, config=self.config)
+        except Exception as exc:
+            logger.debug("[deep-research-researcher] claim grounding prompt failed: %s", exc)
+            return []
+        payload = self._parse_synthesis(getattr(response, "content", "") or "")
+        items = payload.get("claims")
+        return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+    def _finalize_claim_units(
+        self,
+        grounded_claims: list[dict[str, Any]],
+        passages: list[dict[str, Any]],
+        sources: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        passage_index = {
+            str(item.get("id") or "").strip(): item
+            for item in passages or []
+            if str(item.get("id") or "").strip()
+        }
+        source_urls = [
+            str(item.get("url") or "").strip()
+            for item in sources or []
+            if str(item.get("url") or "").strip()
+        ]
+        built: list[dict[str, Any]] = []
+        for index, claim in enumerate(grounded_claims, 1):
+            text = str(claim.get("text") or "").strip()
+            if not text:
+                continue
+            evidence_passage_ids = [
+                str(item).strip()
+                for item in list(claim.get("evidence_passage_ids") or [])
+                if str(item).strip() in passage_index
+            ][:2]
+            evidence_urls = list(
+                dict.fromkeys(
+                    [
+                        str(passage_index[passage_id].get("url") or "").strip()
+                        for passage_id in evidence_passage_ids
+                        if str(passage_index[passage_id].get("url") or "").strip()
+                    ] or source_urls[:1]
+                )
+            )
+            built.append(
+                ClaimUnit(
+                    id=f"claim_{index}",
+                    text=text,
+                    importance=str(claim.get("importance") or "secondary").strip() or "secondary",
                     evidence_passage_ids=evidence_passage_ids,
                     evidence_urls=evidence_urls,
                     grounded=bool(evidence_passage_ids),

@@ -32,7 +32,7 @@ Match these documents to the current codebase instead of introducing generic
 | [Error Handling](./error-handling.md) | Boundary errors, safe fallbacks, and API response shape | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | Lint, testing, review expectations, and forbidden patterns | Filled |
 | [Logging Guidelines](./logging-guidelines.md) | Standard logging bootstrap, levels, and redaction rules | Filled |
-| [Tool Runtime Contracts](./tool-runtime-contracts.md) | Executable contracts for profiles, tool registry, MCP, and event streaming | Filled |
+| [Tool Runtime Contracts](./tool-runtime-contracts.md) | Executable contracts for profiles, tool registry, MCP, event streaming, and Deep Research runtime artifacts | Filled |
 
 ---
 
@@ -48,7 +48,8 @@ Read the relevant files before changing backend code:
    [Logging Guidelines](./logging-guidelines.md) for any request-path or
    integration changes.
 4. Read [Tool Runtime Contracts](./tool-runtime-contracts.md) for agent
-   profile, tool registry, MCP, or streaming event changes.
+   profile, tool registry, MCP, streaming event, or Deep Research runtime
+   artifact changes.
 5. Read [Quality Guidelines](./quality-guidelines.md) before finishing work.
 
 ---
