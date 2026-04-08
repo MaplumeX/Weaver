@@ -454,3 +454,70 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Standardize Tool Runtime Contracts
+
+**Date**: 2026-04-08
+**Task**: Standardize Tool Runtime Contracts
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Tool runtime | Introduced unified tool runtime context, tool registry, and capability/role-based policy resolution. |
+| Agent path | Switched normal agent execution from keyword preselection to policy-driven resolved toolsets. |
+| Deep Research | Added explicit requested/resolved tool policy snapshots into deep runtime state and agent runs. |
+| MCP | Replaced custom MCP runtime path with the official adapter-backed facade and removed the old `tools/core/mcp_clients.py`. |
+| Events | Unified chat/browser tool lifecycle events around a single `tool` envelope plus `tool_progress`/`tool_screenshot`. |
+| Contracts | Updated `/api/agents`, `/api/tools/catalog`, generated OpenAPI TS types, and backend code-spec docs. |
+
+**Validation**:
+- `pnpm -C web lint` passed.
+- `pnpm -C web test` passed.
+- Targeted backend pytest suites for agent tools, MCP, event streaming, deep research runtime, and session persistence passed.
+- Manual testing completed by human.
+- Human confirmed local `make test` passed.
+
+**Known Follow-up**:
+- `pnpm -C web build` still reports a webpack failure in this environment and later runtime logs referenced a missing `web/.next/server/middleware-manifest.json`; the human should validate build behavior in their normal local workflow if needed.
+
+**Updated Files**:
+- `agent/infrastructure/tools/*`
+- `agent/infrastructure/agents/factory.py`
+- `agent/runtime/nodes/{chat,answer}.py`
+- `agent/runtime/deep/{orchestration/graph.py,schema.py,support/runtime_support.py}`
+- `tools/{mcp.py,core/mcp.py}`
+- `main.py`
+- `common/agents_store.py`
+- `agent/domain/execution.py`
+- `agent/application/state.py`
+- `agent/core/state.py`
+- `data/agents.json`
+- `.trellis/spec/backend/{index.md,tool-runtime-contracts.md}`
+- `web/hooks/{useChatStream.ts,useBrowserEvents.ts}`
+- `web/lib/{api-types.ts,deep-research-timeline.ts,process-display.ts,session-utils.ts}`
+- `web/types/{chat.ts,browser.ts}`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `043b3b0` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
