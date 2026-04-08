@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "tools package cleanup should preserve package ownership and explicit facades"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "tools facade cleanup must not change registered tool names or runtime contracts"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "tools facade cleanup crosses runtime registry and package import boundaries"}

@@ -1,0 +1,4 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "verify explicit exports, regression coverage, and targeted checks"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "after batch cleanup re-check for missed duplicated export patterns"}

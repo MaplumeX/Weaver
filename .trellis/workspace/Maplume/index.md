@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 17
 - **Last Active**: 2026-04-08
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~754 | Active |
+| `journal-1.md` | ~787 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-04-08 | Clean common dead code | `653572d640ecfe5205414b5c03fbb13e13d9cc15` | `main` |
 | 16 | 2026-04-08 | Consolidate web_search runtime | `d8a76a7` | `main` |
 | 15 | 2026-04-08 | Deep Research validation soft gating | `24144f8` | `main` |
 | 14 | 2026-04-08 | 清理 agent 模块未使用代码 | `7963add` | `main` |

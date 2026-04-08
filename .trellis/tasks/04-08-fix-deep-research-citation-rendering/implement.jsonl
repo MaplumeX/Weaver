@@ -1,0 +1,7 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep runtime/report normalization in the owning backend module rather than adding a new layer"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "The bug is a backend to frontend citation format contract mismatch"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "MessageItem and ArtifactsPanel currently duplicate citation rendering logic"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "This fix touches deep research final report payload and its frontend consumption path"}

@@ -752,3 +752,36 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Clean common dead code
+
+**Date**: 2026-04-08
+**Task**: Clean common dead code
+**Branch**: `main`
+
+### Summary
+
+Removed confirmed dead code from common/, deleted the unused agent_runs module, trimmed unused helper exports, cleaned runtime cache leftovers, and verified with Ruff plus targeted pytest coverage.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `653572d640ecfe5205414b5c03fbb13e13d9cc15` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
