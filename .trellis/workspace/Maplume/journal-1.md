@@ -834,3 +834,50 @@ Removed confirmed dead code under tools/, deleted the RAG tool and document APIs
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: Refactor deep research progress display
+
+**Date**: 2026-04-08
+**Task**: Refactor deep research progress display
+**Branch**: `main`
+
+### Summary
+
+重构 deep research 事件流显示，新增用户态进度投影，改为章节视图优先，并修复 web 构建对远程 Google Fonts 的依赖。
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Process display | 新增用户态 deep research progress 投影，统一 header、章节列表和自动状态文案 |
+| UX | 折叠态收敛为当前动作 + 章节进度，展开态改为章节视图优先，未开始章节聚合显示 |
+| Build | 移除 `next/font/google` 依赖，改为本地字体变量，修复受限网络下 `pnpm -C web build` 失败 |
+
+**Updated Files**:
+- `web/lib/deep-research-progress.ts`
+- `web/lib/process-display.ts`
+- `web/hooks/useChatStream.ts`
+- `web/app/layout.tsx`
+- `web/app/globals.css`
+- `web/tests/process-display.test.ts`
+- `web/tests/deep-research-events.test.ts`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9af4bf0` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
