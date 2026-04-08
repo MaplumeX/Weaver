@@ -58,10 +58,36 @@ def test_build_initial_agent_state_uses_concrete_tools_contract():
     state = build_initial_agent_state(request)
 
     assert state["selected_tools"] == []
+    assert state["roles"] == []
+    assert state["available_capabilities"] == []
+    assert state["blocked_capabilities"] == []
     assert state["available_tools"] == ["browser_search", "browser_navigate", "crawl_url"]
     assert state["blocked_tools"] == ["browser_click"]
     assert "tool_call_limit" not in state
     assert "tool_call_count" not in state
+
+
+def test_build_initial_agent_state_projects_role_and_capability_contracts():
+    request = build_execution_request(
+        input_text="帮我汇总 AI 芯片路线图",
+        thread_id="cap-state-1",
+        user_id="user-1",
+        mode_info={"mode": "agent"},
+        agent_profile={
+            "id": "reporter",
+            "roles": ["reporter"],
+            "capabilities": ["python", "planning"],
+            "blocked_capabilities": ["browser"],
+            "tools": ["execute_python_code"],
+        },
+    )
+
+    state = build_initial_agent_state(request)
+
+    assert state["roles"] == ["reporter"]
+    assert state["available_capabilities"] == ["python", "planning"]
+    assert state["blocked_capabilities"] == ["browser"]
+    assert state["available_tools"] == ["execute_python_code"]
 
 
 def test_build_initial_agent_state_keeps_runtime_state_minimal():

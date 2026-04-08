@@ -56,9 +56,13 @@ async def test_stream_uses_top_level_tool_name_for_langchain_events(monkeypatch)
 
     assert len(tool_events) >= 2
     assert tool_events[0]["data"]["name"] == "demo_search"
+    assert tool_events[0]["data"]["tool_id"] == "demo_search"
+    assert tool_events[0]["data"]["phase"] == "start"
     assert tool_events[0]["data"]["status"] == "running"
     assert tool_events[0]["data"]["toolCallId"] == "tool-run-1"
     assert tool_events[1]["data"]["name"] == "demo_search"
+    assert tool_events[1]["data"]["tool_id"] == "demo_search"
+    assert tool_events[1]["data"]["phase"] == "result"
     assert tool_events[1]["data"]["status"] == "completed"
     assert tool_events[1]["data"]["toolCallId"] == "tool-run-1"
 
@@ -104,6 +108,8 @@ async def test_stream_flushes_tool_progress_before_graph_completion(monkeypatch)
     assert payload["type"] == "tool_progress"
     assert payload["data"]["name"] == "browser_search"
     assert payload["data"]["tool"] == "browser_search"
+    assert payload["data"]["tool_id"] == "browser_search"
+    assert payload["data"]["phase"] == "progress"
 
     remaining = []
     async for chunk in stream:

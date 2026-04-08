@@ -100,7 +100,7 @@ function summarizeGeneric(
   const runningTools = tools.filter((tool) => tool.state === 'running').length
   const toolCount = countTools(tools)
   const hasToolActivity =
-    runningTools > 0 || hasEvent(events, 'tool', 'tool_start', 'tool_result', 'tool_error')
+    runningTools > 0 || hasEvent(events, 'tool')
   const hasSearchActivity = hasEvent(events, 'search', 'research_node_start', 'research_node_complete')
   const hasError = hasEvent(events, 'error')
   const hasInterrupt = hasEvent(events, 'interrupt', 'cancelled')

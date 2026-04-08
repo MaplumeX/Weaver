@@ -176,9 +176,6 @@ const SUPPRESSED_DEFAULT_VIEW_TYPES = new Set([
   'research_node_complete',
   'quality_update',
   'tool',
-  'tool_start',
-  'tool_result',
-  'tool_error',
   'tool_progress',
   'screenshot',
 ])

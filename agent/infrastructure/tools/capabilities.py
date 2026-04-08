@@ -9,6 +9,10 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
 from agent.infrastructure.tools.providers import ProviderContext, StaticToolProvider
+from agent.infrastructure.tools.runtime_context import (
+    ToolRuntimeContext,
+    build_tool_runtime_context,
+)
 from common.config import settings
 from tools import execute_python_code, tavily_search
 from tools.automation.ask_human_tool import ask_human
@@ -69,6 +73,7 @@ class ToolBuildContext:
     profile: dict[str, Any]
     thread_id: str
     e2b_ready: bool
+    runtime: ToolRuntimeContext
 
 
 ToolFactory = Callable[[ToolBuildContext], list[BaseTool]]
@@ -254,12 +259,14 @@ def build_tool_context(config: RunnableConfig) -> ToolBuildContext:
     profile = configurable.get("agent_profile") or {}
     if not isinstance(profile, dict):
         profile = {}
+    e2b_ready = _e2b_api_key_configured()
     return ToolBuildContext(
         config=config,
         configurable=configurable,
         profile=profile,
         thread_id=str(configurable.get("thread_id") or "default"),
-        e2b_ready=_e2b_api_key_configured(),
+        e2b_ready=e2b_ready,
+        runtime=build_tool_runtime_context(config, e2b_ready=e2b_ready),
     )
 
 
@@ -269,6 +276,7 @@ def _provider_context_from_tool_context(context: ToolBuildContext) -> ProviderCo
         profile=dict(context.profile),
         configurable=dict(context.configurable),
         e2b_ready=context.e2b_ready,
+        runtime=context.runtime,
     )
 
 
@@ -279,6 +287,7 @@ def _tool_context_from_provider_context(context: ProviderContext) -> ToolBuildCo
         profile=dict(context.profile),
         thread_id=context.thread_id,
         e2b_ready=context.e2b_ready,
+        runtime=context.runtime,
     )
 
 

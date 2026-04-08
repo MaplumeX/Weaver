@@ -119,14 +119,17 @@ export function buildChatSnapshotFromRemote(
       : [],
     toolInvocations: Array.isArray(message.tool_invocations)
       ? message.tool_invocations.map((tool, index) => ({
+          toolId: String(tool.toolId || tool.tool_id || tool.toolName || tool.name || `tool_${index}`),
           toolName: String(tool.toolName || tool.name || `tool_${index}`),
           toolCallId: String(tool.toolCallId || tool.tool_call_id || `tool_call_${index}`),
           state:
             tool.state === 'completed' || tool.state === 'failed' || tool.state === 'running'
               ? tool.state
               : 'completed',
+          phase: typeof tool.phase === 'string' ? tool.phase : undefined,
           args: tool.args,
           result: tool.result,
+          payload: tool.payload,
         }))
       : [],
     processEvents: Array.isArray(message.process_events)

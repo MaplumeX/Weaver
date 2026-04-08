@@ -79,6 +79,13 @@ export function useBrowserEvents({
       )
     }
 
+    const getToolName = (eventData: BrowserEvent['data']) =>
+      String(eventData.tool || eventData.tool_id || '').trim()
+    const getToolPhase = (eventData: BrowserEvent['data']) =>
+      String(eventData.phase || '').trim().toLowerCase()
+    const getToolStatus = (eventData: BrowserEvent['data']) =>
+      String(eventData.status || '').trim().toLowerCase()
+
     const connect = () => {
       const cursor = lastSeqRef.current
       const eventUrl = cursor > 0 ? `${baseEventUrl}?last_event_id=${encodeURIComponent(String(cursor))}` : baseEventUrl
@@ -167,46 +174,39 @@ export function useBrowserEvents({
             }
           }
 
-          // Handle tool start events
-          else if (data.type === 'tool_start') {
+          // Handle unified tool lifecycle events
+          else if (data.type === 'tool') {
             const eventData = data.data
-            if (isBrowserRelatedTool(eventData.tool)) {
-              setIsActive(true)
-              setCurrentAction(eventData.action || eventData.tool || null)
-              setCurrentProgress(null)
+            const toolName = getToolName(eventData)
+            const phase = getToolPhase(eventData)
+            const status = getToolStatus(eventData)
+            if (isBrowserRelatedTool(toolName)) {
+              if (phase === 'error' || status === 'failed') {
+                setCurrentAction(eventData.error || 'Tool error')
+                setCurrentProgress(null)
+                setIsActive(true)
+                setTimeout(() => setIsActive(false), 1500)
+              } else if (phase === 'result' || status === 'completed') {
+                setIsActive(false)
+                setCurrentAction(null)
+                setCurrentProgress(null)
+              } else {
+                setIsActive(true)
+                setCurrentAction(eventData.action || toolName || null)
+                setCurrentProgress(null)
+              }
             }
           }
 
           // Handle tool progress events
           else if (data.type === 'tool_progress') {
             const eventData = data.data
-            if (isBrowserRelatedTool(eventData.tool)) {
+            const toolName = getToolName(eventData)
+            if (isBrowserRelatedTool(toolName)) {
               setIsActive(true)
               const msg = eventData.message || eventData.info || eventData.action || null
               setCurrentAction(msg)
               setCurrentProgress(typeof eventData.progress === 'number' ? eventData.progress : null)
-            }
-          }
-
-          // Handle tool result events
-          else if (data.type === 'tool_result') {
-            const eventData = data.data
-            if (isBrowserRelatedTool(eventData.tool)) {
-              setIsActive(false)
-              setCurrentAction(null)
-              setCurrentProgress(null)
-            }
-          }
-
-          // Handle tool error events
-          else if (data.type === 'tool_error') {
-            const eventData = data.data
-            if (isBrowserRelatedTool(eventData.tool)) {
-              setCurrentAction(eventData.error || 'Tool error')
-              setCurrentProgress(null)
-              // Keep isActive true briefly so UI can render the error state.
-              setIsActive(true)
-              setTimeout(() => setIsActive(false), 1500)
             }
           }
 

@@ -147,6 +147,16 @@ test('buildChatSnapshotFromRemote maps session snapshot payload to frontend stat
           id: 'm1',
           role: 'assistant',
           content: 'hello',
+          tool_invocations: [
+            {
+              tool_id: 'browser_search',
+              toolCallId: 'tool-1',
+              state: 'running',
+              phase: 'start',
+              args: { query: 'agents' },
+              payload: { query: 'agents' },
+            },
+          ],
           created_at: '2026-04-06T00:01:00Z',
         },
       ],
@@ -159,6 +169,8 @@ test('buildChatSnapshotFromRemote maps session snapshot payload to frontend stat
   assert.equal(snapshot.sessionId, 'thread_123')
   assert.equal(snapshot.threadId, 'thread_123')
   assert.equal(snapshot.messages[0]?.role, 'assistant')
+  assert.equal(snapshot.messages[0]?.toolInvocations?.[0]?.toolId, 'browser_search')
+  assert.equal(snapshot.messages[0]?.toolInvocations?.[0]?.phase, 'start')
   assert.equal(snapshot.route, 'deep')
   assert.equal(snapshot.searchMode, 'deep')
   assert.equal(snapshot.status, 'interrupted')

@@ -332,6 +332,8 @@ class AgentRunRecord:
     validation_stage: str = ""
     objective_summary: str = ""
     attempt: int = 1
+    requested_tools: list[str] = field(default_factory=list)
+    resolved_tools: list[str] = field(default_factory=list)
     parent_task_id: str | None = None
     parent_section_id: str | None = None
     parent_branch_id: str | None = None

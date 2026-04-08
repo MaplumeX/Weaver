@@ -9,8 +9,9 @@ from agent.infrastructure.tools.capabilities import (
     build_default_tool_providers,
     build_tool_context,
 )
-from agent.infrastructure.tools.policy import filter_tools_by_name
+from agent.infrastructure.tools.policy import filter_tools_by_name, resolve_profile_tool_policy
 from agent.infrastructure.tools.providers import ProviderContext, compose_provider_tools
+from agent.infrastructure.tools.registry import build_tool_registry
 from common.config import settings
 from tools.core.wrappers import wrap_tools_with_events
 from tools.mcp import get_live_mcp_tools
@@ -31,6 +32,7 @@ def _provider_context(config: RunnableConfig) -> ProviderContext:
         profile=context.profile,
         configurable=context.configurable,
         e2b_ready=context.e2b_ready,
+        runtime=context.runtime,
     )
 
 
@@ -57,7 +59,11 @@ def build_agent_toolset(config: RunnableConfig) -> list[BaseTool]:
 
     thread_id = str(configurable.get("thread_id") or "default")
     tool_list = build_tool_inventory(config)
-    allowed = [str(item).strip() for item in (profile.get("tools") or []) if str(item).strip()]
+    resolution = resolve_profile_tool_policy(
+        build_tool_registry(config),
+        profile=profile,
+    )
+    allowed = list(resolution.allowed_tool_names)
     metadata = profile.get("metadata") or {}
     if allowed and isinstance(metadata, dict) and bool(metadata.get("protected")):
         allowed.extend(
@@ -70,7 +76,7 @@ def build_agent_toolset(config: RunnableConfig) -> list[BaseTool]:
     tool_list = filter_tools_by_name(
         tool_list,
         allowed=allowed,
-        blocked=profile.get("blocked_tools") or [],
+        blocked=resolution.blocked_tool_names,
     )
 
     emit_events = bool(profile.get("emit_tool_events", settings.emit_tool_events))

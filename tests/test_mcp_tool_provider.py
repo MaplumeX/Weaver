@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 import main
+import tools.mcp as mcp_module
 from agent.infrastructure.tools.capabilities import _build_mcp_tools
 from agent.infrastructure.tools.providers import ProviderContext
 from main import MCPConfigPayload
@@ -48,3 +49,34 @@ async def test_update_mcp_config_returns_loaded_tool_count(monkeypatch):
 
 def test_get_live_mcp_tools_defaults_to_empty_list():
     assert get_live_mcp_tools() == []
+
+
+@pytest.mark.asyncio
+async def test_init_mcp_tools_strips_private_thread_hint(monkeypatch):
+    captured = {}
+
+    async def _core_init(*, servers_override=None, enabled=None):
+        captured["servers_override"] = servers_override
+        captured["enabled"] = enabled
+        return [SimpleNamespace(name="mcp_fetch", description="fetch")]
+
+    async def _core_close():
+        captured["closed"] = True
+        return None
+
+    monkeypatch.setattr(mcp_module, "_core_init_mcp_tools", _core_init)
+    monkeypatch.setattr(mcp_module, "_core_close_mcp_tools", _core_close)
+
+    tools = await mcp_module.init_mcp_tools(
+        servers_override={
+            "__thread_id__": "catalog",
+            "demo": {"type": "sse", "url": "https://example.com/sse"},
+        },
+        enabled=True,
+    )
+
+    assert [tool.name for tool in tools] == ["mcp_fetch"]
+    assert captured["servers_override"] == {
+        "demo": {"type": "sse", "url": "https://example.com/sse"}
+    }
+    assert captured["enabled"] is True

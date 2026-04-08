@@ -2,11 +2,14 @@ import type { InterruptReview } from '@/lib/interrupt-review'
 import type { ChatMode } from '@/lib/chat-mode'
 
 export interface ToolInvocation {
+  toolId?: string
   toolName: string
   toolCallId: string
   state: 'running' | 'completed' | 'failed'
-  args?: any
-  result?: any
+  phase?: string
+  args?: unknown
+  result?: unknown
+  payload?: unknown
 }
 
 export interface ProcessEvent {

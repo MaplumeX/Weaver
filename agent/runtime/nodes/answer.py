@@ -21,6 +21,7 @@ handle_cancellation = _shared.handle_cancellation
 logger = _shared.logger
 settings = _shared.settings
 build_tool_agent = _agent_factory.build_tool_agent
+build_agent_toolset = _tools.build_agent_toolset
 build_tools_for_names = _tools.build_tools_for_names
 
 
@@ -54,14 +55,23 @@ def tool_agent_node(
     try:
         deps.check_cancellation(state)
 
-        tools = deps.build_tools_for_names(set(state.get("selected_tools") or []), config)
+        selected_tools = {
+            str(name).strip() for name in (state.get("selected_tools") or []) if str(name).strip()
+        }
+        tools = (
+            deps.build_tools_for_names(selected_tools, config)
+            if selected_tools
+            else deps.build_agent_toolset(config)
+        )
         agent = deps.build_tool_agent(
             model=deps._shared._model_for_task("research", config),
             tools=tools,
             temperature=0.7,
         )
 
-        include_browser_hint = _needs_browser_hint(state.get("selected_tools") or [])
+        include_browser_hint = _needs_browser_hint(
+            [str(getattr(tool, "name", "")).strip() for tool in tools]
+        )
         messages = build_chat_runtime_messages(
             state,
             config,

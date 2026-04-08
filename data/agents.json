@@ -105,7 +105,28 @@
       "browser_use"
     ],
     "blocked_tools": [],
+    "roles": [
+      "default_agent"
+    ],
+    "capabilities": [
+      "search",
+      "browser",
+      "planning",
+      "python",
+      "files",
+      "shell",
+      "sheets",
+      "presentation",
+      "vision",
+      "image",
+      "computer",
+      "web_dev",
+      "human",
+      "sandbox"
+    ],
+    "blocked_capabilities": [],
     "mcp_servers": null,
+    "policy": {},
     "metadata": {
       "protected": true
     },
@@ -143,7 +164,20 @@
       "plan_steps"
     ],
     "blocked_tools": [],
+    "roles": [
+      "default_agent"
+    ],
+    "capabilities": [
+      "search",
+      "browser",
+      "planning",
+      "python",
+      "files",
+      "human"
+    ],
+    "blocked_capabilities": [],
     "mcp_servers": null,
+    "policy": {},
     "metadata": {
       "protected": true
     },

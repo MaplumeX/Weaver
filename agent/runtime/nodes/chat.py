@@ -8,10 +8,12 @@ import asyncio
 from typing import Any
 
 import agent.runtime.nodes._shared as _shared
+from agent.infrastructure.tools import build_agent_toolset
 from agent.runtime.nodes.prompting import build_chat_runtime_messages
 
 _chat_model = _shared._chat_model
 _model_for_task = _shared._model_for_task
+_configurable = _shared._configurable
 project_state_updates = _shared.project_state_updates
 check_cancellation = _shared.check_cancellation
 handle_cancellation = _shared.handle_cancellation
@@ -19,42 +21,35 @@ logger = _shared.logger
 settings = _shared.settings
 
 
-def _select_tools_for_input(
-    user_input: str,
-    *,
-    available_tools: list[str] | None = None,
-    blocked_tools: list[str] | None = None,
+def _resolve_effective_tool_names(
+    state: dict[str, Any],
+    config,
 ) -> list[str]:
-    text = str(user_input or "").strip().lower()
-    if not text:
-        return []
+    configurable = _configurable(config)
+    profile = configurable.get("agent_profile") or {}
+    if not isinstance(profile, dict):
+        profile = {}
 
-    available = {str(name).strip() for name in (available_tools or []) if str(name).strip()}
-    blocked = {str(name).strip() for name in (blocked_tools or []) if str(name).strip()}
-    selected: list[str] = []
-
-    if any(token in text for token in ("latest", "today", "current", "price", "news")):
-        selected.extend(["browser_search", "crawl_url"])
-    if any(token in text for token in ("open ", "website", "browse", "click", "login")):
-        selected.extend(["browser_navigate", "browser_click"])
-    if any(token in text for token in ("file", "read ", "write ", "save ", "download")):
-        selected.extend(
-            [
-                "sandbox_read_file",
-                "sandbox_create_file",
-                "sandbox_update_file",
-                "sandbox_str_replace",
-            ]
+    has_profile_contract = any(
+        profile.get(key)
+        for key in ("tools", "blocked_tools", "roles", "capabilities", "blocked_capabilities")
+    )
+    if has_profile_contract:
+        return sorted(
+            {
+                str(getattr(tool, "name", "")).strip()
+                for tool in build_agent_toolset(config)
+                if str(getattr(tool, "name", "")).strip()
+            }
         )
-    if any(token in text for token in ("python", "script", "calculate", "chart", "plot")):
-        selected.append("execute_python_code")
 
-    if available:
-        selected = [name for name in selected if name in available]
-    if blocked:
-        selected = [name for name in selected if name not in blocked]
-
-    return sorted(set(selected))
+    available = {
+        str(name).strip() for name in (state.get("available_tools") or []) if str(name).strip()
+    }
+    blocked = {
+        str(name).strip() for name in (state.get("blocked_tools") or []) if str(name).strip()
+    }
+    return sorted(name for name in available if name not in blocked)
 
 
 def chat_respond_node(
@@ -68,18 +63,14 @@ def chat_respond_node(
     try:
         check_cancellation(state)
 
-        selected_tools = _select_tools_for_input(
-            state.get("input", ""),
-            available_tools=state.get("available_tools") or [],
-            blocked_tools=state.get("blocked_tools") or [],
-        )
-        if selected_tools:
+        effective_tool_names = _resolve_effective_tool_names(state, config)
+        if effective_tool_names:
             return project_state_updates(
                 state,
                 {
                     "assistant_draft": "",
                     "needs_tools": True,
-                    "selected_tools": selected_tools,
+                    "selected_tools": effective_tool_names,
                 },
             )
 

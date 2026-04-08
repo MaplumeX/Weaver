@@ -54,8 +54,8 @@ async def test_chat_stream_persists_process_events_tools_and_sources(monkeypatch
 
     async def fake_stream_agent_events(*args, **kwargs):
         yield '0:{"type":"thinking","data":{"text":"Analyzing request"}}\n'
-        yield '0:{"type":"tool_start","data":{"name":"search_docs","toolCallId":"tool-1","args":{"query":"persistence"}}}\n'
-        yield '0:{"type":"tool_result","data":{"name":"search_docs","toolCallId":"tool-1","args":{"query":"persistence"},"result":{"hits":2}}}\n'
+        yield '0:{"type":"tool","data":{"name":"search_docs","toolCallId":"tool-1","status":"running","phase":"start","args":{"query":"persistence"}}}\n'
+        yield '0:{"type":"tool","data":{"name":"search_docs","toolCallId":"tool-1","status":"completed","phase":"result","args":{"query":"persistence"},"result":{"hits":2}}}\n'
         yield '0:{"type":"sources","data":{"items":[{"title":"Doc","url":"https://example.com/doc"}]}}\n'
         yield '0:{"type":"text","data":{"content":"assistant answer"}}\n'
         yield '0:{"type":"done","data":{"metrics":{"run_id":"run-1","duration_ms":27000}}}\n'
@@ -81,11 +81,21 @@ async def test_chat_stream_persists_process_events_tools_and_sources(monkeypatch
     assert captured[1][1]["metrics"] == {"run_id": "run-1", "duration_ms": 27000}
     assert captured[1][1]["tool_invocations"] == [
         {
+            "toolId": "search_docs",
             "toolName": "search_docs",
             "toolCallId": "tool-1",
             "state": "completed",
+            "phase": "result",
             "args": {"query": "persistence"},
             "result": {"hits": 2},
+            "payload": {
+                "name": "search_docs",
+                "toolCallId": "tool-1",
+                "status": "completed",
+                "phase": "result",
+                "args": {"query": "persistence"},
+                "result": {"hits": 2},
+            },
         }
     ]
     assert [event["type"] for event in captured[1][1]["process_events"]] == ["thinking", "tool", "tool", "done"]

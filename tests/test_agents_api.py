@@ -59,6 +59,10 @@ async def test_agents_crud(tmp_path, monkeypatch):
             "system_prompt": "You are a test agent.",
             "tools": ["browser_search", "browser_navigate", "crawl_url"],
             "blocked_tools": ["browser_click"],
+            "roles": ["default_agent"],
+            "capabilities": ["search", "browser"],
+            "blocked_capabilities": ["python"],
+            "policy": {"approval_mode": "manual"},
         }
         resp3 = await ac.post("/api/agents", json=create_payload)
         assert resp3.status_code == 200
@@ -67,6 +71,10 @@ async def test_agents_crud(tmp_path, monkeypatch):
         assert created_id and created_id != "default"
         assert created["tools"] == ["browser_search", "browser_navigate", "crawl_url"]
         assert created["blocked_tools"] == ["browser_click"]
+        assert created["roles"] == ["default_agent"]
+        assert created["capabilities"] == ["search", "browser"]
+        assert created["blocked_capabilities"] == ["python"]
+        assert created["policy"] == {"approval_mode": "manual"}
 
         # update
         upd = {**create_payload, "name": "My Agent v2"}

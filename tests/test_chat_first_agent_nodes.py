@@ -8,13 +8,14 @@ def test_chat_respond_node_returns_plain_answer_without_tools(monkeypatch):
 
     monkeypatch.setattr(chat_nodes, "_chat_model", lambda *_args, **_kwargs: _FakeLLM())
     monkeypatch.setattr(chat_nodes, "_model_for_task", lambda *_args, **_kwargs: "gpt-4o-mini")
+    monkeypatch.setattr(chat_nodes, "build_agent_toolset", lambda _config: [])
 
     result = chat_nodes.chat_respond_node(
         {
             "input": "解释一下 FastAPI 依赖注入",
             "messages": [],
             "memory_context": {"stored": [], "relevant": []},
-            "available_tools": ["browser_search", "crawl_url", "execute_python_code"],
+            "available_tools": [],
             "blocked_tools": [],
         },
         {"configurable": {}},

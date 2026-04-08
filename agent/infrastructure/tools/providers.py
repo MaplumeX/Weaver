@@ -7,6 +7,8 @@ from typing import Any, Protocol
 
 from langchain_core.tools import BaseTool
 
+from agent.infrastructure.tools.runtime_context import ToolRuntimeContext
+
 
 @dataclass(frozen=True)
 class ProviderContext:
@@ -14,6 +16,7 @@ class ProviderContext:
     profile: dict[str, Any]
     configurable: dict[str, Any]
     e2b_ready: bool
+    runtime: ToolRuntimeContext | None = None
 
 
 class ToolProvider(Protocol):

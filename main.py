@@ -57,7 +57,11 @@ from agent.application import (
 )
 from agent.contracts.research import extract_message_sources
 from agent.contracts.search_cache import clear_search_cache, get_search_cache
-from agent.infrastructure.tools import build_tool_catalog_snapshot, build_tool_inventory
+from agent.infrastructure.tools import (
+    build_tool_catalog_snapshot,
+    build_tool_inventory,
+    build_tool_registry,
+)
 from common.agents_store import (
     AgentProfile,
     ensure_default_agent,
@@ -755,6 +759,10 @@ async def startup_event():
                     "plan_steps",
                 ],
                 blocked_tools=[],
+                roles=["default_agent"],
+                capabilities=["search", "browser", "planning", "python", "files", "human"],
+                blocked_capabilities=[],
+                policy={},
                 metadata={"protected": True},
             )
         )
@@ -869,6 +877,25 @@ async def startup_event():
                     "browser_use",
                 ],
                 blocked_tools=[],
+                roles=["default_agent"],
+                capabilities=[
+                    "search",
+                    "browser",
+                    "planning",
+                    "python",
+                    "files",
+                    "shell",
+                    "sheets",
+                    "presentation",
+                    "vision",
+                    "image",
+                    "computer",
+                    "web_dev",
+                    "human",
+                    "sandbox",
+                ],
+                blocked_capabilities=[],
+                policy={},
                 metadata={"protected": True},
             )
         )
@@ -1094,10 +1121,14 @@ class ToolCatalogStats(BaseModel):
 
 
 class ToolCatalogItem(BaseModel):
+    tool_id: str = ""
     name: str
     description: str = ""
     tool_type: str = ""
     parameters: dict[str, Any] = Field(default_factory=dict)
+    capabilities: list[str] = Field(default_factory=list)
+    source: str = ""
+    risk_level: str = "standard"
     module_name: str = ""
     class_name: str = ""
     function_name: str = ""
@@ -1327,7 +1358,11 @@ class AgentUpsertPayload(BaseModel):
     model: str = ""
     tools: list[str] = []
     blocked_tools: list[str] = []
+    roles: list[str] = []
+    capabilities: list[str] = []
+    blocked_capabilities: list[str] = []
     mcp_servers: dict[str, Any] | None = None
+    policy: dict[str, Any] = {}
     metadata: dict[str, Any] = {}
 
 
@@ -1666,6 +1701,7 @@ async def agent_health():
         agent_ids = []
     tool_snapshot = build_tool_catalog_snapshot(
         tools=build_tool_inventory({"configurable": {"thread_id": "health", "agent_profile": {}}}),
+        registry=build_tool_registry({"configurable": {"thread_id": "health", "agent_profile": {}}}),
         source="runtime_inventory",
     )
 
@@ -2012,12 +2048,34 @@ def _resolve_tool_event_name(
     return "unknown"
 
 
+def _tool_phase_for_event(event_type: str, *, status: str | None = None) -> str:
+    normalized_event = str(event_type or "").strip().lower()
+    normalized_status = str(status or "").strip().lower()
+    if normalized_event == "tool_start":
+        return "start"
+    if normalized_event == "tool_progress":
+        return "progress"
+    if normalized_event == "tool_result":
+        return "result"
+    if normalized_event == "tool_error":
+        return "error"
+    if normalized_status == "completed":
+        return "result"
+    if normalized_status == "failed":
+        return "error"
+    if normalized_status == "running":
+        return "start"
+    return normalized_event or "tool"
+
+
 def _normalize_tool_event_data(event_type: str, data: Any) -> dict[str, Any]:
     """Normalize custom tool events so clients can rely on stable fields."""
     payload = dict(data) if isinstance(data, dict) else {}
+    raw_payload = dict(payload)
     tool_name = _resolve_tool_event_name(data=payload)
     payload.setdefault("name", tool_name)
     payload.setdefault("tool", tool_name)
+    payload.setdefault("tool_id", tool_name)
 
     if event_type == "tool_start":
         payload.setdefault("status", "running")
@@ -2025,6 +2083,9 @@ def _normalize_tool_event_data(event_type: str, data: Any) -> dict[str, Any]:
         payload.setdefault("status", "completed" if payload.get("success", True) else "failed")
     elif event_type == "tool_error":
         payload.setdefault("status", "failed")
+
+    payload.setdefault("phase", _tool_phase_for_event(event_type, status=str(payload.get("status") or "")))
+    payload.setdefault("payload", raw_payload)
 
     return payload
 
@@ -2043,9 +2104,12 @@ def _build_langchain_tool_stream_payload(
     args_preview = _compact_tool_args(tool_input)
 
     payload: dict[str, Any] = {
+        "tool_id": tool_name,
         "name": tool_name,
         "tool": tool_name,
         "status": status,
+        "phase": _tool_phase_for_event("tool", status=status),
+        "payload": data_dict,
     }
 
     tool_call_id = str(run_id or data_dict.get("tool_call_id") or "").strip()
@@ -2065,9 +2129,8 @@ def _build_persisted_process_event(event_type: str, data: Any) -> dict[str, Any]
     payload = dict(data) if isinstance(data, dict) else {}
     persisted_type = event_type
 
-    if event_type in {"tool", "tool_start", "tool_result", "tool_error"}:
-        normalize_event_type = event_type if event_type != "tool" else "tool"
-        payload = _normalize_tool_event_data(normalize_event_type, payload)
+    if event_type == "tool":
+        payload = _normalize_tool_event_data(event_type, payload)
         persisted_type = "tool"
     elif event_type == "tool_progress":
         payload = _normalize_tool_event_data(event_type, payload)
@@ -2092,16 +2155,17 @@ def _upsert_persisted_tool_invocation(
     event_type: str,
     data: Any,
 ) -> list[dict[str, Any]]:
-    normalize_event_type = event_type if event_type in {"tool_start", "tool_result", "tool_error"} else "tool"
-    payload = _normalize_tool_event_data(normalize_event_type, data)
+    payload = _normalize_tool_event_data("tool", data)
     tool_name = str(payload.get("name") or payload.get("tool") or "").strip() or "unknown"
     tool_call_id = str(payload.get("toolCallId") or payload.get("tool_call_id") or "").strip()
     status = str(payload.get("status") or "").strip().lower()
     state = "completed" if status == "completed" else "failed" if status == "failed" else "running"
 
     invocation: dict[str, Any] = {
+        "toolId": str(payload.get("tool_id") or tool_name),
         "toolName": tool_name,
         "state": state,
+        "phase": str(payload.get("phase") or _tool_phase_for_event("tool", status=status)),
     }
 
     if tool_call_id:
@@ -2117,6 +2181,8 @@ def _upsert_persisted_tool_invocation(
 
     if "result" in payload:
         invocation["result"] = payload.get("result")
+    if "payload" in payload:
+        invocation["payload"] = payload.get("payload")
 
     existing_index = -1
     if tool_call_id:
@@ -2171,7 +2237,7 @@ def _record_persisted_assistant_stream_event(
             state["sources"] = [item for item in items if isinstance(item, dict)]
         return
 
-    if event_type in {"tool", "tool_start", "tool_result", "tool_error"}:
+    if event_type == "tool":
         state["tool_invocations"] = _upsert_persisted_tool_invocation(
             state["tool_invocations"],
             event_type=event_type,
@@ -2533,7 +2599,7 @@ async def _stream_graph_execution(
 
                 if tool_event.type == ToolEvent.TOOL_START:
                     yield_event = await format_stream_event(
-                        "tool_start",
+                        "tool",
                         _normalize_tool_event_data("tool_start", tool_event.data),
                     )
                 elif tool_event.type == ToolEvent.TOOL_PROGRESS:
@@ -2545,12 +2611,12 @@ async def _stream_graph_execution(
                     yield_event = await format_stream_event("screenshot", tool_event.data)
                 elif tool_event.type == ToolEvent.TOOL_RESULT:
                     yield_event = await format_stream_event(
-                        "tool_result",
+                        "tool",
                         _normalize_tool_event_data("tool_result", tool_event.data),
                     )
                 elif tool_event.type == ToolEvent.TOOL_ERROR:
                     yield_event = await format_stream_event(
-                        "tool_error",
+                        "tool",
                         _normalize_tool_event_data("tool_error", tool_event.data),
                     )
                 elif tool_event.type == ToolEvent.TASK_UPDATE:
@@ -3557,6 +3623,7 @@ async def get_tool_catalog():
     """Return runtime inventory snapshot plus metadata-shaped tool payload."""
     snapshot = build_tool_catalog_snapshot(
         tools=build_tool_inventory({"configurable": {"thread_id": "catalog", "agent_profile": {}}}),
+        registry=build_tool_registry({"configurable": {"thread_id": "catalog", "agent_profile": {}}}),
         source="runtime_inventory",
     )
 
@@ -3663,7 +3730,13 @@ async def create_agent(payload: AgentUpsertPayload):
         model=(payload.model or "").strip(),
         tools=[str(item).strip() for item in (payload.tools or []) if str(item).strip()],
         blocked_tools=[str(item).strip() for item in (payload.blocked_tools or []) if str(item).strip()],
+        roles=[str(item).strip() for item in (payload.roles or []) if str(item).strip()],
+        capabilities=[str(item).strip() for item in (payload.capabilities or []) if str(item).strip()],
+        blocked_capabilities=[
+            str(item).strip() for item in (payload.blocked_capabilities or []) if str(item).strip()
+        ],
         mcp_servers=payload.mcp_servers,
+        policy=payload.policy or {},
         metadata=payload.metadata or {},
     )
     saved = upsert_agent_profile(profile)
@@ -3688,7 +3761,17 @@ async def update_agent(agent_id: str, payload: AgentUpsertPayload):
             "blocked_tools": [
                 str(item).strip() for item in (payload.blocked_tools or []) if str(item).strip()
             ],
+            "roles": [str(item).strip() for item in (payload.roles or []) if str(item).strip()],
+            "capabilities": [
+                str(item).strip() for item in (payload.capabilities or []) if str(item).strip()
+            ],
+            "blocked_capabilities": [
+                str(item).strip()
+                for item in (payload.blocked_capabilities or [])
+                if str(item).strip()
+            ],
             "mcp_servers": payload.mcp_servers,
+            "policy": payload.policy or {},
             "metadata": payload.metadata or {},
         }
     )
@@ -6038,9 +6121,9 @@ async def stream_tool_events(thread_id: str, request: Request, last_event_id: st
     Subscribe to tool execution events for a specific thread.
 
     This endpoint streams real-time events including:
-    - tool_start: When a tool begins execution
+    - tool: Unified tool lifecycle event (start/result/error)
+    - tool_progress: Incremental progress updates for long-running tools
     - tool_screenshot: When a screenshot is captured
-    - tool_result: When a tool completes execution
     - task_update: Task progress updates
 
     Usage:
@@ -6053,13 +6136,55 @@ async def stream_tool_events(thread_id: str, request: Request, last_event_id: st
     await _require_thread_owner(request, thread_id)
 
     async def event_generator():
+        def _normalize_browser_message_event(frame: str) -> str:
+            if not frame:
+                return frame
+            if frame.lstrip().startswith(":"):
+                return frame
+
+            event_name = ""
+            data_chunks: list[str] = []
+            passthrough_lines: list[str] = []
+            for line in frame.splitlines():
+                if line.startswith("event:"):
+                    event_name = line.partition(":")[2].strip()
+                    continue
+                if line.startswith("data:"):
+                    data_chunks.append(line.partition(":")[2].lstrip())
+                    continue
+                passthrough_lines.append(line)
+
+            raw_data = "\n".join(data_chunks).strip()
+            if not raw_data:
+                return frame
+
+            try:
+                payload = json.loads(raw_data)
+            except json.JSONDecodeError:
+                return frame
+
+            payload_type = str(payload.get("type") or event_name or "").strip()
+            if payload_type in {"tool_start", "tool_result", "tool_error"}:
+                payload["type"] = "tool"
+                payload_data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+                payload["data"] = _normalize_tool_event_data(payload_type, payload_data)
+            elif payload_type == "tool_progress":
+                payload_data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+                payload["data"] = _normalize_tool_event_data(payload_type, payload_data)
+
+            rebuilt_lines = [
+                *[line for line in passthrough_lines if not line.startswith("event:")],
+                f"data: {json.dumps(payload, ensure_ascii=False)}",
+            ]
+            return "\n".join(rebuilt_lines).rstrip("\n") + "\n\n"
+
         def _as_message_event(frame: str) -> str:
             """
             Frontend compatibility: emit *message* events only.
 
-            The v0.4 frontend uses `EventSource.onmessage`, which only receives
+            The frontend uses `EventSource.onmessage`, which only receives
             events with the default type ("message"). If we include an explicit
-            `event:` field (e.g. `event: tool_start`), the browser will dispatch
+            `event:` field (e.g. `event: tool`), the browser will dispatch
             it as a *named* event and `onmessage` will not fire.
 
             Our internal emitter uses typed SSE events; this endpoint strips the
@@ -6071,6 +6196,8 @@ async def stream_tool_events(thread_id: str, request: Request, last_event_id: st
             # Keep comments/keepalives unchanged.
             if frame.lstrip().startswith(":"):
                 return frame
+
+            frame = _normalize_browser_message_event(frame)
 
             lines: list[str] = []
             for line in frame.splitlines():

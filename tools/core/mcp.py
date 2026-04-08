@@ -55,6 +55,10 @@ async def init_mcp_tools(
     return _TOOLS
 
 
+def get_live_mcp_tools() -> list[BaseTool]:
+    return list(_TOOLS)
+
+
 async def reload_mcp_tools(
     servers_config: dict[str, Any], enabled: bool | None = None
 ) -> list[BaseTool]:
@@ -70,3 +74,4 @@ async def close_mcp_tools() -> None:
     if hasattr(_CLIENT, "close"):
         await _CLIENT.close()
     _CLIENT = None
+    _TOOLS.clear()

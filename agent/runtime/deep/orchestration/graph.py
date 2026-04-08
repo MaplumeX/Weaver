@@ -613,6 +613,8 @@ class MultiAgentDeepResearchRuntime:
             "budget_stop_reason": "",
             "terminal_status": "",
             "terminal_reason": "",
+            "tool_runtime_context": support._tool_runtime_context_snapshot(self.config),
+            "role_tool_policies": {},
         }
 
     def _unpack(self, graph_state: MultiAgentGraphState) -> _RuntimeParts:
@@ -682,8 +684,22 @@ class MultiAgentDeepResearchRuntime:
         stage: str = "",
         objective_summary: str = "",
         attempt: int = 1,
+        requested_tools: list[str] | None = None,
     ) -> dict[str, Any]:
         agent_id = self._next_agent_id(role, parts.runtime_state)
+        policy_snapshot = support._deep_research_role_tool_policy_snapshot(
+            role,
+            allowed_tools=requested_tools,
+        )
+        requested_tool_snapshot = (
+            [str(item).strip() for item in (requested_tools or []) if str(item).strip()]
+            if requested_tools is not None
+            else list(policy_snapshot.get("requested_tools") or [])
+        )
+        role_tool_policies = dict(parts.runtime_state.get("role_tool_policies") or {})
+        role_tool_policies[role] = copy.deepcopy(policy_snapshot)
+        role_tool_policies[role]["requested_tools"] = requested_tool_snapshot
+        parts.runtime_state["role_tool_policies"] = role_tool_policies
         record = AgentRunRecord(
             id=support._new_id("agent_run"),
             role=role,  # type: ignore[arg-type]
@@ -698,6 +714,8 @@ class MultiAgentDeepResearchRuntime:
             stage=stage,
             objective_summary=objective_summary,
             attempt=attempt,
+            requested_tools=requested_tool_snapshot,
+            resolved_tools=list(policy_snapshot.get("allowed_tool_names") or []),
         ).to_dict()
         self._emit(
             ToolEventType.RESEARCH_AGENT_START,
@@ -712,6 +730,8 @@ class MultiAgentDeepResearchRuntime:
                 "attempt": attempt,
                 "stage": stage,
                 "objective_summary": objective_summary,
+                "requested_tools": requested_tool_snapshot,
+                "resolved_tools": list(policy_snapshot.get("allowed_tool_names") or []),
             },
         )
         return record
@@ -745,6 +765,8 @@ class MultiAgentDeepResearchRuntime:
                 "status": status,
                 "summary": summary[:240],
                 "stage": stage or record.get("stage") or "",
+                "requested_tools": list(record.get("requested_tools") or []),
+                "resolved_tools": list(record.get("resolved_tools") or []),
             },
         )
 
@@ -2353,6 +2375,7 @@ class MultiAgentDeepResearchRuntime:
             stage="search",
             objective_summary=task.objective or task.goal,
             attempt=max(1, task.attempts),
+            requested_tools=list(task.allowed_tools or []),
         )
         try:
             task.stage = "search"
@@ -2440,6 +2463,7 @@ class MultiAgentDeepResearchRuntime:
             stage="revision",
             objective_summary=task.objective or task.goal,
             attempt=max(1, task.attempts),
+            requested_tools=list(task.allowed_tools or []),
         )
         try:
             if not current_draft:
@@ -2529,6 +2553,15 @@ class MultiAgentDeepResearchRuntime:
             agent_run = payload.get("agent_run")
             if isinstance(agent_run, dict):
                 parts.agent_runs.append(copy.deepcopy(agent_run))
+                role = str(agent_run.get("role") or "").strip()
+                if role:
+                    role_tool_policies = dict(parts.runtime_state.get("role_tool_policies") or {})
+                    role_tool_policies[role] = {
+                        "role": role,
+                        "requested_tools": list(agent_run.get("requested_tools") or []),
+                        "allowed_tool_names": list(agent_run.get("resolved_tools") or []),
+                    }
+                    parts.runtime_state["role_tool_policies"] = role_tool_policies
             parts.runtime_state["searches_used"] = int(parts.runtime_state.get("searches_used") or 0) + int(payload.get("searches_used") or 0)
             parts.runtime_state["tokens_used"] = int(parts.runtime_state.get("tokens_used") or 0) + int(payload.get("tokens_used") or 0)
             task = ResearchTask(**payload["task"])

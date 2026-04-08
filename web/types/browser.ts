@@ -22,7 +22,7 @@ export interface BrowserSession {
 }
 
 export interface BrowserEvent {
-  type: 'tool_start' | 'tool_screenshot' | 'tool_result' | 'tool_error' | 'tool_progress'
+  type: 'tool' | 'tool_screenshot' | 'tool_progress'
   event_id: string
   seq: number
   timestamp: number
@@ -31,6 +31,8 @@ export interface BrowserEvent {
 
 export interface BrowserEventData {
   tool?: string
+  tool_id?: string
+  phase?: string
   action?: string
   url?: string
   image?: string             // Base64 image data
@@ -40,10 +42,12 @@ export interface BrowserEventData {
   message?: string
   info?: string
   progress?: number
+  status?: string
   success?: boolean
   duration_ms?: number
   error?: string
-  args?: Record<string, any>
+  args?: Record<string, unknown>
+  payload?: Record<string, unknown>
 }
 
 export interface BrowserCapabilities {

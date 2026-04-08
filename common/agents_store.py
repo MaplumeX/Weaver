@@ -34,10 +34,14 @@ class AgentProfile(BaseModel):
     # Concrete tool allow/block configuration.
     tools: list[str] = Field(default_factory=list)
     blocked_tools: list[str] = Field(default_factory=list)
+    roles: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    blocked_capabilities: list[str] = Field(default_factory=list)
 
     # Optional per-agent MCP config override (same shape as MCP_SERVERS JSON).
     mcp_servers: dict[str, Any] | None = None
 
+    policy: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_utc_now_iso)
     updated_at: str = Field(default_factory=_utc_now_iso)

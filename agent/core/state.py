@@ -151,6 +151,12 @@ class AgentState(TypedDict):
     memory_context: dict[str, list[str]]
 
     # ============ Tool Control ============
+    # Resolved execution roles for the current session/profile
+    roles: list[str]
+    # Granted capability domains for this session/profile
+    available_capabilities: list[str]
+    # Capability domains explicitly blocked for this session/profile
+    blocked_capabilities: list[str]
     # Concrete tools allowed for this session
     available_tools: list[str]
     # Concrete tools explicitly blocked for this session

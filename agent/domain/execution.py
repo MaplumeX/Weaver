@@ -56,6 +56,10 @@ class AgentProfileConfig:
     system_prompt: str = ""
     tools: list[str] = field(default_factory=list)
     blocked_tools: list[str] = field(default_factory=list)
+    roles: list[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
+    blocked_capabilities: list[str] = field(default_factory=list)
+    policy: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     prompt_pack: str = ""
     prompt_variant: str = "full"
@@ -77,6 +81,16 @@ class AgentProfileConfig:
             blocked_tools=[
                 str(item).strip() for item in value.get("blocked_tools") or [] if str(item).strip()
             ],
+            roles=[str(item).strip() for item in value.get("roles") or [] if str(item).strip()],
+            capabilities=[
+                str(item).strip() for item in value.get("capabilities") or [] if str(item).strip()
+            ],
+            blocked_capabilities=[
+                str(item).strip()
+                for item in value.get("blocked_capabilities") or []
+                if str(item).strip()
+            ],
+            policy=dict(value.get("policy") or {}),
             metadata=dict(value.get("metadata") or {}),
             prompt_pack=str(value.get("prompt_pack") or "").strip(),
             prompt_variant=str(value.get("prompt_variant") or "full").strip() or "full",

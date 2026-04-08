@@ -16,7 +16,7 @@ interface UseChatStreamProps {
   searchMode: ChatMode
 }
 
-type ToolLifecycleEventType = 'tool' | 'tool_start' | 'tool_result' | 'tool_error'
+type ToolLifecycleEventType = 'tool'
 
 export function getDeepResearchAutoStatus(eventType: string, payload: any): string | null {
   const role = String(payload?.role || '').trim()
@@ -168,7 +168,7 @@ function normalizeToolEvent(
   eventType: ToolLifecycleEventType,
   payload: any,
 ) {
-  const toolName = String(payload?.name || payload?.tool || '').trim() || 'unknown'
+  const toolName = String(payload?.name || payload?.tool || payload?.tool_id || '').trim() || 'unknown'
   const args =
     payload?.args && typeof payload.args === 'object'
       ? payload.args
@@ -179,15 +179,7 @@ function normalizeToolEvent(
           : {}
 
   const status =
-    eventType === 'tool'
-      ? String(payload?.status || '').trim() || (payload?.success === false ? 'failed' : 'running')
-      : eventType === 'tool_result'
-        ? payload?.success === false
-          ? 'failed'
-          : 'completed'
-        : eventType === 'tool_error'
-          ? 'failed'
-          : 'running'
+    String(payload?.status || '').trim() || (payload?.success === false ? 'failed' : 'running')
 
   const toolCallId = String(payload?.toolCallId || payload?.tool_call_id || '').trim()
 
@@ -198,9 +190,11 @@ function normalizeToolEvent(
     toolCallId: toolCallId || undefined,
     payload: {
       ...payload,
+      tool_id: payload?.tool_id || toolName,
       name: toolName,
       tool: toolName,
       status,
+      phase: payload?.phase || (status === 'completed' ? 'result' : status === 'failed' ? 'error' : 'start'),
       ...(Object.keys(args).length > 0 ? { args } : {}),
     },
   }
@@ -425,16 +419,14 @@ export function useChatStream({ selectedModel, searchMode }: UseChatStreamProps)
           } else if (['thinking', 'screenshot', 'task_update'].includes(data.type)) {
             pushProcessEvent(data.type, data.data)
             syncAssistantMessage()
-          } else if (['tool_start', 'tool_result', 'tool_error'].includes(data.type)) {
-            const normalized = normalizeToolEvent(data.type as ToolLifecycleEventType, data.data)
-            pushProcessEvent('tool', normalized.payload)
-            syncAssistantMessage()
           } else if (data.type === 'tool_progress') {
-            const normalized = normalizeToolEvent('tool_start', data.data)
+            const normalized = normalizeToolEvent('tool', data.data)
             pushProcessEvent('tool_progress', {
               ...data.data,
               name: normalized.toolName,
               tool: normalized.toolName,
+              tool_id: data.data?.tool_id || normalized.toolName,
+              phase: data.data?.phase || 'progress',
             })
             syncAssistantMessage()
           } else if (data.type === 'sources') {

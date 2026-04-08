@@ -113,6 +113,50 @@ def test_build_deep_research_tool_agent_filters_to_allowed_groups(monkeypatch):
     ]
 
 
+def test_build_deep_research_tool_agent_expands_capability_aliases(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        agent_factory,
+        "build_tools_for_names",
+        lambda names, config=None: [
+            SimpleNamespace(name=name)
+            for name in sorted(names)
+            if name in {"browser_search", "crawl_url", "browser_extract_text", "fabric"}
+        ],
+    )
+    monkeypatch.setattr(
+        agent_factory,
+        "build_tool_agent",
+        lambda *, model, tools, temperature=0.7: captured.setdefault(
+            "agent",
+            {
+                "model": model,
+                "tool_names": [tool.name for tool in tools],
+                "temperature": temperature,
+            },
+        ),
+    )
+
+    agent, tools = agent_factory.build_deep_research_tool_agent(
+        model="gpt-test",
+        allowed_tools=["search", "extract", "synthesize"],
+    )
+
+    assert [tool.name for tool in tools] == [
+        "browser_extract_text",
+        "browser_search",
+        "crawl_url",
+        "fabric",
+    ]
+    assert agent["tool_names"] == [
+        "browser_extract_text",
+        "browser_search",
+        "crawl_url",
+        "fabric",
+    ]
+
+
 def test_build_deep_research_tool_agent_uses_shared_inventory(monkeypatch):
     captured = {}
 
@@ -174,6 +218,21 @@ def test_resolve_deep_research_role_tool_names_respects_reporter_python_policy()
         enable_reporter_python_tools=False,
     )
     assert "execute_python_code" not in restricted
+
+
+def test_resolve_deep_research_role_tool_names_expands_allowed_tool_aliases():
+    allowed = agent_factory.resolve_deep_research_role_tool_names(
+        "researcher",
+        allowed_tools=["search", "extract"],
+    )
+
+    assert {
+        "browser_search",
+        "crawl_url",
+        "browser_extract_text",
+        "sb_browser_extract_text",
+        "sandbox_extract_search_results",
+    } <= allowed
 
 
 def test_researcher_role_keeps_legacy_search_read_extract_coverage():

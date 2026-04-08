@@ -13,6 +13,15 @@ def _profile_tools() -> dict[str, set[str]]:
     }
 
 
+def _profiles() -> dict[str, dict]:
+    payload = json.loads((Path(__file__).resolve().parents[1] / "data" / "agents.json").read_text())
+    return {
+        str(item["id"]): item
+        for item in payload
+        if isinstance(item, dict) and item.get("id")
+    }
+
+
 def test_default_profile_keeps_legacy_default_tool_coverage() -> None:
     tools = _profile_tools()["default"]
 
@@ -88,3 +97,22 @@ def test_manus_profile_keeps_legacy_full_tool_coverage() -> None:
         "computer_screen_info",
         "computer_drag",
     } <= tools
+
+
+def test_builtin_profiles_include_new_role_capability_contract_fields() -> None:
+    profiles = _profiles()
+
+    default_profile = profiles["default"]
+    manus_profile = profiles["manus"]
+
+    assert default_profile["roles"] == ["default_agent"]
+    assert {"search", "browser", "planning", "python"} <= set(default_profile["capabilities"])
+    assert default_profile["blocked_capabilities"] == []
+    assert default_profile["policy"] == {}
+
+    assert manus_profile["roles"] == ["default_agent"]
+    assert {"search", "browser", "shell", "presentation", "computer", "sandbox"} <= set(
+        manus_profile["capabilities"]
+    )
+    assert manus_profile["blocked_capabilities"] == []
+    assert manus_profile["policy"] == {}

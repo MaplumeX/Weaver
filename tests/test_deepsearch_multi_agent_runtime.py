@@ -407,6 +407,14 @@ def test_run_deep_research_emits_section_artifacts_and_events(monkeypatch):
     agent_roles = {run["role"] for run in runtime["agent_runs"]}
 
     assert runtime["engine"] == "multi_agent"
+    assert runtime["runtime_state"]["tool_runtime_context"]["thread_id"] == "thread_test"
+    assert runtime["runtime_state"]["tool_runtime_context"]["session_id"] == "thread_test"
+    assert runtime["runtime_state"]["role_tool_policies"]["researcher"]["requested_tools"] == [
+        "search",
+        "read",
+        "extract",
+        "synthesize",
+    ]
     assert result["is_complete"] is True
     assert queue_stats["completed"] == 2
     assert set(artifact_store) == {
@@ -428,6 +436,10 @@ def test_run_deep_research_emits_section_artifacts_and_events(monkeypatch):
     assert len(public_artifacts["section_certifications"]) == 2
     assert public_artifacts["outline_gate_summary"]["outline_ready"] is True
     assert public_artifacts["coverage_summary"]["ready"] is True
+    researcher_runs = [run for run in runtime["agent_runs"] if run["role"] == "researcher"]
+    assert researcher_runs
+    assert researcher_runs[0]["requested_tools"] == ["search", "read", "extract", "synthesize"]
+    assert "browser_search" in researcher_runs[0]["resolved_tools"]
     assert len(public_artifacts["branch_results"]) == 2
     assert public_artifacts["validation_summary"]["coverage_ready"] is True
     assert public_artifacts["final_report"] == result["final_report"]

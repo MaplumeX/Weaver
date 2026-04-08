@@ -3,6 +3,7 @@ Factory to create LangChain agents with official middleware (selector, retry, li
 """
 
 import logging
+from dataclasses import dataclass
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
@@ -72,6 +73,45 @@ _DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS = {
     },
     "reporter": {"fabric", "execute_python_code"},
 }
+
+_DEEP_RESEARCH_TOOL_ALIASES = {
+    "search": {
+        "browser_search",
+        "tavily_search",
+        "fallback_search",
+        "sandbox_web_search",
+        "sandbox_search_and_click",
+        "crawl_url",
+        "crawl_urls",
+    },
+    "read": {
+        "browser_navigate",
+        "browser_click",
+        "browser_extract_text",
+        "sb_browser_navigate",
+        "sb_browser_click",
+        "sb_browser_extract_text",
+        "sandbox_extract_search_results",
+    },
+    "extract": {
+        "browser_extract_text",
+        "sb_browser_extract_text",
+        "sandbox_extract_search_results",
+        "crawl_url",
+        "crawl_urls",
+    },
+    "synthesize": {
+        "fabric",
+        "execute_python_code",
+    },
+}
+
+
+@dataclass(frozen=True)
+class DeepResearchToolPolicy:
+    role: str
+    requested_tools: tuple[str, ...]
+    allowed_tool_names: tuple[str, ...]
 
 
 def classify_deep_research_role(role: str) -> str:
@@ -169,7 +209,7 @@ def _build_middlewares() -> list:
                 initial_delay=settings.tool_retry_initial_delay or 1.0,
                 max_delay=settings.tool_retry_max_delay or 60.0,
                 jitter=True,
-                on_failure="return_message",
+                on_failure="continue",
             )
         )
 
@@ -269,7 +309,27 @@ def _resolve_deep_research_tool_names(allowed_tools: list[str] | None = None) ->
     requested = [str(item).strip() for item in (allowed_tools or []) if str(item).strip()]
     if not requested:
         requested = ["browser_search", "crawl_url", "sb_browser_extract_text"]
-    return set(requested)
+    resolved: set[str] = set()
+    for item in requested:
+        alias_key = item.lower()
+        alias_values = _DEEP_RESEARCH_TOOL_ALIASES.get(alias_key)
+        if alias_values:
+            resolved.update(alias_values)
+        else:
+            resolved.add(item)
+    return resolved
+
+
+def _dedupe_texts(values: list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in values:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        deduped.append(text)
+    return tuple(deduped)
 
 
 def resolve_deep_research_role_tool_names(
@@ -279,8 +339,25 @@ def resolve_deep_research_role_tool_names(
     enable_supervisor_world_tools: bool = False,
     enable_reporter_python_tools: bool = True,
 ) -> set[str]:
+    return set(
+        resolve_deep_research_role_tool_policy(
+            role,
+            allowed_tools=allowed_tools,
+            enable_supervisor_world_tools=enable_supervisor_world_tools,
+            enable_reporter_python_tools=enable_reporter_python_tools,
+        ).allowed_tool_names
+    )
+
+
+def resolve_deep_research_role_tool_policy(
+    role: str,
+    *,
+    allowed_tools: list[str] | None = None,
+    enable_supervisor_world_tools: bool = False,
+    enable_reporter_python_tools: bool = True,
+) -> DeepResearchToolPolicy:
     normalized_role = str(role or "").strip().lower()
-    requested = list(_DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS.get(normalized_role, {"fabric"}))
+    requested = list(_DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS.get(normalized_role, ()))
     if normalized_role == "supervisor" and enable_supervisor_world_tools:
         requested.extend(
             [
@@ -305,7 +382,11 @@ def resolve_deep_research_role_tool_names(
     if normalized_role == "reporter" and not enable_reporter_python_tools:
         requested = [item for item in requested if item != "execute_python_code"]
     requested.extend(str(item).strip() for item in (allowed_tools or []) if str(item).strip())
-    return _resolve_deep_research_tool_names(requested)
+    return DeepResearchToolPolicy(
+        role=normalized_role,
+        requested_tools=_dedupe_texts(requested),
+        allowed_tool_names=tuple(sorted(_resolve_deep_research_tool_names(requested))),
+    )
 
 
 def build_deep_research_tool_agent(
@@ -321,7 +402,7 @@ def build_deep_research_tool_agent(
     """
     model_name = (model or settings.primary_model).strip()
     if role:
-        allowed_names = resolve_deep_research_role_tool_names(
+        policy = resolve_deep_research_role_tool_policy(
             role,
             allowed_tools=allowed_tools,
             enable_supervisor_world_tools=bool(
@@ -331,6 +412,7 @@ def build_deep_research_tool_agent(
                 getattr(settings, "deep_research_reporter_enable_python_tools", True)
             ),
         )
+        allowed_names = set(policy.allowed_tool_names)
     else:
         allowed_names = _resolve_deep_research_tool_names(allowed_tools)
     tools = list(extra_tools or [])

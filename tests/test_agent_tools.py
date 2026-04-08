@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
 
 from langchain_core.tools import tool
 
-from agent.infrastructure.tools import StaticToolProvider, build_agent_toolset
+from agent.infrastructure.tools import StaticToolProvider, ToolSpec, build_agent_toolset
 from agent.infrastructure.tools.assembly import build_tool_inventory
 
 
@@ -119,3 +119,62 @@ def test_build_agent_toolset_keeps_live_mcp_tools_for_protected_profiles(monkeyp
     names = _names(build_agent_toolset(cfg))
 
     assert names == ["alpha", "mcp_fetch"]
+
+
+def test_build_agent_toolset_resolves_capabilities_to_concrete_tools(monkeypatch):
+    monkeypatch.setattr(
+        "agent.infrastructure.tools.assembly.build_tool_inventory",
+        lambda _config: [alpha, beta, gamma],
+    )
+    monkeypatch.setattr(
+        "agent.infrastructure.tools.assembly.build_tool_registry",
+        lambda _config: {
+            "alpha": ToolSpec(tool_id="alpha", tool_name="alpha", capabilities=("search",)),
+            "beta": ToolSpec(tool_id="beta", tool_name="beta", capabilities=("browser",)),
+            "gamma": ToolSpec(tool_id="gamma", tool_name="gamma", capabilities=("python",)),
+        },
+    )
+
+    cfg = {
+        "configurable": {
+            "thread_id": "tools-4",
+            "agent_profile": {
+                "capabilities": ["browser"],
+                "emit_tool_events": False,
+            },
+        }
+    }
+
+    names = _names(build_agent_toolset(cfg))
+
+    assert names == ["beta"]
+
+
+def test_build_agent_toolset_blocks_tools_via_blocked_capabilities(monkeypatch):
+    monkeypatch.setattr(
+        "agent.infrastructure.tools.assembly.build_tool_inventory",
+        lambda _config: [alpha, beta, gamma],
+    )
+    monkeypatch.setattr(
+        "agent.infrastructure.tools.assembly.build_tool_registry",
+        lambda _config: {
+            "alpha": ToolSpec(tool_id="alpha", tool_name="alpha", capabilities=("search",)),
+            "beta": ToolSpec(tool_id="beta", tool_name="beta", capabilities=("browser",)),
+            "gamma": ToolSpec(tool_id="gamma", tool_name="gamma", capabilities=("python",)),
+        },
+    )
+
+    cfg = {
+        "configurable": {
+            "thread_id": "tools-5",
+            "agent_profile": {
+                "tools": ["alpha", "beta", "gamma"],
+                "blocked_capabilities": ["python", "browser"],
+                "emit_tool_events": False,
+            },
+        }
+    }
+
+    names = _names(build_agent_toolset(cfg))
+
+    assert names == ["alpha"]

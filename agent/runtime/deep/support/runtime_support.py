@@ -11,6 +11,8 @@ import uuid
 from typing import Any
 
 from agent.contracts.search_cache import get_search_cache
+from agent.infrastructure.agents.factory import resolve_deep_research_role_tool_policy
+from agent.infrastructure.tools import build_tool_context
 from agent.research.domain_router import ResearchDomain, build_provider_profile
 from common.config import settings
 from tools import tavily_search
@@ -62,6 +64,46 @@ def _selected_reasoning_model(config: dict[str, Any], fallback: str) -> str:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return fallback
+
+
+def _tool_runtime_context_snapshot(config: dict[str, Any]) -> dict[str, Any]:
+    try:
+        runtime = build_tool_context(config).runtime
+    except Exception:
+        return {}
+    return {
+        "thread_id": runtime.thread_id,
+        "user_id": runtime.user_id,
+        "session_id": runtime.session_id,
+        "agent_id": runtime.agent_id,
+        "run_id": runtime.run_id,
+        "roles": list(runtime.roles),
+        "capabilities": list(runtime.capabilities),
+        "blocked_capabilities": list(runtime.blocked_capabilities),
+        "e2b_ready": bool(runtime.e2b_ready),
+    }
+
+
+def _deep_research_role_tool_policy_snapshot(
+    role: str,
+    *,
+    allowed_tools: list[str] | None = None,
+) -> dict[str, Any]:
+    policy = resolve_deep_research_role_tool_policy(
+        role,
+        allowed_tools=allowed_tools,
+        enable_supervisor_world_tools=bool(
+            getattr(settings, "deep_research_supervisor_allow_world_tools", False)
+        ),
+        enable_reporter_python_tools=bool(
+            getattr(settings, "deep_research_reporter_enable_python_tools", True)
+        ),
+    )
+    return {
+        "role": policy.role,
+        "requested_tools": list(policy.requested_tools),
+        "allowed_tool_names": list(policy.allowed_tool_names),
+    }
 
 
 def _model_for_task(task_type: str, config: dict[str, Any]) -> str:
@@ -245,10 +287,12 @@ __all__ = [
     "_configurable_float",
     "_configurable_int",
     "_configurable_value",
+    "_deep_research_role_tool_policy_snapshot",
     "_estimate_tokens_from_results",
     "_estimate_tokens_from_text",
     "_model_for_task",
     "_new_id",
     "_resolve_provider_profile",
     "_search_query",
+    "_tool_runtime_context_snapshot",
 ]

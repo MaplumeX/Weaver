@@ -369,9 +369,9 @@ export interface paths {
          * @description Subscribe to tool execution events for a specific thread.
          *
          *     This endpoint streams real-time events including:
-         *     - tool_start: When a tool begins execution
+         *     - tool: Unified tool lifecycle event (start/result/error)
+         *     - tool_progress: Incremental progress updates for long-running tools
          *     - tool_screenshot: When a screenshot is captured
-         *     - tool_result: When a tool completes execution
          *     - task_update: Task progress updates
          *
          *     Usage:
@@ -1619,8 +1619,12 @@ export interface components {
          *     Stored in a local JSON file (data/agents.json) to avoid DB migrations.
          */
         AgentProfile: {
+            /** Blocked Capabilities */
+            blocked_capabilities?: string[];
             /** Blocked Tools */
             blocked_tools?: string[];
+            /** Capabilities */
+            capabilities?: string[];
             /** Created At */
             created_at?: string;
             /**
@@ -1645,6 +1649,12 @@ export interface components {
             model: string;
             /** Name */
             name: string;
+            /** Policy */
+            policy?: {
+                [key: string]: unknown;
+            };
+            /** Roles */
+            roles?: string[];
             /**
              * System Prompt
              * @default
@@ -1658,10 +1668,20 @@ export interface components {
         /** AgentUpsertPayload */
         AgentUpsertPayload: {
             /**
+             * Blocked Capabilities
+             * @default []
+             */
+            blocked_capabilities: string[];
+            /**
              * Blocked Tools
              * @default []
              */
             blocked_tools: string[];
+            /**
+             * Capabilities
+             * @default []
+             */
+            capabilities: string[];
             /**
              * Description
              * @default
@@ -1687,6 +1707,18 @@ export interface components {
             model: string;
             /** Name */
             name: string;
+            /**
+             * Policy
+             * @default {}
+             */
+            policy: {
+                [key: string]: unknown;
+            };
+            /**
+             * Roles
+             * @default []
+             */
+            roles: string[];
             /**
              * System Prompt
              * @default
@@ -2762,6 +2794,8 @@ export interface components {
         };
         /** ToolCatalogItem */
         ToolCatalogItem: {
+            /** Capabilities */
+            capabilities?: string[];
             /**
              * Class Name
              * @default
@@ -2788,8 +2822,23 @@ export interface components {
             parameters?: {
                 [key: string]: unknown;
             };
+            /**
+             * Risk Level
+             * @default standard
+             */
+            risk_level: string;
+            /**
+             * Source
+             * @default
+             */
+            source: string;
             /** Tags */
             tags?: string[];
+            /**
+             * Tool Id
+             * @default
+             */
+            tool_id: string;
             /**
              * Tool Type
              * @default
