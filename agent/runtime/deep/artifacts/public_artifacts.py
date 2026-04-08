@@ -237,10 +237,19 @@ def _normalize_public_section_reviews(items: Any) -> list[dict[str, Any]]:
                 "section_id": item.get("section_id"),
                 "branch_id": item.get("branch_id"),
                 "verdict": str(item.get("verdict") or "").strip(),
+                "reportability": str(item.get("reportability") or "insufficient").strip(),
+                "quality_band": str(item.get("quality_band") or "").strip(),
                 "objective_score": item.get("objective_score", 0.0),
                 "grounding_score": item.get("grounding_score", 0.0),
                 "freshness_score": item.get("freshness_score", 0.0),
                 "contradiction_score": item.get("contradiction_score", 0.0),
+                "risk_flags": [str(flag).strip() for flag in item.get("risk_flags", []) or [] if str(flag).strip()],
+                "suggested_actions": [
+                    str(action).strip()
+                    for action in item.get("suggested_actions", []) or []
+                    if str(action).strip()
+                ],
+                "needs_manual_review": bool(item.get("needs_manual_review", False)),
                 "blocking_issues": list(item.get("blocking_issues") or []),
                 "advisory_issues": list(item.get("advisory_issues") or []),
                 "follow_up_queries": list(item.get("follow_up_queries") or []),
@@ -260,10 +269,19 @@ def _normalize_public_section_certifications(items: Any) -> list[dict[str, Any]]
                 "id": item.get("id"),
                 "section_id": item.get("section_id"),
                 "certified": bool(item.get("certified", False)),
+                "reportability": str(item.get("reportability") or "").strip(),
+                "quality_band": str(item.get("quality_band") or "").strip(),
                 "key_claims_grounded_ratio": item.get("key_claims_grounded_ratio", 0.0),
                 "objective_met": bool(item.get("objective_met", False)),
                 "has_primary_sources": bool(item.get("has_primary_sources", False)),
                 "freshness_warning": str(item.get("freshness_warning") or "").strip(),
+                "risk_flags": [str(flag).strip() for flag in item.get("risk_flags", []) or [] if str(flag).strip()],
+                "suggested_actions": [
+                    str(action).strip()
+                    for action in item.get("suggested_actions", []) or []
+                    if str(action).strip()
+                ],
+                "needs_manual_review": bool(item.get("needs_manual_review", False)),
                 "limitations": list(item.get("limitations") or []),
                 "blocking_issue_count": int(item.get("blocking_issue_count", 0) or 0),
                 "advisory_issue_count": int(item.get("advisory_issue_count", 0) or 0),
@@ -282,6 +300,10 @@ def _normalize_validation_summary(payload: Any) -> dict[str, Any]:
         "retry_branch_count",
         "failed_branch_count",
         "advisory_gap_count",
+        "reportable_section_count",
+        "high_confidence_section_count",
+        "limited_evidence_section_count",
+        "review_needed_section_count",
         "coverage_target_count",
         "covered_question_count",
         "required_section_count",
@@ -314,6 +336,10 @@ def _normalize_validation_summary(payload: Any) -> dict[str, Any]:
         summary["coverage_ready"] = bool(payload.get("coverage_ready"))
     elif "outline_ready" in payload:
         summary["coverage_ready"] = bool(payload.get("outline_ready"))
+    if "report_ready" in payload:
+        summary["report_ready"] = bool(payload.get("report_ready"))
+    if "preferred_ready" in payload:
+        summary["preferred_ready"] = bool(payload.get("preferred_ready"))
 
     if "certified_section_count" in summary and "passed_branch_count" not in summary:
         summary["passed_branch_count"] = int(summary.get("certified_section_count") or 0)
@@ -630,6 +656,21 @@ def _normalize_lightweight_validation(artifact_store: dict[str, Any]) -> dict[st
         review_items = []
     reviews = _normalize_public_section_reviews(review_items)
     certifications = _normalize_public_section_certifications(certification_items)
+    strong_ids = {
+        str(item.get("section_id") or "").strip()
+        for item in reviews
+        if str(item.get("reportability") or "").strip() == "high"
+    }
+    supportive_ids = {
+        str(item.get("section_id") or "").strip()
+        for item in reviews
+        if str(item.get("reportability") or "").strip() in {"high", "medium"}
+    }
+    reportable_ids = {
+        str(item.get("section_id") or "").strip()
+        for item in reviews
+        if str(item.get("reportability") or "").strip() in {"high", "medium", "low"}
+    }
     certified_ids = {
         str(item.get("section_id") or "").strip()
         for item in certifications
@@ -641,10 +682,18 @@ def _normalize_lightweight_validation(artifact_store: dict[str, Any]) -> dict[st
         if str(item.get("section_id") or "").strip()
     } | certified_ids
     return {
-        "passed_branch_count": len(certified_ids),
+        "passed_branch_count": len(strong_ids or certified_ids),
         "retry_branch_count": sum(1 for item in reviews if str(item.get("verdict") or "") == "request_research"),
         "failed_branch_count": sum(1 for item in reviews if str(item.get("verdict") or "") == "block_section"),
-        "coverage_ready": bool(required_ids) and len(certified_ids) == len(required_ids),
+        "reportable_section_count": len(reportable_ids),
+        "high_confidence_section_count": len(strong_ids),
+        "limited_evidence_section_count": sum(
+            1 for item in reviews if str(item.get("reportability") or "").strip() in {"medium", "low"}
+        ),
+        "review_needed_section_count": sum(1 for item in reviews if bool(item.get("needs_manual_review"))),
+        "preferred_ready": bool(required_ids) and supportive_ids.issuperset(required_ids),
+        "report_ready": bool(reportable_ids),
+        "coverage_ready": bool(required_ids) and supportive_ids.issuperset(required_ids),
         "summaries": [
             {
                 "id": item.get("id"),
@@ -653,6 +702,10 @@ def _normalize_lightweight_validation(artifact_store: dict[str, Any]) -> dict[st
                 "branch_id": item.get("branch_id"),
                 "status": str(item.get("verdict") or "pending"),
                 "score": item.get("grounding_score", 0.0),
+                "reportability": item.get("reportability", "insufficient"),
+                "quality_band": item.get("quality_band", ""),
+                "risk_flags": list(item.get("risk_flags") or []),
+                "needs_manual_review": bool(item.get("needs_manual_review", False)),
                 "notes": item.get("notes", ""),
                 "retry_queries": list(item.get("follow_up_queries") or []),
             }

@@ -224,10 +224,15 @@ class SectionReviewArtifact:
     section_id: str
     branch_id: str | None
     verdict: str
+    reportability: str = "insufficient"
+    quality_band: str = "insufficient"
     objective_score: float = 0.0
     grounding_score: float = 0.0
     freshness_score: float = 0.0
     contradiction_score: float = 0.0
+    risk_flags: list[str] = field(default_factory=list)
+    suggested_actions: list[str] = field(default_factory=list)
+    needs_manual_review: bool = False
     blocking_issues: list[dict[str, Any]] = field(default_factory=list)
     advisory_issues: list[dict[str, Any]] = field(default_factory=list)
     follow_up_queries: list[str] = field(default_factory=list)
@@ -245,10 +250,15 @@ class SectionCertificationArtifact:
     id: str
     section_id: str
     certified: bool
+    reportability: str = ""
+    quality_band: str = ""
     key_claims_grounded_ratio: float = 0.0
     objective_met: bool = False
     has_primary_sources: bool = False
     freshness_warning: str = ""
+    risk_flags: list[str] = field(default_factory=list)
+    suggested_actions: list[str] = field(default_factory=list)
+    needs_manual_review: bool = False
     limitations: list[str] = field(default_factory=list)
     blocking_issue_count: int = 0
     advisory_issue_count: int = 0

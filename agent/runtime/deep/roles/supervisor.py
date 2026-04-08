@@ -136,11 +136,20 @@ class ResearchSupervisor:
         outline: dict[str, Any],
         section_status_map: dict[str, Any],
         budget_stop_reason: str = "",
+        aggregate_summary: dict[str, Any] | None = None,
+        reportable_section_count: int = 0,
     ) -> SupervisorDecision:
-        if budget_stop_reason:
+        aggregate = aggregate_summary or {}
+        if budget_stop_reason and not reportable_section_count and not bool(aggregate.get("report_ready")):
             return SupervisorDecision(
                 action=SupervisorAction.STOP,
                 reasoning=budget_stop_reason,
+            )
+
+        if reportable_section_count or bool(aggregate.get("report_ready")):
+            return SupervisorDecision(
+                action=SupervisorAction.REPORT,
+                reasoning="已有可报告章节，可进入最佳努力报告生成",
             )
 
         required_ids = [
@@ -159,7 +168,7 @@ class ResearchSupervisor:
             for section_id in required_ids
             if str((section_status_map or {}).get(section_id) or "").strip() == "blocked"
         ]
-        if blocked:
+        if blocked and not reportable_section_count:
             return SupervisorDecision(
                 action=SupervisorAction.STOP,
                 reasoning="存在阻塞的 required section，当前无法继续汇总",

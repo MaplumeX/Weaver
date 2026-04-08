@@ -52,9 +52,20 @@ class _FakeSupervisor:
             "status": "completed",
         }
 
-    def decide_section_action(self, *, outline, section_status_map, budget_stop_reason=""):
-        if budget_stop_reason:
+    def decide_section_action(
+        self,
+        *,
+        outline,
+        section_status_map,
+        budget_stop_reason="",
+        aggregate_summary=None,
+        reportable_section_count=0,
+    ):
+        aggregate = aggregate_summary or {}
+        if budget_stop_reason and not reportable_section_count and not aggregate.get("report_ready"):
             return type("Decision", (), {"action": "stop", "reasoning": budget_stop_reason})()
+        if reportable_section_count or aggregate.get("report_ready"):
+            return type("Decision", (), {"action": "report", "reasoning": "已有可报告章节"})()
         required = list(outline.get("required_section_ids") or [])
         blocked = [section_id for section_id in required if section_status_map.get(section_id) == "blocked"]
         if blocked:
@@ -265,6 +276,18 @@ class _FlakyResearchAgent(_FakeResearchAgent):
         )
 
 
+class _WeakEvidenceResearchAgent(_FakeResearchAgent):
+    def research_branch(self, task, *, topic, existing_summary="", max_results_per_query=5):
+        result = super().research_branch(
+            task,
+            topic=topic,
+            existing_summary=existing_summary,
+            max_results_per_query=max_results_per_query,
+        )
+        result["passages"] = []
+        return result
+
+
 class _FakeReporter:
     def __init__(self, _llm, _config=None):
         pass
@@ -308,6 +331,17 @@ class _ContextCheckingReporter(_FakeReporter):
         assert hasattr(topic_or_context, "sections")
         assert topic_or_context.sections
         assert topic_or_context.sources
+        return super().generate_report(topic_or_context, findings=findings, sources=sources)
+
+
+class _QualityCheckingReporter(_FakeReporter):
+    def generate_report(self, topic_or_context, findings=None, sources=None):
+        assert hasattr(topic_or_context, "sections")
+        assert topic_or_context.sections
+        first = topic_or_context.sections[0]
+        assert getattr(first, "confidence_level", "")
+        assert hasattr(first, "risk_highlights")
+        assert hasattr(first, "manual_review_items")
         return super().generate_report(topic_or_context, findings=findings, sources=sources)
 
 
@@ -729,6 +763,42 @@ def test_multi_agent_dispatch_records_budget_stop_reason_when_search_budget_exha
     assert "report_partial" in decision_types
     assert "outline_partial" in decision_types
     assert "stop" not in decision_types
+
+
+def test_low_confidence_sections_still_generate_report(monkeypatch):
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(
+        monkeypatch,
+        emitter=emitter,
+        supervisor=_SingleTaskSupervisor,
+        researcher=_WeakEvidenceResearchAgent,
+        reporter=_QualityCheckingReporter,
+    )
+
+    result = run_deep_research(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {
+            "configurable": {
+                "thread_id": "thread_low_confidence_report",
+                "deep_research_query_num": 1,
+                "deep_research_task_retry_limit": 0,
+            }
+        },
+    )
+
+    public_artifacts = result["deep_research_artifacts"]
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    review = public_artifacts["section_reviews"][0]
+
+    assert result["is_complete"] is True
+    assert result["final_report"]
+    assert result["terminal_status"] == ""
+    assert review["reportability"] == "low"
+    assert review["needs_manual_review"] is True
+    assert public_artifacts["validation_summary"]["report_ready"] is True
+    assert public_artifacts["quality_summary"]["report_ready"] is True
+    assert "report_partial" in decision_types
+    assert "outline_partial" in decision_types
 
 
 def test_final_claim_gate_records_review_needed_without_blocking(monkeypatch):

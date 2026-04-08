@@ -37,6 +37,10 @@ class ReportSectionContext:
     branch_summaries: list[str] = field(default_factory=list)
     findings: list[str] = field(default_factory=list)
     citation_urls: list[str] = field(default_factory=list)
+    confidence_level: str = "low"
+    limitation_summary: str = ""
+    risk_highlights: list[str] = field(default_factory=list)
+    manual_review_items: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -166,6 +170,18 @@ class ResearchReporter:
                         branch_summaries=[str(item).strip() for item in section.branch_summaries if str(item).strip()],
                         findings=[str(item).strip() for item in section.findings if str(item).strip()],
                         citation_urls=self._normalize_citation_urls(list(section.citation_urls or [])),
+                        confidence_level=str(getattr(section, "confidence_level", "low") or "low").strip(),
+                        limitation_summary=str(getattr(section, "limitation_summary", "") or "").strip(),
+                        risk_highlights=[
+                            str(item).strip()
+                            for item in list(getattr(section, "risk_highlights", []) or [])
+                            if str(item).strip()
+                        ],
+                        manual_review_items=[
+                            str(item).strip()
+                            for item in list(getattr(section, "manual_review_items", []) or [])
+                            if str(item).strip()
+                        ],
                     )
                     for section in topic_or_context.sections
                 ],
@@ -198,6 +214,8 @@ class ResearchReporter:
             summary = section.summary.strip() or "无章节摘要"
             branch_text = "\n".join(f"- {item}" for item in section.branch_summaries if item)
             finding_text = "\n".join(f"- {item}" for item in section.findings if item)
+            risk_text = "\n".join(f"- {item}" for item in section.risk_highlights if item)
+            manual_review_text = "\n".join(f"- {item}" for item in section.manual_review_items if item)
             citations = [
                 f"[{source_index_by_url[url]}] {url}"
                 for url in section.citation_urls
@@ -206,7 +224,14 @@ class ResearchReporter:
             source_text = "\n".join(f"- {item}" for item in citations) if citations else "- 无可用来源"
             block = [
                 f"## 章节 {index}: {title}",
+                f"置信等级:\n{section.confidence_level.strip() or 'low'}",
                 f"章节摘要:\n{summary}",
+                "限制摘要:",
+                section.limitation_summary.strip() or "- 暂无额外限制摘要",
+                "风险提示:",
+                risk_text or "- 无显式风险提示",
+                "待人工复核:",
+                manual_review_text or "- 暂无人工复核项",
                 "关联分支结论:",
                 branch_text or "- 无分支补充",
                 "可展开细节:",
