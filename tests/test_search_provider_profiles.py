@@ -1,10 +1,6 @@
 from agent.research.domain_router import ResearchDomain, build_provider_profile
-from tools.search.multi_search import (
-    MultiSearchOrchestrator,
-    SearchProvider,
-    SearchResult,
-    SearchStrategy,
-)
+from tools.search.contracts import SearchProvider, SearchResult, SearchStrategy
+from tools.search.orchestrator import SearchOrchestrator
 
 
 class DummyProvider(SearchProvider):
@@ -43,10 +39,10 @@ def test_build_provider_profile_for_scientific_domain():
     assert "semantic_scholar" in profile
 
 
-def test_multi_search_respects_provider_profile():
+def test_search_orchestrator_respects_provider_profile():
     tavily = DummyProvider("tavily")
     arxiv = DummyProvider("arxiv")
-    orchestrator = MultiSearchOrchestrator(
+    orchestrator = SearchOrchestrator(
         providers=[tavily, arxiv],
         strategy=SearchStrategy.FALLBACK,
     )

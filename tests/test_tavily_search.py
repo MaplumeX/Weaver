@@ -7,10 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.search import search
+from tools.search import providers
 
 
-def test_tavily_search_only_summarizes_top_result(monkeypatch):
+def test_tavily_api_search_only_summarizes_top_result(monkeypatch):
     class _DummyClient:
         def __init__(self, api_key):
             self.api_key = api_key
@@ -45,14 +45,14 @@ def test_tavily_search_only_summarizes_top_result(monkeypatch):
     summarize_calls = []
 
     monkeypatch.setitem(sys.modules, "tavily", types.SimpleNamespace(TavilyClient=_DummyClient))
-    monkeypatch.setattr(search.settings, "tavily_api_key", "test-key")
+    monkeypatch.setattr(providers.settings, "tavily_api_key", "test-key")
     monkeypatch.setattr(
-        search,
+        providers,
         "_summarize_content",
         lambda raw: summarize_calls.append(raw) or f"summary:{raw}",
     )
 
-    results = search.tavily_search.invoke({"query": "capital of France", "max_results": 3})
+    results = providers.tavily_api_search("capital of France", max_results=3)
 
     assert summarize_calls == ["Raw content 1"]
     assert results[0]["summary"] == "summary:Raw content 1"

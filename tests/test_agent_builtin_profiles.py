@@ -26,8 +26,7 @@ def test_default_profile_keeps_legacy_default_tool_coverage() -> None:
     tools = _profile_tools()["default"]
 
     assert {
-        "tavily_search",
-        "fallback_search",
+        "web_search",
         "crawl_urls",
         "crawl4ai",
         "chart_visualize",

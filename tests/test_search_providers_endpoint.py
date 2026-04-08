@@ -9,7 +9,8 @@ async def test_search_providers_endpoint_exposes_provider_health(monkeypatch):
     # Make the response deterministic by patching the orchestrator if the endpoint
     # implementation imports it into `main`.
     if hasattr(main, "get_search_orchestrator"):
-        from tools.search.multi_search import MultiSearchOrchestrator, SearchProvider, SearchResult
+        from tools.search.contracts import SearchProvider, SearchResult
+        from tools.search.orchestrator import SearchOrchestrator
         from tools.search.reliability import ProviderReliabilityManager, ReliabilityPolicy
 
         class DummyProvider(SearchProvider):
@@ -52,7 +53,7 @@ async def test_search_providers_endpoint_exposes_provider_health(monkeypatch):
         reliability._record_failure(provider.name)  # pylint: disable=protected-access
         reliability._record_failure(provider.name)  # pylint: disable=protected-access
 
-        orch = MultiSearchOrchestrator(
+        orch = SearchOrchestrator(
             providers=[provider],
             reliability_manager=reliability,
         )
@@ -69,4 +70,3 @@ async def test_search_providers_endpoint_exposes_provider_health(monkeypatch):
     assert data["providers"] and data["providers"][0]["name"] == "dummy"
     assert "circuit" in data["providers"][0]
     assert isinstance(data["providers"][0]["circuit"].get("is_open"), bool)
-

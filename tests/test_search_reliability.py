@@ -2,14 +2,12 @@ import concurrent.futures
 import time
 import warnings
 
-import tools.search.multi_search as multi_search_module
+import tools.search.orchestrator as orchestrator_module
 from agent.core.search_cache import clear_search_cache
-from tools.search.multi_search import (
+from tools.search.contracts import SearchProvider, SearchResult, SearchStrategy
+from tools.search.orchestrator import (
     DuckDuckGoProvider,
-    MultiSearchOrchestrator,
-    SearchProvider,
-    SearchResult,
-    SearchStrategy,
+    SearchOrchestrator,
 )
 from tools.search.reliability import ProviderReliabilityManager, ReliabilityPolicy
 
@@ -148,7 +146,7 @@ def test_reliability_manager_opens_circuit_after_failures():
 
 def test_orchestrator_retries_transient_provider_errors():
     provider = FlakyProvider("tavily", fail_times=2)
-    orchestrator = MultiSearchOrchestrator(
+    orchestrator = SearchOrchestrator(
         providers=[provider],
         strategy=SearchStrategy.FALLBACK,
     )
@@ -169,7 +167,7 @@ def test_orchestrator_provider_profile_keeps_safe_fallback_when_selected_provide
         _EmptyProvider("semantic_scholar"),
         _FixedProvider("duckduckgo"),
     ]
-    orchestrator = MultiSearchOrchestrator(
+    orchestrator = SearchOrchestrator(
         providers=providers,
         strategy=SearchStrategy.FALLBACK,
     )
@@ -226,7 +224,7 @@ def test_orchestrator_retries_when_provider_records_error_and_returns_empty():
             circuit_breaker_reset_seconds=0.0,
         )
     )
-    orchestrator = MultiSearchOrchestrator(
+    orchestrator = SearchOrchestrator(
         providers=[provider],
         strategy=SearchStrategy.FALLBACK,
         reliability_manager=reliability,
@@ -245,7 +243,7 @@ def test_orchestrator_parallel_search_timeout_is_handled(monkeypatch):
 
     monkeypatch.setattr(concurrent.futures, "wait", fake_wait)
 
-    orchestrator = MultiSearchOrchestrator(
+    orchestrator = SearchOrchestrator(
         providers=[_FixedProvider("duckduckgo")],
         strategy=SearchStrategy.PARALLEL,
     )
@@ -256,7 +254,7 @@ def test_orchestrator_parallel_search_timeout_is_handled(monkeypatch):
 
 
 def test_orchestrator_parallel_timeout_does_not_block_until_slow_provider_finishes():
-    orchestrator = MultiSearchOrchestrator(
+    orchestrator = SearchOrchestrator(
         providers=[
             _FixedProvider("fast"),
             _SlowProvider("slow", delay_seconds=0.2),
@@ -295,8 +293,8 @@ def test_duckduckgo_provider_prefers_ddgs_module(monkeypatch):
                 }
             ]
 
-    monkeypatch.setattr(multi_search_module, "_resolve_ddgs_module_name", lambda: "ddgs")
-    monkeypatch.setattr(multi_search_module, "_load_ddgs_class", lambda: (FakeDDGS, "ddgs"))
+    monkeypatch.setattr(orchestrator_module, "_resolve_ddgs_module_name", lambda: "ddgs")
+    monkeypatch.setattr(orchestrator_module, "_load_ddgs_class", lambda: (FakeDDGS, "ddgs"))
 
     provider = DuckDuckGoProvider()
 
@@ -335,17 +333,17 @@ def test_duckduckgo_provider_supports_legacy_module_without_runtime_warning(monk
             ]
 
     monkeypatch.setattr(
-        multi_search_module,
+        orchestrator_module,
         "_resolve_ddgs_module_name",
         lambda: "duckduckgo_search",
     )
     monkeypatch.setattr(
-        multi_search_module,
+        orchestrator_module,
         "_load_ddgs_class",
         lambda: (LegacyDDGS, "duckduckgo_search"),
     )
     monkeypatch.setattr(
-        multi_search_module,
+        orchestrator_module,
         "_legacy_ddg_package_warning_logged",
         False,
     )
@@ -363,7 +361,7 @@ def test_duckduckgo_provider_supports_legacy_module_without_runtime_warning(monk
 def test_round_robin_fallback_skips_failed_provider_on_second_try():
     first = _EmptyProvider("first")
     second = _FixedProvider("second")
-    orchestrator = MultiSearchOrchestrator(
+    orchestrator = SearchOrchestrator(
         providers=[first, second],
         strategy=SearchStrategy.ROUND_ROBIN,
     )

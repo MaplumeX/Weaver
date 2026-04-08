@@ -54,6 +54,44 @@ class AgentsStorePaths:
 
 
 _LOCK = threading.Lock()
+_LEGACY_TOOL_RENAMES = {
+    "fallback_search": "web_search",
+    "tavily_search": "web_search",
+}
+
+
+def _normalize_tool_names(values: list[str]) -> tuple[list[str], bool]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    changed = False
+    for raw in values:
+        text = str(raw or "").strip()
+        if not text:
+            changed = True
+            continue
+        renamed = _LEGACY_TOOL_RENAMES.get(text, text)
+        if renamed != text:
+            changed = True
+        if renamed in seen:
+            changed = True
+            continue
+        seen.add(renamed)
+        normalized.append(renamed)
+    return normalized, changed
+
+
+def _normalize_profile(profile: AgentProfile) -> tuple[AgentProfile, bool]:
+    tools, tools_changed = _normalize_tool_names(list(profile.tools or []))
+    blocked_tools, blocked_changed = _normalize_tool_names(list(profile.blocked_tools or []))
+    changed = tools_changed or blocked_changed
+    if not changed:
+        return profile, False
+    return profile.model_copy(
+        update={
+            "tools": tools,
+            "blocked_tools": blocked_tools,
+        }
+    ), True
 
 
 def default_store_paths(project_root: Path | None = None) -> AgentsStorePaths:
@@ -96,13 +134,19 @@ def load_agents(paths: AgentsStorePaths | None = None) -> list[AgentProfile]:
         if not isinstance(raw, list):
             return []
         profiles: list[AgentProfile] = []
+        migrated = False
         for item in raw:
             if not isinstance(item, dict):
                 continue
             try:
-                profiles.append(AgentProfile.model_validate(item))
+                profile = AgentProfile.model_validate(item)
             except Exception:
                 continue
+            normalized, changed = _normalize_profile(profile)
+            profiles.append(normalized)
+            migrated = migrated or changed
+        if migrated:
+            _atomic_write_json(paths.file, [p.model_dump(mode="json") for p in profiles])
         return profiles
 
 

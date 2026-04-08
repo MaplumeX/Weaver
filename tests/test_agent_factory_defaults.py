@@ -227,6 +227,7 @@ def test_resolve_deep_research_role_tool_names_expands_allowed_tool_aliases():
     )
 
     assert {
+        "web_search",
         "browser_search",
         "crawl_url",
         "browser_extract_text",
@@ -240,9 +241,8 @@ def test_researcher_role_keeps_legacy_search_read_extract_coverage():
 
     assert {
         "fabric",
+        "web_search",
         "browser_search",
-        "tavily_search",
-        "fallback_search",
         "sandbox_web_search",
         "sandbox_search_and_click",
         "sandbox_extract_search_results",

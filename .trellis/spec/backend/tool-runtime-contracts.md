@@ -156,6 +156,13 @@ Bad:
   - `build_tool_registry(config) -> dict[str, ToolSpec]`
 - File: `agent/infrastructure/tools/policy.py`
   - `resolve_profile_tool_policy(registry, *, profile) -> ToolPolicyResolution`
+- File: `tools/search/contracts.py`
+  - `SearchStrategy`
+  - `SearchResult.to_dict() -> dict[str, Any]`
+  - `SearchProvider.search(query, max_results=10) -> list[SearchResult]`
+- File: `tools/search/web_search.py`
+  - `run_web_search(*, query, max_results=5, strategy=None, provider_profile=None) -> list[dict[str, Any]]`
+  - `web_search(query, max_results=5) -> list[dict[str, Any]]`
 
 ### 3. Contracts
 
@@ -190,6 +197,31 @@ Resolution contract:
 5. Remove `blocked_capabilities`.
 6. Remove `blocked_tools`.
 
+Search-tool contract:
+
+- The only public API search tool name is `web_search`.
+- `fallback_search` and `tavily_search` are not valid public tool names after
+  the A2 search-runtime consolidation.
+- `tools/search/orchestrator.py` is the internal runtime module that owns
+  provider fan-out, reliability, cache lookup, and ranking.
+- Do not add a second public API such as `multi_search(...)`; runtime callers
+  should stay on `run_web_search(...)`.
+- `settings.search_engines` is an ordered provider preference for
+  `run_web_search`; it no longer selects between separate public tool
+  implementations.
+- `run_web_search(...)` delegates directly to the global search orchestrator
+  and serializes `SearchResult` via `SearchResult.to_dict()`.
+- `SearchResult.to_dict()` owns the normalized public payload shape, including
+  fallback derivation for `summary`, `raw_excerpt`, and `content`.
+- Runtime-owned callers that need normalized API search results should call
+  `run_web_search(...)` instead of importing provider-specific tools.
+- Runtime-owned callers should not layer a second search-result cache on top of
+  `run_web_search(...)` unless they are intentionally changing cache scope or
+  invalidation semantics.
+- `web_search` / `run_web_search` return normalized result items with:
+  `title`, `url`, `summary`, `snippet`, `raw_excerpt`, `content`, `score`,
+  `published_date`, `provider`.
+
 ### 4. Validation & Error Matrix
 
 | Condition | Expected behavior | Fallback |
@@ -198,6 +230,8 @@ Resolution contract:
 | Unknown capability | Expands to nothing | safe no-op |
 | Duplicate tool names | Deduped in registry/policy | keep first semantic entry |
 | Provider tool missing `name` | Skip from registry | safe no-op |
+| Unknown provider name in `search_engines` / `provider_profile` | Treat as preference only; keep available providers | safe fallback to remaining providers |
+| `run_web_search(...)` provider failure | provider logs warning/error; orchestrator keeps trying based on strategy | return `[]` only after all paths fail |
 
 ### 5. Good / Base / Bad Cases
 
@@ -208,7 +242,7 @@ profile = {
     "roles": ["default_agent"],
     "capabilities": ["search"],
     "blocked_capabilities": ["shell"],
-    "tools": [],
+    "tools": ["web_search"],
     "blocked_tools": [],
 }
 ```
@@ -216,14 +250,14 @@ profile = {
 Base:
 
 ```python
-profile = {}
+profile = {"capabilities": ["search"]}
 ```
 
 Bad:
 
 ```python
 profile = {
-    "capabilities": ["browser_search"],  # concrete tool leaked into capability field
+    "tools": ["tavily_search", "fallback_search"],  # removed public tool names
 }
 ```
 
@@ -236,21 +270,29 @@ profile = {
   - context fields derived from config/profile
 - `tests/test_tool_catalog_api.py`
   - catalog exposes `tool_id/capabilities/source/risk_level`
+- `tests/test_web_search.py`
+  - `run_web_search(...)` respects provider preference and returns normalized payloads from `SearchResult.to_dict()`
+- `tests/test_agent_builtin_profiles.py`
+  - built-in profiles expose `web_search` instead of removed legacy API search tools
+- `tests/test_deepsearch_web_search.py`
+  - Deep Research runtime uses `run_web_search(...)`, does not add an extra outer cache, and returns `[]` on total failure
 
 ### 7. Wrong vs Correct
 
 #### Wrong
 
 ```python
-selected = profile["capabilities"]  # assumes capabilities are tool names
+results = get_search_orchestrator().search(query="OpenAI")  # bypasses unified public runtime boundary
 ```
 
 #### Correct
 
 ```python
-registry = build_tool_registry(config)
-resolution = resolve_profile_tool_policy(registry, profile=profile)
-selected = resolution.allowed_tool_names
+results = run_web_search(
+    query="OpenAI",
+    max_results=5,
+    provider_profile=settings.search_engines_list,
+)
 ```
 
 ---

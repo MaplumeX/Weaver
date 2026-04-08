@@ -19,7 +19,8 @@ from agent.research.source_url_utils import compact_unique_sources
 from agent.runtime.deep.shared import _auto_mode_prefers_linear
 from common.cancellation import check_cancellation as _check_cancellation
 from common.config import settings
-from tools import execute_python_code, tavily_search
+from tools import execute_python_code, web_search
+from tools.search.web_search import run_web_search
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +249,7 @@ def _has_search_tools(profile: dict[str, Any], default: bool = False) -> bool:
     blocked = {str(item).strip() for item in (profile.get("blocked_tools") or []) if str(item).strip()}
     if not tools:
         return default
-    search_tool_names = {"browser_search", "crawl_url", "tavily_search", "fallback_search"}
+    search_tool_names = {"browser_search", "crawl_url", "web_search"}
     return any(name in search_tool_names and name not in blocked for name in tools)
 
 
@@ -351,28 +352,16 @@ def _run_fast_agent_search(
 
     call_kwargs = {"query": query, "max_results": 3}
 
-    if len(settings.search_engines_list) > 1:
-        from tools.search.fallback_search import run_fallback_search
-
-        if settings.tool_retry:
-            return retry_call(
-                run_fallback_search,
-                attempts=settings.tool_retry_max_attempts,
-                backoff=settings.tool_retry_backoff,
-                **call_kwargs,
-            )
-        return run_fallback_search(**call_kwargs)
-
     if settings.tool_retry:
         results = retry_call(
-            tavily_search.invoke,
+            run_web_search,
             attempts=settings.tool_retry_max_attempts,
             backoff=settings.tool_retry_backoff,
-            **{"input": call_kwargs, "config": config},
+            **call_kwargs,
         )
     else:
-        results = tavily_search.invoke(call_kwargs, config=config)
-    return getattr(tavily_search, "name", "tavily_search"), results or []
+        results = run_web_search(**call_kwargs)
+    return getattr(web_search, "name", "web_search"), results or []
 
 
 def _resolve_deps(explicit_deps: Any = None) -> Any:

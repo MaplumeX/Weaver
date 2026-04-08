@@ -51,7 +51,7 @@ Examples:
 - Optional context fields currently supported by the formatter are:
   `user_id`, `request_id`, and `thread_id`.
 - When a subsystem has a recognizable prefix, keep it stable in the message
-  (`[trigger_manager]`, `[sandbox_browser]`, `[MultiSearch]`).
+  (`[trigger_manager]`, `[sandbox_browser]`, `[SearchOrchestrator]`).
 - Reuse the shared bootstrap instead of hand-configuring handlers inside
   feature modules.
 
@@ -61,8 +61,8 @@ Examples:
   deduplication.
 - `triggers/manager.py`: consistent subsystem prefixing with
   `[trigger_manager]`.
-- `tools/search/multi_search.py`: capability-specific prefixes like
-  `[MultiSearch]`.
+- `tools/search/orchestrator.py`: capability-specific prefixes like
+  `[SearchOrchestrator]`.
 
 ---
 

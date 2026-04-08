@@ -4,19 +4,17 @@ Shared helpers for the multi-agent deep runtime.
 
 from __future__ import annotations
 
-import copy
 import logging
 import time
 import uuid
 from typing import Any
 
-from agent.contracts.search_cache import get_search_cache
 from agent.infrastructure.agents.factory import resolve_deep_research_role_tool_policy
 from agent.infrastructure.tools import build_tool_context
 from agent.research.domain_router import ResearchDomain, build_provider_profile
 from common.config import settings
-from tools import tavily_search
-from tools.search.multi_search import SearchStrategy, multi_search
+from tools.search.contracts import SearchStrategy
+from tools.search.web_search import resolve_search_strategy, run_web_search
 
 logger = logging.getLogger(__name__)
 
@@ -131,44 +129,7 @@ def _resolve_provider_profile(state: dict[str, Any]) -> list[str] | None:
 
 
 def _resolve_search_strategy() -> SearchStrategy:
-    raw = str(getattr(settings, "search_strategy", "fallback") or "fallback").strip().lower()
-    try:
-        return SearchStrategy(raw)
-    except ValueError:
-        logger.warning(
-            "[deep-research-multi-agent] invalid search_strategy=%s, fallback to fallback",
-            raw,
-        )
-        return SearchStrategy.FALLBACK
-
-
-def _normalize_multi_search_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
-    for item in results or []:
-        if not isinstance(item, dict):
-            continue
-        normalized.append(
-            {
-                "title": item.get("title", ""),
-                "url": item.get("url", ""),
-                "summary": item.get("summary") or item.get("snippet", ""),
-                "raw_excerpt": item.get("raw_excerpt") or item.get("content", ""),
-                "score": float(item.get("score", 0.5) or 0.5),
-                "published_date": item.get("published_date"),
-                "provider": item.get("provider", ""),
-            }
-        )
-    return normalized
-
-
-def _cache_query_key(
-    query: str,
-    max_results: int,
-    strategy: SearchStrategy,
-    provider_profile: list[str] | None,
-) -> str:
-    joined_profile = ",".join(provider_profile or [])
-    return f"deep-research-multi-agent::{strategy.value}::{max_results}::{joined_profile}::{query}"
+    return resolve_search_strategy()
 
 
 def _search_query(
@@ -178,38 +139,15 @@ def _search_query(
     provider_profile: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     strategy = _resolve_search_strategy()
-    cache = get_search_cache()
-    cache_key = _cache_query_key(query, max_results, strategy, provider_profile)
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return copy.deepcopy(cached)
-
     try:
-        kwargs: dict[str, Any] = {
-            "query": query,
-            "max_results": max_results,
-            "strategy": strategy,
-        }
-        if provider_profile:
-            kwargs["provider_profile"] = provider_profile
-        multi_results = multi_search(**kwargs)
-        normalized = _normalize_multi_search_results(multi_results)
-        if normalized:
-            cache.set(cache_key, copy.deepcopy(normalized))
-            return normalized
-    except Exception as exc:
-        logger.warning("[deep-research-multi-agent] multi_search failed, falling back: %s", exc)
-
-    try:
-        fallback_results = tavily_search.invoke(
-            {"query": query, "max_results": max_results},
-            config=config,
+        return run_web_search(
+            query=query,
+            max_results=max_results,
+            strategy=strategy,
+            provider_profile=provider_profile,
         )
-        if fallback_results:
-            cache.set(cache_key, copy.deepcopy(fallback_results))
-        return fallback_results or []
     except Exception as exc:
-        logger.warning("[deep-research-multi-agent] tavily_search failed: %s", exc)
+        logger.warning("[deep-research-multi-agent] web_search failed: %s", exc)
         return []
 
 

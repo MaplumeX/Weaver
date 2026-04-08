@@ -1,13 +1,9 @@
 import time
 
-import tools.search.multi_search as multi_search_module
+import tools.search.orchestrator as orchestrator_module
 from agent.core.search_cache import SearchCache
-from tools.search.multi_search import (
-    MultiSearchOrchestrator,
-    SearchProvider,
-    SearchResult,
-    SearchStrategy,
-)
+from tools.search.contracts import SearchProvider, SearchResult, SearchStrategy
+from tools.search.orchestrator import SearchOrchestrator
 
 
 class _DummyProvider(SearchProvider):
@@ -42,13 +38,13 @@ class _UnavailableProvider(SearchProvider):
         raise AssertionError("cached result should be returned before provider execution")
 
 
-def test_multi_search_cache_respects_ttl(monkeypatch):
+def test_web_search_cache_respects_ttl(monkeypatch):
     provider = _DummyProvider()
     cache = SearchCache(max_size=10, ttl_seconds=0.01, similarity_threshold=1.0)
 
-    monkeypatch.setattr(multi_search_module, "get_search_cache", lambda: cache)
+    monkeypatch.setattr(orchestrator_module, "get_search_cache", lambda: cache)
 
-    orchestrator = MultiSearchOrchestrator(
+    orchestrator = SearchOrchestrator(
         providers=[provider],
         strategy=SearchStrategy.FALLBACK,
     )
@@ -62,11 +58,11 @@ def test_multi_search_cache_respects_ttl(monkeypatch):
     assert provider.calls == 2
 
 
-def test_multi_search_cache_hit_survives_unavailable_providers(monkeypatch):
+def test_web_search_cache_hit_survives_unavailable_providers(monkeypatch):
     cache = SearchCache(max_size=10, ttl_seconds=60, similarity_threshold=1.0)
     query = "cached ai timeline"
     cache.set(
-        "multi_search::fallback::2::::cached ai timeline",
+        "web_search::fallback::2::::cached ai timeline",
         [
             {
                 "title": "Cached",
@@ -79,9 +75,9 @@ def test_multi_search_cache_hit_survives_unavailable_providers(monkeypatch):
         ],
     )
 
-    monkeypatch.setattr(multi_search_module, "get_search_cache", lambda: cache)
+    monkeypatch.setattr(orchestrator_module, "get_search_cache", lambda: cache)
 
-    orchestrator = MultiSearchOrchestrator(
+    orchestrator = SearchOrchestrator(
         providers=[_UnavailableProvider()],
         strategy=SearchStrategy.FALLBACK,
     )

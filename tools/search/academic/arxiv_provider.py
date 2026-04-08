@@ -17,7 +17,7 @@ from xml.etree import ElementTree
 import requests
 
 from common.config import settings
-from tools.search.multi_search import SearchProvider, SearchResult
+from tools.search.contracts import SearchProvider, SearchResult
 
 logger = logging.getLogger(__name__)
 

@@ -33,9 +33,8 @@ _DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS = {
     "supervisor": {"fabric"},
     "researcher": {
         "fabric",
+        "web_search",
         "browser_search",
-        "tavily_search",
-        "fallback_search",
         "sandbox_web_search",
         "sandbox_search_and_click",
         "sandbox_extract_search_results",
@@ -53,9 +52,8 @@ _DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS = {
     },
     "verifier": {
         "fabric",
+        "web_search",
         "browser_search",
-        "tavily_search",
-        "fallback_search",
         "sandbox_web_search",
         "sandbox_search_and_click",
         "sandbox_extract_search_results",
@@ -76,9 +74,8 @@ _DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS = {
 
 _DEEP_RESEARCH_TOOL_ALIASES = {
     "search": {
+        "web_search",
         "browser_search",
-        "tavily_search",
-        "fallback_search",
         "sandbox_web_search",
         "sandbox_search_and_click",
         "crawl_url",
@@ -308,7 +305,7 @@ def build_tool_agent(*, model: str, tools: list[BaseTool], temperature: float = 
 def _resolve_deep_research_tool_names(allowed_tools: list[str] | None = None) -> set[str]:
     requested = [str(item).strip() for item in (allowed_tools or []) if str(item).strip()]
     if not requested:
-        requested = ["browser_search", "crawl_url", "sb_browser_extract_text"]
+        requested = ["web_search", "crawl_url", "sb_browser_extract_text"]
     resolved: set[str] = set()
     for item in requested:
         alias_key = item.lower()
@@ -362,8 +359,7 @@ def resolve_deep_research_role_tool_policy(
         requested.extend(
             [
                 "browser_search",
-                "tavily_search",
-                "fallback_search",
+                "web_search",
                 "sandbox_web_search",
                 "sandbox_search_and_click",
                 "sandbox_extract_search_results",

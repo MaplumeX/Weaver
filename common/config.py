@@ -173,7 +173,7 @@ class Settings(BaseSettings):
     openai_timeout: int = 60
     openai_extra_body: str = ""  # JSON string for extra OpenAI-compatible params
     tavily_api_key: str = ""
-    # Web search providers (optional; used when SEARCH_ENGINES includes them)
+    # Web search providers (optional; used by the unified web_search runtime)
     serper_api_key: str = ""
     serpapi_api_key: str = ""
     bing_api_key: str = ""
@@ -370,7 +370,7 @@ class Settings(BaseSettings):
     research_fetch_render_min_chars: int = 200
     research_fetch_extract_markdown: bool = True
 
-    # Multi-Search Engine Config
+    # Web search runtime config
     search_strategy: str = "fallback"  # fallback | parallel | round_robin | best_first
     search_enable_freshness_ranking: bool = True  # Apply freshness boost for time-sensitive queries
     search_freshness_half_life_days: float = 30.0  # Decay half-life for recency score
@@ -455,8 +455,8 @@ class Settings(BaseSettings):
     allowed_tools: str = ""  # comma-separated tool names to allow (empty = all)
     blocked_tools: str = ""  # comma-separated tool names to block
 
-    # Search fallback
-    search_engines: str = "tavily"  # comma-separated engines in order
+    # Unified web_search provider preference
+    search_engines: str = "tavily"  # comma-separated provider names in priority order
 
     # Prompt Optimization (Prompt 优化)
     prompt_optimizer_model: str = "gpt-4o"  # 用于优化 Prompt 的模型

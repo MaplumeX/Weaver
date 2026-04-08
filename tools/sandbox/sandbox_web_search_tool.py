@@ -163,26 +163,6 @@ def _looks_like_antibot_challenge(page, engine_config: dict[str, str] | None = N
     return False
 
 
-def _tavily_to_results(tavily_results: Any, max_results: int) -> list[dict[str, Any]]:
-    fallback_results: list[dict[str, Any]] = []
-    if not isinstance(tavily_results, list):
-        return fallback_results
-    for idx, item in enumerate(tavily_results[:max_results], 1):
-        if not isinstance(item, dict):
-            continue
-        fallback_results.append(
-            {
-                "position": idx,
-                "title": item.get("title", ""),
-                "url": item.get("url", ""),
-                "snippet": (
-                    item.get("summary") or item.get("snippet") or item.get("raw_excerpt") or ""
-                )[:500],
-            }
-        )
-    return fallback_results
-
-
 def _normalize_api_results(results: Any, max_results: int) -> list[dict[str, Any]]:
     """
     Normalize results from different API search providers into the sandbox schema.
@@ -225,7 +205,7 @@ def _normalize_api_results(results: Any, max_results: int) -> list[dict[str, Any
 
 
 def _render_results_html(
-    query: str, results: list[dict[str, Any]], *, source: str = "tavily"
+    query: str, results: list[dict[str, Any]], *, source: str = "web_search"
 ) -> str:
     """Render a simple HTML page to visualize search results (avoids captcha pages)."""
     import html as _html
@@ -248,7 +228,7 @@ def _render_results_html(
         )
 
     joined = "\n".join(items) if items else "<div class='empty'>No results.</div>"
-    safe_source = _html.escape(source or "tavily")
+    safe_source = _html.escape(source or "web_search")
     return f"""<!doctype html>
 <html lang="zh-CN">
   <head>
@@ -340,13 +320,13 @@ def _render_results_html(
 
 
 def _render_loading_html(
-    query: str, *, source: str = "tavily", message: str = "Searching..."
+    query: str, *, source: str = "web_search", message: str = "Searching..."
 ) -> str:
     """Render an animated loading page so Live view shows progress while API tools run."""
     import html as _html
 
     safe_query = _html.escape(query or "")
-    safe_source = _html.escape(source or "tavily")
+    safe_source = _html.escape(source or "web_search")
     safe_message = _html.escape(message or "Searching...")
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -644,7 +624,7 @@ class SandboxWebSearchInput(BaseModel):
     """Input schema for sandbox web search."""
 
     query: str = Field(min_length=1, description="Search query")
-    engine: Literal["tavily", "google", "bing", "duckduckgo"] = Field(
+    engine: Literal["google", "bing", "duckduckgo"] = Field(
         default="duckduckgo",
         description="Browser engine to use when API search is unavailable/blocked",
     )
@@ -669,7 +649,7 @@ class SandboxWebSearchTool(_SandboxWebSearchBaseTool):
 
     name: str = "sandbox_web_search"
     description: str = (
-        "Perform a web search (API providers per SEARCH_ENGINES preferred; browser engines as fallback). "
+        "Perform a web search (using Weaver's unified API search runtime when available; browser engines as fallback). "
         "Returns structured search results with titles, URLs, and snippets, "
         "plus a screenshot of the search results page. "
         "Use this for visual search process demonstration."
@@ -695,9 +675,9 @@ class SandboxWebSearchTool(_SandboxWebSearchBaseTool):
                 },
             )
 
-            # Prefer API-based search providers when available (configured via SEARCH_ENGINES in `.env`).
+            # Prefer Weaver's unified API search runtime when available.
             try:
-                from tools.search.fallback_search import run_fallback_search
+                from tools.search.web_search import infer_search_source_label, run_web_search
 
                 # Create the sandbox browser session early so Live view has something to show
                 # while the API search is running.
@@ -716,9 +696,8 @@ class SandboxWebSearchTool(_SandboxWebSearchBaseTool):
                     page = None
 
                 self._emit_progress("使用 API 搜索...", 10)
-                api_engine, api_results_raw = run_fallback_search(
-                    query=query, max_results=max_results
-                )
+                api_results_raw = run_web_search(query=query, max_results=max_results)
+                api_engine = infer_search_source_label(api_results_raw)
                 api_results = _normalize_api_results(api_results_raw, max_results)
 
                 if api_results:
@@ -838,11 +817,10 @@ class SandboxWebSearchTool(_SandboxWebSearchBaseTool):
             # Best-effort fallback: use API search when sandbox browser is unavailable or blocked
             # (e.g., missing/invalid E2B_API_KEY or anti-bot interstitials).
             try:
-                from tools.search.fallback_search import run_fallback_search
+                from tools.search.web_search import infer_search_source_label, run_web_search
 
-                api_engine, api_results_raw = run_fallback_search(
-                    query=query, max_results=max_results
-                )
+                api_results_raw = run_web_search(query=query, max_results=max_results)
+                api_engine = infer_search_source_label(api_results_raw)
                 fallback_results = _normalize_api_results(api_results_raw, max_results)
 
                 response = {
@@ -983,7 +961,7 @@ class SandboxSearchAndClickInput(BaseModel):
     result_index: int = Field(
         default=1, ge=1, le=10, description="Which result to click (1-based index)"
     )
-    engine: Literal["tavily", "google", "bing", "duckduckgo"] = Field(
+    engine: Literal["google", "bing", "duckduckgo"] = Field(
         default="duckduckgo",
         description="Browser engine to use when API search is unavailable/blocked",
     )
@@ -999,7 +977,7 @@ class SandboxSearchAndClickTool(_SandboxWebSearchBaseTool):
 
     name: str = "sandbox_search_and_click"
     description: str = (
-        "Search the web (API providers per SEARCH_ENGINES preferred; browser engines as fallback) and click on a specific result. "
+        "Search the web (using Weaver's unified API search runtime when available; browser engines as fallback) and click on a specific result. "
         "Combines search and navigation into one action. "
         "Returns screenshots of both search results and the clicked page."
     )
@@ -1038,9 +1016,9 @@ class SandboxSearchAndClickTool(_SandboxWebSearchBaseTool):
             },
         )
 
-        # Prefer API-based search when available to avoid captcha pages.
+        # Prefer Weaver's unified API search runtime when available to avoid captcha pages.
         try:
-            from tools.search.fallback_search import run_fallback_search
+            from tools.search.web_search import infer_search_source_label, run_web_search
 
             needed_results = max(10, int(result_index or 1))
 
@@ -1060,9 +1038,8 @@ class SandboxSearchAndClickTool(_SandboxWebSearchBaseTool):
                 page = None
 
             self._emit_progress("使用 API 搜索...", 10)
-            api_engine, api_results_raw = run_fallback_search(
-                query=query, max_results=needed_results
-            )
+            api_results_raw = run_web_search(query=query, max_results=needed_results)
+            api_engine = infer_search_source_label(api_results_raw)
             api_results = _normalize_api_results(api_results_raw, needed_results)
 
             if api_results:
@@ -1245,27 +1222,20 @@ class SandboxSearchAndClickTool(_SandboxWebSearchBaseTool):
 
         sandbox_error = str(last_error) if last_error else "Unknown error"
 
-        # Fallback: use Tavily API search, then render results into a local HTML page so the UI
-        # still gets a meaningful screenshot (avoids captcha pages).
+        # Fallback: use Weaver's unified API search, then render results into a local HTML page so
+        # the UI still gets a meaningful screenshot (avoids captcha pages).
         try:
-            from tools.search.search import tavily_search
+            from tools.search.web_search import infer_search_source_label, run_web_search
 
-            tavily_results = tavily_search.invoke(
-                {"query": query, "max_results": max(10, int(result_index or 1))}
+            api_results_raw = run_web_search(
+                query=query,
+                max_results=max(10, int(result_index or 1)),
             )
-            fallback_results: list[dict[str, Any]] = []
-            if isinstance(tavily_results, list):
-                for idx, item in enumerate(tavily_results[: max(10, int(result_index or 1))], 1):
-                    if not isinstance(item, dict):
-                        continue
-                    fallback_results.append(
-                        {
-                            "position": idx,
-                            "title": item.get("title", ""),
-                            "url": item.get("url", ""),
-                            "snippet": (item.get("summary") or item.get("snippet") or "")[:500],
-                        }
-                    )
+            api_engine = infer_search_source_label(api_results_raw)
+            fallback_results = _normalize_api_results(
+                api_results_raw,
+                max(10, int(result_index or 1)),
+            )
 
             if result_index > len(fallback_results):
                 raise ValueError(
@@ -1281,9 +1251,13 @@ class SandboxSearchAndClickTool(_SandboxWebSearchBaseTool):
             destination_error: str | None = None
 
             try:
-                self._emit_progress("搜索被拦截，使用 Tavily 结果...", 30)
+                self._emit_progress("搜索被拦截，使用 API 结果...", 30)
                 page = self._page()
-                html_page = _render_results_html(query, fallback_results, source="tavily")
+                html_page = _render_results_html(
+                    query,
+                    fallback_results,
+                    source=api_engine or "search",
+                )
                 try:
                     page.set_content(html_page, wait_until="domcontentloaded")
                 except TypeError:
@@ -1310,7 +1284,7 @@ class SandboxSearchAndClickTool(_SandboxWebSearchBaseTool):
             page_info = self._page_info()
             response = {
                 "query": query,
-                "engine": "tavily",
+                "engine": api_engine or "unknown",
                 "fallback": True,
                 "sandbox_error": sandbox_error,
                 "clicked_result": {

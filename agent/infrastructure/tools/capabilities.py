@@ -14,7 +14,7 @@ from agent.infrastructure.tools.runtime_context import (
     build_tool_runtime_context,
 )
 from common.config import settings
-from tools import execute_python_code, tavily_search
+from tools import execute_python_code, web_search
 from tools.automation.ask_human_tool import ask_human
 from tools.automation.bash_tool import safe_bash
 from tools.automation.computer_use_tool import build_computer_use_tools
@@ -86,11 +86,7 @@ class ToolProviderSpec:
 
 
 def _build_web_search_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
-    if len(settings.search_engines_list) > 1:
-        from tools import fallback_search
-
-        return [fallback_search]
-    return [tavily_search]
+    return [web_search]
 
 
 def _build_rag_tools(_ctx: ToolBuildContext) -> list[BaseTool]:

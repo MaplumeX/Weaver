@@ -563,7 +563,7 @@ class MultiAgentDeepResearchRuntime:
                 ToolEventType.SEARCH,
                 {
                     "query": query,
-                    "provider": "multi_search",
+                    "provider": "web_search",
                     "results": support._compact_sources(results, limit=min(len(results), 5)),
                     "count": len(results),
                     "engine": "multi_agent",

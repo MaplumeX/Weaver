@@ -114,7 +114,7 @@ from tools.io.screenshot_service import get_screenshot_service
 from tools.io.tts import AVAILABLE_VOICES, get_tts_service, init_tts_service
 from tools.mcp import close_mcp_tools, init_mcp_tools, reload_mcp_tools
 from tools.sandbox import sandbox_browser_sessions
-from tools.search.multi_search import get_search_orchestrator
+from tools.search.orchestrator import get_search_orchestrator
 from triggers import (
     EventTrigger,
     ScheduledTrigger,
@@ -735,8 +735,7 @@ async def startup_event():
                 description="Default tool-using agent profile for agent mode.",
                 system_prompt=get_default_agent_prompt(),
                 tools=[
-                    "tavily_search",
-                    "fallback_search",
+                    "web_search",
                     "browser_search",
                     "browser_navigate",
                     "browser_click",
@@ -778,8 +777,7 @@ async def startup_event():
                 ),
                 system_prompt=get_default_agent_prompt(),
                 tools=[
-                    "tavily_search",
-                    "fallback_search",
+                    "web_search",
                     "browser_search",
                     "browser_navigate",
                     "browser_click",
@@ -3640,7 +3638,7 @@ async def get_tool_catalog():
 
 @app.get("/api/search/providers", response_model=SearchProvidersResponse)
 async def get_search_providers():
-    """Expose multi-search provider availability, health, and circuit-breaker state."""
+    """Expose unified web search provider availability, health, and circuit-breaker state."""
     orchestrator = get_search_orchestrator()
     providers: list[SearchProviderSnapshot] = []
 
@@ -3681,8 +3679,8 @@ async def get_search_providers():
 
 @app.post("/api/search/providers/reset", response_model=SearchProvidersResetResponse)
 async def reset_search_providers():
-    """Reset the global multi-search orchestrator (provider stats + circuit breaker state)."""
-    from tools.search.multi_search import reset_search_orchestrator
+    """Reset the global web search orchestrator (provider stats + circuit breaker state)."""
+    from tools.search.orchestrator import reset_search_orchestrator
 
     reset_search_orchestrator()
     return {"reset": True}

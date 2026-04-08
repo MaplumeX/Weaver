@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
-from tools.search.multi_search import MultiSearchOrchestrator, SearchResult
+from tools.search.contracts import SearchResult
+from tools.search.orchestrator import SearchOrchestrator
 
 
 def _days_ago(days: int) -> str:
@@ -14,7 +15,7 @@ def test_freshness_ranking_boosts_recent_results_for_time_sensitive_queries(monk
     monkeypatch.setattr(settings, "search_freshness_half_life_days", 30.0, raising=False)
     monkeypatch.setattr(settings, "search_freshness_weight", 0.4, raising=False)
 
-    orchestrator = MultiSearchOrchestrator(providers=[])
+    orchestrator = SearchOrchestrator(providers=[])
     results = [
         SearchResult(
             title="Older high-score",
@@ -46,7 +47,7 @@ def test_non_time_sensitive_queries_keep_relevance_priority(monkeypatch):
     monkeypatch.setattr(settings, "search_freshness_half_life_days", 30.0, raising=False)
     monkeypatch.setattr(settings, "search_freshness_weight", 0.4, raising=False)
 
-    orchestrator = MultiSearchOrchestrator(providers=[])
+    orchestrator = SearchOrchestrator(providers=[])
     results = [
         SearchResult(
             title="Older high-score",
@@ -72,7 +73,7 @@ def test_non_time_sensitive_queries_keep_relevance_priority(monkeypatch):
 
 
 def test_deduplication_canonicalizes_tracking_urls():
-    orchestrator = MultiSearchOrchestrator(providers=[])
+    orchestrator = SearchOrchestrator(providers=[])
     results = [
         SearchResult(
             title="A1",
@@ -97,7 +98,7 @@ def test_deduplication_canonicalizes_tracking_urls():
 
 
 def test_content_similarity_deduplicates_even_when_under_result_limit():
-    orchestrator = MultiSearchOrchestrator(providers=[])
+    orchestrator = SearchOrchestrator(providers=[])
     results = [
         SearchResult(
             title="Higher score",
@@ -122,7 +123,7 @@ def test_content_similarity_deduplicates_even_when_under_result_limit():
 
 
 def test_blank_snippets_do_not_collapse_distinct_results():
-    orchestrator = MultiSearchOrchestrator(providers=[])
+    orchestrator = SearchOrchestrator(providers=[])
     results = [
         SearchResult(
             title="A",
@@ -152,7 +153,7 @@ def test_pubmed_style_dates_participate_in_freshness_ranking(monkeypatch):
     monkeypatch.setattr(settings, "search_freshness_half_life_days", 30.0, raising=False)
     monkeypatch.setattr(settings, "search_freshness_weight", 0.4, raising=False)
 
-    orchestrator = MultiSearchOrchestrator(providers=[])
+    orchestrator = SearchOrchestrator(providers=[])
     results = [
         SearchResult(
             title="Old",

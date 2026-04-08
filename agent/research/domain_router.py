@@ -100,7 +100,7 @@ DOMAIN_CONFIGS = {
     },
 }
 
-# Provider profiles for multi-search orchestration.
+# Provider profiles for web search orchestration.
 _SOURCE_PROVIDER_HINTS = {
     "arxiv": "arxiv",
     "pubmed": "pubmed",
@@ -315,7 +315,7 @@ def build_provider_profile(
     domain: ResearchDomain = ResearchDomain.GENERAL,
 ) -> list[str]:
     """
-    Build a provider profile for multi-search from domain and source hints.
+    Build a provider profile for the web search orchestrator from domain and source hints.
 
     Args:
         suggested_sources: Domain-specific source domains from classification.

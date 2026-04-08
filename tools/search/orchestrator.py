@@ -1,18 +1,11 @@
 """
-Multi-Search Engine Aggregation.
+Unified web search orchestrator.
 
-Inspired by DeerFlow's multi-provider search approach.
-Implements robust multi-provider search with intelligent result aggregation.
-
-Key Features:
-1. Multiple search provider adapters (Tavily, DuckDuckGo, Brave, Serper, Exa)
-2. Intelligent result aggregation and deduplication
-3. Provider health monitoring and automatic failover
-4. Quality scoring per provider based on historical accuracy
+Implements multi-provider search with result aggregation, reliability controls,
+and ranking for the public `web_search` runtime.
 """
 
 import copy
-import hashlib
 import importlib
 import importlib.util
 import logging
@@ -20,16 +13,22 @@ import math
 import re
 import time
 import warnings
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from difflib import SequenceMatcher
-from enum import Enum
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 from agent.contracts.search_cache import get_search_cache
 from common.config import settings
+from tools.search.contracts import SearchProvider, SearchResult, SearchStrategy
+from tools.search.providers import (
+    bing_search,
+    exa_search,
+    firecrawl_search,
+    google_cse_search,
+    serpapi_search,
+    serper_search,
+    tavily_api_search,
+)
 from tools.search.reliability import ProviderReliabilityManager, ReliabilityPolicy
 
 logger = logging.getLogger(__name__)
@@ -40,17 +39,6 @@ _LEGACY_DDG_WARNING_PATTERN = (
     r"Use `pip install ddgs` instead\."
 )
 _legacy_ddg_package_warning_logged = False
-
-_TRACKING_QUERY_KEYS = {
-    "fbclid",
-    "gclid",
-    "igshid",
-    "mc_cid",
-    "mc_eid",
-    "ref",
-    "ref_src",
-    "source",
-}
 
 
 def _resolve_ddgs_module_name() -> str | None:
@@ -78,163 +66,6 @@ def _log_legacy_ddg_package_once(module_name: str | None) -> None:
     _legacy_ddg_package_warning_logged = True
 
 
-def _canonicalize_result_url(raw_url: str) -> str:
-    raw = str(raw_url or "").strip()
-    if not raw:
-        return ""
-    if "://" not in raw:
-        raw = f"https://{raw}"
-
-    try:
-        parsed = urlsplit(raw)
-    except Exception:
-        return raw
-
-    scheme = (parsed.scheme or "https").lower()
-    netloc = (parsed.netloc or "").lower()
-    if not netloc:
-        return raw
-
-    path = parsed.path or "/"
-    if path != "/":
-        path = path.rstrip("/")
-        if not path:
-            path = "/"
-
-    query_items = []
-    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
-        normalized_key = str(key).strip().lower()
-        if normalized_key.startswith("utm_"):
-            continue
-        if normalized_key in _TRACKING_QUERY_KEYS:
-            continue
-        query_items.append((key, value))
-    query_items.sort()
-    query = urlencode(query_items, doseq=True)
-
-    return urlunsplit((scheme, netloc, path, query, ""))
-
-
-class SearchStrategy(str, Enum):
-    """Search execution strategy."""
-    FALLBACK = "fallback"  # Try providers sequentially until success
-    PARALLEL = "parallel"  # Query all providers in parallel, merge results
-    ROUND_ROBIN = "round_robin"  # Distribute queries across providers
-    BEST_FIRST = "best_first"  # Use best performing provider first
-
-
-@dataclass
-class SearchResult:
-    """Normalized search result from any provider."""
-    title: str
-    url: str
-    snippet: str
-    content: str = ""
-    score: float = 0.0
-    published_date: str | None = None
-    provider: str = ""
-    raw_data: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        self.url = _canonicalize_result_url(self.url)
-
-    @property
-    def domain(self) -> str:
-        """Extract domain from URL."""
-        try:
-            return urlparse(self.url).netloc
-        except Exception:
-            return ""
-
-    @property
-    def url_hash(self) -> str:
-        """Get hash of URL for deduplication."""
-        return hashlib.md5(self.url.encode()).hexdigest()[:12]
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "title": self.title,
-            "url": self.url,
-            "snippet": self.snippet,
-            "content": self.content,
-            "score": self.score,
-            "published_date": self.published_date,
-            "provider": self.provider,
-        }
-
-
-@dataclass
-class ProviderStats:
-    """Track provider performance statistics."""
-    name: str
-    total_calls: int = 0
-    success_count: int = 0
-    error_count: int = 0
-    total_latency_ms: float = 0
-    avg_result_quality: float = 0.5
-    last_error: str | None = None
-    last_error_time: str | None = None
-    is_healthy: bool = True
-    consecutive_failures: int = 0
-
-    @property
-    def success_rate(self) -> float:
-        if self.total_calls == 0:
-            return 1.0
-        return self.success_count / self.total_calls
-
-    @property
-    def avg_latency_ms(self) -> float:
-        if self.success_count == 0:
-            return 0
-        return self.total_latency_ms / self.success_count
-
-    def record_success(self, latency_ms: float, quality: float = 0.5) -> None:
-        self.total_calls += 1
-        self.success_count += 1
-        self.total_latency_ms += latency_ms
-        self.avg_result_quality = (self.avg_result_quality * 0.9) + (quality * 0.1)
-        self.consecutive_failures = 0
-        self.is_healthy = True
-
-    def record_failure(self, error: str) -> None:
-        self.total_calls += 1
-        self.error_count += 1
-        self.last_error = error
-        self.last_error_time = datetime.now().isoformat()
-        self.consecutive_failures += 1
-        if self.consecutive_failures >= 3:
-            self.is_healthy = False
-
-
-class SearchProvider(ABC):
-    """Abstract base class for search providers."""
-
-    def __init__(self, name: str, api_key: str | None = None):
-        self.name = name
-        self.api_key = api_key
-        self.stats = ProviderStats(name=name)
-
-    @abstractmethod
-    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
-        """Execute a search query and return normalized results."""
-        pass
-
-    @abstractmethod
-    def is_available(self) -> bool:
-        """Check if the provider is available (API key configured, etc.)."""
-        pass
-
-    def get_stats(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "success_rate": self.stats.success_rate,
-            "avg_latency_ms": self.stats.avg_latency_ms,
-            "avg_result_quality": self.stats.avg_result_quality,
-            "is_healthy": self.stats.is_healthy,
-        }
-
-
 class TavilyProvider(SearchProvider):
     """Tavily search provider (primary)."""
 
@@ -245,14 +76,9 @@ class TavilyProvider(SearchProvider):
         return bool(self.api_key)
 
     def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
-        from tools.search.search import tavily_search
-
         start_time = time.time()
         try:
-            raw_results = tavily_search.invoke({
-                "query": query,
-                "max_results": max_results,
-            })
+            raw_results = tavily_api_search(query=query, max_results=max_results)
 
             results = []
             for r in raw_results:
@@ -401,36 +227,19 @@ class SerperProvider(SearchProvider):
         return bool(self.api_key)
 
     def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
-        import requests
-
         start_time = time.time()
         try:
-            headers = {
-                "X-API-KEY": self.api_key,
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "q": query,
-                "num": max_results,
-            }
-            response = requests.post(
-                "https://google.serper.dev/search",
-                headers=headers,
-                json=payload,
-                timeout=10,
-            )
-            response.raise_for_status()
-            data = response.json()
+            raw_results = serper_search(query=query, max_results=max_results)
 
             results = []
-            for r in data.get("organic", []):
+            for r in raw_results:
                 results.append(SearchResult(
                     title=r.get("title", ""),
-                    url=r.get("link", ""),
+                    url=r.get("url", ""),
                     snippet=r.get("snippet", ""),
-                    content="",
-                    score=0.7,
-                    published_date=r.get("date"),
+                    content=r.get("content", ""),
+                    score=float(r.get("score", 0.7) or 0.7),
+                    published_date=r.get("published_date") or r.get("date"),
                     provider=self.name,
                     raw_data=r,
                 ))
@@ -456,33 +265,21 @@ class ExaProvider(SearchProvider):
         return bool(self.api_key)
 
     def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
-        try:
-            from exa_py import Exa
-        except ImportError:
-            logger.warning("[ExaProvider] exa_py not installed")
-            return []
-
         start_time = time.time()
         try:
-            exa = Exa(self.api_key)
-            response = exa.search_and_contents(
-                query,
-                type="neural",
-                num_results=max_results,
-                text=True,
-            )
+            raw_results = exa_search(query=query, max_results=max_results)
 
             results = []
-            for r in response.results:
+            for r in raw_results:
                 results.append(SearchResult(
-                    title=r.title or "",
-                    url=r.url or "",
-                    snippet=r.text[:500] if r.text else "",
-                    content=r.text or "",
-                    score=r.score if hasattr(r, "score") else 0.7,
-                    published_date=r.published_date if hasattr(r, "published_date") else None,
+                    title=r.get("title", ""),
+                    url=r.get("url", ""),
+                    snippet=r.get("snippet", ""),
+                    content=r.get("content", r.get("snippet", "")),
+                    score=float(r.get("score", 0.7) or 0.7),
+                    published_date=r.get("published_date"),
                     provider=self.name,
-                    raw_data={"id": r.id},
+                    raw_data=r,
                 ))
 
             latency = (time.time() - start_time) * 1000
@@ -492,6 +289,150 @@ class ExaProvider(SearchProvider):
         except Exception as e:
             self.stats.record_failure(str(e))
             logger.error(f"[ExaProvider] Search failed: {e}")
+            return []
+
+
+class SerpApiProvider(SearchProvider):
+    """SerpAPI search provider."""
+
+    def __init__(self):
+        super().__init__("serpapi", getattr(settings, "serpapi_api_key", None))
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
+        start_time = time.time()
+        try:
+            raw_results = serpapi_search(query=query, max_results=max_results)
+
+            results = []
+            for r in raw_results:
+                results.append(SearchResult(
+                    title=r.get("title", ""),
+                    url=r.get("url", ""),
+                    snippet=r.get("snippet", ""),
+                    content=r.get("content", r.get("snippet", "")),
+                    score=float(r.get("score", 0.65) or 0.65),
+                    published_date=r.get("published_date") or r.get("date"),
+                    provider=self.name,
+                    raw_data=r,
+                ))
+
+            latency = (time.time() - start_time) * 1000
+            self.stats.record_success(latency, 0.72)
+            return results
+        except Exception as e:
+            self.stats.record_failure(str(e))
+            logger.error(f"[SerpApiProvider] Search failed: {e}")
+            return []
+
+
+class BingProvider(SearchProvider):
+    """Bing Search API provider."""
+
+    def __init__(self):
+        super().__init__("bing", getattr(settings, "bing_api_key", None))
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
+        start_time = time.time()
+        try:
+            raw_results = bing_search(query=query, max_results=max_results)
+
+            results = []
+            for r in raw_results:
+                results.append(SearchResult(
+                    title=r.get("title", ""),
+                    url=r.get("url", ""),
+                    snippet=r.get("snippet", ""),
+                    content=r.get("content", r.get("snippet", "")),
+                    score=float(r.get("score", 0.64) or 0.64),
+                    published_date=r.get("published_date") or r.get("date"),
+                    provider=self.name,
+                    raw_data=r,
+                ))
+
+            latency = (time.time() - start_time) * 1000
+            self.stats.record_success(latency, 0.7)
+            return results
+        except Exception as e:
+            self.stats.record_failure(str(e))
+            logger.error(f"[BingProvider] Search failed: {e}")
+            return []
+
+
+class GoogleCSEProvider(SearchProvider):
+    """Google Custom Search provider."""
+
+    def __init__(self):
+        super().__init__("google_cse", getattr(settings, "google_search_api_key", None))
+
+    def is_available(self) -> bool:
+        return bool(self.api_key) and bool(getattr(settings, "google_search_engine_id", ""))
+
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
+        start_time = time.time()
+        try:
+            raw_results = google_cse_search(query=query, max_results=max_results)
+
+            results = []
+            for r in raw_results:
+                results.append(SearchResult(
+                    title=r.get("title", ""),
+                    url=r.get("url", ""),
+                    snippet=r.get("snippet", ""),
+                    content=r.get("content", r.get("snippet", "")),
+                    score=float(r.get("score", 0.66) or 0.66),
+                    published_date=r.get("published_date") or r.get("date"),
+                    provider=self.name,
+                    raw_data=r,
+                ))
+
+            latency = (time.time() - start_time) * 1000
+            self.stats.record_success(latency, 0.74)
+            return results
+        except Exception as e:
+            self.stats.record_failure(str(e))
+            logger.error(f"[GoogleCSEProvider] Search failed: {e}")
+            return []
+
+
+class FirecrawlProvider(SearchProvider):
+    """Firecrawl search provider."""
+
+    def __init__(self):
+        super().__init__("firecrawl", getattr(settings, "firecrawl_api_key", None))
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
+        start_time = time.time()
+        try:
+            raw_results = firecrawl_search(query=query, max_results=max_results)
+
+            results = []
+            for r in raw_results:
+                results.append(SearchResult(
+                    title=r.get("title", ""),
+                    url=r.get("url", ""),
+                    snippet=r.get("snippet", ""),
+                    content=r.get("markdown", r.get("content", r.get("snippet", ""))),
+                    score=float(r.get("score", 0.68) or 0.68),
+                    published_date=r.get("published_date") or r.get("date"),
+                    provider=self.name,
+                    raw_data=r,
+                ))
+
+            latency = (time.time() - start_time) * 1000
+            self.stats.record_success(latency, 0.76)
+            return results
+        except Exception as e:
+            self.stats.record_failure(str(e))
+            logger.error(f"[FirecrawlProvider] Search failed: {e}")
             return []
 
 
@@ -557,7 +498,7 @@ def _get_academic_providers() -> list[SearchProvider]:
     return providers
 
 
-class MultiSearchOrchestrator:
+class SearchOrchestrator:
     """
     Orchestrates searches across multiple providers.
 
@@ -642,10 +583,26 @@ class MultiSearchOrchestrator:
         if serper.is_available():
             providers.append(serper)
 
+        serpapi = SerpApiProvider()
+        if serpapi.is_available():
+            providers.append(serpapi)
+
+        bing = BingProvider()
+        if bing.is_available():
+            providers.append(bing)
+
+        google_cse = GoogleCSEProvider()
+        if google_cse.is_available():
+            providers.append(google_cse)
+
         # Exa
         exa = ExaProvider()
         if exa.is_available():
             providers.append(exa)
+
+        firecrawl = FirecrawlProvider()
+        if firecrawl.is_available():
+            providers.append(firecrawl)
 
         # Real-time feed providers
         feed_providers = _get_feed_providers()
@@ -655,7 +612,9 @@ class MultiSearchOrchestrator:
         academic_providers = _get_academic_providers()
         providers.extend(academic_providers)
 
-        logger.info(f"[MultiSearch] Initialized {len(providers)} providers: {[p.name for p in providers]}")
+        logger.info(
+            f"[SearchOrchestrator] Initialized {len(providers)} providers: {[p.name for p in providers]}"
+        )
         return providers
 
     def get_available_providers(self) -> list[SearchProvider]:
@@ -685,14 +644,14 @@ class MultiSearchOrchestrator:
         cache_key = self._cache_query_key(query, max_results, strategy, provider_profile)
         cached = cache.get(cache_key)
         if cached is not None:
-            logger.info(f"[MultiSearch] cache hit for query='{query[:80]}'")
+            logger.info(f"[SearchOrchestrator] cache hit for query='{query[:80]}'")
             return self._from_cached_results(cached)
 
         available = self.get_available_providers()
         available = self._apply_provider_profile(available, provider_profile)
 
         if not available:
-            logger.error("[MultiSearch] No available search providers")
+            logger.error("[SearchOrchestrator] No available search providers")
             return []
 
         results: list[SearchResult]
@@ -720,7 +679,7 @@ class MultiSearchOrchestrator:
         provider_profile: list[str] | None,
     ) -> str:
         profile = ",".join(provider_profile or [])
-        return f"multi_search::{strategy.value}::{max_results}::{profile}::{query}"
+        return f"web_search::{strategy.value}::{max_results}::{profile}::{query}"
 
     def _from_cached_results(self, cached: list[dict[str, Any]]) -> list[SearchResult]:
         results: list[SearchResult] = []
@@ -774,11 +733,13 @@ class MultiSearchOrchestrator:
         if selected:
             remaining = [p for p in providers if p not in selected]
             ordered = selected + remaining
-            logger.info(f"[MultiSearch] Provider profile selected: {[p.name for p in selected]}")
+            logger.info(
+                f"[SearchOrchestrator] Provider profile selected: {[p.name for p in selected]}"
+            )
             return ordered
 
         logger.warning(
-            f"[MultiSearch] Provider profile had no available matches: {preferred}, "
+            f"[SearchOrchestrator] Provider profile had no available matches: {preferred}, "
             "falling back to default provider pool"
         )
         return providers
@@ -816,11 +777,15 @@ class MultiSearchOrchestrator:
         for provider in providers:
             results = self._call_provider(provider, query, max_results)
             if results:
-                logger.info(f"[MultiSearch] Got {len(results)} results from {provider.name}")
+                logger.info(
+                    f"[SearchOrchestrator] Got {len(results)} results from {provider.name}"
+                )
                 return self._deduplicate_and_rank(results, max_results, query=query)
-            logger.warning(f"[MultiSearch] {provider.name} returned no results, trying next...")
+            logger.warning(
+                f"[SearchOrchestrator] {provider.name} returned no results, trying next..."
+            )
 
-        logger.warning("[MultiSearch] All providers failed")
+        logger.warning("[SearchOrchestrator] All providers failed")
         return []
 
     def _search_parallel(
@@ -867,16 +832,18 @@ class MultiSearchOrchestrator:
                     try:
                         results = future.result()
                         all_results.extend(results)
-                        logger.info(f"[MultiSearch] {provider.name} returned {len(results)} results")
+                        logger.info(
+                            f"[SearchOrchestrator] {provider.name} returned {len(results)} results"
+                        )
                     except Exception as e:
-                        logger.error(f"[MultiSearch] {provider.name} failed: {e}")
+                        logger.error(f"[SearchOrchestrator] {provider.name} failed: {e}")
         finally:
             for future in pending:
                 future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)
 
         if timed_out:
-            logger.warning("[MultiSearch] parallel search timed out; returning partial results")
+            logger.warning("[SearchOrchestrator] parallel search timed out; returning partial results")
 
         # Deduplicate and rank
         return self._deduplicate_and_rank(all_results, max_results, query=query)
@@ -1054,14 +1021,14 @@ class MultiSearchOrchestrator:
 
 
 # Global orchestrator instance
-_global_orchestrator: MultiSearchOrchestrator | None = None
+_global_orchestrator: SearchOrchestrator | None = None
 
 
-def get_search_orchestrator() -> MultiSearchOrchestrator:
+def get_search_orchestrator() -> SearchOrchestrator:
     """Get or create the global search orchestrator."""
     global _global_orchestrator
     if _global_orchestrator is None:
-        _global_orchestrator = MultiSearchOrchestrator()
+        _global_orchestrator = SearchOrchestrator()
     return _global_orchestrator
 
 
@@ -1071,29 +1038,17 @@ def reset_search_orchestrator() -> None:
     _global_orchestrator = None
 
 
-def multi_search(
-    query: str,
-    max_results: int = 10,
-    strategy: SearchStrategy = SearchStrategy.FALLBACK,
-    provider_profile: list[str] | None = None,
-) -> list[dict[str, Any]]:
-    """
-    Convenience function for multi-provider search.
-
-    Args:
-        query: Search query
-        max_results: Maximum number of results
-        strategy: Search strategy to use
-        provider_profile: Optional ordered list of provider names to prioritize
-
-    Returns:
-        List of result dictionaries
-    """
-    orchestrator = get_search_orchestrator()
-    results = orchestrator.search(
-        query=query,
-        max_results=max_results,
-        strategy=strategy,
-        provider_profile=provider_profile,
-    )
-    return [r.to_dict() for r in results]
+__all__ = [
+    "BingProvider",
+    "BraveProvider",
+    "DuckDuckGoProvider",
+    "ExaProvider",
+    "FirecrawlProvider",
+    "GoogleCSEProvider",
+    "SearchOrchestrator",
+    "SerpApiProvider",
+    "SerperProvider",
+    "TavilyProvider",
+    "get_search_orchestrator",
+    "reset_search_orchestrator",
+]
