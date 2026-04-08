@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "branch runtime 与 graph 集成会新增降级和失败路径，需保持错误处理一致"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "deep research artifacts、tool policy snapshot、SSE 事件和 runtime state 合同会受影响"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "新增 branch runtime 子模块与 façade，需遵守 agent/runtime 模块归属"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "researcher 多轮运行时需新增阶段日志和调试信息"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "本次涉及 runtime contract 和回归测试扩展，需对齐质量要求"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "重构 researcher 时需避免在 graph 和 inner runtime 重复实现评估逻辑"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "branch artifacts 会穿过 runtime、artifact store、reviewer 和 benchmark，多层契约需要一致"}

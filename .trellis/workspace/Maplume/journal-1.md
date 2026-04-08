@@ -881,3 +881,48 @@ Removed confirmed dead code under tools/, deleted the RAG tool and document APIs
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Agentic Researcher Runtime Phase 1
+
+**Date**: 2026-04-08
+**Task**: Agentic Researcher Runtime Phase 1
+**Branch**: `main`
+
+### Summary
+
+Implemented a bounded branch-scoped agentic researcher runtime, propagated richer supervisor/section contracts, exposed structured branch artifacts through the deep runtime, added regression coverage, and updated backend tool-runtime specs.
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Researcher Runtime | Added `agent/runtime/deep/researcher_runtime/` to run bounded multi-round branch research with query planning, coverage assessment, quality checks, contradiction handling, grounding evaluation, and structured branch decisions. |
+| Runtime Contracts | Extended `ResearchTask`, `OutlineSection`, `SectionDraftArtifact`, and new `Branch*Artifact` contracts in `agent/runtime/deep/schema.py`. |
+| Orchestration | Updated `agent/runtime/deep/orchestration/graph.py` and `agent/runtime/deep/artifacts/public_artifacts.py` to persist and expose `branch_query_rounds`, `branch_coverages`, `branch_qualities`, `branch_contradictions`, `branch_groundings`, and `branch_decisions`. |
+| Supervisor | Enhanced outline sections in `agent/runtime/deep/roles/supervisor.py` to propagate source preferences, coverage targets, follow-up policy, stop policy, and time boundary metadata. |
+| Prompts | Added branch gap-analysis, query-refine, counterevidence, and claim-grounding prompts in `agent/prompts/runtime_templates.py`. |
+| Verification | Added/updated `tests/test_deepsearch_researcher.py`, `tests/test_deepsearch_supervisor.py`, and `tests/test_deepsearch_multi_agent_runtime.py`; validated with targeted pytest, full `uv run pytest -q` (`404 passed, 1 skipped`), and Ruff checks. |
+
+**Notes**:
+- Kept outer `reviewer`/`verifier` as hard gates while moving more coverage and grounding checks into the branch-scoped researcher runtime.
+- Updated `.trellis/spec/backend/tool-runtime-contracts.md` with executable contracts for Deep Research branch runtime artifacts and public payload keys.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `462de93` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
