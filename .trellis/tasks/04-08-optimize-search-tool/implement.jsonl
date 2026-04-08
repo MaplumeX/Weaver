@@ -1,0 +1,8 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "选择正确模块归属，避免新增无意义分层"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "搜索运行时和兼容层需要一致的降级与异常策略"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "统一搜索入口时需要保持 provider 和降级日志风格一致"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "工具注册和公开工具名变更属于跨层工具契约修改"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "搜索工具名和数据流会影响 runtime、catalog、profile、tests"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "收敛重复搜索入口并清理平行实现"}

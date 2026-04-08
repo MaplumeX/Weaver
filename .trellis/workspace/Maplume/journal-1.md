@@ -568,3 +568,56 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Soften deep research validation gates
+
+**Date**: 2026-04-08
+**Task**: Soften deep research validation gates
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Item | Description |
+|------|-------------|
+| Goal | 将 Deep Research 的校验流程从 hard gate 调整为 advisory-first，避免因部分信息不可得而阻断最终报告生成 |
+| Backend | 调整 `agent/runtime/deep/orchestration/graph.py`，允许基于可用 section draft 生成 partial report，并将 final claim gate 改为 review-needed 提示而非 blocked |
+| Frontend | 更新 deep research 状态文案和 timeline，新增 `report_partial`、`outline_partial`、`final_claim_gate_review_needed` 语义 |
+| Tests | 补充回归测试，覆盖预算耗尽时仍输出部分报告，以及 claim 冲突只触发复核提示 |
+
+**Validation**
+- `uv run ruff check agent/runtime/deep/orchestration/graph.py tests/test_deepsearch_multi_agent_runtime.py`
+- `uv run pytest tests/test_deepsearch_multi_agent_runtime.py tests/test_settings_quality_gates.py`
+- `pnpm -C web lint`
+- `pnpm -C web exec tsc -p tsconfig.json --noEmit`
+- `pnpm -C web build` 仍仅返回泛化 webpack 错误，未得到可定位明细，因此未作为通过项记录
+
+**Updated Files**
+- `agent/runtime/deep/orchestration/graph.py`
+- `tests/test_deepsearch_multi_agent_runtime.py`
+- `web/hooks/useChatStream.ts`
+- `web/lib/chat-stream-state.ts`
+- `web/lib/deep-research-timeline.ts`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `045fd59` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

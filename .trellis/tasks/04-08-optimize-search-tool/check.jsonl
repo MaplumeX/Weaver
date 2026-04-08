@@ -1,0 +1,4 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "检查 profile、tool registry、catalog 和 runtime 契约是否一致"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "回归时需要覆盖工具契约和行为变化"}

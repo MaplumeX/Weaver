@@ -1,0 +1,5 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "agent 模块目录归属与 facade 边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "删除死代码时保持稳定公共面并补回归测试"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "删除重复或遗留实现前先验证真实消费者"}
