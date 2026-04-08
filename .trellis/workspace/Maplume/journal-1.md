@@ -658,3 +658,51 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Deep Research validation soft gating
+
+**Date**: 2026-04-08
+**Task**: Deep Research validation soft gating
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Validation model | Reworked deep research section review into a quality snapshot model with `reportability`, `quality_band`, `risk_flags`, `suggested_actions`, and `needs_manual_review` while keeping compatibility fields. |
+| Runtime flow | Removed quality-based hard report gates by introducing `report_ready` and `preferred_ready`, and updated supervisor / outline decisions to allow best-effort report generation when reportable content exists. |
+| Reporting | Extended reporter section context with confidence, limitation, risk, and manual-review metadata so final reports can surface weaker sections explicitly. |
+| Tests | Added regression coverage for low-confidence sections still producing a report and kept deep research artifact/checkpoint/export tests passing. |
+
+**Commits**:
+- `24144f8` `refactor(deep-research): decouple report gating from validation`
+
+**Validation**:
+- `uv run pytest tests/test_deepsearch_multi_agent_runtime.py`
+- `uv run pytest tests/test_export_json.py`
+- `uv run pytest tests/test_checkpoint_runtime_artifacts.py`
+- `uv run ruff check agent/runtime/deep/schema.py agent/runtime/deep/roles/reporter.py agent/runtime/deep/artifacts/public_artifacts.py agent/runtime/deep/orchestration/graph.py agent/runtime/deep/roles/supervisor.py tests/test_deepsearch_multi_agent_runtime.py`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `24144f8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

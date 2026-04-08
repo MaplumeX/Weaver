@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Best-effort validation should degrade gracefully instead of blocking report generation"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Behavioral changes require regression tests and stable backend surfaces"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Deep Research runtime changes stay within agent/runtime ownership"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Runtime artifacts flow into public artifacts and final report rendering"}
