@@ -275,88 +275,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/documents/list": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Documents
-         * @description List all documents in the RAG knowledge base.
-         */
-        get: operations["list_documents_api_documents_list_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Search Documents
-         * @description Search the RAG knowledge base.
-         */
-        post: operations["search_documents_api_documents_search_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents/upload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload Document
-         * @description Upload a document to the RAG knowledge base.
-         *
-         *     Supports PDF, DOCX, TXT, MD files.
-         */
-        post: operations["upload_document_api_documents_upload_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents/{source}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Document
-         * @description Delete a document from the RAG knowledge base by source path.
-         */
-        delete: operations["delete_document_api_documents__source__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/events/{thread_id}": {
         parameters: {
             query?: never;
@@ -882,7 +800,7 @@ export interface paths {
         };
         /**
          * Get Search Providers
-         * @description Expose multi-search provider availability, health, and circuit-breaker state.
+         * @description Expose unified web search provider availability, health, and circuit-breaker state.
          */
         get: operations["get_search_providers_api_search_providers_get"];
         put?: never;
@@ -904,7 +822,7 @@ export interface paths {
         put?: never;
         /**
          * Reset Search Providers
-         * @description Reset the global multi-search orchestrator (provider stats + circuit breaker state).
+         * @description Reset the global web search orchestrator (provider stats + circuit breaker state).
          */
         post: operations["reset_search_providers_api_search_providers_reset_post"];
         delete?: never;
@@ -1601,8 +1519,6 @@ export interface components {
             enhanced_tool_discovery_enabled: boolean;
             /** Enhanced Tool Discovery Recursive */
             enhanced_tool_discovery_recursive: boolean;
-            /** Rag Enabled */
-            rag_enabled: boolean;
             /** Search Engines */
             search_engines: string[];
             /** Search Providers Available */
@@ -1737,11 +1653,6 @@ export interface components {
         };
         /** Body_recognize_speech_upload_api_asr_upload_post */
         Body_recognize_speech_upload_api_asr_upload_post: {
-            /** File */
-            file: string;
-        };
-        /** Body_upload_document_api_documents_upload_post */
-        Body_upload_document_api_documents_upload_post: {
             /** File */
             file: string;
         };
@@ -3350,133 +3261,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublicConfigResponse"];
-                };
-            };
-        };
-    };
-    list_documents_api_documents_list_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    search_documents_api_documents_search_post: {
-        parameters: {
-            query: {
-                query: string;
-                n_results?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    upload_document_api_documents_upload_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_upload_document_api_documents_upload_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_document_api_documents__source__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                source: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

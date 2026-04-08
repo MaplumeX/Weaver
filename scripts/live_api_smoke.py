@@ -1022,12 +1022,6 @@ async def _sweep_all_routes(
                 json_body = {"text": "Hello", "voice": "longxiaochun"}
             elif method_u == "POST" and path == "/api/asr/upload":
                 files = {"file": ("smoke.wav", b"\x00\x00\x00\x00", "audio/wav")}
-            elif method_u == "POST" and path == "/api/documents/upload":
-                files = {"file": ("smoke.txt", b"hello", "text/plain")}
-            elif method_u == "POST" and path == "/api/documents/search":
-                params = {"query": "smoke", "n_results": 3}
-            elif method_u == "GET" and path == "/api/documents/list":
-                params = {"limit": 10}
             elif method_u == "POST" and path == "/api/research":
                 # Query param, streaming response.
                 params = {"query": "smoke test"}

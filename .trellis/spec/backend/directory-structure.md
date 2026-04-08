@@ -50,7 +50,6 @@ repo. Follow the current ownership boundaries instead.
 │   ├── crawl/
 │   ├── export/
 │   ├── io/
-│   ├── rag/
 │   ├── sandbox/
 │   └── search/
 ├── triggers/
@@ -124,5 +123,5 @@ Anti-patterns:
   instead of the HTTP layer.
 - `triggers/manager.py`: subsystem-specific management logic kept inside
   `triggers/`.
-- `tools/rag/vector_store.py`: external capability adapter grouped under
-  `tools/`.
+- `tools/search/orchestrator.py`: search-provider fan-out and reliability logic
+  grouped under `tools/`.

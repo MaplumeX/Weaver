@@ -283,14 +283,6 @@ class Settings(BaseSettings):
     # Domain Routing Config
     domain_routing_enabled: bool = False  # Enable domain-specific routing and prompts
 
-    # RAG (Retrieval-Augmented Generation) Config
-    rag_enabled: bool = False  # Enable local document RAG
-    rag_store_path: str | None = None  # Path for persistent vector storage
-    rag_collection_name: str = "weaver_documents"  # ChromaDB collection name
-    rag_embedding_model: str = "text-embedding-3-small"  # OpenAI embedding model
-    rag_chunk_size: int = 1000  # Document chunk size
-    rag_chunk_overlap: int = 200  # Overlap between chunks
-
     # Deep Research Runtime Config
     deep_research_parallel_workers: int = 3  # Max concurrent branch workers
     deep_research_max_searches: int = 800  # 0 = disabled (hard cap on search calls)

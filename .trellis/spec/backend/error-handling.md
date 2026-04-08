@@ -53,8 +53,8 @@ Examples:
   missing config and wraps connection failures as `RuntimeError`.
 - `main.py`: startup/shutdown paths log warnings for optional subsystem failures
   such as MCP or trigger initialization while keeping the app running.
-- `tools/rag/vector_store.py`: local helper methods log and return safe
-  fallbacks when document operations fail.
+- `tools/io/screenshot_service.py`: local helper methods log and return safe
+  fallback payloads when screenshot persistence fails.
 
 ---
 
@@ -94,5 +94,5 @@ Rules:
 - `main.py`: chat endpoint raises `HTTPException(status_code=400, ...)` for
   missing user input.
 - `agent/runtime/graph.py`: explicit wrapping of Postgres connection failures.
-- `tools/rag/vector_store.py`: helper-level error logging with safe fallback
-  return values.
+- `tools/io/screenshot_service.py`: helper-level error logging with safe
+  fallback return values.

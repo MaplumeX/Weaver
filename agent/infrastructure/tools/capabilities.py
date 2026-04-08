@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -40,8 +39,6 @@ from tools.sandbox import (
     build_sandbox_web_dev_tools,
     build_sandbox_web_search_tools,
 )
-
-logger = logging.getLogger(__name__)
 
 _E2B_PLACEHOLDER_KEYS = {
     "e2b_...",
@@ -87,18 +84,6 @@ class ToolProviderSpec:
 
 def _build_web_search_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
     return [web_search]
-
-
-def _build_rag_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
-    if not bool(getattr(settings, "rag_enabled", False)):
-        return []
-    try:
-        from tools.rag.rag_tool import rag_search
-
-        return [rag_search]
-    except Exception as exc:  # pragma: no cover
-        logger.warning(f"Failed to load rag_search tool: {exc}")
-        return []
 
 
 def _build_crawl_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
@@ -223,7 +208,6 @@ def _build_daytona_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
 
 TOOL_PROVIDER_SPECS: tuple[ToolProviderSpec, ...] = (
     ToolProviderSpec(key="web_search", factory=_build_web_search_tools),
-    ToolProviderSpec(key="rag", factory=_build_rag_tools),
     ToolProviderSpec(key="crawl", factory=_build_crawl_tools),
     ToolProviderSpec(key="sandbox_browser", factory=_build_sandbox_browser_tools_for_agent),
     ToolProviderSpec(key="browser", factory=_build_browser_tools),

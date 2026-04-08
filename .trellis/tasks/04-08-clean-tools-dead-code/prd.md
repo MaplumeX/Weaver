@@ -7,6 +7,7 @@
 - 删除确认无仓库内引用的整文件死代码。
 - 移除保留模块中确认无调用的辅助符号和冗余导出。
 - 将低置信度但仍需保留的包级 `__init__.py` 从通配导出改为显式 facade。
+- 清除已下线的 RAG 工具、文档接口和相关配置残留。
 - 保持现有工具注册、运行时行为和公开工具名不变。
 
 ## Acceptance Criteria
@@ -14,6 +15,7 @@
 - [ ] `tools/crawl/crawler.py` 中未使用的全局单例辅助逻辑被移除。
 - [ ] `tools/__init__.py` 不再导出仓库内无使用的 `crawl_url` / `crawl_urls`。
 - [ ] `tools/automation/__init__.py`、`tools/browser/__init__.py`、`tools/code/__init__.py`、`tools/crawl/__init__.py`、`tools/io/__init__.py`、`tools/planning/__init__.py` 改为显式导出。
+- [ ] `tools/rag/`、`/api/documents/*`、相关配置与测试从仓库中移除。
 - [ ] 相关目标测试通过。
 
 ## Technical Notes

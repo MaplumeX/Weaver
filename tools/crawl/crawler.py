@@ -247,43 +247,6 @@ class CrawlerOptimized:
 
 
 # ============================================================================
-# Global singleton instance for convenience
-# ============================================================================
-_global_crawler: CrawlerOptimized | None = None
-_crawler_lock = asyncio.Lock()
-
-
-async def get_global_crawler() -> CrawlerOptimized:
-    """Get or create the global crawler instance."""
-    global _global_crawler
-
-    async with _crawler_lock:
-        if _global_crawler is None:
-            # Try to get settings
-            headless = getattr(settings, "crawler_headless", True)
-            page_timeout = getattr(settings, "crawler_page_timeout", 20000)
-            max_concurrent = getattr(settings, "crawler_max_concurrent", 5)
-
-            _global_crawler = CrawlerOptimized(
-                headless=headless,
-                page_timeout=page_timeout,
-                max_concurrent=max_concurrent,
-            )
-            await _global_crawler.init_browser()
-
-    return _global_crawler
-
-
-async def close_global_crawler() -> None:
-    """Close the global crawler instance."""
-    global _global_crawler
-
-    if _global_crawler:
-        await _global_crawler.close_browser()
-        _global_crawler = None
-
-
-# ============================================================================
 # Legacy urllib-based Implementation (Fallback)
 # ============================================================================
 

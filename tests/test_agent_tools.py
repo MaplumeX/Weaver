@@ -178,3 +178,19 @@ def test_build_agent_toolset_blocks_tools_via_blocked_capabilities(monkeypatch):
     names = _names(build_agent_toolset(cfg))
 
     assert names == ["alpha"]
+
+
+def test_build_agent_toolset_ignores_removed_rag_tool_name():
+    cfg = {
+        "configurable": {
+            "thread_id": "tools-no-rag",
+            "agent_profile": {
+                "tools": ["rag_search"],
+                "emit_tool_events": False,
+            },
+        }
+    }
+
+    names = _names(build_agent_toolset(cfg))
+
+    assert "rag_search" not in names

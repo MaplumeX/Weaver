@@ -14,7 +14,6 @@ Current persistence patterns are:
 - PostgreSQL via project-owned adapters for long-term memory
   (`common/memory_store.py`), even when `MEMORY_STORE_BACKEND` is set for
   compatibility.
-- ChromaDB for RAG vector storage.
 - JSON files for lightweight configuration/state where avoiding schema churn is
   more valuable than centralizing everything in SQL.
 
