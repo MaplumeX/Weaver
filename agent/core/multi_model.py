@@ -446,3 +446,41 @@ def get_model_router() -> ModelRouter:
     if _global_router is None:
         _global_router = ModelRouter()
     return _global_router
+
+
+def resolve_model_name(
+    task_type: str,
+    config: dict[str, Any] | None = None,
+) -> str:
+    """
+    Resolve a model name for runtime task strings.
+
+    Runtime node code still passes task names around as strings. Keep the
+    conversion and legacy fallback in one place so runtime surfaces do not
+    duplicate router-selection logic.
+    """
+    normalized = str(task_type or "").strip()
+    config_dict = config if isinstance(config, dict) else None
+
+    try:
+        return get_model_router().get_model_name(TaskType(normalized), config_dict)
+    except Exception:
+        cfg = (config_dict or {}).get("configurable") or {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+
+        reasoning_task_names = {task.value for task in ModelRouter.REASONING_TASKS}
+        if normalized in reasoning_task_names:
+            value = cfg.get("reasoning_model")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        value = cfg.get("model")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+        if normalized in reasoning_task_names:
+            return getattr(settings, "reasoning_model", "") or getattr(
+                settings, "primary_model", "gpt-4o"
+            )
+        return getattr(settings, "primary_model", "gpt-4o")

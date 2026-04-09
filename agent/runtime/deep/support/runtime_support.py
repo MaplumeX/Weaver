@@ -9,9 +9,11 @@ import time
 import uuid
 from typing import Any
 
+from agent.core.multi_model import resolve_model_name
 from agent.infrastructure.agents.factory import resolve_deep_research_role_tool_policy
 from agent.infrastructure.tools import build_tool_context
 from agent.research.domain_router import ResearchDomain, build_provider_profile
+from agent.runtime.config_utils import configurable_float, configurable_int, configurable_value
 from common.config import settings
 from tools.search.contracts import SearchStrategy
 from tools.search.web_search import resolve_search_strategy, run_web_search
@@ -23,45 +25,9 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
 
-def _configurable_value(config: dict[str, Any], key: str) -> Any:
-    cfg = config.get("configurable") or {}
-    if isinstance(cfg, dict):
-        return cfg.get(key)
-    return None
-
-
-def _configurable_int(config: dict[str, Any], key: str, default: int) -> int:
-    value = _configurable_value(config, key)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _configurable_float(config: dict[str, Any], key: str, default: float) -> float:
-    value = _configurable_value(config, key)
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _selected_model(config: dict[str, Any], fallback: str) -> str:
-    value = _configurable_value(config, "model")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return fallback
-
-
-def _selected_reasoning_model(config: dict[str, Any], fallback: str) -> str:
-    value = _configurable_value(config, "reasoning_model")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return fallback
+_configurable_value = configurable_value
+_configurable_int = configurable_int
+_configurable_float = configurable_float
 
 
 def _tool_runtime_context_snapshot(config: dict[str, Any]) -> dict[str, Any]:
@@ -104,16 +70,7 @@ def _deep_research_role_tool_policy_snapshot(
     }
 
 
-def _model_for_task(task_type: str, config: dict[str, Any]) -> str:
-    try:
-        from agent.core.multi_model import TaskType, get_model_router
-
-        task = TaskType(task_type)
-        return get_model_router().get_model_name(task, config)
-    except Exception:
-        if task_type in {"planning", "query_gen", "critique", "gap_analysis"}:
-            return _selected_reasoning_model(config, settings.reasoning_model)
-        return _selected_model(config, settings.primary_model)
+_model_for_task = resolve_model_name
 
 
 def _resolve_provider_profile(state: dict[str, Any]) -> list[str] | None:

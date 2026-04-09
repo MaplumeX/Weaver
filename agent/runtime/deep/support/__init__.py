@@ -8,13 +8,11 @@ from typing import Any
 __all__ = [
     "MultiAgentGraphState",
     "format_scope_draft_markdown",
-    "restore_agent_runs",
 ]
 
 _SYMBOL_TO_MODULE = {
     "MultiAgentGraphState": "agent.runtime.deep.support.graph_helpers",
     "format_scope_draft_markdown": "agent.runtime.deep.support.graph_helpers",
-    "restore_agent_runs": "agent.runtime.deep.support.graph_helpers",
 }
 
 

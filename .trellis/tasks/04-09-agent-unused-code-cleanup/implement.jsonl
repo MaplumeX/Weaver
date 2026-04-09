@@ -1,0 +1,7 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "约束 agent 模块内代码归属与公共导出边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "清理无用代码时遵守测试与回归要求"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "避免误删 agent 公开契约与运行时上下文接口"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "清理前检查 main/common/tools/tests 跨层依赖"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "删除或收缩重复/无效代码前先搜索调用面"}

@@ -1,4 +1,4 @@
-from agent.prompts import PromptManager
+from agent.prompts.prompt_manager import PromptManager
 
 
 def test_prompt_manager_registry_exposes_runtime_prompts():
@@ -14,7 +14,7 @@ def test_prompt_manager_registry_exposes_runtime_prompts():
 
 def test_prompt_manager_custom_override_applies_to_runtime_prompt():
     manager = PromptManager(prompt_style="enhanced")
-    manager.set_custom_prompt("deep.scope", "custom scope prompt")
+    manager.registry.set_override("deep.scope", "custom scope prompt")
 
     assert manager.render("deep.scope") == "custom scope prompt"
-    assert manager.get_direct_answer_prompt()
+    assert manager.render("direct_answer")

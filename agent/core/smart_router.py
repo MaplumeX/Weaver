@@ -79,7 +79,6 @@ class SmartRouter:
     - Structured output for reliable parsing
     - Confidence-based fallback
     - Intent detection
-    - Tool requirement detection
     """
 
     def __init__(
@@ -170,122 +169,8 @@ class SmartRouter:
                 confidence=0.5,
             )
 
-    def detect_tool_requirements(self, query: str) -> list[str]:
-        """
-        Detect which tools might be needed for a query.
-
-        Returns list of tool categories that might be needed.
-        """
-        query_lower = query.lower()
-        tools_needed = []
-
-        # Code execution indicators
-        if any(
-            kw in query_lower
-            for kw in [
-                "python",
-                "code",
-                "script",
-                "program",
-                "execute",
-                "run",
-                "calculate",
-                "compute",
-                "analyze data",
-                "plot",
-                "chart",
-                "graph",
-            ]
-        ):
-            tools_needed.append("python")
-
-        # Browser indicators
-        if any(
-            kw in query_lower
-            for kw in [
-                "browse",
-                "website",
-                "webpage",
-                "click",
-                "navigate",
-                "open url",
-                "login",
-                "fill form",
-                "screenshot",
-                "scrape",
-            ]
-        ):
-            tools_needed.append("browser")
-
-        # Search indicators
-        if any(
-            kw in query_lower
-            for kw in [
-                "search",
-                "find",
-                "look up",
-                "latest",
-                "current",
-                "recent",
-                "news",
-                "weather",
-                "price",
-                "today",
-            ]
-        ):
-            tools_needed.append("web_search")
-
-        # File indicators
-        if any(
-            kw in query_lower
-            for kw in [
-                "file",
-                "create",
-                "write",
-                "read",
-                "save",
-                "download",
-                "upload",
-                "document",
-                "pdf",
-                "excel",
-                "csv",
-            ]
-        ):
-            tools_needed.append("files")
-
-        # Shell/command indicators
-        if any(
-            kw in query_lower
-            for kw in [
-                "command",
-                "terminal",
-                "shell",
-                "install",
-                "package",
-                "npm",
-                "pip",
-                "git",
-                "docker",
-                "build",
-                "deploy",
-            ]
-        ):
-            tools_needed.append("shell")
-
-        return tools_needed
-
-
 # Singleton instance
 _router_instance: SmartRouter | None = None
-
-
-def get_smart_router() -> SmartRouter:
-    """Get the singleton SmartRouter instance."""
-    global _router_instance
-    if _router_instance is None:
-        _router_instance = SmartRouter()
-    return _router_instance
 
 
 def smart_route(
@@ -318,7 +203,10 @@ def smart_route(
         }
 
     # Use LLM-based routing
-    router = get_smart_router()
+    global _router_instance
+    if _router_instance is None:
+        _router_instance = SmartRouter()
+    router = _router_instance
     decision = router.route(query, images, context, config)
 
     result = {

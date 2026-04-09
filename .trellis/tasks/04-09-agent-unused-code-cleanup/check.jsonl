@@ -1,0 +1,5 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "复核测试、回归与删除风险"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "复核 agent 运行时与工具契约未被破坏"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "复核 agent 包公共面和模块归属"}

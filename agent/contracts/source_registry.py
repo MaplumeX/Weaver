@@ -94,12 +94,3 @@ class SourceRegistry:
         )
         self._by_canonical[canonical_url] = record
         return record
-
-    def get(self, url: str) -> SourceRecord | None:
-        canonical_url = self.canonicalize_url(url)
-        if not canonical_url:
-            return None
-        return self._by_canonical.get(canonical_url)
-
-    def all(self) -> list[SourceRecord]:
-        return list(self._by_canonical.values())

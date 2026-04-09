@@ -30,19 +30,6 @@ def retry_call(fn: Callable, *, attempts: int, backoff: float, **kwargs) -> Any:
     return None
 
 
-def enforce_tool_call_limit(state: dict[str, Any], limit: int) -> None:
-    """
-    Increment and enforce per-run tool call limit stored on state.
-    limit=0 means unlimited.
-    """
-    if limit <= 0:
-        return
-    count = int(state.get("tool_call_count", 0)) + 1
-    state["tool_call_count"] = count
-    if count > limit:
-        raise RuntimeError(f"Tool call limit exceeded ({count}/{limit})")
-
-
 def maybe_strip_tool_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
     """
     Optionally remove ToolMessage from history to save tokens.

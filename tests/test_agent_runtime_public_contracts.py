@@ -3,13 +3,17 @@ import importlib
 import pytest
 
 import agent.core as core_pkg
+import agent.domain as domain_pkg
+import agent.infrastructure.agents as agents_pkg
+import agent.prompts as prompts_pkg
+import agent.research as research_pkg
 import agent.runtime as runtime_pkg
+import agent.runtime.deep.support as deep_support_pkg
 import agent.runtime.nodes as runtime_nodes
 from agent.contracts.events import ToolEventType
 from agent.contracts.research import ClaimVerifier, extract_message_sources
 from agent.contracts.search_cache import get_search_cache as get_public_search_cache
 from agent.contracts.source_registry import SourceRegistry
-from agent.contracts.worker_context import get_worker_context_store
 from agent.core.search_cache import get_search_cache as get_core_search_cache
 from agent.runtime.deep import entrypoints
 from agent.runtime.nodes import deep_research_node, route_node
@@ -71,8 +75,182 @@ def test_legacy_core_config_export_is_no_longer_exposed():
         _ = core_pkg.AgentProcessorConfig
 
 
+def test_removed_core_reserve_exports_are_no_longer_exposed():
+    assert "enforce_tool_call_limit" not in core_pkg.__all__
+    with pytest.raises(AttributeError):
+        _ = core_pkg.enforce_tool_call_limit
+
+
 def test_legacy_xml_parser_module_is_no_longer_importable():
     assert importlib.util.find_spec("agent.parsers.xml_parser") is None
+
+
+def test_removed_research_helper_modules_are_no_longer_importable():
+    removed = {
+        "agent.contracts.result_aggregator",
+        "agent.contracts.worker_context",
+        "agent.core.context",
+        "agent.research.browser_visualizer",
+        "agent.research.compressor",
+        "agent.research.parsing_utils",
+        "agent.research.quality_assessor",
+        "agent.research.query_strategy",
+        "agent.research.viz_planner",
+    }
+
+    for name in removed:
+        assert importlib.util.find_spec(name) is None
+
+
+def test_removed_research_helpers_are_no_longer_exported():
+    removed = {
+        "ChartSpec",
+        "ChartType",
+        "ClaimVerification",
+        "CompressedKnowledge",
+        "DomainClassification",
+        "ExtractedFact",
+        "GeneratedChart",
+        "QualityAssessor",
+        "QualityReport",
+        "ResearchCompressor",
+        "VizPlanner",
+        "analyze_query_coverage",
+        "backfill_diverse_queries",
+        "classify_domain",
+        "embed_charts_in_report",
+        "extract_response_content",
+        "format_search_results",
+        "is_time_sensitive_topic",
+        "parse_json_from_text",
+        "parse_list_output",
+        "query_dimensions",
+        "show_browser_status_page",
+        "visualize_urls",
+        "visualize_urls_from_results",
+    }
+
+    for name in removed:
+        assert name not in research_pkg.__all__
+        assert not hasattr(research_pkg, name)
+
+
+def test_removed_worker_context_contracts_are_no_longer_exported():
+    removed = {
+        "ResearchWorkerContext",
+        "SubAgentContext",
+        "WorkerContextStore",
+        "build_research_worker_context",
+        "get_worker_context_store",
+        "merge_research_worker_context",
+    }
+
+    import agent.contracts as contracts_pkg
+
+    for name in removed:
+        assert name not in contracts_pkg.__all__
+        assert not hasattr(contracts_pkg, name)
+
+
+def test_removed_research_contract_helpers_are_no_longer_exported():
+    import agent.contracts as contracts_pkg
+    import agent.contracts.research as research_contracts_pkg
+
+    assert "ResultAggregator" not in contracts_pkg.__all__
+    assert not hasattr(contracts_pkg, "ResultAggregator")
+    assert "ResultAggregator" not in research_contracts_pkg.__all__
+    assert not hasattr(research_contracts_pkg, "ResultAggregator")
+
+
+def test_removed_domain_slice_helpers_are_no_longer_exported():
+    removed = {
+        "build_state_slices",
+        "public_mode_for_execution",
+    }
+
+    for name in removed:
+        assert name not in domain_pkg.__all__
+        assert not hasattr(domain_pkg, name)
+
+
+def test_removed_agent_factory_reserve_exports_are_no_longer_exposed():
+    removed = {
+        "build_writer_agent",
+        "classify_deep_research_role",
+    }
+
+    for name in removed:
+        assert name not in agents_pkg.__all__
+        assert not hasattr(agents_pkg, name)
+
+
+def test_removed_deep_support_reserve_exports_are_no_longer_exposed():
+    assert "restore_agent_runs" not in deep_support_pkg.__all__
+    assert not hasattr(deep_support_pkg, "restore_agent_runs")
+
+
+def test_removed_deep_runtime_alias_is_no_longer_exposed():
+    import agent.runtime.deep.shared as deep_shared_pkg
+
+    assert "_auto_mode_prefers_linear" not in deep_shared_pkg.__all__
+    assert not hasattr(deep_shared_pkg, "_auto_mode_prefers_linear")
+
+
+def test_removed_prompt_manager_reserve_exports_are_no_longer_exposed():
+    removed = {
+        "PromptManager",
+        "PromptRegistry",
+        "get_agent_prompt",
+        "get_deep_research_prompt",
+        "get_prompt_manager",
+        "get_prompt_registry",
+        "get_writer_prompt",
+        "reset_prompt_manager",
+        "set_prompt_manager",
+    }
+
+    for name in removed:
+        assert name not in prompts_pkg.__all__
+        assert not hasattr(prompts_pkg, name)
+
+
+def test_removed_reserve_class_methods_are_no_longer_exposed():
+    from agent.core.events import EventEmitter
+    from agent.core.smart_router import SmartRouter
+    from agent.prompts.prompt_manager import PromptManager
+
+    for name in {
+        "get_agent_prompt",
+        "get_deep_research_prompt",
+        "get_direct_answer_prompt",
+        "get_planner_prompt",
+        "get_writer_prompt",
+        "load_custom_prompt",
+        "set_custom_prompt",
+    }:
+        assert not hasattr(PromptManager, name)
+    for name in {
+        "clear_buffer",
+        "emit_content",
+        "emit_deep_research_topology_update",
+        "emit_done",
+        "emit_error",
+        "emit_quality_update",
+        "emit_research_agent_complete",
+        "emit_research_agent_start",
+        "emit_research_artifact_update",
+        "emit_research_decision",
+        "emit_research_node_complete",
+        "emit_research_node_start",
+        "emit_research_task_update",
+        "emit_screenshot",
+        "emit_search",
+        "emit_task_update",
+        "emit_tool_result",
+        "emit_tool_start",
+    }:
+        assert not hasattr(EventEmitter, name)
+    assert not hasattr(SmartRouter, "detect_tool_requirements")
 
 
 def test_public_search_cache_contract_uses_core_singleton():
@@ -83,7 +261,6 @@ def test_public_contracts_are_importable():
     assert ToolEventType.SEARCH.value == "search"
     assert isinstance(SourceRegistry(), SourceRegistry)
     assert isinstance(ClaimVerifier(), ClaimVerifier)
-    assert get_worker_context_store() is not None
     assert extract_message_sources([]) == []
 
 

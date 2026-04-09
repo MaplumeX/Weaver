@@ -6,17 +6,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent.runtime.config_utils import configurable_dict
 from common.config import settings
 
 SUPPORTED_DEEP_RESEARCH_RUNTIME = "multi_agent"
 REMOVAL_DATE = "2026-04-01"
 
-
-def _configurable(config: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(config, dict):
-        return {}
-    payload = config.get("configurable")
-    return payload if isinstance(payload, dict) else {}
+_configurable = configurable_dict
 
 
 def ensure_supported_runtime_inputs(config: dict[str, Any] | None) -> None:

@@ -10,13 +10,15 @@ from typing import Any, Union
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 
+from agent.core.llm_factory import create_chat_model
 from agent.core.middleware import retry_call
+from agent.core.multi_model import resolve_model_name
 from agent.core.state import AgentState, project_state_updates
 from agent.prompts import render_prompt
 from agent.research.source_url_utils import compact_unique_sources
-from agent.runtime.deep.shared import _auto_mode_prefers_linear
+from agent.runtime.config_utils import configurable_dict
+from agent.runtime.deep.shared import auto_mode_prefers_direct_answer
 from common.cancellation import check_cancellation as _check_cancellation
 from common.config import settings
 from tools import execute_python_code, web_search
@@ -275,19 +277,14 @@ def _is_narrow_comparison_prompt(user_input: str) -> bool:
     return False
 
 
-def _configurable(config: RunnableConfig) -> dict[str, Any]:
-    if isinstance(config, dict):
-        cfg = config.get("configurable") or {}
-        if isinstance(cfg, dict):
-            return cfg
-    return {}
+_configurable = configurable_dict
 
 
 def _should_use_fast_agent_path(state: AgentState, config: RunnableConfig) -> bool:
     user_input = str(state.get("input", "") or "").strip()
     if not user_input or state.get("images"):
         return False
-    if not (_auto_mode_prefers_linear(user_input) or _is_narrow_comparison_prompt(user_input)):
+    if not (auto_mode_prefers_direct_answer(user_input) or _is_narrow_comparison_prompt(user_input)):
         return False
 
     profile = _configurable(config).get("agent_profile") or {}
@@ -445,45 +442,7 @@ def _answer_simple_agent_query(
     )
 
 
-def _chat_model(
-    model: str,
-    temperature: float,
-    extra_body: dict[str, Any] | None = None,
-) -> ChatOpenAI:
-    """
-    Build a ChatOpenAI instance honoring custom base URL / Azure / timeout / extra body.
-    """
-    params: dict[str, Any] = {
-        "temperature": temperature,
-        "model": model,
-        "api_key": settings.openai_api_key,
-        "timeout": settings.openai_timeout or None,
-    }
-
-    if settings.use_azure:
-        params.update(
-            {
-                "azure_endpoint": settings.azure_endpoint or None,
-                "azure_deployment": model,
-                "api_version": settings.azure_api_version or None,
-                "api_key": settings.azure_api_key or settings.openai_api_key,
-            }
-        )
-    elif settings.openai_base_url:
-        params["base_url"] = settings.openai_base_url
-
-    merged_extra: dict[str, Any] = {}
-    if settings.openai_extra_body:
-        try:
-            merged_extra.update(json.loads(settings.openai_extra_body))
-        except json.JSONDecodeError:
-            logger.warning("Invalid JSON in openai_extra_body; ignoring.")
-    if extra_body:
-        merged_extra.update(extra_body)
-    if merged_extra:
-        params["extra_body"] = merged_extra
-
-    return ChatOpenAI(**params)
+_chat_model = create_chat_model
 
 
 def _log_usage(response: Any, node: str) -> None:
@@ -499,39 +458,7 @@ def _log_usage(response: Any, node: str) -> None:
         logger.info(f"[usage] {node}: {usage}")
 
 
-def _selected_model(config: RunnableConfig, fallback: str) -> str:
-    cfg = _configurable(config)
-    val = cfg.get("model")
-    if isinstance(val, str) and val.strip():
-        return val.strip()
-    return fallback
-
-
-def _selected_reasoning_model(config: RunnableConfig, fallback: str) -> str:
-    cfg = _configurable(config)
-    val = cfg.get("reasoning_model")
-    if isinstance(val, str) and val.strip():
-        return val.strip()
-    return fallback
-
-
-def _model_for_task(task_type: str, config: RunnableConfig) -> str:
-    """
-    Get model name for a specific task type using the ModelRouter.
-
-    Respects runtime config overrides, per-task settings, and defaults.
-    Falls back to direct runtime-config selection if the router is unavailable.
-    """
-    try:
-        from agent.core.multi_model import TaskType, get_model_router
-
-        tt = TaskType(task_type)
-        router = get_model_router()
-        return router.get_model_name(tt, config)
-    except Exception:
-        if task_type in ("planning", "evaluation", "critique", "routing", "reflection", "gap_analysis"):
-            return _selected_reasoning_model(config, settings.reasoning_model)
-        return _selected_model(config, settings.primary_model)
+_model_for_task = resolve_model_name
 
 
 def _extract_tool_call_fields(
@@ -633,7 +560,6 @@ def _build_user_content(
 __all__ = [
     "_answer_simple_agent_query",
     "_apply_output_contract",
-    "_auto_mode_prefers_linear",
     "_build_compact_unique_source_preview",
     "_build_fast_agent_search_query",
     "_build_user_content",
@@ -650,9 +576,8 @@ __all__ = [
     "_model_for_task",
     "_normalize_images",
     "_run_fast_agent_search",
-    "_selected_model",
-    "_selected_reasoning_model",
     "_should_use_fast_agent_path",
+    "auto_mode_prefers_direct_answer",
     "check_cancellation",
     "handle_cancellation",
     "logger",

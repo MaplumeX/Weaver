@@ -86,8 +86,4 @@ def auto_mode_prefers_direct_answer(topic: str) -> bool:
         return False
     return False
 
-
-# Keep the old helper name as a private alias while callers migrate.
-_auto_mode_prefers_linear = auto_mode_prefers_direct_answer
-
-__all__ = ["_auto_mode_prefers_linear", "auto_mode_prefers_direct_answer"]
+__all__ = ["auto_mode_prefers_direct_answer"]

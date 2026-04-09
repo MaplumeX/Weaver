@@ -8,9 +8,7 @@ from typing import Annotated, Any, TypedDict
 
 import agent.runtime.deep.support.runtime_support as support
 from agent.runtime.deep.schema import (
-    AgentRunRecord,
     ControlPlaneHandoff,
-    ResearchTask,
     ScopeDraft,
     _now_iso,
     is_control_plane_agent,
@@ -116,31 +114,6 @@ class MultiAgentGraphState(TypedDict, total=False):
     final_result: dict[str, Any]
 
 
-def restore_agent_runs(items: list[dict[str, Any]]) -> list[AgentRunRecord]:
-    restored: list[AgentRunRecord] = []
-    for item in items or []:
-        if not isinstance(item, dict):
-            continue
-        restored.append(AgentRunRecord(**item))
-    return restored
-
-
-def derive_role_counters(agent_runs: list[AgentRunRecord]) -> dict[str, int]:
-    counters: dict[str, int] = {}
-    for run in agent_runs:
-        agent_id = str(run.agent_id or "")
-        if "-" not in agent_id:
-            continue
-        role, _, suffix = agent_id.rpartition("-")
-        if not role:
-            role = str(run.role)
-        try:
-            counters[role] = max(counters.get(role, 0), int(suffix))
-        except ValueError:
-            continue
-    return counters
-
-
 def coerce_string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -176,15 +149,6 @@ def control_plane_handoff_from_payload(payload: dict[str, Any] | None) -> Contro
     )
 
 
-def restore_handoff_history(items: list[dict[str, Any]] | None) -> list[ControlPlaneHandoff]:
-    restored: list[ControlPlaneHandoff] = []
-    for item in items or []:
-        handoff = control_plane_handoff_from_payload(item if isinstance(item, dict) else None)
-        if handoff is not None:
-            restored.append(handoff)
-    return restored
-
-
 def split_findings(summary: str) -> list[str]:
     text = str(summary or "").strip()
     if not text:
@@ -194,31 +158,6 @@ def split_findings(summary: str) -> list[str]:
     if findings:
         return findings[:6]
     return [text[:300]]
-
-
-def derive_branch_queries(task: ResearchTask, limit: int = 3) -> list[str]:
-    candidates = list(task.query_hints or [])
-    if not candidates and task.query:
-        candidates.append(task.query)
-    if not candidates and task.objective:
-        candidates.append(task.objective)
-    if not candidates and task.title:
-        candidates.append(task.title)
-
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for item in candidates:
-        text = str(item or "").strip()
-        if not text:
-            continue
-        key = text.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(text)
-        if len(deduped) >= limit:
-            break
-    return deduped
 
 
 def scope_draft_from_payload(payload: dict[str, Any] | None) -> ScopeDraft | None:
@@ -244,13 +183,6 @@ def scope_draft_from_payload(payload: dict[str, Any] | None) -> ScopeDraft | Non
         created_at=str(payload.get("created_at") or _now_iso()),
         updated_at=str(payload.get("updated_at") or _now_iso()),
     )
-
-
-def scope_version(payload: dict[str, Any] | None) -> int:
-    draft = scope_draft_from_payload(payload)
-    return int(draft.version) if draft else 0
-
-
 def format_scope_draft_markdown(payload: dict[str, Any] | ScopeDraft | None) -> str:
     draft = payload if isinstance(payload, ScopeDraft) else scope_draft_from_payload(payload)
     if not draft:
@@ -382,15 +314,10 @@ __all__ = [
     "build_scope_draft",
     "coerce_string_list",
     "control_plane_handoff_from_payload",
-    "derive_branch_queries",
-    "derive_role_counters",
     "extract_interrupt_text",
     "format_scope_draft_markdown",
     "normalize_control_plane_agent",
     "reduce_worker_payloads",
-    "restore_agent_runs",
-    "restore_handoff_history",
     "scope_draft_from_payload",
-    "scope_version",
     "split_findings",
 ]

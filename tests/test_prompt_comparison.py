@@ -25,8 +25,8 @@ def test_prompt_lengths():
 
     # Simple prompts
     simple_mgr = PromptManager(prompt_style="simple")
-    simple_agent = simple_mgr.get_agent_prompt()
-    simple_writer = simple_mgr.get_writer_prompt()
+    simple_agent = simple_mgr.render("agent")
+    simple_writer = simple_mgr.render("writer")
 
     print("\n📊 Simple Prompts:")
     print(f"  Agent:  {len(simple_agent):>6} chars")
@@ -35,13 +35,14 @@ def test_prompt_lengths():
 
     # Enhanced prompts
     enhanced_mgr = PromptManager(prompt_style="enhanced")
-    enhanced_agent = enhanced_mgr.get_agent_prompt(
+    enhanced_agent = enhanced_mgr.render(
+        "agent",
         context={
             "current_time": datetime.now(),
             "tools": ["browser_search", "execute_python_code", "crawl_url"],
         }
     )
-    enhanced_writer = enhanced_mgr.get_writer_prompt()
+    enhanced_writer = enhanced_mgr.render("writer")
 
     print("\n📈 Enhanced Prompts:")
     print(f"  Agent:  {len(enhanced_agent):>6} chars (~{len(enhanced_agent) // 4} tokens)")
@@ -87,7 +88,8 @@ def test_prompt_content():
 
     # Enhanced Agent Prompt
     enhanced_mgr = PromptManager(prompt_style="enhanced")
-    enhanced_agent = enhanced_mgr.get_agent_prompt(
+    enhanced_agent = enhanced_mgr.render(
+        "agent",
         context={
             "current_time": datetime.now(),
             "tools": ["browser_search", "execute_python_code"],
@@ -99,7 +101,7 @@ def test_prompt_content():
     print(enhanced_agent[:500] + "...")
 
     # Enhanced Writer Prompt
-    enhanced_writer = enhanced_mgr.get_writer_prompt()
+    enhanced_writer = enhanced_mgr.render("writer")
 
     print("\n✍️ Enhanced Writer Prompt (first 500 chars):")
     print("-" * 80)
@@ -162,7 +164,7 @@ def test_context_injection():
     ]
 
     for ctx_info in contexts:
-        prompt = enhanced_mgr.get_agent_prompt(context=ctx_info["context"])
+        prompt = enhanced_mgr.render("agent", context=ctx_info["context"])
         print(f"\n📦 {ctx_info['name']} Context:")
         print(f"  Length: {len(prompt)} chars")
 
@@ -190,9 +192,9 @@ def test_custom_prompts():
 Focus on academic sources and peer-reviewed papers.
 Always include DOI links when available."""
 
-    mgr.set_custom_prompt("agent", custom_agent)
+    mgr.registry.set_override("agent", custom_agent)
 
-    retrieved = mgr.get_agent_prompt()
+    retrieved = mgr.render("agent")
 
     print("\n✅ Custom Prompt Test:")
     print(f"  Set Length:      {len(custom_agent)} chars")

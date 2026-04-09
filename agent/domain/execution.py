@@ -46,10 +46,6 @@ def route_name_for_mode(mode: ExecutionMode | str | None) -> str:
     return _EXECUTION_TO_ROUTE[normalized]
 
 
-def public_mode_for_execution(mode: ExecutionMode | str | None) -> str:
-    return route_name_for_mode(mode)
-
-
 @dataclass(frozen=True)
 class AgentProfileConfig:
     id: str = ""

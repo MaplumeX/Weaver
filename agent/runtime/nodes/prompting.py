@@ -5,14 +5,9 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agent.infrastructure.browser_context import build_browser_context_hint
+from agent.runtime.config_utils import configurable_dict
 
-
-def _configurable(config: dict[str, Any] | Any) -> dict[str, Any]:
-    if isinstance(config, dict):
-        configurable = config.get("configurable") or {}
-        if isinstance(configurable, dict):
-            return configurable
-    return {}
+_configurable = configurable_dict
 
 
 def _profile_prompt(config: dict[str, Any] | Any) -> str:

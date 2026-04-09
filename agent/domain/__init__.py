@@ -5,7 +5,6 @@ from agent.domain.execution import (
     ExecutionResult,
     ReviewDecision,
     execution_mode_from_public_mode,
-    public_mode_for_execution,
     route_name_for_mode,
 )
 from agent.domain.state import (
@@ -15,7 +14,6 @@ from agent.domain.state import (
     ResearchState,
     RuntimeSnapshot,
     build_deep_runtime_snapshot,
-    build_state_slices,
     project_state_updates,
 )
 
@@ -31,9 +29,7 @@ __all__ = [
     "ReviewDecision",
     "RuntimeSnapshot",
     "build_deep_runtime_snapshot",
-    "build_state_slices",
     "execution_mode_from_public_mode",
     "project_state_updates",
-    "public_mode_for_execution",
     "route_name_for_mode",
 ]

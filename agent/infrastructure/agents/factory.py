@@ -18,9 +18,8 @@ from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 
 from agent.infrastructure.agents.provider_safe_middleware import ProviderSafeToolSelectorMiddleware
-from agent.infrastructure.tools import build_tool_inventory, build_tools_for_names
+from agent.infrastructure.tools import build_tools_for_names
 from common.config import settings
-from tools.code.code_executor import execute_python_code
 
 logger = logging.getLogger(__name__)
 
@@ -109,15 +108,6 @@ class DeepResearchToolPolicy:
     role: str
     requested_tools: tuple[str, ...]
     allowed_tool_names: tuple[str, ...]
-
-
-def classify_deep_research_role(role: str) -> str:
-    normalized_role = str(role or "").strip().lower()
-    if normalized_role in DEEP_RESEARCH_CONTROL_PLANE_ROLES:
-        return "control_plane"
-    if normalized_role in DEEP_RESEARCH_EXECUTION_ROLES:
-        return "execution"
-    return "unknown"
 
 
 def _build_llm(model: str, temperature: float = 0.7) -> ChatOpenAI:
@@ -270,26 +260,6 @@ def _build_middlewares() -> list:
         )
 
     return mws
-
-
-def build_writer_agent(model: str | None = None) -> tuple[object, list[BaseTool]]:
-    """
-    Create a tool-calling agent for writer node with configured middleware.
-    Returns (agent, tools) so caller can inspect selected toolset.
-    """
-    model_name = (model or settings.primary_model).strip()
-    tools = list(build_tool_inventory({"configurable": {"thread_id": "writer", "agent_profile": {}}}))
-    if all(getattr(tool, "name", "") != "execute_python_code" for tool in tools):
-        tools.insert(0, execute_python_code)
-
-    agent = create_agent(
-        _build_llm(model_name, temperature=0.7),
-        tools,
-        middleware=_build_middlewares(),
-    )
-    return agent, tools
-
-
 def build_tool_agent(*, model: str, tools: list[BaseTool], temperature: float = 0.7) -> object:
     """
     Create a generic tool-calling agent using the shared middleware stack.

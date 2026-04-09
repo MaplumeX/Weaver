@@ -24,7 +24,6 @@ __all__ = [
     "ToolEventType",
     "create_checkpointer",
     "create_research_graph",
-    "enforce_tool_call_limit",
     "event_stream_generator",
     "get_emitter",
     "get_emitter_sync",
@@ -55,7 +54,6 @@ _SYMBOL_TO_MODULE: dict[str, str] = {
     # Routing
     "smart_route": "agent.core.smart_router",
     # Middleware
-    "enforce_tool_call_limit": "agent.core.middleware",
     "retry_call": "agent.core.middleware",
     "maybe_strip_tool_messages": "agent.core.middleware",
     # Cache

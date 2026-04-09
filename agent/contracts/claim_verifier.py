@@ -294,20 +294,6 @@ class ClaimVerifier:
             notes="no matching evidence",
         )
 
-    def compare_claims(self, left_claim: str, right_claim: str) -> str:
-        left = str(left_claim or "").strip()
-        right = str(right_claim or "").strip()
-        if not left or not right:
-            return "unresolved"
-        left_tokens = self._tokenize(left)
-        right_tokens = self._tokenize(right)
-        overlap = len(left_tokens & right_tokens)
-        if overlap < self.min_overlap_tokens:
-            return "unresolved"
-        if self._is_contradiction(left, right) or self._is_contradiction(right, left):
-            return "contradicted"
-        return "consistent"
-
     def _extract_evidence(
         self,
         scraped_content: list[dict[str, Any]],

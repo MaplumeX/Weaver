@@ -797,3 +797,151 @@ Before finishing tool-system work:
 - [ ] `tests/test_mcp_tool_provider.py` updated if MCP bootstrap changed
 - [ ] `tests/test_chat_stream_tool_events.py` updated if stream payload changed
 - [ ] frontend hook/type consumers updated when stream or catalog payloads change
+
+---
+
+## Scenario: Runtime Config And Model Resolution
+
+### 1. Scope / Trigger
+
+- Trigger: changing runtime-node config readers, Deep Research runtime config
+  readers, or task-to-model resolution helpers.
+- Applies to:
+  - `agent/runtime/config_utils.py`
+  - `agent/core/multi_model.py`
+  - `agent/runtime/nodes/_shared.py`
+  - `agent/runtime/nodes/prompting.py`
+  - `agent/runtime/deep/config.py`
+  - `agent/runtime/deep/support/runtime_support.py`
+
+### 2. Signatures
+
+- File: `agent/runtime/config_utils.py`
+  - `configurable_dict(config) -> dict[str, Any]`
+  - `configurable_value(config, key) -> Any`
+  - `configurable_int(config, key, default) -> int`
+  - `configurable_float(config, key, default) -> float`
+- File: `agent/core/multi_model.py`
+  - `resolve_model_name(task_type: str, config: dict[str, Any] | None = None) -> str`
+- Runtime aliases:
+  - `agent/runtime/nodes/_shared.py`
+    - `_configurable = configurable_dict`
+    - `_model_for_task = resolve_model_name`
+  - `agent/runtime/deep/support/runtime_support.py`
+    - `_configurable_value = configurable_value`
+    - `_configurable_int = configurable_int`
+    - `_configurable_float = configurable_float`
+    - `_model_for_task = resolve_model_name`
+
+### 3. Contracts
+
+Runtime config contract:
+
+1. Runtime helpers only read overrides from `config["configurable"]`.
+2. Missing config, non-dict config, or non-dict `configurable` payloads must
+   degrade to `{}` instead of raising.
+3. Integer/float readers must accept stringified numeric values and return the
+   provided default on `None`, wrong types, or parse failure.
+
+Model resolution contract:
+
+1. Known task strings must delegate to `ModelRouter.get_model_name(...)`.
+2. Unknown task strings must not raise; they fall back to general runtime
+   overrides and settings defaults.
+3. For reasoning tasks, fallback priority is:
+   - `configurable.reasoning_model`
+   - `configurable.model`
+   - `settings.reasoning_model`
+   - `settings.primary_model`
+4. For non-reasoning or unknown non-reasoning tasks, fallback priority is:
+   - `configurable.model`
+   - `settings.primary_model`
+5. Runtime nodes and Deep Research support helpers must reuse the shared
+   helpers above instead of reimplementing config parsing or task/model
+   fallback chains locally.
+
+### 4. Validation & Error Matrix
+
+| Input / Condition | Expected behavior | Fallback |
+|------------------|-------------------|----------|
+| `config is None` | treat as empty config | `{}` / default |
+| `config["configurable"]` missing | no override applied | `{}` / default |
+| `config["configurable"]` is not a dict | ignore invalid payload | `{}` / default |
+| `configurable_int(..., "4", default)` | parse to `4` | n/a |
+| `configurable_int(..., "oops", default)` | ignore invalid override | return `default` |
+| `resolve_model_name("planning", {"configurable": {"reasoning_model": "x"}})` | use reasoning override | `"x"` |
+| `resolve_model_name("writing", {"configurable": {"model": "y"}})` | use general model override | `"y"` |
+| `resolve_model_name("legacy_unknown_task", {"configurable": {"model": "z"}})` | do not raise on unknown task string | `"z"` |
+
+### 5. Good / Base / Bad Cases
+
+Good:
+
+```python
+config = {
+    "configurable": {
+        "reasoning_model": "gpt-5-thinking",
+        "model": "gpt-4o",
+        "deep_research_max_epochs": "6",
+    }
+}
+
+assert resolve_model_name("planning", config) == "gpt-5-thinking"
+assert configurable_int(config, "deep_research_max_epochs", 3) == 6
+```
+
+Base:
+
+```python
+config = {"configurable": {"model": "gpt-4o-mini"}}
+
+assert resolve_model_name("writing", config) == "gpt-4o-mini"
+assert configurable_float(config, "deep_research_max_seconds", 30.0) == 30.0
+```
+
+Bad:
+
+```python
+config = {"configurable": {"deep_research_max_epochs": "oops"}}
+value = configurable_int(config, "deep_research_max_epochs", 3)
+```
+
+Bad because runtime helpers must not trust invalid numeric overrides; this must
+return `3` instead of raising or preserving the malformed string.
+
+Bad:
+
+```python
+resolve_model_name("legacy_unknown_task", {})
+```
+
+Bad if it raises `ValueError` for the unknown task name. Unknown runtime task
+strings must still degrade to settings-backed defaults.
+
+### 6. Tests Required
+
+- `tests/test_multi_model_resolve_model_name.py`
+  - assert writing tasks prefer `configurable.model`
+  - assert reasoning tasks prefer `configurable.reasoning_model`
+  - assert unknown task names do not raise and still use general fallback
+- `tests/test_chat_first_agent_nodes.py`
+  - assert chat node still resolves a writing model and answers without tools
+- `tests/test_deepsearch_multi_agent_runtime.py`
+  - assertion points that Deep Research runtime still accepts numeric config
+    overrides and builds the multi-agent runtime successfully
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Re-implement `config["configurable"]` parsing in each runtime module.
+- Keep a second ad-hoc task/model fallback chain in node helpers or Deep
+  Research support helpers.
+- Raise on unknown task strings passed from runtime-owned code.
+
+#### Correct
+
+- Reuse `configurable_dict/value/int/float(...)` for runtime override parsing.
+- Reuse `resolve_model_name(...)` for task-string model selection.
+- Keep the router-backed selection contract in one place so runtime nodes and
+  Deep Research support stay behaviorally aligned.
