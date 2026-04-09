@@ -974,3 +974,36 @@ Implemented a bounded branch-scoped agentic researcher runtime, propagated riche
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: 清理 agent 未使用代码并收口运行时配置
+
+**Date**: 2026-04-10
+**Task**: 清理 agent 未使用代码并收口运行时配置
+**Branch**: `main`
+
+### Summary
+
+清理 agent 模块中的未使用与预留运行路径代码，收缩对外导出，统一 runtime configurable 解析与模型选择逻辑，补充回归测试并更新后端运行时契约规范。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7b5b8d9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
