@@ -149,6 +149,8 @@ class AgentState(TypedDict):
     sources: list[dict[str, str]]
     # Structured memory snippets used to build runtime prompt context
     memory_context: dict[str, list[str]]
+    # Structured short-term session context derived from transcript snapshots
+    short_term_context: dict[str, Any]
 
     # ============ Tool Control ============
     # Resolved execution roles for the current session/profile

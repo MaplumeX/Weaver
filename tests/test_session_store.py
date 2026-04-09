@@ -98,6 +98,39 @@ async def test_update_session_metadata_updates_title_and_pin() -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_session_metadata_supports_context_snapshot() -> None:
+    conn = build_fake_pg_conn()
+    store = SessionStore(conn)
+    await store.setup()
+    await store.create_session(
+        thread_id="thread-context",
+        user_id="alice",
+        title="Context session",
+        route="agent",
+        status="running",
+    )
+
+    updated = await store.update_session_metadata(
+        "thread-context",
+        {
+            "context_snapshot": {
+                "version": 1,
+                "summarized_through_seq": 3,
+                "rolling_summary": "summary",
+                "pinned_items": ["请用中文回答"],
+                "open_questions": [],
+                "recent_tools": [],
+                "recent_sources": [],
+                "updated_at": "2026-04-09T10:00:00Z",
+            }
+        },
+    )
+
+    assert updated["context_snapshot"]["rolling_summary"] == "summary"
+    assert updated["context_snapshot"]["pinned_items"] == ["请用中文回答"]
+
+
+@pytest.mark.asyncio
 async def test_get_snapshot_serializes_datetime_and_uuid_fields() -> None:
     conn = build_fake_pg_conn()
     store = SessionStore(conn)
@@ -112,6 +145,7 @@ async def test_get_snapshot_serializes_datetime_and_uuid_fields() -> None:
             "user_id": "alice",
             "title": "Serialized session",
             "summary": "",
+            "context_snapshot": {"version": 1, "rolling_summary": "summary"},
             "status": "running",
             "route": "agent",
             "is_pinned": False,
@@ -141,6 +175,7 @@ async def test_get_snapshot_serializes_datetime_and_uuid_fields() -> None:
 
     assert snapshot["session"]["created_at"] == session_created_at.isoformat()
     assert snapshot["session"]["updated_at"] == session_created_at.isoformat()
+    assert snapshot["session"]["context_snapshot"]["rolling_summary"] == "summary"
     assert snapshot["messages"][0]["id"] == str(message_id)
     assert snapshot["messages"][0]["created_at"] == message_created_at.isoformat()
 
@@ -178,6 +213,43 @@ async def test_list_messages_returns_recent_messages_in_ascending_order() -> Non
 
     messages = await store.list_messages("thread-recent", limit=2)
 
+    assert [message["content"] for message in messages] == ["second", "third"]
+
+
+@pytest.mark.asyncio
+async def test_list_messages_after_seq_returns_incremental_rows() -> None:
+    conn = build_fake_pg_conn()
+    store = SessionStore(conn)
+    await store.setup()
+    await store.create_session(
+        thread_id="thread-incremental",
+        user_id="alice",
+        title="Incremental messages",
+        route="agent",
+        status="running",
+    )
+    await store.append_message(
+        thread_id="thread-incremental",
+        role="user",
+        content="first",
+        created_at="2026-04-06T08:00:00Z",
+    )
+    await store.append_message(
+        thread_id="thread-incremental",
+        role="assistant",
+        content="second",
+        created_at="2026-04-06T08:00:01Z",
+    )
+    await store.append_message(
+        thread_id="thread-incremental",
+        role="user",
+        content="third",
+        created_at="2026-04-06T08:00:02Z",
+    )
+
+    messages = await store.list_messages_after_seq("thread-incremental", after_seq=1, limit=10)
+
+    assert [message["seq"] for message in messages] == [2, 3]
     assert [message["content"] for message in messages] == ["second", "third"]
 
 

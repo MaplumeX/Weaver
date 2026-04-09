@@ -323,6 +323,12 @@ class Settings(BaseSettings):
     summary_messages_keep_last: int = 4
     summary_messages_model: str = "gpt-4o-mini"
     summary_messages_word_limit: int = 200
+    chat_recent_turns: int = 6
+    chat_short_term_summary_trigger_turns: int = 10
+    chat_short_term_pinned_max_items: int = 8
+    chat_short_term_open_questions_max_items: int = 5
+    chat_short_term_recent_tools_max_items: int = 5
+    chat_short_term_recent_sources_max_items: int = 5
 
     # Concurrency Control (并发控制)
     max_concurrency: int = 5  # 最大并发数

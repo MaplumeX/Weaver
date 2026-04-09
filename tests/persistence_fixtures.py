@@ -59,7 +59,9 @@ class RecordingAsyncConn:
         elif "DELETE FROM graph_checkpoint_writes" in sql:
             thread_id = params[0]
             self.rows["graph_checkpoint_writes"] = [
-                item for item in self.rows["graph_checkpoint_writes"] if item["thread_id"] != thread_id
+                item
+                for item in self.rows["graph_checkpoint_writes"]
+                if item["thread_id"] != thread_id
             ]
         elif "DELETE FROM graph_checkpoints" in sql:
             thread_id = params[0]
@@ -75,6 +77,7 @@ class RecordingAsyncConn:
                     "route": params[3],
                     "status": params[4],
                     "summary": "",
+                    "context_snapshot": {},
                     "is_pinned": False,
                     "tags": [],
                     "created_at": "2026-04-06T00:00:00Z",
@@ -84,7 +87,11 @@ class RecordingAsyncConn:
         elif "INSERT INTO session_messages" in sql:
             thread_id = params[1]
             next_seq = max(
-                [int(item["seq"]) for item in self.rows["session_messages"] if item["thread_id"] == thread_id],
+                [
+                    int(item["seq"])
+                    for item in self.rows["session_messages"]
+                    if item["thread_id"] == thread_id
+                ],
                 default=0,
             ) + 1
             attachments = []
@@ -120,9 +127,15 @@ class RecordingAsyncConn:
             )
         elif "UPDATE sessions" in sql:
             thread_id = params[-1]
-            session = next((item for item in self.rows["sessions"] if item["thread_id"] == thread_id), None)
+            session = next(
+                (item for item in self.rows["sessions"] if item["thread_id"] == thread_id),
+                None,
+            )
             if session is not None:
-                assignments = [part.strip() for part in sql.split("SET", 1)[1].split("WHERE", 1)[0].split(",")]
+                assignments = [
+                    part.strip()
+                    for part in sql.split("SET", 1)[1].split("WHERE", 1)[0].split(",")
+                ]
                 for index, assignment in enumerate(assignments):
                     field = assignment.split("=", 1)[0].strip()
                     value = params[index]
@@ -138,12 +151,19 @@ class RecordingAsyncConn:
                         session["tags"] = getattr(value, "obj", value)
                     elif field == "route":
                         session["route"] = value
+                    elif field == "context_snapshot":
+                        session["context_snapshot"] = getattr(value, "obj", value)
+                    elif field == "updated_at":
+                        session["updated_at"] = value
 
     async def fetchrow(self, sql: str, params: tuple | None = None):
         params = params or ()
         if "graph_checkpoints" not in sql:
             if "FROM sessions" in sql:
-                return next((row for row in self.rows["sessions"] if row["thread_id"] == params[0]), None)
+                return next(
+                    (row for row in self.rows["sessions"] if row["thread_id"] == params[0]),
+                    None,
+                )
             return None
         if "checkpoint_id = %s" in sql:
             return next(
@@ -182,6 +202,12 @@ class RecordingAsyncConn:
                 for row in self.rows["session_messages"]
                 if row["thread_id"] == params[0]
             ]
+            if "AND seq > %s" in sql:
+                rows = [row for row in rows if int(row["seq"]) > int(params[1])]
+                rows = sorted(rows, key=lambda row: int(row["seq"]))
+                if len(params) > 2:
+                    rows = rows[: int(params[2])]
+                return rows
             if "ORDER BY seq DESC" in sql:
                 rows = sorted(rows, key=lambda row: int(row["seq"]), reverse=True)
                 if len(params) > 1:

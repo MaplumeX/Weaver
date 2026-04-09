@@ -33,6 +33,10 @@ async def test_session_snapshot_returns_messages_and_resume_flags(monkeypatch):
                 "route": "agent",
                 "created_at": "2026-04-06T00:00:00Z",
                 "updated_at": "2026-04-06T00:01:00Z",
+                "context_snapshot": {
+                    "version": 1,
+                    "rolling_summary": "已有对话摘要",
+                },
             },
             "messages": [{"id": "m1", "role": "user", "content": "hello"}],
             "pending_interrupt": {"kind": "scope_review"},
@@ -49,6 +53,7 @@ async def test_session_snapshot_returns_messages_and_resume_flags(monkeypatch):
     data = resp.json()
     assert data["can_resume"] is True
     assert data["messages"][0]["content"] == "hello"
+    assert data["session"]["context_snapshot"]["rolling_summary"] == "已有对话摘要"
 
 
 @pytest.mark.asyncio

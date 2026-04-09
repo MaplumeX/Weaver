@@ -185,3 +185,130 @@ async def test_finalize_assistant_message_persists_process_payload_in_snapshot()
     assert snapshot["messages"][0]["process_events"] == process_events
     assert snapshot["messages"][0]["metrics"] == metrics
     assert snapshot["messages"][0]["completed_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_start_session_run_refreshes_context_snapshot() -> None:
+    conn = build_fake_pg_conn()
+    store = SessionStore(conn)
+    await store.setup()
+    service = SessionService(store=store, checkpointer=None)
+
+    await service.start_session_run(
+        thread_id="thread-context",
+        user_id="alice",
+        route="agent",
+        initial_user_message="以后请用中文回答",
+    )
+
+    session = await service.get_session("thread-context")
+
+    assert session is not None
+    assert session["context_snapshot"]["version"] == 1
+    assert "以后请用中文回答" in session["context_snapshot"]["pinned_items"]
+
+
+@pytest.mark.asyncio
+async def test_finalize_assistant_message_refreshes_recent_tools_and_sources() -> None:
+    conn = build_fake_pg_conn()
+    store = SessionStore(conn)
+    await store.setup()
+    await store.create_session(
+        thread_id="thread-short-term",
+        user_id="alice",
+        title="Short-term memory",
+        route="agent",
+        status="running",
+    )
+    service = SessionService(store=store, checkpointer=None)
+
+    await service.start_session_run(
+        thread_id="thread-short-term",
+        user_id="alice",
+        route="agent",
+        initial_user_message="帮我查一下持久化改造",
+    )
+    await service.finalize_assistant_message(
+        thread_id="thread-short-term",
+        content="我已经检查了相关文档。",
+        status="completed",
+        sources=[{"title": "Doc", "url": "https://example.com/doc"}],
+        tool_invocations=[
+            {
+                "toolName": "search_docs",
+                "toolCallId": "tool-1",
+                "state": "completed",
+                "args": {"query": "persistence"},
+            }
+        ],
+        process_events=[
+            {
+                "type": "tool",
+                "data": {
+                    "name": "search_docs",
+                    "status": "completed",
+                    "args": {"query": "persistence"},
+                },
+            }
+        ],
+    )
+
+    session = await service.get_session("thread-short-term")
+
+    assert session is not None
+    assert any("search_docs" in item for item in session["context_snapshot"]["recent_tools"])
+    assert any("Doc" in item for item in session["context_snapshot"]["recent_sources"])
+
+
+@pytest.mark.asyncio
+async def test_load_chat_runtime_context_uses_snapshot_and_recent_messages() -> None:
+    conn = build_fake_pg_conn()
+    store = SessionStore(conn)
+    await store.setup()
+    await store.create_session(
+        thread_id="thread-runtime",
+        user_id="alice",
+        title="Runtime context",
+        route="agent",
+        status="running",
+    )
+    await store.update_session_metadata(
+        "thread-runtime",
+        {
+            "context_snapshot": {
+                "version": 1,
+                "summarized_through_seq": 1,
+                "rolling_summary": "之前已经说明过上下文裁剪。",
+                "pinned_items": ["请用中文回答"],
+                "open_questions": [],
+                "recent_tools": [],
+                "recent_sources": [],
+                "updated_at": "2026-04-09T11:00:00Z",
+            }
+        },
+    )
+    await store.append_message(
+        thread_id="thread-runtime",
+        role="user",
+        content="hello",
+        created_at="2026-04-06T08:00:00Z",
+    )
+    await store.append_message(
+        thread_id="thread-runtime",
+        role="assistant",
+        content="world",
+        created_at="2026-04-06T08:00:01Z",
+    )
+    service = SessionService(store=store, checkpointer=None)
+
+    runtime_context = await service.load_chat_runtime_context("thread-runtime")
+
+    assert [message.content for message in runtime_context["history_messages"]] == [
+        "hello",
+        "world",
+    ]
+    assert (
+        runtime_context["short_term_context"]["rolling_summary"]
+        == "之前已经说明过上下文裁剪。"
+    )
+    assert runtime_context["short_term_context"]["pinned_items"] == ["请用中文回答"]

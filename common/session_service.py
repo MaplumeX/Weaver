@@ -3,6 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from agent.core.chat_context import (
+    build_recent_runtime_messages,
+    build_short_term_snapshot,
+    normalize_short_term_context,
+    short_term_context_fetch_limit,
+)
 from common.checkpoint_runtime import get_thread_runtime_state
 
 
@@ -19,14 +25,25 @@ class SessionService:
         runtime_state = await get_thread_runtime_state(self.checkpointer, thread_id)
         return {
             **snapshot,
-            "pending_interrupt": runtime_state.get("__interrupt__") if isinstance(runtime_state, dict) else None,
+            "pending_interrupt": (
+                runtime_state.get("__interrupt__") if isinstance(runtime_state, dict) else None
+            ),
             "can_resume": bool(runtime_state),
         }
 
-    async def update_session_metadata(self, thread_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
+    async def update_session_metadata(
+        self,
+        thread_id: str,
+        updates: dict[str, Any],
+    ) -> dict[str, Any] | None:
         return await self.store.update_session_metadata(thread_id, updates)
 
-    async def list_sessions(self, *, limit: int, user_id: str | None = None) -> list[dict[str, Any]]:
+    async def list_sessions(
+        self,
+        *,
+        limit: int,
+        user_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         owner = str(user_id or "").strip() or None
         return await self.store.list_sessions(user_id=owner, limit=limit)
 
@@ -44,6 +61,47 @@ class SessionService:
         if not isinstance(messages, list):
             return []
         return list(messages[-limit:]) if limit > 0 else []
+
+    async def _refresh_context_snapshot(self, thread_id: str) -> dict[str, Any] | None:
+        get_snapshot = getattr(self.store, "get_snapshot", None)
+        update_metadata = getattr(self.store, "update_session_metadata", None)
+        if not callable(get_snapshot) or not callable(update_metadata):
+            return None
+
+        snapshot = await get_snapshot(thread_id)
+        session = snapshot.get("session") if isinstance(snapshot, dict) else None
+        messages = snapshot.get("messages") if isinstance(snapshot, dict) else None
+        if not isinstance(session, dict) or not isinstance(messages, list):
+            return None
+
+        context_snapshot = build_short_term_snapshot(
+            messages,
+            previous_snapshot=session.get("context_snapshot"),
+        )
+        updated = await update_metadata(thread_id, {"context_snapshot": context_snapshot})
+        if isinstance(updated, dict):
+            current = updated.get("context_snapshot")
+            return current if isinstance(current, dict) else None
+        return context_snapshot
+
+    async def load_chat_runtime_context(self, thread_id: str) -> dict[str, Any]:
+        messages = await self.list_messages(
+            thread_id,
+            limit=short_term_context_fetch_limit(),
+        )
+        session = await self.get_session(thread_id)
+        context_snapshot = normalize_short_term_context(
+            (session or {}).get("context_snapshot"),
+        )
+        if not context_snapshot.get("updated_at") and messages:
+            context_snapshot = build_short_term_snapshot(
+                messages,
+                previous_snapshot=context_snapshot,
+            )
+        return {
+            "history_messages": build_recent_runtime_messages(messages),
+            "short_term_context": context_snapshot,
+        }
 
     async def start_session_run(
         self,
@@ -78,6 +136,7 @@ class SessionService:
             content=initial_user_message,
             created_at=created_at,
         )
+        await self._refresh_context_snapshot(thread_id)
         if self.memory_service is not None:
             self.memory_service.ingest_user_message(
                 user_id=user_id,
@@ -102,6 +161,7 @@ class SessionService:
                 "status": "running",
             },
         )
+        await self._refresh_context_snapshot(thread_id)
         owner = str((session or {}).get("user_id") or "").strip()
         if self.memory_service is not None and owner:
             self.memory_service.ingest_user_message(
@@ -142,6 +202,7 @@ class SessionService:
                 "summary": str(content or "").strip()[:140],
             },
         )
+        await self._refresh_context_snapshot(thread_id)
 
     async def delete_session(self, thread_id: str) -> dict[str, Any]:
         await self.store.delete_session(thread_id)

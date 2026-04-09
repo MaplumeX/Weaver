@@ -47,6 +47,7 @@ class ResearchState(TypedDict, total=False):
     domain_config: dict[str, Any]
     sub_agent_contexts: dict[str, dict[str, Any]]
     memory_context: dict[str, list[str]]
+    short_term_context: dict[str, Any]
     assistant_draft: str
     needs_tools: bool
 
@@ -115,6 +116,7 @@ def build_research_state(state: Mapping[str, Any] | None) -> ResearchState:
         "domain_config": dict(data.get("domain_config") or {}),
         "sub_agent_contexts": dict(data.get("sub_agent_contexts") or {}),
         "memory_context": dict(data.get("memory_context") or {"stored": [], "relevant": []}),
+        "short_term_context": dict(data.get("short_term_context") or {}),
         "assistant_draft": str(data.get("assistant_draft") or ""),
         "needs_tools": bool(data.get("needs_tools")),
     }

@@ -47,6 +47,7 @@ def build_initial_agent_state(
     *,
     stored_memories: Iterable[str] | None = None,
     relevant_memories: Iterable[str] | None = None,
+    short_term_context: dict[str, Any] | None = None,
     history_messages: Iterable[BaseMessage] | None = None,
 ) -> dict[str, Any]:
     route = route_name_for_mode(request.mode)
@@ -74,6 +75,7 @@ def build_initial_agent_state(
             "stored": store_items,
             "relevant": memory_items,
         },
+        "short_term_context": dict(short_term_context or {}),
         "roles": list(request.agent_profile.roles),
         "available_capabilities": list(request.agent_profile.capabilities),
         "blocked_capabilities": list(request.agent_profile.blocked_capabilities),

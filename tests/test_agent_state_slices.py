@@ -22,6 +22,10 @@ def test_build_initial_agent_state_seeds_agent_history_and_current_input():
         request,
         stored_memories=["用户喜欢简洁回答"],
         relevant_memories=["上次问过 FastAPI 路由组织"],
+        short_term_context={
+            "rolling_summary": "已经解释过 APIRouter。",
+            "pinned_items": ["请用中文回答"],
+        },
         history_messages=[
             HumanMessage(content="先解释一下 FastAPI 路由"),
             AIMessage(content="可以，先从 APIRouter 开始。"),
@@ -37,6 +41,8 @@ def test_build_initial_agent_state_seeds_agent_history_and_current_input():
         "stored": ["用户喜欢简洁回答"],
         "relevant": ["上次问过 FastAPI 路由组织"],
     }
+    assert state["short_term_context"]["rolling_summary"] == "已经解释过 APIRouter。"
+    assert state["short_term_context"]["pinned_items"] == ["请用中文回答"]
     assert "conversation_state" not in state
     assert "research_state" not in state
     assert "runtime_snapshot" not in state

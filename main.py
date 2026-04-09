@@ -54,6 +54,12 @@ from agent.application import (
 from agent.application import (
     build_initial_agent_state as build_application_initial_agent_state,
 )
+from agent.core.chat_context import (
+    build_recent_runtime_messages,
+    build_short_term_snapshot,
+    normalize_short_term_context,
+    short_term_context_fetch_limit,
+)
 from agent.contracts.research import extract_message_sources
 from agent.contracts.search_cache import clear_search_cache, get_search_cache
 from agent.infrastructure.tools import (
@@ -2325,51 +2331,73 @@ async def _restore_thread_stream_context(thread_id: str) -> dict[str, Any]:
     return restored
 
 
-def _chat_history_backfill_limit() -> int:
-    keep_first = max(int(getattr(settings, "trim_messages_keep_first", 2)), 0)
-    keep_last = max(int(getattr(settings, "trim_messages_keep_last", 8)), 0)
-    summary_trigger = max(int(getattr(settings, "summary_messages_trigger", 12)), 0)
-    summary_keep_last = max(int(getattr(settings, "summary_messages_keep_last", keep_last)), 0)
-    derived = max(keep_first + keep_last + 4, summary_trigger + summary_keep_last + 1, 12)
-    return min(derived, 50)
-
-
-def _session_message_to_langchain_message(message: dict[str, Any]) -> Any | None:
-    role = str(message.get("role") or "").strip().lower()
-    content = str(message.get("content") or "").strip()
-    if not content:
-        return None
-    if role in {"human", "user"}:
-        return HumanMessage(content=content)
-    if role in {"ai", "assistant"}:
-        return AIMessage(content=content)
-    if role == "system":
-        return SystemMessage(content=content)
-    return None
-
-
-async def _load_chat_history_messages(thread_id: str) -> list[Any]:
+async def _load_chat_runtime_context(thread_id: str) -> dict[str, Any]:
+    empty_context = {
+        "history_messages": [],
+        "short_term_context": normalize_short_term_context(None),
+    }
     if session_service is None or not str(thread_id or "").strip():
-        return []
+        return empty_context
 
-    loader = getattr(session_service, "list_messages", None)
-    if not callable(loader):
-        return []
+    loader = getattr(session_service, "load_chat_runtime_context", None)
+    if callable(loader):
+        try:
+            loaded = await loader(thread_id)
+        except Exception as e:
+            logger.warning(
+                "Failed to load runtime chat context | thread_id=%s | error=%s",
+                thread_id,
+                e,
+            )
+        else:
+            if isinstance(loaded, dict):
+                history_messages = loaded.get("history_messages")
+                short_term_context = loaded.get("short_term_context")
+                return {
+                    "history_messages": list(history_messages or []),
+                    "short_term_context": normalize_short_term_context(short_term_context),
+                }
+
+    list_messages = getattr(session_service, "list_messages", None)
+    if not callable(list_messages):
+        return empty_context
 
     try:
-        raw_messages = await loader(thread_id, limit=_chat_history_backfill_limit())
+        raw_messages = await list_messages(
+            thread_id,
+            limit=short_term_context_fetch_limit(),
+        )
     except Exception as e:
         logger.warning("Failed to load session history | thread_id=%s | error=%s", thread_id, e)
-        return []
+        return empty_context
 
-    history: list[Any] = []
-    for message in raw_messages:
-        if not isinstance(message, dict):
-            continue
-        normalized = _session_message_to_langchain_message(message)
-        if normalized is not None:
-            history.append(normalized)
-    return history
+    session_payload: dict[str, Any] = {}
+    get_session = getattr(session_service, "get_session", None)
+    if callable(get_session):
+        try:
+            session = await get_session(thread_id)
+        except Exception as e:
+            logger.warning(
+                "Failed to load session metadata | thread_id=%s | error=%s",
+                thread_id,
+                e,
+            )
+        else:
+            if isinstance(session, dict):
+                session_payload = session
+
+    short_term_context = normalize_short_term_context(
+        session_payload.get("context_snapshot"),
+    )
+    if not short_term_context.get("updated_at") and raw_messages:
+        short_term_context = build_short_term_snapshot(
+            raw_messages,
+            previous_snapshot=short_term_context,
+        )
+    return {
+        "history_messages": build_recent_runtime_messages(raw_messages),
+        "short_term_context": short_term_context,
+    }
 
 
 def _mode_info_from_session_state(state: dict[str, Any]) -> dict[str, Any]:
@@ -2443,6 +2471,7 @@ def _build_initial_agent_state(
     user_id: str | None = None,
     agent_profile: AgentProfile | None = None,
     history_messages: list[Any] | None = None,
+    short_term_context: dict[str, Any] | None = None,
 ) -> AgentState:
     images = images or []
     user_id = user_id or settings.memory_user_id
@@ -2467,6 +2496,7 @@ def _build_initial_agent_state(
         request,
         stored_memories=runtime_memory_context.get("stored"),
         relevant_memories=runtime_memory_context.get("relevant"),
+        short_term_context=short_term_context,
         history_messages=history_messages,
     )
 
@@ -3099,6 +3129,7 @@ async def stream_agent_events(
     images: list[dict[str, Any]] | None = None,
     user_id: str | None = None,
     history_messages: list[Any] | None = None,
+    short_term_context: dict[str, Any] | None = None,
 ):
     """
     Stream agent execution events in real-time.
@@ -3128,6 +3159,7 @@ async def stream_agent_events(
         user_id=user_id,
         agent_profile=agent_profile,
         history_messages=history_messages,
+        short_term_context=short_term_context,
     )
     async for chunk in _stream_graph_execution(
         input_text=input_text,
@@ -3299,7 +3331,11 @@ async def chat(request: Request, payload: ChatRequest):
         last_message = user_messages[-1].content
         internal_key = (getattr(settings, "internal_api_key", "") or "").strip()
         principal_id = (getattr(request.state, "principal_id", "") or "").strip()
-        user_id = principal_id if internal_key and principal_id else (payload.user_id or settings.memory_user_id)
+        user_id = (
+            principal_id
+            if internal_key and principal_id
+            else (payload.user_id or settings.memory_user_id)
+        )
         mode_info = _normalize_search_mode(payload.search_mode)
         model = _resolve_requested_model(payload.model)
         agent_id = (payload.agent_id or "default").strip() or "default"
@@ -3318,11 +3354,18 @@ async def chat(request: Request, payload: ChatRequest):
             requested_thread_id = str(payload.thread_id or "").strip()
             thread_id = requested_thread_id or f"thread_{uuid.uuid4().hex}"
             logger.info(f"Starting streaming response | Thread: {thread_id}")
-            history_messages = await _load_chat_history_messages(thread_id) if requested_thread_id else []
             if requested_thread_id:
                 await _require_thread_owner(request, thread_id)
             else:
                 set_thread_owner(thread_id, principal_id or "anonymous")
+            runtime_chat_context = (
+                await _load_chat_runtime_context(thread_id)
+                if requested_thread_id
+                else {
+                    "history_messages": [],
+                    "short_term_context": normalize_short_term_context(None),
+                }
+            )
 
             if session_service is not None:
                 await session_service.start_session_run(
@@ -3356,7 +3399,8 @@ async def chat(request: Request, payload: ChatRequest):
                     agent_id=payload.agent_id,
                     images=_normalize_images_payload(payload.images),
                     user_id=user_id,
-                    history_messages=history_messages,
+                    history_messages=runtime_chat_context["history_messages"],
+                    short_term_context=runtime_chat_context["short_term_context"],
                 ):
                     if isinstance(chunk, str) and chunk.startswith("0:"):
                         try:
@@ -3364,7 +3408,11 @@ async def chat(request: Request, payload: ChatRequest):
                         except json.JSONDecodeError:
                             payload_obj = {}
                         event_type = str(payload_obj.get("type") or "")
-                        event_data = payload_obj.get("data") if isinstance(payload_obj.get("data"), dict) else {}
+                        event_data = (
+                            payload_obj.get("data")
+                            if isinstance(payload_obj.get("data"), dict)
+                            else {}
+                        )
                         _record_persisted_assistant_stream_event(
                             persistence_state,
                             event_type=event_type,
@@ -3398,11 +3446,18 @@ async def chat(request: Request, payload: ChatRequest):
             # Non-streaming response (fallback)
             requested_thread_id = str(payload.thread_id or "").strip()
             thread_id = requested_thread_id or thread_id or f"thread_{uuid.uuid4().hex}"
-            history_messages = await _load_chat_history_messages(thread_id) if requested_thread_id else []
             if requested_thread_id:
                 await _require_thread_owner(request, thread_id)
             else:
                 set_thread_owner(thread_id, principal_id or "anonymous")
+            runtime_chat_context = (
+                await _load_chat_runtime_context(thread_id)
+                if requested_thread_id
+                else {
+                    "history_messages": [],
+                    "short_term_context": normalize_short_term_context(None),
+                }
+            )
             if session_service is not None:
                 await session_service.start_session_run(
                     thread_id=thread_id,
@@ -3424,7 +3479,8 @@ async def chat(request: Request, payload: ChatRequest):
                 images=_normalize_images_payload(payload.images),
                 user_id=user_id,
                 agent_profile=agent_profile,
-                history_messages=history_messages,
+                history_messages=runtime_chat_context["history_messages"],
+                short_term_context=runtime_chat_context["short_term_context"],
             )
             config = _build_agent_graph_config(
                 thread_id=thread_id,
@@ -4667,6 +4723,7 @@ class SessionSnapshotSessionPayload(BaseModel):
     created_at: str
     updated_at: str
     summary: str = ""
+    context_snapshot: dict[str, Any] = Field(default_factory=dict)
     is_pinned: bool = False
     tags: list[str] = Field(default_factory=list)
 

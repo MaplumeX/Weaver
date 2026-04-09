@@ -314,6 +314,172 @@ async def _fetchrow(self, sql, params):
         return await self.conn.fetchrow(sql, params)
 ```
 
+## Scenario: Session Short-Term Context Snapshot And Follow-Up Hydration
+
+### 1. Scope / Trigger
+
+- Trigger: changing `common/persistence_schema.py`, `common/session_store.py`,
+  `common/session_service.py`, `agent/core/chat_context.py`, `main.py`
+  follow-up chat loading, or `agent/runtime/nodes/prompting.py` short-term
+  prompt assembly.
+- This is both infra and cross-layer:
+  session message persistence -> derived `context_snapshot` persistence ->
+  follow-up runtime state -> prompt assembly -> snapshot API payload.
+- Treat `context_snapshot` as a persisted derived artifact for short-term
+  memory. Do not overload `sessions.summary` or `messages` to carry the same
+  responsibility.
+
+### 2. Signatures
+
+- `common/persistence_schema.py`
+  - `SESSION_DDL_STATEMENTS`
+- `common/session_store.py`
+  - `SessionStore.get_session(thread_id: str) -> dict[str, Any] | None`
+  - `SessionStore.get_snapshot(thread_id: str) -> dict[str, Any]`
+  - `SessionStore.list_messages(thread_id: str, *, limit: int = 50) -> list[dict[str, Any]]`
+  - `SessionStore.list_messages_after_seq(thread_id: str, *, after_seq: int, limit: int = 200) -> list[dict[str, Any]]`
+  - `SessionStore.update_session_metadata(thread_id: str, updates: dict[str, Any]) -> dict[str, Any] | None`
+- `common/session_service.py`
+  - `SessionService._refresh_context_snapshot(thread_id: str) -> dict[str, Any] | None`
+  - `SessionService.load_chat_runtime_context(thread_id: str) -> dict[str, Any]`
+- `agent/core/chat_context.py`
+  - `build_recent_runtime_messages(messages, *, limit=None) -> list[BaseMessage]`
+  - `build_short_term_snapshot(messages, *, previous_snapshot=None, now_iso=None) -> dict[str, Any]`
+  - `normalize_short_term_context(snapshot) -> dict[str, Any]`
+  - `short_term_context_fetch_limit() -> int`
+- `main.py`
+  - `_load_chat_runtime_context(thread_id: str) -> dict[str, Any]`
+  - `POST /api/chat`
+  - `GET /api/sessions/{thread_id}/snapshot`
+  - `SessionSnapshotSessionPayload.context_snapshot`
+
+### 3. Contracts
+
+- `sessions.context_snapshot` is a runtime-managed `JSONB NOT NULL DEFAULT '{}'::jsonb`
+  column. Add it through additive DDL only.
+- `context_snapshot` schema must remain backward compatible and include:
+  - `version`
+  - `summarized_through_seq`
+  - `rolling_summary`
+  - `pinned_items`
+  - `open_questions`
+  - `recent_tools`
+  - `recent_sources`
+  - `updated_at`
+- `session_messages.seq` is the source-of-truth order for incremental summary
+  progression. Derived summary state must advance through
+  `summarized_through_seq`; do not infer progress from timestamps.
+- `SessionService._refresh_context_snapshot()` must run after user or assistant
+  messages are persisted so the session row and snapshot API stay in sync.
+- `SessionStore.update_session_metadata()` must also refresh
+  `sessions.updated_at`; otherwise session list ordering and "recent activity"
+  semantics drift from actual usage.
+- `SessionService.load_chat_runtime_context()` and `main.py`
+  `_load_chat_runtime_context()` must return:
+  - `history_messages`: recent raw user/assistant turns for runtime replay
+  - `short_term_context`: normalized snapshot for summary, pins, tools, and
+    sources
+- Prompt assembly must keep short-term context separate from:
+  - raw `messages`
+  - long-term `memory_context`
+- Do not write rolling summaries back into `messages` as synthetic system
+  messages. That causes repeated summarization drift and duplicates context.
+- When a session exists but `context_snapshot.updated_at` is missing, rebuild
+  the snapshot from persisted messages before prompt assembly or snapshot API
+  response.
+
+### 4. Validation & Error Matrix
+
+| Change Area | Required Behavior | If Broken | Typical Symptom |
+|-------------|-------------------|-----------|-----------------|
+| Session DDL | `context_snapshot` exists with JSONB default | Session reads or metadata updates fail on older databases | Follow-up chat crashes with missing column error |
+| Metadata update path | `updated_at` refreshes whenever metadata changes | Session list ordering becomes stale | Recently active thread is buried below older threads |
+| Incremental summary state | Advance via `summarized_through_seq` and `seq` | Same old turns are re-summarized or skipped | Summary drifts or omits earlier constraints |
+| Follow-up hydration | Load raw recent turns and normalized snapshot together | Prompt misses pins/tools/sources or loses conversational continuity | User asks "continue" and assistant forgets prior constraints |
+| Snapshot fallback | Rebuild missing snapshot from persisted messages | Old threads never gain short-term memory context | `/api/sessions/{thread_id}/snapshot` returns empty context for active chats |
+| Prompt boundary | Keep short-term context separate from `memory_context` and `messages` | Same facts appear twice or contradict each other | System prompt becomes noisy and inconsistent |
+
+### 5. Good/Base/Bad Cases
+
+- Good:
+  a long-running thread stores recent search sources and a pinned language
+  instruction; a later follow-up chat still sees the pin, recent tool/source
+  summaries, and the latest raw turns.
+- Base:
+  a brand-new thread with one user message produces an empty
+  `rolling_summary`, a populated `pinned_items` list if applicable, and valid
+  `updated_at`.
+- Bad:
+  follow-up chat only replays the last few messages or only uses
+  `sessions.summary`; the assistant loses constraints, misses recent sources,
+  or duplicates an already-summarized transcript inside `messages`.
+
+### 6. Tests Required
+
+- `tests/test_session_store.py`
+  - assert `context_snapshot` round-trips through session metadata updates
+  - assert `list_messages_after_seq()` preserves ascending `seq`
+  - assert metadata updates also refresh `updated_at`
+- `tests/test_session_service.py`
+  - assert user/assistant persistence refreshes `context_snapshot`
+  - assert `load_chat_runtime_context()` returns both raw recent messages and
+    normalized short-term context
+- `tests/test_chat_context_builder.py`
+  - assert rolling summary advances incrementally
+  - assert pinned items, open questions, recent tools, and recent sources are
+    extracted from persisted messages
+- `tests/test_chat_session_persistence.py`
+  - assert follow-up `/api/chat` injects `short_term_context` into runtime
+    state
+- `tests/test_session_snapshot_api.py`
+  - assert snapshot payload exposes `session.context_snapshot`
+- `tests/test_agent_prompt_runtime_context.py`
+  - assert prompt system block includes short-term summary/pins without
+    replacing raw recent turns
+- Assertion points:
+  - `session["context_snapshot"]`
+  - `session["updated_at"]`
+  - `state["short_term_context"]`
+  - snapshot API `session.context_snapshot`
+  - prompt system message content for summary/pins/tools/sources
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+history = await store.list_messages(thread_id, limit=10)
+state["messages"] = history
+state["memory_context"] = {}
+state["short_term_context"] = {}
+```
+
+```python
+await store.update_session_metadata(
+    thread_id,
+    {"summary": rolling_summary},
+)
+```
+
+#### Correct
+
+```python
+runtime_context = await session_service.load_chat_runtime_context(thread_id)
+state["messages"] = runtime_context["history_messages"]
+state["short_term_context"] = runtime_context["short_term_context"]
+```
+
+```python
+context_snapshot = build_short_term_snapshot(
+    messages,
+    previous_snapshot=session.get("context_snapshot"),
+)
+await store.update_session_metadata(
+    thread_id,
+    {"context_snapshot": context_snapshot},
+)
+```
+
 ## Examples
 
 - `common/persistence_schema.py`: source of truth for runtime-managed Postgres

@@ -52,6 +52,7 @@ SESSION_DDL_STATEMENTS = (
         user_id TEXT NOT NULL,
         title TEXT NOT NULL,
         summary TEXT NOT NULL DEFAULT '',
+        context_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
         status TEXT NOT NULL,
         route TEXT NOT NULL,
         is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
@@ -59,6 +60,10 @@ SESSION_DDL_STATEMENTS = (
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+    """,
+    """
+    ALTER TABLE sessions
+    ADD COLUMN IF NOT EXISTS context_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb
     """,
     """
     CREATE TABLE IF NOT EXISTS session_messages (

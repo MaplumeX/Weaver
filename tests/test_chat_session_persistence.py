@@ -204,6 +204,20 @@ async def test_chat_non_stream_backfills_recent_session_history_into_runtime_sta
                 {"id": "m2", "role": "assistant", "content": "world"},
             ]
 
+        async def get_session(self, thread_id: str):
+            return {
+                "thread_id": thread_id,
+                "context_snapshot": {
+                    "version": 1,
+                    "rolling_summary": "之前已经有一轮对话。",
+                    "pinned_items": ["请用中文回答"],
+                    "open_questions": [],
+                    "recent_tools": [],
+                    "recent_sources": [],
+                    "updated_at": "2026-04-09T11:30:00Z",
+                },
+            }
+
         async def start_session_run(self, **payload):
             captured["start"] = payload
 
@@ -213,6 +227,7 @@ async def test_chat_non_stream_backfills_recent_session_history_into_runtime_sta
     class FakeGraph:
         async def ainvoke(self, state, config=None):
             captured["messages"] = state["messages"]
+            captured["short_term_context"] = state["short_term_context"]
             return {"final_report": "final answer"}
 
     async def fake_require_thread_owner(*_args, **_kwargs):
@@ -246,8 +261,14 @@ async def test_chat_non_stream_backfills_recent_session_history_into_runtime_sta
 
     assert resp.status_code == 200
     assert captured["thread_id"] == "thread-existing"
-    assert [type(message) for message in captured["messages"]] == [HumanMessage, AIMessage, HumanMessage]
+    assert [type(message) for message in captured["messages"]] == [
+        HumanMessage,
+        AIMessage,
+        HumanMessage,
+    ]
     assert [message.content for message in captured["messages"]] == ["hello", "world", "follow up"]
+    assert captured["short_term_context"]["rolling_summary"] == "之前已经有一轮对话。"
+    assert captured["short_term_context"]["pinned_items"] == ["请用中文回答"]
 
 
 @pytest.mark.asyncio

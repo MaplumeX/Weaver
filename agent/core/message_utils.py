@@ -25,28 +25,68 @@ def _messages_to_text(messages: list[BaseMessage]) -> str:
     return "\n".join(lines)
 
 
-def summarize_messages(messages: list[BaseMessage]) -> SystemMessage:
-    """Summarize middle conversation history into a compact system message."""
-    if not messages:
-        return SystemMessage(content="Conversation summary: (empty)")
+def _truncate_summary(content: str, *, word_limit: int) -> str:
+    text = " ".join(str(content or "").split()).strip()
+    if not text:
+        return ""
+    words = text.split(" ")
+    if len(words) <= word_limit:
+        return text
+    return " ".join(words[:word_limit]).strip()
 
-    llm = _chat_model_summary()
+
+def summarize_history_slice(
+    messages: list[BaseMessage],
+    *,
+    previous_summary: str = "",
+) -> str:
+    if not messages:
+        return str(previous_summary or "").strip()
+
     word_limit = int(settings.summary_messages_word_limit or 200)
+    llm = _chat_model_summary()
     prompt = textwrap.dedent(
         f"""You are a concise summarizer.
-Keep critical facts, names, numbers, decisions, and user intent.
+Update the existing rolling summary with any new critical facts, names,
+numbers, decisions, constraints, and user intent.
 Do NOT add new info. Respond in <= {word_limit} words.
+
+Existing summary:
+{{previous_summary}}
 
 Conversation:
 {{conversation}}
 """
     )
     convo_text = _messages_to_text(messages)
+    fallback_input = "\n".join(
+        part for part in [previous_summary.strip(), convo_text] if part
+    ).strip()
+    if not (settings.openai_api_key or settings.azure_api_key):
+        return _truncate_summary(fallback_input, word_limit=word_limit)
     try:
-        resp = llm.invoke([HumanMessage(content=prompt.format(conversation=convo_text))])
-        content = getattr(resp, "content", "") or convo_text[:500]
+        resp = llm.invoke(
+            [
+                HumanMessage(
+                    content=prompt.format(
+                        previous_summary=previous_summary.strip() or "(none)",
+                        conversation=convo_text,
+                    )
+                )
+            ]
+        )
+        content = getattr(resp, "content", "") or fallback_input
     except Exception as e:
         logger.warning(f"Summarization failed, falling back to truncation: {e}")
-        content = convo_text[:500]
+        content = fallback_input
 
-    return SystemMessage(content=f"Conversation summary:\\n{content.strip()}")
+    return _truncate_summary(str(content).strip(), word_limit=word_limit)
+
+
+def summarize_messages(messages: list[BaseMessage]) -> SystemMessage:
+    """Summarize middle conversation history into a compact system message."""
+    if not messages:
+        return SystemMessage(content="Conversation summary: (empty)")
+
+    summary = summarize_history_slice(messages)
+    return SystemMessage(content=f"Conversation summary:\\n{summary}")
