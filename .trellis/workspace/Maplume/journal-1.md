@@ -219,7 +219,7 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 
 ### Summary
 
-(Add summary)
+Reorganized the agent module into capability-owned packages, split Deep Research internals into focused runtime components, migrated shared helpers to their new owners, and synced backend Trellis specs to the new architecture.
 
 ### Main Changes
 
@@ -256,7 +256,8 @@ Rebuilt long-term memory around a project-owned PostgreSQL memory store/service,
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `uv run ruff check agent tests main.py common tools`
+- [OK] `uv run pytest ...` for agent profile, tooling/runtime context, chat/session, checkpointer/session store, and Deep Research regression coverage (`122 passed`)
 
 ### Status
 
