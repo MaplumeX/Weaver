@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
+- **Total Sessions**: 25
 - **Last Active**: 2026-04-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1104 | Active |
+| `journal-1.md` | ~1154 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-04-10 | Researcher RAG with Milvus and MinIO | `2fb0b14` | `main` |
 | 24 | 2026-04-10 | Reorganize agent capability architecture | `67f46fb` | `main` |
 | 23 | 2026-04-10 | 清理 deep research 未使用代码并收口 prompt 暴露面 | `9ab89bd` | `main` |
 | 22 | 2026-04-10 | 清理 agent 未使用代码并收口运行时配置 | `7b5b8d9` | `main` |

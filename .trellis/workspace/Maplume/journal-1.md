@@ -1104,3 +1104,51 @@ Reorganized the agent module into capability-owned packages, split Deep Research
 ### Next Steps
 
 - None - task complete
+
+
+## Session 25: Researcher RAG with Milvus and MinIO
+
+**Date**: 2026-04-10
+**Task**: Researcher RAG with Milvus and MinIO
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Ingestion | Added knowledge file upload flow for `PDF / DOCX / MD / TXT`, storing original files in MinIO and indexing parsed chunks into Milvus. |
+| Embeddings | Added dedicated `rag_embedding_*` configuration and batching support so RAG embeddings do not reuse the primary LLM provider and respect provider batch-size limits. |
+| Milvus Compatibility | Reworked the Milvus adapter to introspect the live collection schema and map inserts/searches to the real primary/vector fields (`chunk_id` / `embedding`) instead of assuming local defaults. |
+| Researcher Runtime | Merged RAG hits into the existing Deep Research `documents / passages / synthesis` pipeline without HTTP refetch for knowledge-file sources. |
+| Library UI | Added Library upload/list/download support for knowledge files plus generated OpenAPI client type updates. |
+| Spec | Added executable code-spec coverage for the knowledge-file RAG contract and a cross-layer reminder to verify live managed-service schema before assuming defaults. |
+
+**Verification**
+- `uv run pytest -q tests/test_knowledge_service.py tests/test_knowledge_api.py tests/test_deepsearch_researcher.py`
+- `uv run ruff check common/config.py common/knowledge_registry.py tools/rag main.py agent/deep_research/agents/researcher.py agent/deep_research/branch_research/research_pipeline.py tests/test_knowledge_service.py tests/test_knowledge_api.py tests/test_deepsearch_researcher.py`
+- `pnpm -C web lint`
+- `pnpm -C web build`
+- Confirmed real remote Milvus schema maps to `primary=chunk_id`, `vector=embedding`, `dim=1024`.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2fb0b14` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
