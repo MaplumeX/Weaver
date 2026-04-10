@@ -1,33 +1,6 @@
-import logging
-import time
-from collections.abc import Callable
-from typing import Any
-
 from langchain_core.messages import BaseMessage, ToolMessage
 
 from common.config import settings
-
-logger = logging.getLogger(__name__)
-
-
-def retry_call(fn: Callable, *, attempts: int, backoff: float, **kwargs) -> Any:
-    """
-    Simple synchronous retry helper with exponential backoff.
-    """
-    last_exc = None
-    for i in range(attempts):
-        try:
-            return fn(**kwargs)
-        except Exception as e:
-            last_exc = e
-            wait = backoff * (2**i)
-            logger.warning(
-                f"Tool call failed (attempt {i + 1}/{attempts}): {e}; retrying in {wait:.1f}s"
-            )
-            time.sleep(wait)
-    if last_exc:
-        raise last_exc
-    return None
 
 
 def maybe_strip_tool_messages(messages: list[BaseMessage]) -> list[BaseMessage]:

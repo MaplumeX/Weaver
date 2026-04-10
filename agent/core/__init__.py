@@ -29,7 +29,6 @@ __all__ = [
     "get_emitter_sync",
     "maybe_strip_tool_messages",
     "remove_emitter",
-    "retry_call",
     "smart_route",
 ]
 
@@ -54,7 +53,6 @@ _SYMBOL_TO_MODULE: dict[str, str] = {
     # Routing
     "smart_route": "agent.core.smart_router",
     # Middleware
-    "retry_call": "agent.core.middleware",
     "maybe_strip_tool_messages": "agent.core.middleware",
     # Cache
     "SearchCache": "agent.core.search_cache",

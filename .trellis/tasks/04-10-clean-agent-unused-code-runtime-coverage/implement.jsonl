@@ -1,0 +1,4 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "确认候选 helper 是否已有替代或已完全无调用点"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "避免误删工具运行时和 deep runtime 的稳定契约"}

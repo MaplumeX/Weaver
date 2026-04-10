@@ -15,8 +15,6 @@ from langchain_core.language_models import BaseChatModel
 import agent.runtime.deep.support.runtime_support as support
 from agent.runtime.deep.schema import OutlineArtifact, OutlineSection
 
-from .planner import ResearchPlanner
-
 
 class SupervisorAction(str, Enum):
     PLAN = "plan"
@@ -47,43 +45,6 @@ class ResearchSupervisor:
 
     def __init__(self, llm: BaseChatModel, config: dict[str, Any] | None = None):
         self.config = config or {}
-        self._planner = ResearchPlanner(llm, self.config)
-
-    def create_plan(
-        self,
-        topic: str,
-        *,
-        num_queries: int = 5,
-        existing_knowledge: str = "",
-        existing_queries: list[str] | None = None,
-        approved_scope: dict[str, Any] | None = None,
-        research_brief: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        return self._planner.create_plan(
-            topic,
-            num_queries=num_queries,
-            existing_knowledge=existing_knowledge,
-            existing_queries=existing_queries,
-            approved_scope=research_brief or approved_scope,
-        )
-
-    def refine_plan(
-        self,
-        topic: str,
-        *,
-        gaps: list[str],
-        existing_queries: list[str],
-        num_queries: int = 3,
-        approved_scope: dict[str, Any] | None = None,
-        research_brief: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        return self._planner.refine_plan(
-            topic,
-            gaps=gaps,
-            existing_queries=existing_queries,
-            num_queries=num_queries,
-            approved_scope=research_brief or approved_scope,
-        )
 
     def create_outline_plan(
         self,

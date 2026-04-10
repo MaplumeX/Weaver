@@ -1,0 +1,4 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "核对运行时契约和 facade 未被破坏"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查删除后测试和 lint 仍通过"}

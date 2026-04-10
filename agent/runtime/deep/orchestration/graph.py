@@ -4,7 +4,7 @@ Lightweight LangGraph-backed Deep Research runtime.
 This module keeps the public entrypoints stable while dramatically reducing the
 number of persisted runtime artifacts. The loop is intentionally compact:
 
-clarify -> scope -> scope_review -> research_brief -> supervisor_plan
+clarify -> scope -> scope_review -> research_brief -> outline_plan
 -> dispatch -> researcher/revisor -> merge -> reviewer -> supervisor_decide
 -> outline_gate -> report -> final_claim_gate -> finalize
 """
@@ -59,7 +59,6 @@ from agent.runtime.deep.schema import (
     OutlineSection,
     ResearchPlanArtifact,
     ResearchTask,
-    ScopeDraft,
     SectionCertificationArtifact,
     SectionDraftArtifact,
     SectionReviewArtifact,
@@ -136,20 +135,6 @@ def _branch_title(task: ResearchTask) -> str:
     return task.title or task.objective or task.goal or task.query
 
 
-def _branch_summary_payload(result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": result.get("id"),
-        "task_id": result.get("task_id"),
-        "branch_id": result.get("branch_id"),
-        "title": result.get("title"),
-        "summary": result.get("summary"),
-        "key_findings": list(result.get("key_findings") or []),
-        "open_questions": list(result.get("open_questions") or []),
-        "validation_status": result.get("validation_status", "pending"),
-        "source_urls": list(result.get("source_urls") or []),
-    }
-
-
 def _section_title(payload: dict[str, Any]) -> str:
     return str(
         payload.get("title")
@@ -165,22 +150,6 @@ def _section_draft_text(payload: dict[str, Any]) -> str:
     findings = [str(item).strip() for item in payload.get("key_findings", []) or [] if str(item).strip()]
     limitations = [str(item).strip() for item in payload.get("limitations", []) or [] if str(item).strip()]
     return "\n".join([summary, *findings, *limitations]).strip()
-
-
-def _issue_messages(*issue_groups: list[dict[str, Any]]) -> list[str]:
-    messages: list[str] = []
-    seen: set[str] = set()
-    for group in issue_groups:
-        for item in group or []:
-            if not isinstance(item, dict):
-                continue
-            message = str(item.get("message") or "").strip()
-            key = message.lower()
-            if not message or key in seen:
-                continue
-            seen.add(key)
-            messages.append(message)
-    return messages
 
 
 def _resolved_section_reportability(
@@ -223,17 +192,6 @@ def _issue_types(*issue_groups: list[dict[str, Any]]) -> list[str]:
             seen.add(key)
             issue_types.append(issue_type)
     return issue_types
-
-
-def _section_reportability_label(value: str) -> str:
-    normalized = str(value or "").strip().lower()
-    mapping = {
-        "high": "高",
-        "medium": "中",
-        "low": "低",
-        "insufficient": "不足",
-    }
-    return mapping.get(normalized, normalized or "低")
 
 
 def _primary_claim_units(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -993,147 +951,6 @@ class MultiAgentDeepResearchRuntime:
             max_searches=self.max_searches,
         )
         return str(reason or "")
-
-    def _derive_coverage_targets(
-        self,
-        scope: dict[str, Any],
-        tasks: list[ResearchTask],
-    ) -> tuple[list[str], str]:
-        scope_questions = _dedupe_texts(scope.get("core_questions") or []) if isinstance(scope, dict) else []
-        if scope_questions and len(scope_questions) <= max(1, len(tasks)):
-            return scope_questions, "scope_core_questions"
-
-        plan_objectives = _dedupe_texts(
-            [
-                task.objective or task.goal or task.title or task.query
-                for task in tasks
-                if isinstance(task, ResearchTask)
-            ]
-        )
-        if plan_objectives:
-            return plan_objectives, "planned_objectives"
-        return scope_questions, "scope_core_questions" if scope_questions else ""
-
-    def _assign_coverage_targets(
-        self,
-        tasks: list[ResearchTask],
-        coverage_targets: list[str],
-    ) -> dict[str, list[str]]:
-        normalized_targets = _dedupe_texts(coverage_targets)
-        if not normalized_targets:
-            return {}
-
-        assignments: dict[str, list[str]] = {}
-        remaining_targets = list(normalized_targets)
-        for task in sorted(tasks, key=lambda item: (item.priority, item.created_at, item.id)):
-            task_text = "\n".join(
-                _dedupe_texts(
-                    [
-                        task.title,
-                        task.objective,
-                        task.goal,
-                        task.query,
-                        *list(task.query_hints or []),
-                        *list(task.acceptance_criteria or []),
-                    ]
-                )
-            )
-            ranked_targets = sorted(
-                normalized_targets,
-                key=lambda item: (-_text_overlap_score(task_text, item), item),
-            )
-            selected = ""
-            for candidate in ranked_targets:
-                if candidate in remaining_targets:
-                    selected = candidate
-                    break
-            if not selected:
-                selected = ranked_targets[0] if ranked_targets else ""
-            if not selected:
-                continue
-            assignments[task.id] = [selected]
-            if selected in remaining_targets:
-                remaining_targets.remove(selected)
-        return assignments
-
-    def _ensure_coverage_state(self, parts: _RuntimeParts) -> None:
-        scope = parts.artifact_store.scope()
-        if not scope:
-            scope = copy.deepcopy(parts.runtime_state.get("approved_scope_draft") or {})
-        tasks = parts.task_queue.all_tasks()
-
-        coverage_targets = _dedupe_texts(parts.runtime_state.get("coverage_targets") or [])
-        if not coverage_targets:
-            coverage_targets, source = self._derive_coverage_targets(scope, tasks)
-            parts.runtime_state["coverage_targets"] = coverage_targets
-            parts.runtime_state["coverage_target_source"] = source
-        elif not str(parts.runtime_state.get("coverage_target_source") or "").strip():
-            parts.runtime_state["coverage_target_source"] = "scope_core_questions"
-
-        if not coverage_targets:
-            parts.runtime_state["task_coverage_map"] = dict(parts.runtime_state.get("task_coverage_map") or {})
-            return
-
-        task_coverage_map = {
-            str(task_id): _dedupe_texts(targets)
-            for task_id, targets in dict(parts.runtime_state.get("task_coverage_map") or {}).items()
-            if str(task_id).strip()
-        }
-        missing_tasks = [task for task in tasks if task.id not in task_coverage_map]
-        if missing_tasks:
-            task_coverage_map.update(self._assign_coverage_targets(missing_tasks, coverage_targets))
-        parts.runtime_state["task_coverage_map"] = task_coverage_map
-
-    def _plan_items_to_tasks(
-        self,
-        *,
-        plan_items: list[dict[str, Any]],
-        scope: dict[str, Any],
-    ) -> list[ResearchTask]:
-        tasks: list[ResearchTask] = []
-        for index, item in enumerate(plan_items[: self.query_num], 1):
-            if not isinstance(item, dict):
-                continue
-            title = str(item.get("title") or f"{self.topic} branch {index}").strip()
-            objective = str(item.get("objective") or title).strip()
-            query_hints = _dedupe_texts(item.get("query_hints") or [objective, self.topic])
-            query = str(item.get("query") or (query_hints[0] if query_hints else objective)).strip() or objective
-            task = ResearchTask(
-                id=support._new_id("task"),
-                goal=objective,
-                query=query,
-                priority=max(1, int(item.get("priority", index) or index)),
-                objective=objective,
-                task_kind=str(item.get("task_kind") or "branch_research"),
-                acceptance_criteria=_dedupe_texts(item.get("acceptance_criteria") or []),
-                allowed_tools=_dedupe_texts(item.get("allowed_tools") or ["search", "read", "extract", "synthesize"]),
-                input_artifact_ids=[str(scope.get("id") or "")] if scope.get("id") else [],
-                query_hints=query_hints,
-                title=title,
-                aspect=str(item.get("aspect") or f"aspect {index}"),
-                branch_id=support._new_id("branch"),
-            )
-            tasks.append(task)
-        return tasks
-
-    def _build_scope_payload(self, draft: ScopeDraft) -> dict[str, Any]:
-        return {
-            "id": draft.id,
-            "version": draft.version,
-            "topic": draft.topic,
-            "research_goal": draft.research_goal,
-            "research_steps": list(draft.research_steps),
-            "core_questions": list(draft.core_questions),
-            "in_scope": list(draft.in_scope),
-            "out_of_scope": list(draft.out_of_scope),
-            "constraints": list(draft.constraints),
-            "source_preferences": list(draft.source_preferences),
-            "deliverable_preferences": list(draft.deliverable_preferences),
-            "status": "approved",
-            "created_by": draft.created_by,
-            "created_at": draft.created_at,
-            "updated_at": _now_iso(),
-        }
 
     def _outline_sections(self, outline: dict[str, Any]) -> list[dict[str, Any]]:
         sections = [
@@ -1897,34 +1714,6 @@ class MultiAgentDeepResearchRuntime:
             payload["coverage_target_source"] = coverage_target_source
         return payload
 
-    def _append_tasks_to_plan_artifact(self, parts: _RuntimeParts, tasks: list[ResearchTask]) -> None:
-        if not tasks:
-            return
-        plan = parts.artifact_store.plan()
-        if not plan:
-            return
-        plan_tasks = [
-            item
-            for item in list(plan.get("tasks") or [])
-            if isinstance(item, dict)
-        ]
-        for task in tasks:
-            plan_tasks.append(
-                {
-                    "task_id": task.id,
-                    "title": task.title,
-                    "objective": task.objective,
-                    "query": task.query,
-                    "priority": task.priority,
-                }
-            )
-        plan["tasks"] = plan_tasks
-        if parts.runtime_state.get("coverage_targets"):
-            plan["coverage_targets"] = _dedupe_texts(parts.runtime_state.get("coverage_targets") or [])
-        if parts.runtime_state.get("coverage_target_source"):
-            plan["coverage_target_source"] = str(parts.runtime_state.get("coverage_target_source") or "")
-        parts.artifact_store.set_plan(plan)
-
     def _build_evidence_bundle(self, task: ResearchTask, outcome: dict[str, Any], created_by: str) -> dict[str, Any]:
         sources = [
             item
@@ -1958,34 +1747,6 @@ class MultiAgentDeepResearchRuntime:
             created_by=created_by,
         )
         return bundle.to_dict()
-
-    def _build_branch_result(
-        self,
-        task: ResearchTask,
-        bundle: dict[str, Any],
-        outcome: dict[str, Any],
-        created_by: str,
-    ) -> dict[str, Any]:
-        summary = str(outcome.get("summary") or "").strip()
-        return {
-            "id": support._new_id("branch_result"),
-            "task_id": task.id,
-            "section_id": task.section_id,
-            "branch_id": task.branch_id,
-            "title": _branch_title(task),
-            "objective": task.objective or task.goal,
-            "summary": summary,
-            "key_findings": list(outcome.get("key_findings") or _split_findings(summary) or [summary]),
-            "open_questions": list(outcome.get("open_questions") or []),
-            "confidence_note": str(outcome.get("confidence_note") or "").strip(),
-            "source_urls": [
-                str(item.get("url") or "").strip()
-                for item in bundle.get("sources", [])
-                if item.get("url")
-            ],
-            "evidence_bundle_id": str(bundle.get("id") or "") or None,
-            "created_by": created_by,
-        }
 
     def _quality_summary(self, queue: ResearchTaskQueue, store: LightweightArtifactStore, runtime_state: dict[str, Any]) -> dict[str, Any]:
         aggregate = self._aggregate_sections(queue, store, runtime_state)
@@ -2460,9 +2221,6 @@ class MultiAgentDeepResearchRuntime:
         self._emit_decision("outline_plan", f"generated {len(sections)} required sections", iteration=max(1, parts.current_iteration or 1))
         self._finish_agent_run(parts, record, status="completed", summary=f"generated {len(sections)} sections")
         return self._patch(parts, next_step="dispatch")
-
-    def _supervisor_plan_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
-        return self._outline_plan_node(graph_state)
 
     def _route_after_supervisor_plan(self, graph_state: MultiAgentGraphState) -> str:
         next_step = str(graph_state.get("next_step") or "dispatch").strip().lower()
@@ -3001,9 +2759,6 @@ class MultiAgentDeepResearchRuntime:
         self._emit(ToolEventType.QUALITY_UPDATE, self._quality_summary(parts.task_queue, parts.artifact_store, parts.runtime_state))
         self._finish_agent_run(parts, record, status="completed", summary="section review updated")
         return self._patch(parts, next_step="supervisor_decide")
-
-    def _verify_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
-        return self._reviewer_node(graph_state)
 
     def _supervisor_decide_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)

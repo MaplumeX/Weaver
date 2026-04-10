@@ -12,7 +12,6 @@ TaskStatus = Literal["ready", "in_progress", "blocked", "completed", "failed", "
 ArtifactStatus = Literal["created", "updated", "completed", "discarded"]
 ScopeDraftStatus = Literal["awaiting_review", "revision_requested", "approved"]
 AgentRole = Literal["clarify", "scope", "supervisor", "researcher", "reviewer", "revisor", "verifier", "reporter"]
-ControlPlaneAgent = Literal["clarify", "scope", "supervisor"]
 TaskStage = Literal[
     "planned",
     "dispatch",
@@ -33,55 +32,8 @@ TaskStage = Literal[
     "reported",
 ]
 
-REGISTERED_CONTROL_PLANE_AGENTS: tuple[ControlPlaneAgent, ...] = (
-    "clarify",
-    "scope",
-    "supervisor",
-)
-
-
 def _now_iso() -> str:
     return datetime.now().isoformat()
-
-
-def is_control_plane_agent(value: str) -> bool:
-    return str(value or "").strip() in REGISTERED_CONTROL_PLANE_AGENTS
-
-
-def validate_control_plane_agent(value: str) -> ControlPlaneAgent:
-    normalized = str(value or "").strip()
-    if not is_control_plane_agent(normalized):
-        allowed = ", ".join(REGISTERED_CONTROL_PLANE_AGENTS)
-        raise ValueError(f"Unsupported control-plane agent: {value!r}. Allowed: {allowed}")
-    return normalized  # type: ignore[return-value]
-
-
-@dataclass
-class ControlPlaneHandoff:
-    id: str
-    from_agent: ControlPlaneAgent
-    to_agent: ControlPlaneAgent
-    reason: str
-    context_refs: list[str] = field(default_factory=list)
-    scope_snapshot: dict[str, Any] = field(default_factory=dict)
-    review_state: str = ""
-    created_at: str = field(default_factory=_now_iso)
-    created_by: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        self.from_agent = validate_control_plane_agent(self.from_agent)
-        self.to_agent = validate_control_plane_agent(self.to_agent)
-        self.reason = str(self.reason or "").strip()
-        self.context_refs = [str(item).strip() for item in self.context_refs if str(item).strip()]
-        self.scope_snapshot = dict(self.scope_snapshot or {})
-        self.review_state = str(self.review_state or "").strip()
-        self.created_at = str(self.created_at or _now_iso())
-        self.created_by = str(self.created_by or self.from_agent).strip()
-        self.metadata = dict(self.metadata or {})
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
 
 
 @dataclass
@@ -496,7 +448,6 @@ class AgentRunRecord:
 
 
 __all__ = [
-    "REGISTERED_CONTROL_PLANE_AGENTS",
     "AgentRole",
     "AgentRunRecord",
     "ArtifactStatus",
@@ -507,8 +458,6 @@ __all__ = [
     "BranchQualityArtifact",
     "BranchQueryRoundArtifact",
     "ClaimUnit",
-    "ControlPlaneAgent",
-    "ControlPlaneHandoff",
     "EvidenceBundle",
     "FinalReportArtifact",
     "OutlineArtifact",
@@ -523,6 +472,4 @@ __all__ = [
     "TaskStage",
     "TaskStatus",
     "_now_iso",
-    "is_control_plane_agent",
-    "validate_control_plane_agent",
 ]

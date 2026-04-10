@@ -249,17 +249,6 @@ def build_tool_context(config: RunnableConfig) -> ToolBuildContext:
         runtime=build_tool_runtime_context(config, e2b_ready=e2b_ready),
     )
 
-
-def _provider_context_from_tool_context(context: ToolBuildContext) -> ProviderContext:
-    return ProviderContext(
-        thread_id=context.thread_id,
-        profile=dict(context.profile),
-        configurable=dict(context.configurable),
-        e2b_ready=context.e2b_ready,
-        runtime=context.runtime,
-    )
-
-
 def _tool_context_from_provider_context(context: ProviderContext) -> ToolBuildContext:
     return ToolBuildContext(
         config={"configurable": dict(context.configurable)},

@@ -173,149 +173,6 @@ Return a JSON object:
 """.strip()
 
 
-DEEP_PLANNER_PROMPT = """
-# 角色
-你是一名研究规划专家, 擅长为复杂话题制定全面的研究计划。
-
-# 任务
-为以下主题制定研究计划, 生成结构化的 branch objective 列表。
-
-# 主题
-{topic}
-
-# 已批准的研究范围
-{approved_scope}
-
-# 已有信息
-{existing_knowledge}
-
-# 已执行的查询
-{existing_queries}
-
-# 要求
-1. 生成 {num_queries} 个 branch objective
-2. 每个 objective 应覆盖主题的不同方面
-3. objective 不能与已有 branch objective 重复
-4. objective 需要表达目标、验收标准、允许工具类别和必要的 query hints
-5. 保持 researcher 的执行边界清晰，避免把完整执行过程写死
-
-# 输出格式
-按优先级排序，输出 JSON 列表：
-```json
-[
-    {{
-        "title": "分支标题1",
-        "objective": "该 branch 需要回答的问题",
-        "task_kind": "branch_research",
-        "aspect": "覆盖的方面",
-        "acceptance_criteria": ["完成该分支必须满足的标准"],
-        "allowed_tools": ["search", "read", "extract", "synthesize"],
-        "query_hints": ["可选的查询提示"],
-        "output_artifact_types": ["branch_synthesis", "evidence_passage"],
-        "priority": 1
-    }}
-]
-```
-""".strip()
-
-
-DEEP_PLANNER_REFINE_PROMPT = """
-# 任务
-基于以下知识缺口, 补充研究计划。
-
-# 主题: {topic}
-
-# 知识缺口
-{gaps}
-
-# 已有查询
-{existing_queries}
-
-# 已批准的研究范围
-{approved_scope}
-
-# 要求
-生成 {num_queries} 个针对知识缺口的 branch objective。
-
-# 输出格式
-```json
-[{{
-    "title": "补充分支标题",
-    "objective": "需要补齐的研究目标",
-    "task_kind": "gap_follow_up",
-    "aspect": "方面",
-    "acceptance_criteria": ["补齐什么信息才算完成"],
-    "allowed_tools": ["search", "read", "extract", "synthesize"],
-    "query_hints": ["查询提示"],
-    "priority": 1
-}}]
-```
-""".strip()
-
-
-DEEP_SUPERVISOR_DECISION_PROMPT = """
-# 角色
-你是一名 Deep Research supervisor，负责决定当前研究循环的下一步动作。
-
-# 当前研究状态
-- 主题: {topic}
-- 已完成查询数: {num_queries}
-- 已收集来源数: {num_sources}
-- 已生成摘要数: {num_summaries}
-- 当前轮次: {current_epoch}/{max_epochs}
-- 质量总分: {quality_score}
-- 缺口数量: {quality_gap_count}
-- 引用准确/覆盖: {citation_accuracy}
-- 已知信息摘要: {knowledge_summary}
-
-# 可选动作
-1. plan: 首次生成研究计划
-2. dispatch: 继续派发当前 ready branch
-3. replan: 基于缺口和验证反馈重规划
-4. report: 停止研究并生成最终报告
-5. stop: 终止当前研究循环
-
-# 输出格式
-严格按照以下格式输出：
-action: <动作名称>
-reasoning: <决策理由>
-priority_topics: <如选择 replan，可列出优先研究的子话题，逗号分隔>
-""".strip()
-
-
-DEEP_RESEARCHER_SELECT_URLS_PROMPT = """
-# 任务
-从以下搜索结果中选择与主题最相关的 {max_urls} 个 URL。
-
-# 主题: {topic}
-
-# 已有信息: {summary_context}
-
-# 搜索结果
-{results}
-
-# 输出
-只输出选中的 URL 列表（每行一个）：
-""".strip()
-
-
-DEEP_RESEARCHER_SUMMARIZE_PROMPT = """
-# 任务
-总结以下搜索结果中与主题相关的新发现。
-
-# 主题: {topic}
-# 已有信息: {existing_summary}
-# 新搜索结果:
-{findings}
-
-# 输出要求
-- 提取与主题相关的关键新信息
-- 避免与已有信息重复
-- 简洁有条理
-- 500字以内
-""".strip()
-
-
 DEEP_RESEARCHER_EVIDENCE_SYNTHESIS_PROMPT = """
 # 角色
 你是一名证据优先的研究员，负责为单个研究 branch 生成结构化综合结果。
@@ -355,51 +212,6 @@ DEEP_RESEARCHER_EVIDENCE_SYNTHESIS_PROMPT = """
   "key_findings": ["发现 1", "发现 2"],
   "open_questions": ["待补充问题 1"],
   "confidence_note": "关于证据质量/覆盖面的简短说明"
-}}
-```
-""".strip()
-
-
-DEEP_RESEARCHER_GAP_ANALYSIS_PROMPT = """
-# 角色
-你是一名严谨的研究评估员，负责判断当前 branch 证据是否足以回答研究目标。
-
-# 研究主题
-{topic}
-
-# Branch 目标
-{branch_objective}
-
-# 验收标准
-{acceptance_criteria}
-
-# 已执行查询
-{executed_queries}
-
-# 当前证据摘要
-{evidence_summary}
-
-# 任务
-判断当前证据在哪些方面已经覆盖、部分覆盖或仍然缺失，并总结最重要的缺口。
-
-# 输出要求
-1. 仅基于提供的证据判断，不要臆造未出现的事实。
-2. `criteria` 中每项都必须给出 `covered`、`partial` 或 `missing`。
-3. `missing_topics` 只保留最重要的 0-4 项。
-4. 返回 JSON 对象，不要输出额外解释。
-
-# 输出格式
-```json
-{{
-  "criteria": [
-    {{
-      "criterion": "需要覆盖的标准",
-      "status": "covered",
-      "notes": "为什么这样判断"
-    }}
-  ],
-  "missing_topics": ["仍缺失的话题"],
-  "notes": "整体覆盖情况总结"
 }}
 ```
 """.strip()
@@ -553,26 +365,6 @@ DEEP_REPORTER_PROMPT = """
 """.strip()
 
 
-DEEP_REPORTER_REFINE_PROMPT = """
-# 任务
-根据评审反馈修改研究报告。
-
-# 主题: {topic}
-
-# 当前报告
-{report}
-
-# 评审反馈
-{feedback}
-
-# 要求
-1. 根据反馈修改相应内容
-2. 保持报告的整体结构和风格
-3. 确保修改后的内容准确无误
-4. 输出完整的修改后报告（Markdown 格式）
-""".strip()
-
-
 DEEP_REPORTER_EXEC_SUMMARY_PROMPT = """
 # 任务
 为以下研究报告生成执行摘要。
@@ -598,17 +390,4 @@ RUNTIME_PROMPT_TEMPLATES = {
     "answer.fast": FAST_AGENT_SYSTEM_PROMPT,
     "deep.clarify": DEEP_CLARIFY_PROMPT,
     "deep.scope": DEEP_SCOPE_PROMPT,
-    "deep.plan": DEEP_PLANNER_PROMPT,
-    "deep.plan.refine": DEEP_PLANNER_REFINE_PROMPT,
-    "deep.supervisor.decision": DEEP_SUPERVISOR_DECISION_PROMPT,
-    "deep.researcher.select_urls": DEEP_RESEARCHER_SELECT_URLS_PROMPT,
-    "deep.researcher.summarize": DEEP_RESEARCHER_SUMMARIZE_PROMPT,
-    "deep.researcher.gap_analysis": DEEP_RESEARCHER_GAP_ANALYSIS_PROMPT,
-    "deep.researcher.query_refine": DEEP_RESEARCHER_QUERY_REFINE_PROMPT,
-    "deep.researcher.counterevidence": DEEP_RESEARCHER_COUNTEREVIDENCE_PROMPT,
-    "deep.researcher.claim_grounding": DEEP_RESEARCHER_CLAIM_GROUNDING_PROMPT,
-    "deep.researcher.evidence_synthesis": DEEP_RESEARCHER_EVIDENCE_SYNTHESIS_PROMPT,
-    "deep.reporter": DEEP_REPORTER_PROMPT,
-    "deep.reporter.refine": DEEP_REPORTER_REFINE_PROMPT,
-    "deep.reporter.executive_summary": DEEP_REPORTER_EXEC_SUMMARY_PROMPT,
 }

@@ -8,11 +8,8 @@ from typing import Annotated, Any, TypedDict
 
 import agent.runtime.deep.support.runtime_support as support
 from agent.runtime.deep.schema import (
-    ControlPlaneHandoff,
     ScopeDraft,
     _now_iso,
-    is_control_plane_agent,
-    validate_control_plane_agent,
 )
 
 _COVERAGE_STOPWORDS = {
@@ -123,31 +120,6 @@ def coerce_string_list(value: Any) -> list[str]:
         if text:
             result.append(text)
     return result
-
-
-def normalize_control_plane_agent(value: Any, *, default: str = "clarify") -> str:
-    normalized = str(value or "").strip()
-    if is_control_plane_agent(normalized):
-        return normalized
-    return validate_control_plane_agent(default)
-
-
-def control_plane_handoff_from_payload(payload: dict[str, Any] | None) -> ControlPlaneHandoff | None:
-    if not isinstance(payload, dict) or not payload:
-        return None
-    return ControlPlaneHandoff(
-        id=str(payload.get("id") or support._new_id("handoff")),
-        from_agent=normalize_control_plane_agent(payload.get("from_agent"), default="clarify"),
-        to_agent=normalize_control_plane_agent(payload.get("to_agent"), default="clarify"),
-        reason=str(payload.get("reason") or "").strip(),
-        context_refs=coerce_string_list(payload.get("context_refs")),
-        scope_snapshot=copy.deepcopy(payload.get("scope_snapshot") or {}),
-        review_state=str(payload.get("review_state") or ""),
-        created_at=str(payload.get("created_at") or _now_iso()),
-        created_by=str(payload.get("created_by") or payload.get("from_agent") or ""),
-        metadata=copy.deepcopy(payload.get("metadata") or {}),
-    )
-
 
 def split_findings(summary: str) -> list[str]:
     text = str(summary or "").strip()
@@ -313,10 +285,8 @@ __all__ = [
     "build_clarify_transcript",
     "build_scope_draft",
     "coerce_string_list",
-    "control_plane_handoff_from_payload",
     "extract_interrupt_text",
     "format_scope_draft_markdown",
-    "normalize_control_plane_agent",
     "reduce_worker_payloads",
     "scope_draft_from_payload",
     "split_findings",

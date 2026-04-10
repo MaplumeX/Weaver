@@ -8,6 +8,8 @@ import agent.infrastructure.agents as agents_pkg
 import agent.prompts as prompts_pkg
 import agent.research as research_pkg
 import agent.runtime as runtime_pkg
+import agent.runtime.deep.researcher_runtime as deep_researcher_runtime_pkg
+import agent.runtime.deep.roles as deep_roles_pkg
 import agent.runtime.deep.support as deep_support_pkg
 import agent.runtime.nodes as runtime_nodes
 from agent.contracts.events import ToolEventType
@@ -76,9 +78,13 @@ def test_legacy_core_config_export_is_no_longer_exposed():
 
 
 def test_removed_core_reserve_exports_are_no_longer_exposed():
-    assert "enforce_tool_call_limit" not in core_pkg.__all__
-    with pytest.raises(AttributeError):
-        _ = core_pkg.enforce_tool_call_limit
+    for name in {
+        "enforce_tool_call_limit",
+        "retry_call",
+    }:
+        assert name not in core_pkg.__all__
+        with pytest.raises(AttributeError):
+            getattr(core_pkg, name)
 
 
 def test_legacy_xml_parser_module_is_no_longer_importable():
@@ -189,11 +195,51 @@ def test_removed_deep_support_reserve_exports_are_no_longer_exposed():
     assert not hasattr(deep_support_pkg, "restore_agent_runs")
 
 
-def test_removed_deep_runtime_alias_is_no_longer_exposed():
-    import agent.runtime.deep.shared as deep_shared_pkg
+def test_removed_deep_roles_reserve_exports_are_no_longer_exposed():
+    for name in {
+        "ResearchPlanner",
+        "SupervisorAction",
+        "SupervisorDecision",
+    }:
+        assert name not in deep_roles_pkg.__all__
+        assert not hasattr(deep_roles_pkg, name)
 
-    assert "_auto_mode_prefers_linear" not in deep_shared_pkg.__all__
-    assert not hasattr(deep_shared_pkg, "_auto_mode_prefers_linear")
+
+def test_removed_deep_role_planner_module_is_no_longer_importable():
+    assert importlib.util.find_spec("agent.runtime.deep.roles.planner") is None
+
+
+def test_removed_deep_runtime_shared_module_is_no_longer_importable():
+    assert importlib.util.find_spec("agent.runtime.deep.shared") is None
+
+
+def test_removed_deep_schema_control_plane_helpers_are_no_longer_exposed():
+    import agent.runtime.deep.schema as deep_schema_pkg
+
+    for name in {
+        "REGISTERED_CONTROL_PLANE_AGENTS",
+        "ControlPlaneAgent",
+        "is_control_plane_agent",
+        "validate_control_plane_agent",
+    }:
+        assert name not in deep_schema_pkg.__all__
+        assert not hasattr(deep_schema_pkg, name)
+
+
+def test_removed_researcher_runtime_reserve_exports_are_no_longer_exposed():
+    for name in {
+        "BranchContradictionSummary",
+        "BranchCoverageSummary",
+        "BranchDecision",
+        "BranchGroundingSummary",
+        "BranchQualitySummary",
+        "BranchQueryPlan",
+        "BranchResearchState",
+    }:
+        assert name not in deep_researcher_runtime_pkg.__all__
+        assert not hasattr(deep_researcher_runtime_pkg, name)
+
+    assert hasattr(deep_researcher_runtime_pkg, "BranchResearchRunner")
 
 
 def test_removed_prompt_manager_reserve_exports_are_no_longer_exposed():
