@@ -1055,3 +1055,50 @@ Implemented a bounded branch-scoped agentic researcher runtime, propagated riche
 ### Next Steps
 
 - None - task complete
+
+
+## Session 24: Reorganize agent capability architecture
+
+**Date**: 2026-04-10
+**Task**: Reorganize agent capability architecture
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Agent package layout | Reorganized `agent/` into capability-oriented packages: `chat`, `deep_research`, `execution`, `foundation`, `prompting`, and `tooling`, and removed the legacy `application/core/domain/infrastructure/runtime/research/prompts` layout |
+| Deep Research internals | Renamed Deep Research subpackages to `agents`, `branch_research`, and `engine`; split large runtime modules into focused flow/support modules; removed the old `support` bucket |
+| Shared helpers | Moved domain routing into `agent/execution/intake`, moved passage/source URL helpers into `agent/foundation`, and kept top-level `tools/` and `prompts/` as infrastructure/assets rather than agent runtime buckets |
+| Public contracts | Updated runtime/public entrypoints, import sites, and regression tests to enforce the new capability package boundaries and removal of legacy module paths |
+| Trellis specs | Updated backend directory structure, tool runtime contracts, database guidelines, and error handling specs to match the new package ownership and runtime signatures |
+
+**Key Validation**:
+- `uv run ruff check agent tests main.py common tools`
+- `uv run pytest tests/test_agents_api.py tests/test_agent_builtin_profiles.py tests/test_agents_store_migrations.py tests/test_agent_state_slices.py tests/test_tool_runtime_context.py tests/test_tool_catalog_api.py tests/test_agent_tools.py tests/test_web_search.py tests/test_search_provider_profiles.py tests/test_evidence_passages.py tests/test_evidence_passages_headings.py tests/test_source_url_utils.py tests/test_multi_model_resolve_model_name.py tests/test_chat_first_agent_nodes.py tests/test_chat_stream_tool_events.py tests/test_chat_session_persistence.py tests/test_tool_events_endpoint.py tests/test_weaver_checkpointer.py tests/test_session_store.py tests/test_agent_runtime_public_contracts.py tests/test_deepsearch_multi_agent_runtime.py tests/test_deepsearch_web_search.py tests/test_deepsearch_scope_draft_formatting.py tests/test_deepsearch_intake_context.py tests/test_deepsearch_researcher.py tests/test_deepsearch_reporter.py tests/test_deepsearch_supervisor.py` (`122 passed`)
+
+**Archived Task**:
+- `.trellis/tasks/archive/2026-04/04-10-agent-module-reorg/task.json`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `67f46fb` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
