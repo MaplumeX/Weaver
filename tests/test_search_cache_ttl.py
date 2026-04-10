@@ -1,7 +1,7 @@
 import time
 
 import tools.search.orchestrator as orchestrator_module
-from agent.core.search_cache import SearchCache
+from agent.foundation.search_cache import SearchCache
 from tools.search.contracts import SearchProvider, SearchResult, SearchStrategy
 from tools.search.orchestrator import SearchOrchestrator
 

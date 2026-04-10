@@ -2,8 +2,8 @@ import pytest
 from langgraph.errors import GraphInterrupt
 from langgraph.types import Interrupt
 
-import agent.runtime.nodes.deep_research as nodes
-from agent.runtime.deep import entrypoints as deep_entrypoints
+import agent.deep_research.node as nodes
+from agent.deep_research import entrypoints as deep_entrypoints
 
 
 def test_deep_research_node_uses_auto_runner(monkeypatch):

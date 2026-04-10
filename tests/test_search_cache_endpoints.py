@@ -6,7 +6,7 @@ import main
 
 @pytest.mark.asyncio
 async def test_search_cache_stats_and_clear():
-    from agent.core.search_cache import get_search_cache
+    from agent.foundation.search_cache import get_search_cache
 
     cache = get_search_cache()
     cache.clear()

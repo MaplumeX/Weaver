@@ -1,6 +1,6 @@
 from langchain_core.messages import AIMessage, HumanMessage
 
-from agent.core import chat_context
+from agent.foundation import chat_context
 
 
 def test_build_recent_runtime_messages_uses_latest_window(monkeypatch):

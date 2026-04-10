@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent.runtime.nodes.finalize import finalize_answer_node
+from agent.chat.finalize import finalize_answer_node
 
 
 def test_finalize_answer_node_enforces_exact_reply_contract():

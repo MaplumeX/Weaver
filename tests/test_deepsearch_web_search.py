@@ -1,5 +1,4 @@
-
-from agent.runtime.deep.support import runtime_support as deep_research_support
+from agent.deep_research.branch_research import search_runtime as deep_research_search_runtime
 
 
 def test_search_query_uses_web_search_runtime(monkeypatch):
@@ -23,10 +22,9 @@ def test_search_query_uses_web_search_runtime(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(deep_research_support, "run_web_search", fake_run_web_search)
-    monkeypatch.setattr(deep_research_support.settings, "search_strategy", "fallback")
+    monkeypatch.setattr(deep_research_search_runtime, "run_web_search", fake_run_web_search)
 
-    results = deep_research_support._search_query("latest ai news", 5, {})
+    results = deep_research_search_runtime._search_query("latest ai news", 5, {})
 
     assert calls["web_search"] == 1
     assert len(results) == 1
@@ -53,11 +51,10 @@ def test_search_query_does_not_add_extra_outer_cache(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(deep_research_support, "run_web_search", fake_run_web_search)
-    monkeypatch.setattr(deep_research_support.settings, "search_strategy", "fallback")
+    monkeypatch.setattr(deep_research_search_runtime, "run_web_search", fake_run_web_search)
 
-    first = deep_research_support._search_query("latest ai news", 5, {})
-    second = deep_research_support._search_query("latest ai news", 5, {})
+    first = deep_research_search_runtime._search_query("latest ai news", 5, {})
+    second = deep_research_search_runtime._search_query("latest ai news", 5, {})
 
     assert calls["web_search"] == 2
     assert first[0]["url"] != second[0]["url"]
@@ -70,10 +67,9 @@ def test_search_query_returns_empty_on_web_search_error(monkeypatch):
         calls["web_search"] += 1
         raise RuntimeError("search backend unavailable")
 
-    monkeypatch.setattr(deep_research_support, "run_web_search", fake_run_web_search)
-    monkeypatch.setattr(deep_research_support.settings, "search_strategy", "fallback")
+    monkeypatch.setattr(deep_research_search_runtime, "run_web_search", fake_run_web_search)
 
-    results = deep_research_support._search_query("ai chips", 3, {})
+    results = deep_research_search_runtime._search_query("ai chips", 3, {})
 
     assert calls["web_search"] == 1
     assert results == []

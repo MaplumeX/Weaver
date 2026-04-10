@@ -6,7 +6,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import main
-from agent.infrastructure.tools.registry import ToolSpec
+from agent.tooling.registry import ToolSpec
 
 
 @pytest.mark.asyncio

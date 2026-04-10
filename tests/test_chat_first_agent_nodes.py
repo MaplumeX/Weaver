@@ -1,4 +1,4 @@
-import agent.runtime.nodes.chat as chat_nodes
+import agent.chat.chat as chat_nodes
 
 
 def test_chat_respond_node_returns_plain_answer_without_tools(monkeypatch):

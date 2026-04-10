@@ -1,4 +1,4 @@
-from agent.infrastructure.tools.runtime_context import build_tool_runtime_context
+from agent.tooling.runtime_context import build_tool_runtime_context
 
 
 def test_build_tool_runtime_context_reads_profile_contracts():

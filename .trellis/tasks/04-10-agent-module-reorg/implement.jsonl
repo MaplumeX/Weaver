@@ -1,0 +1,8 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "迁移中要保持失败回退与错误形状稳定"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "重组时避免制造新的重复导出层"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本任务跨 agent/tools/prompts 多层边界"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "迁移后保留日志边界与敏感信息规则"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "重组会触及 tool runtime 与 deep runtime 契约"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "agent 目录重组需要遵守包边界与公开面规则"}

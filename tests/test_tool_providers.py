@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from agent.infrastructure.tools.providers import (
+from agent.tooling.providers import (
     ProviderContext,
     StaticToolProvider,
     compose_provider_tools,

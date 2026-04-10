@@ -11,8 +11,8 @@ set of capability-focused packages.
 
 - `main.py` is the backend composition root. It contains app startup,
   middleware, exception handlers, request/response models, and most routes.
-- `agent/` contains agent runtime orchestration, contracts, prompts, and
-  reusable agent APIs.
+- `agent/` is organized by capability: execution, chat, Deep Research,
+  prompting, tooling, foundation, and contracts.
 - `common/` contains shared infrastructure used across the backend.
 - `tools/` contains concrete tool implementations grouped by capability.
 - `triggers/` contains the trigger subsystem and should stay self-contained.
@@ -28,14 +28,22 @@ repo. Follow the current ownership boundaries instead.
 .
 ├── main.py
 ├── agent/
+│   ├── __init__.py
 │   ├── api.py
-│   ├── application/
+│   ├── chat/
 │   ├── contracts/
-│   ├── core/
-│   ├── infrastructure/
-│   ├── prompts/
-│   ├── research/
-│   └── runtime/
+│   ├── deep_research/
+│   │   ├── agents/
+│   │   ├── artifacts/
+│   │   ├── branch_research/
+│   │   ├── engine/
+│   │   └── intake/
+│   ├── execution/
+│   │   └── intake/
+│   ├── foundation/
+│   ├── prompting/
+│   └── tooling/
+│       └── agents/
 ├── common/
 │   ├── config.py
 │   ├── logger.py
@@ -67,8 +75,18 @@ Use the owning package that already matches the behavior:
 
 - Put FastAPI-only glue in `main.py` when it is tightly coupled to request
   parsing, response shaping, middleware, or route wiring.
-- Put reusable runtime logic under `agent/`, especially when it is part of the
-  graph, prompt/runtime contracts, or agent composition.
+- Put root graph wiring, execution request assembly, and route-mode selection
+  in `agent/execution/`.
+- Put chat-specific runtime nodes and prompt assembly in `agent/chat/`.
+- Put Deep Research control-plane/runtime logic in `agent/deep_research/`.
+- Put reusable runtime foundations in `agent/foundation/`, including shared
+  state, event streaming, chat-context shaping, model resolution, and source
+  helpers.
+- Put prompt registry/manager logic in `agent/prompting/`. Prompt text assets
+  still live under top-level `prompts/`.
+- Put tool registry, capability expansion, runtime context, provider assembly,
+  and agent-tool policy logic in `agent/tooling/`.
+- Put stable public contracts in `agent/contracts/`.
 - Put cross-cutting infrastructure under `common/`, such as config, logging,
   persistence, metrics, or session lifecycle helpers.
 - Put external capability adapters under `tools/`, grouped by domain instead of
@@ -83,8 +101,8 @@ Placement rules:
 - If code is reused across endpoints, runtime nodes, or tools, extract it to
   `common/`, `agent/`, or `tools/`.
 - Keep public package surfaces explicit. Small facade modules such as
-  `agent/api.py` and `agent/contracts/research.py` are preferred over broad
-  wildcard imports.
+  `agent/api.py`, `agent/__init__.py`, and `agent/contracts/research.py` are
+  preferred over broad wildcard imports.
 
 ---
 
@@ -92,9 +110,9 @@ Placement rules:
 
 - Use `snake_case.py` for Python modules and functions.
 - Prefer capability-oriented names over vague utility buckets. Examples:
-  `session_store.py`, `sandbox_browser_session.py`, `quality_assessor.py`.
-- Keep package names singular and responsibility-focused (`agent/runtime`,
-  `tools/search`, `common`).
+  `session_store.py`, `runtime_context.py`, `branch_research`, `source_urls.py`.
+- Keep package names responsibility-focused (`agent/execution`,
+  `agent/tooling`, `agent/foundation`, `tools/search`, `common`).
 - Stable public surfaces should declare explicit exports with `__all__`.
 - New top-level directories are rare; prefer extending an existing package.
 
@@ -119,8 +137,12 @@ Anti-patterns:
   memory.
 - `common/memory_service.py`: shared memory ingestion/retrieval service used by
   chat and support flows.
-- `agent/runtime/graph.py`: runtime orchestration code placed under `agent/`
-  instead of the HTTP layer.
+- `agent/execution/graph.py`: root runtime orchestration and Postgres
+  checkpointer setup kept under `agent/` instead of the HTTP layer.
+- `agent/deep_research/engine/graph.py`: Deep Research workflow engine kept
+  inside the capability package, not mixed into `main.py`.
+- `agent/tooling/runtime_context.py`: tool runtime context assembly owned by
+  the tooling package, not by HTTP handlers or individual tool providers.
 - `triggers/manager.py`: subsystem-specific management logic kept inside
   `triggers/`.
 - `tools/search/orchestrator.py`: search-provider fan-out and reliability logic

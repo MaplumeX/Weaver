@@ -1,4 +1,4 @@
-from agent.core import multi_model
+from agent.foundation import multi_model
 
 
 def test_resolve_model_name_prefers_runtime_model_override():

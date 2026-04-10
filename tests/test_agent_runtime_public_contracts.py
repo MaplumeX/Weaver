@@ -2,23 +2,28 @@ import importlib
 
 import pytest
 
-import agent.core as core_pkg
-import agent.domain as domain_pkg
-import agent.infrastructure.agents as agents_pkg
-import agent.prompts as prompts_pkg
-import agent.research as research_pkg
-import agent.runtime as runtime_pkg
-import agent.runtime.deep.researcher_runtime as deep_researcher_runtime_pkg
-import agent.runtime.deep.roles as deep_roles_pkg
-import agent.runtime.deep.support as deep_support_pkg
-import agent.runtime.nodes as runtime_nodes
+import agent.chat as chat_pkg
+import agent.deep_research as deep_pkg
+import agent.deep_research.agents as deep_roles_pkg
+import agent.deep_research.branch_research as deep_researcher_runtime_pkg
+import agent.execution as execution_pkg
+import agent.foundation as foundation_pkg
+import agent.prompting as prompts_pkg
+import agent.tooling.agents as agents_pkg
+from agent.chat import route_node
 from agent.contracts.events import ToolEventType
 from agent.contracts.research import ClaimVerifier, extract_message_sources
 from agent.contracts.search_cache import get_search_cache as get_public_search_cache
 from agent.contracts.source_registry import SourceRegistry
-from agent.core.search_cache import get_search_cache as get_core_search_cache
-from agent.runtime.deep import entrypoints
-from agent.runtime.nodes import deep_research_node, route_node
+from agent.deep_research import deep_research_node, entrypoints
+from agent.foundation.search_cache import get_search_cache as get_core_search_cache
+
+
+def _is_not_importable(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is None
+    except ModuleNotFoundError:
+        return True
 
 
 def test_runtime_node_entrypoints_are_importable():
@@ -27,6 +32,10 @@ def test_runtime_node_entrypoints_are_importable():
 
 
 def test_removed_outer_runtime_nodes_are_not_exported():
+    assert importlib.util.find_spec("agent.runtime") is None
+    with pytest.raises(ModuleNotFoundError):
+        importlib.util.find_spec("agent.runtime.nodes")
+
     removed = {
         "clarify_node",
         "compressor_node",
@@ -44,37 +53,34 @@ def test_removed_outer_runtime_nodes_are_not_exported():
     }
 
     for name in removed:
-        assert name not in runtime_nodes.__all__
-        assert name not in runtime_pkg.__all__
-        with pytest.raises(AttributeError):
-            getattr(runtime_nodes, name)
-        with pytest.raises(AttributeError):
-            getattr(runtime_pkg, name)
+        assert name not in chat_pkg.__all__
+        assert name not in deep_pkg.__all__
+        assert not hasattr(chat_pkg, name)
+        assert not hasattr(deep_pkg, name)
 
 
 def test_runtime_active_entrypoints_remain_importable():
     removed_symbol = "initialize" + "_enhanced_tools"
-    assert callable(runtime_nodes.route_node)
-    assert callable(runtime_nodes.chat_respond_node)
-    assert callable(runtime_nodes.deep_research_node)
-    assert callable(runtime_nodes.finalize_answer_node)
-    assert callable(runtime_nodes.tool_agent_node)
-    assert not hasattr(runtime_nodes, removed_symbol)
+    assert callable(chat_pkg.route_node)
+    assert callable(chat_pkg.chat_respond_node)
+    assert callable(deep_pkg.deep_research_node)
+    assert callable(chat_pkg.finalize_answer_node)
+    assert callable(chat_pkg.tool_agent_node)
+    assert not hasattr(chat_pkg, removed_symbol)
+    assert not hasattr(deep_pkg, removed_symbol)
 
 
 def test_legacy_agent_node_is_no_longer_exported():
-    assert "agent_node" not in runtime_nodes.__all__
-    assert "agent_node" not in runtime_pkg.__all__
-    with pytest.raises(AttributeError):
-        _ = runtime_nodes.agent_node
-    with pytest.raises(AttributeError):
-        _ = runtime_pkg.agent_node
+    assert "agent_node" not in chat_pkg.__all__
+    assert "agent_node" not in deep_pkg.__all__
+    assert not hasattr(chat_pkg, "agent_node")
+    assert not hasattr(deep_pkg, "agent_node")
 
 
 def test_legacy_core_config_export_is_no_longer_exposed():
-    assert "AgentProcessorConfig" not in core_pkg.__all__
+    assert "AgentProcessorConfig" not in foundation_pkg.__all__
     with pytest.raises(AttributeError):
-        _ = core_pkg.AgentProcessorConfig
+        _ = foundation_pkg.AgentProcessorConfig
 
 
 def test_removed_core_reserve_exports_are_no_longer_exposed():
@@ -82,20 +88,22 @@ def test_removed_core_reserve_exports_are_no_longer_exposed():
         "enforce_tool_call_limit",
         "retry_call",
     }:
-        assert name not in core_pkg.__all__
+        assert name not in foundation_pkg.__all__
         with pytest.raises(AttributeError):
-            getattr(core_pkg, name)
+            getattr(foundation_pkg, name)
 
 
 def test_legacy_xml_parser_module_is_no_longer_importable():
-    assert importlib.util.find_spec("agent.parsers.xml_parser") is None
+    assert _is_not_importable("agent.parsers.xml_parser")
 
 
 def test_removed_research_helper_modules_are_no_longer_importable():
+    assert _is_not_importable("agent.research")
+
     removed = {
         "agent.contracts.result_aggregator",
         "agent.contracts.worker_context",
-        "agent.core.context",
+        "agent.foundation.context",
         "agent.research.browser_visualizer",
         "agent.research.compressor",
         "agent.research.parsing_utils",
@@ -105,40 +113,27 @@ def test_removed_research_helper_modules_are_no_longer_importable():
     }
 
     for name in removed:
-        assert importlib.util.find_spec(name) is None
+        assert _is_not_importable(name)
 
+def test_research_helpers_moved_to_new_owners():
+    from agent.deep_research.branch_research.search_runtime import _search_query
+    from agent.deep_research.engine.runtime_context import _tool_runtime_context_snapshot
+    from agent.deep_research.engine.workflow_state import MultiAgentGraphState
+    from agent.deep_research.intake.scope_draft import format_scope_draft_markdown
+    from agent.execution.intake import DomainClassifier, ResearchDomain, build_provider_profile
+    from agent.foundation.passages import split_into_passages
+    from agent.foundation.source_urls import canonicalize_source_url, compact_unique_sources
 
-def test_removed_research_helpers_are_no_longer_exported():
-    removed = {
-        "ChartSpec",
-        "ChartType",
-        "ClaimVerification",
-        "CompressedKnowledge",
-        "DomainClassification",
-        "ExtractedFact",
-        "GeneratedChart",
-        "QualityAssessor",
-        "QualityReport",
-        "ResearchCompressor",
-        "VizPlanner",
-        "analyze_query_coverage",
-        "backfill_diverse_queries",
-        "classify_domain",
-        "embed_charts_in_report",
-        "extract_response_content",
-        "format_search_results",
-        "is_time_sensitive_topic",
-        "parse_json_from_text",
-        "parse_list_output",
-        "query_dimensions",
-        "show_browser_status_page",
-        "visualize_urls",
-        "visualize_urls_from_results",
-    }
-
-    for name in removed:
-        assert name not in research_pkg.__all__
-        assert not hasattr(research_pkg, name)
+    assert MultiAgentGraphState is not None
+    assert callable(_search_query)
+    assert callable(_tool_runtime_context_snapshot)
+    assert callable(format_scope_draft_markdown)
+    assert DomainClassifier is not None
+    assert ResearchDomain.GENERAL.value == "general"
+    assert callable(build_provider_profile)
+    assert callable(split_into_passages)
+    assert callable(canonicalize_source_url)
+    assert callable(compact_unique_sources)
 
 
 def test_removed_worker_context_contracts_are_no_longer_exported():
@@ -175,8 +170,8 @@ def test_removed_domain_slice_helpers_are_no_longer_exported():
     }
 
     for name in removed:
-        assert name not in domain_pkg.__all__
-        assert not hasattr(domain_pkg, name)
+        assert name not in execution_pkg.__all__
+        assert not hasattr(execution_pkg, name)
 
 
 def test_removed_agent_factory_reserve_exports_are_no_longer_exposed():
@@ -190,9 +185,8 @@ def test_removed_agent_factory_reserve_exports_are_no_longer_exposed():
         assert not hasattr(agents_pkg, name)
 
 
-def test_removed_deep_support_reserve_exports_are_no_longer_exposed():
-    assert "restore_agent_runs" not in deep_support_pkg.__all__
-    assert not hasattr(deep_support_pkg, "restore_agent_runs")
+def test_removed_deep_support_package_is_no_longer_importable():
+    assert _is_not_importable("agent.deep_research.support")
 
 
 def test_removed_deep_roles_reserve_exports_are_no_longer_exposed():
@@ -206,15 +200,15 @@ def test_removed_deep_roles_reserve_exports_are_no_longer_exposed():
 
 
 def test_removed_deep_role_planner_module_is_no_longer_importable():
-    assert importlib.util.find_spec("agent.runtime.deep.roles.planner") is None
+    assert importlib.util.find_spec("agent.deep_research.agents.planner") is None
 
 
 def test_removed_deep_runtime_shared_module_is_no_longer_importable():
-    assert importlib.util.find_spec("agent.runtime.deep.shared") is None
+    assert importlib.util.find_spec("agent.deep_research.shared") is None
 
 
 def test_removed_deep_schema_control_plane_helpers_are_no_longer_exposed():
-    import agent.runtime.deep.schema as deep_schema_pkg
+    import agent.deep_research.schema as deep_schema_pkg
 
     for name in {
         "REGISTERED_CONTROL_PLANE_AGENTS",
@@ -261,9 +255,9 @@ def test_removed_prompt_manager_reserve_exports_are_no_longer_exposed():
 
 
 def test_removed_reserve_class_methods_are_no_longer_exposed():
-    from agent.core.events import EventEmitter
-    from agent.core.smart_router import SmartRouter
-    from agent.prompts.prompt_manager import PromptManager
+    from agent.foundation.events import EventEmitter
+    from agent.foundation.smart_router import SmartRouter
+    from agent.prompting.prompt_manager import PromptManager
 
     for name in {
         "get_agent_prompt",

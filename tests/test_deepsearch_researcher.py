@@ -1,8 +1,8 @@
 import json
 from types import SimpleNamespace
 
-from agent.runtime.deep.roles.researcher import ResearchAgent
-from agent.runtime.deep.schema import ResearchTask
+from agent.deep_research.agents.researcher import ResearchAgent
+from agent.deep_research.schema import ResearchTask
 from tools.research.models import FetchedPage
 
 

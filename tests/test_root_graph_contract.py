@@ -2,8 +2,8 @@ from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from typing_extensions import TypedDict
 
-import agent.runtime.nodes.routing as routing
-from agent.runtime.graph import create_research_graph
+import agent.chat.routing as routing
+from agent.execution.graph import create_research_graph
 
 
 class RouteState(TypedDict, total=False):
@@ -38,7 +38,7 @@ def test_create_research_graph_only_keeps_active_root_nodes():
 
 def test_route_node_low_confidence_falls_back_to_agent(monkeypatch):
     monkeypatch.setattr(
-        "agent.core.smart_router.smart_route",
+        "agent.foundation.smart_router.smart_route",
         lambda **_kwargs: {
             "route": "deep",
             "routing_reasoning": "uncertain",
@@ -60,7 +60,7 @@ def test_route_node_low_confidence_falls_back_to_agent(monkeypatch):
 
 def test_route_node_receives_runnable_config_when_invoked_by_graph(monkeypatch):
     monkeypatch.setattr(
-        "agent.core.smart_router.smart_route",
+        "agent.foundation.smart_router.smart_route",
         lambda **_kwargs: {
             "route": "agent",
             "routing_reasoning": "default",

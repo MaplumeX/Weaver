@@ -8,8 +8,8 @@ if str(ROOT) not in sys.path:
 
 from langchain_core.tools import tool
 
-from agent.infrastructure.tools import StaticToolProvider, ToolSpec, build_agent_toolset
-from agent.infrastructure.tools.assembly import build_tool_inventory
+from agent.tooling import StaticToolProvider, ToolSpec, build_agent_toolset
+from agent.tooling.assembly import build_tool_inventory
 
 
 def _names(tools):
@@ -36,7 +36,7 @@ def gamma(query: str) -> str:
 
 def test_build_tool_inventory_returns_unfiltered_provider_union(monkeypatch):
     monkeypatch.setattr(
-        "agent.infrastructure.tools.assembly.build_default_tool_providers",
+        "agent.tooling.assembly.build_default_tool_providers",
         lambda: [StaticToolProvider("custom", lambda _ctx: [gamma])],
     )
 
@@ -47,7 +47,7 @@ def test_build_tool_inventory_returns_unfiltered_provider_union(monkeypatch):
 
 def test_build_agent_toolset_filters_inventory_by_concrete_profile_tools(monkeypatch):
     monkeypatch.setattr(
-        "agent.infrastructure.tools.assembly.build_tool_inventory",
+        "agent.tooling.assembly.build_tool_inventory",
         lambda _config: [alpha, beta, gamma],
     )
 
@@ -69,7 +69,7 @@ def test_build_agent_toolset_filters_inventory_by_concrete_profile_tools(monkeyp
 
 def test_build_agent_toolset_applies_blocked_tools_after_allowlist(monkeypatch):
     monkeypatch.setattr(
-        "agent.infrastructure.tools.assembly.build_tool_inventory",
+        "agent.tooling.assembly.build_tool_inventory",
         lambda _config: [alpha, beta, gamma],
     )
 
@@ -96,11 +96,11 @@ def test_build_agent_toolset_keeps_live_mcp_tools_for_protected_profiles(monkeyp
             self.description = name
 
     monkeypatch.setattr(
-        "agent.infrastructure.tools.assembly.build_tool_inventory",
+        "agent.tooling.assembly.build_tool_inventory",
         lambda _config: [_Tool("alpha"), _Tool("mcp_fetch")],
     )
     monkeypatch.setattr(
-        "agent.infrastructure.tools.assembly.get_live_mcp_tools",
+        "agent.tooling.assembly.get_live_mcp_tools",
         lambda: [_Tool("mcp_fetch")],
     )
 
@@ -123,11 +123,11 @@ def test_build_agent_toolset_keeps_live_mcp_tools_for_protected_profiles(monkeyp
 
 def test_build_agent_toolset_resolves_capabilities_to_concrete_tools(monkeypatch):
     monkeypatch.setattr(
-        "agent.infrastructure.tools.assembly.build_tool_inventory",
+        "agent.tooling.assembly.build_tool_inventory",
         lambda _config: [alpha, beta, gamma],
     )
     monkeypatch.setattr(
-        "agent.infrastructure.tools.assembly.build_tool_registry",
+        "agent.tooling.assembly.build_tool_registry",
         lambda _config: {
             "alpha": ToolSpec(tool_id="alpha", tool_name="alpha", capabilities=("search",)),
             "beta": ToolSpec(tool_id="beta", tool_name="beta", capabilities=("browser",)),
@@ -152,11 +152,11 @@ def test_build_agent_toolset_resolves_capabilities_to_concrete_tools(monkeypatch
 
 def test_build_agent_toolset_blocks_tools_via_blocked_capabilities(monkeypatch):
     monkeypatch.setattr(
-        "agent.infrastructure.tools.assembly.build_tool_inventory",
+        "agent.tooling.assembly.build_tool_inventory",
         lambda _config: [alpha, beta, gamma],
     )
     monkeypatch.setattr(
-        "agent.infrastructure.tools.assembly.build_tool_registry",
+        "agent.tooling.assembly.build_tool_registry",
         lambda _config: {
             "alpha": ToolSpec(tool_id="alpha", tool_name="alpha", capabilities=("search",)),
             "beta": ToolSpec(tool_id="beta", tool_name="beta", capabilities=("browser",)),

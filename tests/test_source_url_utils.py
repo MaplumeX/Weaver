@@ -1,4 +1,4 @@
-from agent.research.source_url_utils import canonicalize_source_url, compact_unique_sources
+from agent.foundation.source_urls import canonicalize_source_url, compact_unique_sources
 
 
 def test_canonicalize_source_url_strips_tracking_and_normalizes_host_path():

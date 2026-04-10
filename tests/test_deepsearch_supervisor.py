@@ -1,4 +1,4 @@
-from agent.runtime.deep.roles.supervisor import ResearchSupervisor
+from agent.deep_research.agents.supervisor import ResearchSupervisor
 
 
 def test_supervisor_outline_plan_propagates_branch_constraints():

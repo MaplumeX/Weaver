@@ -1,4 +1,4 @@
-from agent.research.domain_router import ResearchDomain, build_provider_profile
+from agent.execution.intake.domain_router import ResearchDomain, build_provider_profile
 from tools.search.contracts import SearchProvider, SearchResult, SearchStrategy
 from tools.search.orchestrator import SearchOrchestrator
 

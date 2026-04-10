@@ -2,7 +2,7 @@
 Tool wrappers for evented execution.
 
 EventedTool wraps any callable or LangChain BaseTool so that start/result/error
-events are emitted via agent.core.events. Designed to improve front-end
+events are emitted via agent.foundation.events. Designed to improve front-end
 visibility (start/progress/result) similar to Manus browser/tool tracing.
 """
 

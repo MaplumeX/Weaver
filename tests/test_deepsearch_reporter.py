@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from agent.runtime.deep.roles.reporter import (
+from agent.deep_research.agents.reporter import (
     ReportContext,
     ReportSectionContext,
     ReportSource,

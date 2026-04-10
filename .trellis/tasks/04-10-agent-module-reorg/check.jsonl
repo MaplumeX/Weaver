@@ -1,0 +1,4 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "检查导入切换后 runtime 契约未破坏"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "完成后按后端质量要求校验迁移"}

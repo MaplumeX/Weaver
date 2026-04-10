@@ -6,15 +6,15 @@ import pytest
 
 import main
 import tools.mcp as mcp_module
-from agent.infrastructure.tools.capabilities import _build_mcp_tools
-from agent.infrastructure.tools.providers import ProviderContext
+from agent.tooling.capabilities import _build_mcp_tools
+from agent.tooling.providers import ProviderContext
 from main import MCPConfigPayload
 from tools.mcp import get_live_mcp_tools
 
 
 def test_build_mcp_tools_reads_live_mcp_snapshot(monkeypatch):
     monkeypatch.setattr(
-        "agent.infrastructure.tools.capabilities.get_live_mcp_tools",
+        "agent.tooling.capabilities.get_live_mcp_tools",
         lambda: [SimpleNamespace(name="mcp_fetch", description="fetch")],
     )
 

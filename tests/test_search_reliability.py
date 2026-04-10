@@ -3,7 +3,7 @@ import time
 import warnings
 
 import tools.search.orchestrator as orchestrator_module
-from agent.core.search_cache import clear_search_cache
+from agent.foundation.search_cache import clear_search_cache
 from tools.search.contracts import SearchProvider, SearchResult, SearchStrategy
 from tools.search.orchestrator import (
     DuckDuckGoProvider,

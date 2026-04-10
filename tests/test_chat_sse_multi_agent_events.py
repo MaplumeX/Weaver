@@ -4,7 +4,7 @@ import json
 import pytest
 
 import main
-from agent.core.events import EventEmitter, ToolEvent
+from agent.foundation.events import EventEmitter, ToolEvent
 
 
 @pytest.mark.asyncio

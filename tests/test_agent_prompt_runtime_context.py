@@ -1,6 +1,6 @@
 from langchain_core.messages import AIMessage, HumanMessage
 
-from agent.runtime.nodes.prompting import build_chat_runtime_messages
+from agent.chat.prompting import build_chat_runtime_messages
 
 
 def test_build_chat_runtime_messages_uses_real_history_and_turn_context():

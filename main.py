@@ -25,7 +25,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 from prometheus_client import (
@@ -48,21 +48,21 @@ from agent import (
     get_emitter,
     remove_emitter,
 )
-from agent.application import (
+from agent.contracts.research import extract_message_sources
+from agent.contracts.search_cache import clear_search_cache, get_search_cache
+from agent.execution import (
     build_execution_request,
 )
-from agent.application import (
+from agent.execution import (
     build_initial_agent_state as build_application_initial_agent_state,
 )
-from agent.core.chat_context import (
+from agent.foundation.chat_context import (
     build_recent_runtime_messages,
     build_short_term_snapshot,
     normalize_short_term_context,
     short_term_context_fetch_limit,
 )
-from agent.contracts.research import extract_message_sources
-from agent.contracts.search_cache import clear_search_cache, get_search_cache
-from agent.infrastructure.tools import (
+from agent.tooling import (
     build_tool_catalog_snapshot,
     build_tool_inventory,
     build_tool_registry,

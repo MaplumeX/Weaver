@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from agent.runtime.deep.roles.clarify import DeepResearchClarifyAgent
-from agent.runtime.deep.roles.scope import DeepResearchScopeAgent
+from agent.deep_research.agents.clarify import DeepResearchClarifyAgent
+from agent.deep_research.agents.scope import DeepResearchScopeAgent
 
 
 class _CaptureLLM:

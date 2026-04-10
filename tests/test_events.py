@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from agent.core.events import EventEmitter, ToolEventType
+from agent.foundation.events import EventEmitter, ToolEventType
 
 
 @pytest.mark.asyncio

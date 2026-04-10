@@ -3,9 +3,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
 import agent.contracts.claim_verifier as claim_verifier_module
-import agent.runtime.deep.orchestration.graph as multi_agent_runtime
-from agent.core.state import build_deep_runtime_snapshot
-from agent.runtime.deep.entrypoints import run_deep_research
+import agent.deep_research.engine.graph as multi_agent_runtime
+from agent.deep_research.entrypoints import run_deep_research
+from agent.foundation.state import build_deep_runtime_snapshot
 
 
 class _DummyEmitter:

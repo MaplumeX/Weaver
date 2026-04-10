@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from agent.core.chat_context import (
+from agent.foundation.chat_context import (
     build_recent_runtime_messages,
     build_short_term_snapshot,
     normalize_short_term_context,

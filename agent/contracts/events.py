@@ -2,7 +2,7 @@
 Stable event contract entrypoints for non-runtime modules.
 """
 
-from agent.core.events import (
+from agent.foundation.events import (
     Event,
     EventEmitter,
     ToolEvent,

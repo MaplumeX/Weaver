@@ -41,7 +41,7 @@ Examples:
   parameters.
 - `common/memory_store.py` owns long-term memory tables, query helpers, and
   event logging.
-- `agent/runtime/graph.py` creates the Postgres checkpointer with
+- `agent/execution/graph.py` creates the Postgres checkpointer with
   `dict_row`, `autocommit=True`, and `prepare_threshold=0`.
 - `main.py` keeps `_init_store()` as the composition point, while the actual
   storage logic stays in dedicated store objects.
@@ -319,8 +319,8 @@ async def _fetchrow(self, sql, params):
 ### 1. Scope / Trigger
 
 - Trigger: changing `common/persistence_schema.py`, `common/session_store.py`,
-  `common/session_service.py`, `agent/core/chat_context.py`, `main.py`
-  follow-up chat loading, or `agent/runtime/nodes/prompting.py` short-term
+  `common/session_service.py`, `agent/foundation/chat_context.py`, `main.py`
+  follow-up chat loading, or `agent/chat/prompting.py` short-term
   prompt assembly.
 - This is both infra and cross-layer:
   session message persistence -> derived `context_snapshot` persistence ->
@@ -342,7 +342,7 @@ async def _fetchrow(self, sql, params):
 - `common/session_service.py`
   - `SessionService._refresh_context_snapshot(thread_id: str) -> dict[str, Any] | None`
   - `SessionService.load_chat_runtime_context(thread_id: str) -> dict[str, Any]`
-- `agent/core/chat_context.py`
+- `agent/foundation/chat_context.py`
   - `build_recent_runtime_messages(messages, *, limit=None) -> list[BaseMessage]`
   - `build_short_term_snapshot(messages, *, previous_snapshot=None, now_iso=None) -> dict[str, Any]`
   - `normalize_short_term_context(snapshot) -> dict[str, Any]`

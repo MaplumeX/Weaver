@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import agent.runtime.nodes.answer as answer_nodes
-import agent.runtime.nodes.chat as chat_nodes
+import agent.chat.answer as answer_nodes
+import agent.chat.chat as chat_nodes
 
 
 def test_chat_respond_node_routes_to_tool_agent_when_profile_has_effective_tools(monkeypatch):

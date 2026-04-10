@@ -49,7 +49,7 @@ Common patterns used in the codebase:
 
 Examples:
 
-- `agent/runtime/graph.py`: `create_checkpointer()` raises `ValueError` for
+- `agent/execution/graph.py`: `create_checkpointer()` raises `ValueError` for
   missing config and wraps connection failures as `RuntimeError`.
 - `main.py`: startup/shutdown paths log warnings for optional subsystem failures
   such as MCP or trigger initialization while keeping the app running.
@@ -93,6 +93,6 @@ Rules:
   fallback `Exception`.
 - `main.py`: chat endpoint raises `HTTPException(status_code=400, ...)` for
   missing user input.
-- `agent/runtime/graph.py`: explicit wrapping of Postgres connection failures.
+- `agent/execution/graph.py`: explicit wrapping of Postgres connection failures.
 - `tools/io/screenshot_service.py`: helper-level error logging with safe
   fallback return values.

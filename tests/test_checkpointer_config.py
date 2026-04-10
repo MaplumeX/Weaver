@@ -4,7 +4,7 @@ import sys
 import pytest
 from psycopg.rows import dict_row
 
-from agent.runtime import graph
+from agent.execution import graph
 from common import memory_store as memory_store_module
 
 

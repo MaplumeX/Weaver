@@ -18,7 +18,7 @@ async def test_agents_crud(tmp_path, monkeypatch):
     Agents are persisted to a local JSON file. Patch the store paths so tests
     don't touch repo data/agents.json.
     """
-    from agent.prompts.agent_prompts import get_default_agent_prompt
+    from agent.prompting.agent_prompts import get_default_agent_prompt
     from common import agents_store
 
     def _paths(_project_root=None):

@@ -14,7 +14,7 @@ sys.path.insert(0, str(project_root))
 
 from datetime import datetime
 
-from agent.prompts.prompt_manager import PromptManager
+from agent.prompting.prompt_manager import PromptManager
 
 
 def test_prompt_lengths():

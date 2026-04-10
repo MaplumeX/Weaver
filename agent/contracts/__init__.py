@@ -2,7 +2,8 @@
 Public shared contracts for code outside the agent runtime internals.
 
 External callers should prefer these modules over importing from
-`agent.runtime.*`, `agent.infrastructure.*`, or `agent.research.*`
+`agent.execution.*`, `agent.chat.*`, `agent.deep_research.*`,
+`agent.tooling.*`, `agent.execution.intake.*`, or `agent.foundation.*`
 implementation files directly.
 """
 

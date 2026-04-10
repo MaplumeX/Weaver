@@ -2,8 +2,8 @@
 Lightweight facade for the agent package.
 
 Only the stable, public-facing symbols are exported here. For anything else,
-import from the relevant submodule (agent.runtime.*, agent.contracts.*,
-agent.prompts.*, etc.).
+import from the relevant submodule (`agent.execution.*`, `agent.chat.*`,
+`agent.deep_research.*`, `agent.contracts.*`, `agent.prompting.*`, etc.).
 """
 
 from __future__ import annotations

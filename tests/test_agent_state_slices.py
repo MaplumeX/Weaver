@@ -1,8 +1,8 @@
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-import agent.core.state as state_module
-from agent.application import build_execution_request, build_initial_agent_state
-from agent.core.state import project_state_updates
+import agent.foundation.state as state_module
+from agent.execution import build_execution_request, build_initial_agent_state
+from agent.foundation.state import project_state_updates
 
 
 def test_build_initial_agent_state_seeds_agent_history_and_current_input():

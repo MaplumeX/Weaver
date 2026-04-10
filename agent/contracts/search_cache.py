@@ -2,7 +2,7 @@
 Stable search cache contracts for external callers.
 """
 
-from agent.core.search_cache import (
+from agent.foundation.search_cache import (
     QueryDeduplicator,
     SearchCache,
     clear_search_cache,

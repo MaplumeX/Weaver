@@ -1,5 +1,5 @@
-from agent.runtime.deep.orchestration.graph import _format_scope_draft_markdown
-from agent.runtime.deep.schema import ScopeDraft
+from agent.deep_research.engine.graph import _format_scope_draft_markdown
+from agent.deep_research.schema import ScopeDraft
 
 
 def test_scope_draft_markdown_prefers_research_steps_over_structured_sections():

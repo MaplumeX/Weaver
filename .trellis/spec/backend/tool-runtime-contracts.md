@@ -10,11 +10,12 @@
 These contracts apply when backend work changes any of:
 
 - agent profile payloads (`/api/agents`)
-- tool registry / capability resolution (`agent/infrastructure/tools/*`)
+- tool registry / capability resolution (`agent/tooling/*`)
 - MCP bootstrap (`tools/mcp.py`, `tools/core/mcp.py`)
 - tool catalog payloads (`/api/tools/catalog`)
 - tool event streaming payloads (`/api/chat`, `/api/events/{thread_id}`)
-- Deep Research runtime tool policy snapshots (`deep_runtime.runtime_state`)
+- Deep Research runtime tool policy snapshots
+  (`deep_runtime["runtime_state"]`)
 - Deep Research branch runtime artifacts (`deep_research_artifacts`,
   `artifact_store`, `section_drafts`)
 
@@ -33,35 +34,44 @@ payloads are consumed by:
 
 ### 1. Scope / Trigger
 
-- Trigger: changing `common/agents_store.py`, `agent/domain/execution.py`, or
-  `/api/agents` payloads.
+- Trigger: changing `common/agents_store.py`, `agent/execution/models.py`,
+  `agent/execution/state.py`, or `/api/agents` payloads.
 
 ### 2. Signatures
 
 - File: `common/agents_store.py`
-- Model: `AgentProfile`
+  - Model: `AgentProfile`
+- File: `agent/execution/models.py`
+  - Model: `AgentProfileConfig`
+  - `execution_mode_from_public_mode(mode, *, default=ExecutionMode.TOOL_ASSISTED) -> ExecutionMode`
 - File: `main.py`
-- Model: `AgentUpsertPayload`
+  - Model: `AgentUpsertPayload`
 - Endpoint:
   - `GET /api/agents`
   - `GET /api/agents/{agent_id}`
   - `POST /api/agents`
   - `PUT /api/agents/{agent_id}`
+  - `DELETE /api/agents/{agent_id}`
 
 ### 3. Contracts
 
-Required profile fields:
+Stored profile fields:
 
 - `id: str`
 - `name: str`
+- `description: str`
 - `system_prompt: str`
+- `model: str`
 - `tools: list[str]`
 - `blocked_tools: list[str]`
 - `roles: list[str]`
 - `capabilities: list[str]`
 - `blocked_capabilities: list[str]`
+- `mcp_servers: dict[str, Any] | None`
 - `policy: dict[str, Any]`
 - `metadata: dict[str, Any]`
+- `created_at: str`
+- `updated_at: str`
 
 Rules:
 
@@ -69,6 +79,8 @@ Rules:
 - `roles`/`capabilities` are the preferred product-level configuration.
 - `blocked_capabilities` removes concrete tools after capability expansion.
 - `policy` must be JSON-object shaped; do not store free-form strings.
+- Legacy public search tool names `fallback_search` and `tavily_search` must
+  normalize to `web_search` when profiles are loaded from disk.
 
 ### 4. Validation & Error Matrix
 
@@ -78,7 +90,7 @@ Rules:
 | Missing `name` | FastAPI validation error | `422` |
 | Unknown extra fields | Ignored by current Pydantic settings unless modeled | `200` or `422` depending on model |
 | Updating missing agent id | Reject | `404` |
-| Updating `default` agent via delete-protected path | Reject | `400` |
+| Deleting protected `default` agent | Reject | `400` |
 
 ### 5. Good / Base / Bad Cases
 
@@ -126,6 +138,8 @@ Bad:
   - assert new profile fields round-trip through POST/PUT
 - `tests/test_agent_builtin_profiles.py`
   - assert built-in profiles carry `roles/capabilities/policy`
+- `tests/test_agents_store_migrations.py`
+  - assert legacy tool names migrate to `web_search`
 - `tests/test_agent_state_slices.py`
   - assert `build_initial_agent_state()` projects role/capability fields
 
@@ -148,17 +162,22 @@ Bad:
 
 ### 1. Scope / Trigger
 
-- Trigger: changing `agent/infrastructure/tools/runtime_context.py`,
-  `registry.py`, `policy.py`, `assembly.py`, or capability/provider builders.
+- Trigger: changing `agent/tooling/runtime_context.py`,
+  `agent/tooling/registry.py`, `agent/tooling/policy.py`,
+  `agent/tooling/assembly.py`, or capability/provider builders.
 
 ### 2. Signatures
 
-- File: `agent/infrastructure/tools/runtime_context.py`
+- File: `agent/tooling/runtime_context.py`
   - `build_tool_runtime_context(config, *, e2b_ready) -> ToolRuntimeContext`
-- File: `agent/infrastructure/tools/registry.py`
+- File: `agent/tooling/registry.py`
   - `build_tool_registry(config) -> dict[str, ToolSpec]`
-- File: `agent/infrastructure/tools/policy.py`
+- File: `agent/tooling/policy.py`
   - `resolve_profile_tool_policy(registry, *, profile) -> ToolPolicyResolution`
+- File: `agent/tooling/assembly.py`
+  - `build_tool_inventory(config) -> list[BaseTool]`
+  - `build_tools_for_names(config, tool_names) -> list[BaseTool]`
+  - `build_agent_toolset(config) -> list[BaseTool]`
 - File: `tools/search/contracts.py`
   - `SearchStrategy`
   - `SearchResult.to_dict() -> dict[str, Any]`
@@ -179,6 +198,8 @@ Bad:
 - `roles`
 - `capabilities`
 - `blocked_capabilities`
+- `configurable`
+- `profile`
 - `e2b_ready`
 
 `ToolSpec` fields:
@@ -233,6 +254,7 @@ Search-tool contract:
 | Unknown capability | Expands to nothing | safe no-op |
 | Duplicate tool names | Deduped in registry/policy | keep first semantic entry |
 | Provider tool missing `name` | Skip from registry | safe no-op |
+| Missing `user_id` with `principal_user_id` or `memory_user_id` present | `ToolRuntimeContext.user_id` uses the first available fallback | `"default_user"` if none are provided |
 | Unknown provider name in `search_engines` / `provider_profile` | Treat as preference only; keep available providers | safe fallback to remaining providers |
 | `run_web_search(...)` provider failure | provider logs warning/error; orchestrator keeps trying based on strategy | return `[]` only after all paths fail |
 
@@ -527,25 +549,26 @@ yield await format_stream_event(
 
 ### 1. Scope / Trigger
 
-- Trigger: changing `agent/runtime/deep/schema.py`,
-  `agent/runtime/deep/roles/researcher.py`,
-  `agent/runtime/deep/researcher_runtime/*`,
-  `agent/runtime/deep/orchestration/graph.py`, or
-  `agent/runtime/deep/artifacts/public_artifacts.py`.
+- Trigger: changing `agent/deep_research/schema.py`,
+  `agent/deep_research/agents/researcher.py`,
+  `agent/deep_research/branch_research/*`,
+  `agent/deep_research/engine/graph.py`,
+  `agent/deep_research/engine/artifact_store.py`, or
+  `agent/deep_research/artifacts/public_artifacts.py`.
 - This is mandatory when the branch-scoped researcher loop, artifact-store
   snapshot keys, or public `deep_research_artifacts` payload shape changes.
 
 ### 2. Signatures
 
-- File: `agent/runtime/deep/roles/supervisor.py`
+- File: `agent/deep_research/agents/supervisor.py`
   - `ResearchSupervisor.create_outline_plan(topic, *, approved_scope=None) -> dict[str, Any]`
-- File: `agent/runtime/deep/roles/researcher.py`
+- File: `agent/deep_research/agents/researcher.py`
   - `ResearchAgent.research_branch(task, *, topic, existing_summary="", max_results_per_query=5) -> dict[str, Any]`
-- File: `agent/runtime/deep/researcher_runtime/runner.py`
+- File: `agent/deep_research/branch_research/runner.py`
   - `BranchResearchRunner.run(task, *, topic, existing_summary, max_results_per_query) -> dict[str, Any]`
-- File: `agent/runtime/deep/orchestration/graph.py`
+- File: `agent/deep_research/engine/artifact_store.py`
   - `LightweightArtifactStore.snapshot() -> dict[str, Any]`
-- File: `agent/runtime/deep/artifacts/public_artifacts.py`
+- File: `agent/deep_research/artifacts/public_artifacts.py`
   - `build_public_deep_research_artifacts(...) -> dict[str, Any]`
 
 ### 3. Contracts
@@ -628,10 +651,10 @@ Reviewer/reporter consumption rules:
   recomputing all branch quality from raw text only.
 - `grounding_summary.primary_grounding_ratio` is the primary hard-gate input
   for claim grounding.
-- File: `agent/runtime/deep/orchestration/graph.py`
-  - `_build_report_sections(store) -> list[ReportSectionContext]`
-  - `_aggregate_sections(queue, store, runtime_state) -> dict[str, Any]`
-- File: `agent/runtime/deep/roles/reporter.py`
+- File: `agent/deep_research/engine/graph.py`
+  - `MultiAgentDeepResearchRuntime._build_report_sections(store) -> list[ReportSectionContext]`
+  - `MultiAgentDeepResearchRuntime._aggregate_sections(queue, store, runtime_state) -> dict[str, Any]`
+- File: `agent/deep_research/agents/reporter.py`
   - `ResearchReporter.generate_report(topic_or_context, findings=None, sources=None) -> str`
   - `ResearchReporter.generate_executive_summary(report, topic, *, report_context=None) -> str`
 - Reporter admission contract:
@@ -770,6 +793,9 @@ sections just because the draft text is non-empty.
     silent-denoise path
   - assert executive summary prefers admitted `report_context` summaries over
     raw markdown truncation
+- `tests/test_agent_runtime_public_contracts.py`
+  - assert removed legacy `agent.runtime.*` / `agent.research.*` modules stay
+    non-importable after the capability-package split
 
 ### 7. Wrong vs Correct
 
@@ -807,27 +833,28 @@ Before finishing tool-system work:
 - Trigger: changing runtime-node config readers, Deep Research runtime config
   readers, or task-to-model resolution helpers.
 - Applies to:
-  - `agent/runtime/config_utils.py`
-  - `agent/core/multi_model.py`
-  - `agent/runtime/nodes/_shared.py`
-  - `agent/runtime/nodes/prompting.py`
-  - `agent/runtime/deep/config.py`
-  - `agent/runtime/deep/support/runtime_support.py`
+  - `agent/execution/config_utils.py`
+  - `agent/foundation/multi_model.py`
+  - `agent/execution/shared.py`
+  - `agent/chat/prompting.py`
+  - `agent/deep_research/engine/runtime_context.py`
 
 ### 2. Signatures
 
-- File: `agent/runtime/config_utils.py`
+- File: `agent/execution/config_utils.py`
   - `configurable_dict(config) -> dict[str, Any]`
   - `configurable_value(config, key) -> Any`
   - `configurable_int(config, key, default) -> int`
   - `configurable_float(config, key, default) -> float`
-- File: `agent/core/multi_model.py`
+- File: `agent/foundation/multi_model.py`
   - `resolve_model_name(task_type: str, config: dict[str, Any] | None = None) -> str`
 - Runtime aliases:
-  - `agent/runtime/nodes/_shared.py`
+  - `agent/execution/shared.py`
     - `_configurable = configurable_dict`
     - `_model_for_task = resolve_model_name`
-  - `agent/runtime/deep/support/runtime_support.py`
+  - `agent/chat/prompting.py`
+    - `_configurable = configurable_dict`
+  - `agent/deep_research/engine/runtime_context.py`
     - `_configurable_value = configurable_value`
     - `_configurable_int = configurable_int`
     - `_configurable_float = configurable_float`
@@ -929,6 +956,9 @@ strings must still degrade to settings-backed defaults.
 - `tests/test_deepsearch_multi_agent_runtime.py`
   - assertion points that Deep Research runtime still accepts numeric config
     overrides and builds the multi-agent runtime successfully
+- `tests/test_tool_runtime_context.py`
+  - assert runtime config fallback fields still project through
+    `ToolRuntimeContext`
 
 ### 7. Wrong vs Correct
 

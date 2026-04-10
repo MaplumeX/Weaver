@@ -1,4 +1,4 @@
-from agent.prompts.prompt_manager import PromptManager
+from agent.prompting.prompt_manager import PromptManager
 
 
 def test_prompt_manager_registry_exposes_runtime_prompts():
