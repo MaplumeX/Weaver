@@ -1066,7 +1066,7 @@ Implemented a bounded branch-scoped agentic researcher runtime, propagated riche
 
 ### Summary
 
-(Add summary)
+Reorganized the agent module into capability-owned packages, split Deep Research internals into focused runtime components, migrated shared helpers to their new owners, and synced backend Trellis specs to the new architecture.
 
 ### Main Changes
 
@@ -1094,7 +1094,8 @@ Implemented a bounded branch-scoped agentic researcher runtime, propagated riche
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `uv run ruff check agent tests main.py common tools`
+- [OK] `uv run pytest ...` for agent profile, tooling/runtime context, chat/session, checkpointer/session store, and Deep Research regression coverage (`122 passed`)
 
 ### Status
 
