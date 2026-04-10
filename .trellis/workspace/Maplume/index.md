@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
+- **Total Sessions**: 23
 - **Last Active**: 2026-04-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1009 | Active |
+| `journal-1.md` | ~1057 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 23 | 2026-04-10 | 清理 deep research 未使用代码并收口 prompt 暴露面 | `9ab89bd` | `main` |
 | 22 | 2026-04-10 | 清理 agent 未使用代码并收口运行时配置 | `7b5b8d9` | `main` |
 | 21 | 2026-04-08 | Deep Research reporter 静默降噪 | `5a2abed` | `main` |
 | 20 | 2026-04-08 | Agentic Researcher Runtime Phase 1 | `462de93` | `main` |

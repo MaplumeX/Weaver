@@ -1007,3 +1007,51 @@ Implemented a bounded branch-scoped agentic researcher runtime, propagated riche
 ### Next Steps
 
 - None - task complete
+
+
+## Session 23: 清理 deep research 未使用代码并收口 prompt 暴露面
+
+**Date**: 2026-04-10
+**Task**: 清理 deep research 未使用代码并收口 prompt 暴露面
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Deep runtime | 基于运行覆盖率与引用面，清理 `agent/runtime/deep/` 中断链的 helper、空壳模块和包层冗余导出。 |
+| Orchestration | 对齐 `graph.py` 注释与真实 LangGraph 节点注册，删除未注册且无调用点的 `_supervisor_plan_node`、`_verify_node` 等私有方法。 |
+| Roles | 删除旧的 `agent/runtime/deep/roles/planner.py`，让 `ResearchSupervisor` 只保留活链使用的 `create_outline_plan` / `decide_section_action`。 |
+| Prompt registry | 收缩 `agent/prompts/runtime_templates.py` 的 deep prompt 暴露面，仅保留当前 registry 真正需要对外暴露的 `deep.clarify` 和 `deep.scope`。 |
+| Public contracts | 更新 `tests/test_agent_runtime_public_contracts.py` 与 `tests/test_prompt_registry.py`，锁定已移除模块、导出和 prompt id 不再暴露。 |
+
+**Validation**
+- 目标覆盖率测试集多轮通过，最终结果为 `177 passed`。
+- 当前改动文件 Ruff 检查通过。
+- `make test` 在 180 秒限制下超时终止，未作为通过项记录。
+
+**Archived Task**
+- `.trellis/tasks/04-10-clean-agent-unused-code-runtime-coverage` 已归档到 `archive/2026-04/`。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9ab89bd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
