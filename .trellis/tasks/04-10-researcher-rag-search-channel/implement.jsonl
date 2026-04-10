@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep new storage/retrieval code in existing backend ownership boundaries."}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "Deep Research branch runtime and tool contract changes must stay compatible."}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Use runtime-managed additive persistence patterns for new metadata storage."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Keep ingestion and retrieval failures degradable and API-safe."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Log MinIO/Milvus/embedding failures with stable subsystem prefixes and no secrets."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing fetching/parsing helpers and avoid duplicated chunk/source shaping logic."}

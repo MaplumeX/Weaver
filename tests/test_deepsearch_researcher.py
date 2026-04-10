@@ -159,6 +159,62 @@ def test_research_agent_falls_back_to_non_authoritative_search_snippets_when_fet
     assert outcome["passages"][0]["admissible"] is False
 
 
+def test_research_agent_merges_rag_results_into_documents_without_refetch():
+    def fake_search(payload, config=None):
+        return []
+
+    fetched_urls: list[list[str]] = []
+
+    class _NoFetch:
+        def fetch_many(self, urls):
+            fetched_urls.append(list(urls))
+            return []
+
+    class _KnowledgeService:
+        def search(self, *, query: str, limit: int):
+            return [
+                {
+                    "title": "Private Knowledge",
+                    "url": "/api/knowledge/files/kf_1/download#chunk=kf_1:1",
+                    "raw_url": "/api/knowledge/files/kf_1/download",
+                    "summary": "Private chunk summary",
+                    "raw_excerpt": "Private chunk summary with AI chips market share details.",
+                    "content": "Private chunk summary with AI chips market share details.",
+                    "score": 0.91,
+                    "provider": "milvus_rag",
+                    "knowledge_file_id": "kf_1",
+                    "chunk_id": "kf_1:1",
+                    "retrieved_at": "2026-04-10T00:00:00Z",
+                    "source_type": "knowledge_file",
+                }
+            ]
+
+    llm = _StubLLM(
+        {
+            "summary": "Private knowledge base confirms the market share trend.",
+            "key_findings": ["The private knowledge base contains the requested evidence."],
+            "open_questions": [],
+            "confidence_note": "Grounded by uploaded knowledge file.",
+        }
+    )
+    agent = ResearchAgent(
+        llm,
+        fake_search,
+        {},
+        fetcher=_NoFetch(),
+        knowledge_service=_KnowledgeService(),
+    )
+
+    outcome = agent.research_branch(_task(), topic="AI chips", max_results_per_query=3)
+
+    assert fetched_urls == [[]]
+    assert outcome["documents"]
+    assert outcome["documents"][0]["method"] == "milvus_rag"
+    assert outcome["documents"][0]["authoritative"] is True
+    assert outcome["sources"][0]["provider"] == "milvus_rag"
+    assert outcome["passages"][0]["authoritative"] is True
+
+
 def test_research_agent_runs_bounded_multi_round_loop_until_coverage_is_met():
     def fake_search(payload, config=None):
         query = payload["query"]

@@ -975,3 +975,226 @@ strings must still degrade to settings-backed defaults.
 - Reuse `resolve_model_name(...)` for task-string model selection.
 - Keep the router-backed selection contract in one place so runtime nodes and
   Deep Research support stay behaviorally aligned.
+
+---
+
+## Scenario: Knowledge File RAG Ingestion And Retrieval
+
+### 1. Scope / Trigger
+
+- Trigger: changing knowledge-file upload/download endpoints, MinIO object
+  storage integration, Milvus retrieval integration, or Deep Research
+  researcher/runtime code that merges private knowledge into branch evidence.
+- Applies to:
+  - `main.py`
+  - `common/config.py`
+  - `common/knowledge_registry.py`
+  - `tools/rag/service.py`
+  - `tools/rag/file_parser.py`
+  - `agent/deep_research/agents/researcher.py`
+  - `agent/deep_research/branch_research/research_pipeline.py`
+  - `web/hooks/useKnowledgeFiles.ts`
+  - `web/components/views/Library.tsx`
+- This is an infra and cross-layer contract:
+  Library upload UI -> FastAPI multipart API -> MinIO original-file storage ->
+  parser/chunker/embedding provider -> Milvus collection -> Deep Research
+  source normalization -> frontend file/status display.
+
+### 2. Signatures
+
+- File: `main.py`
+  - `GET /api/knowledge/files`
+  - `POST /api/knowledge/files`
+  - `GET /api/knowledge/files/{file_id}/download`
+- File: `tools/rag/service.py`
+  - `KnowledgeObjectStore.upload_bytes(file_id, filename, content_type, data) -> tuple[str, str]`
+  - `RagEmbeddingClient.embed_texts(texts: list[str]) -> list[list[float]]`
+  - `KnowledgeMilvusStore.ensure_collection(dimension: int) -> None`
+  - `KnowledgeMilvusStore.insert_chunks(chunks: list[dict[str, Any]]) -> None`
+  - `KnowledgeMilvusStore.search(query_vector: list[float], limit: int) -> list[dict[str, Any]]`
+  - `KnowledgeService.ingest_file(filename, content_type, data) -> KnowledgeFileRecord`
+  - `KnowledgeService.download_file(file_id: str) -> tuple[KnowledgeFileRecord, bytes]`
+  - `KnowledgeService.search(query: str, limit: int | None = None) -> list[dict[str, Any]]`
+- File: `common/config.py`
+  - `knowledge_allowed_extensions`
+  - `knowledge_max_upload_bytes`
+  - `knowledge_chunk_max_chars`
+  - `knowledge_search_top_k`
+  - `knowledge_milvus_collection`
+  - `minio_endpoint`, `minio_access_key`, `minio_secret_key`, `minio_bucket`, `minio_secure`
+  - `milvus_uri`, `milvus_token`, `milvus_db_name`
+  - `rag_embedding_model`, `rag_embedding_api_key`, `rag_embedding_base_url`,
+    `rag_embedding_timeout`, `rag_embedding_dimensions`, `rag_embedding_batch_size`
+- File: `web/hooks/useKnowledgeFiles.ts`
+  - `useKnowledgeFiles()`
+- File: `web/components/views/Library.tsx`
+  - knowledge upload entry and knowledge-base list rendering
+
+### 3. Contracts
+
+Knowledge upload contract:
+
+1. `POST /api/knowledge/files` accepts `multipart/form-data` with one or more
+   `files` parts.
+2. Supported extensions are `pdf`, `docx`, `md`, and `txt`.
+3. Original file bytes must be stored in MinIO before indexing, and the stored
+   `bucket` / `object_key` must be persisted into `KnowledgeFileRecord`.
+4. `GET /api/knowledge/files/{file_id}/download` must stream the original file
+   bytes from MinIO using the recorded storage location.
+
+Embedding-provider contract:
+
+1. Query/document embeddings use only the dedicated `rag_embedding_*`
+   settings.
+2. `RagEmbeddingClient` must not fall back to `OPENAI_API_KEY`,
+   `OPENAI_BASE_URL`, or any primary LLM provider config.
+3. Large chunk batches must be split by `rag_embedding_batch_size`; provider
+   per-request limits are an integration concern, not a caller concern.
+
+Milvus schema contract:
+
+1. Existing collections must be introspected with
+   `MilvusClient.describe_collection(...)`; do not assume field names.
+2. The active primary-key field and vector field come from the real collection
+   schema, not hard-coded defaults.
+3. New collections created by Weaver use:
+   - primary key: `chunk_id`
+   - vector field: `embedding`
+   - dynamic fields enabled for chunk metadata
+4. Insert payloads must be mapped to the actual collection schema. For example,
+   if the collection primary key is `chunk_id` and the vector field is
+   `embedding`, inserts must send those exact field names even if the internal
+   chunk payload was assembled as `id` / `vector`.
+5. Search requests must set `anns_field` to the real vector field name and
+   request `chunk_id`-compatible output fields.
+6. Existing collection vector dimension and embedding output dimension must
+   match; fail early if they differ.
+
+Research runtime contract:
+
+1. `KnowledgeService.search(...)` returns normalized search-result dicts that
+   can be merged with web search results by `ResearchAgent._search(...)`.
+2. RAG hits must flow through the normal
+   `documents / passages / synthesis` pipeline, not a side-channel prompt
+   append.
+3. RAG-only documents are authoritative knowledge-file sources and must bypass
+   HTTP refetch in `build_documents_and_sources(...)`.
+
+Registry/UI contract:
+
+1. `common/knowledge_registry.py` remains the owner of lightweight file-status
+   metadata; do not move this small runtime state into a heavier persistence
+   layer without need.
+2. Library UI renders indexed/uploading/failed statuses from the backend
+   registry payload and uses the API download path for file retrieval.
+3. OpenAPI-generated frontend types must stay in sync when these endpoints or
+   response models change.
+
+### 4. Validation & Error Matrix
+
+| Input / Condition | Expected behavior | Surface |
+|------------------|-------------------|---------|
+| Unsupported extension | reject upload | `400` HTTP |
+| File exceeds `knowledge_max_upload_bytes` | reject upload | `400` HTTP |
+| MinIO not configured | fail upload before parse/index | `503` HTTP |
+| RAG embedding provider not configured | fail upload/search without falling back to LLM config | `503` HTTP or empty best-effort search |
+| Milvus not configured | fail upload before indexing | `503` HTTP |
+| Uploaded file has no extractable text | mark file failed with error | indexed record status |
+| Embedding provider request limit exceeded | client splits into multiple requests via `rag_embedding_batch_size` | internal adapter behavior |
+| Existing Milvus collection uses `chunk_id` / `embedding` | adapter introspects schema and maps payload accordingly | internal adapter behavior |
+| Existing Milvus collection dimension differs from embedding output | stop ingest with clear runtime error | failed record / logs |
+| Milvus unavailable during researcher query | RAG returns no hits and researcher continues with web search | best-effort runtime fallback |
+
+### 5. Good / Base / Bad Cases
+
+Good:
+
+```python
+schema = {
+    "fields": [
+        {"name": "chunk_id", "is_primary": True, "type": DataType.VARCHAR},
+        {"name": "embedding", "type": DataType.FLOAT_VECTOR, "params": {"dim": 1024}},
+    ],
+    "enable_dynamic_field": True,
+}
+
+chunk = {
+    "id": "kf_1:1",
+    "chunk_id": "kf_1:1",
+    "file_id": "kf_1",
+    "vector": [0.1, 0.2],
+}
+```
+
+Good because the adapter maps this to Milvus as `chunk_id` + `embedding` and
+keeps metadata in dynamic fields.
+
+Base:
+
+```python
+settings.rag_embedding_batch_size = 64
+texts = ["chunk-1", "chunk-2"]
+embeddings = RagEmbeddingClient().embed_texts(texts)
+```
+
+Base because small requests still use the same dedicated provider path without
+special casing.
+
+Bad:
+
+```python
+payload = {"id": "kf_1:1", "vector": [0.1, 0.2]}
+client.insert(collection_name="knowledge_chunks", data=[payload])
+```
+
+Bad because an existing collection may require `chunk_id` and `embedding`;
+hard-coding create-time defaults causes runtime insert failures.
+
+Bad:
+
+```python
+if not settings.rag_embedding_api_key:
+    settings.rag_embedding_api_key = settings.openai_api_key
+```
+
+Bad because knowledge retrieval must not silently reuse the primary LLM
+provider.
+
+### 6. Tests Required
+
+- `tests/test_knowledge_service.py`
+  - assert original bytes are uploaded before indexing metadata is finalized
+  - assert dedicated embedding-provider config is used without LLM fallback
+  - assert large embedding batches split according to `rag_embedding_batch_size`
+  - assert existing Milvus `chunk_id` / `embedding` schema is introspected and
+    mapped correctly
+  - assert dimension mismatch raises a clear runtime error
+- `tests/test_knowledge_api.py`
+  - assert list/upload/download endpoint contracts
+- `tests/test_deepsearch_researcher.py`
+  - assert RAG hits merge into researcher documents without HTTP refetch
+- Assertion points:
+  - `KnowledgeFileRecord.bucket`
+  - `KnowledgeFileRecord.object_key`
+  - `KnowledgeFileRecord.status`
+  - Milvus insert payload field names
+  - Milvus search `anns_field`
+  - normalized result `chunk_id` / `url`
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+- Treat an external Milvus collection as if Weaver always created it.
+- Hard-code insert/search field names as `id` and `vector`.
+- Reuse primary LLM provider settings when `rag_embedding_*` is empty.
+- Upload a file, index it, but keep the original bytes only in process memory
+  or temp files instead of MinIO.
+
+#### Correct
+
+- Introspect real collection schema before insert/search.
+- Map internal chunk payloads onto the actual Milvus primary/vector field
+  names.
+- Keep original uploaded bytes in MinIO and serve downloads from that storage.
+- Keep query/document embeddings on the dedicated RAG provider settings only.

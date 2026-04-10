@@ -1,19 +1,25 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
-import { FolderOpen, History } from 'lucide-react'
+import React, { useMemo, useRef, useState } from 'react'
+import { FolderOpen, History, Upload } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useArtifacts } from '@/hooks/useArtifacts'
+import { useKnowledgeFiles } from '@/hooks/useKnowledgeFiles'
 import { SessionItem } from '@/components/library/SessionItem'
 import { ArtifactItem } from '@/components/library/ArtifactItem'
+import { KnowledgeFileItem } from '@/components/library/KnowledgeFileItem'
 import { SearchInput } from '@/components/ui/search-input'
 import { FilterGroup } from '@/components/ui/filter-group'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EditDialog } from '@/components/ui/edit-dialog'
 import { Button } from '@/components/ui/button'
-import { ChatSession } from '@/types/chat'
+import { Artifact, ChatSession } from '@/types/chat'
+import { toast } from 'sonner'
 
 type LibraryTab = 'all' | 'sessions' | 'artifacts' | 'pinned'
+type LibraryItem =
+  | (ChatSession & { libType: 'session' })
+  | (Artifact & { libType: 'artifact' })
 
 interface LibraryProps {
   history: ChatSession[]
@@ -35,9 +41,11 @@ export function Library({
   onTogglePin,
 }: LibraryProps) {
   const { artifacts, deleteArtifact, isLoading: isArtifactsLoading } = useArtifacts()
+  const { files: knowledgeFiles, isLoading: isKnowledgeLoading, isUploading, uploadFiles } = useKnowledgeFiles()
 
   const [activeTab, setActiveTab] = useState<LibraryTab>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const knowledgeInputRef = useRef<HTMLInputElement>(null)
   
   // Dialog States
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -52,7 +60,7 @@ export function Library({
   ]
 
   const filteredItems = useMemo(() => {
-    let combined: any[] = []
+    let combined: LibraryItem[] = []
     
     if (activeTab === 'all' || activeTab === 'sessions' || activeTab === 'pinned') {
         const h = history.map(s => ({ ...s, libType: 'session' as const }))
@@ -65,17 +73,31 @@ export function Library({
     }
 
     if (activeTab === 'pinned') {
-        combined = combined.filter(item => item.isPinned)
+        combined = combined.filter(item => item.libType === 'session' && item.isPinned)
     }
 
     return combined
       .filter(item => {
         const titleMatch = item.title?.toLowerCase().includes(searchQuery.toLowerCase())
-        const contentMatch = item.content?.toLowerCase().includes(searchQuery.toLowerCase())
+        const contentMatch = item.libType === 'artifact'
+          ? item.content.toLowerCase().includes(searchQuery.toLowerCase())
+          : false
         return titleMatch || contentMatch
       })
       .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
   }, [activeTab, searchQuery, history, artifacts])
+
+  const filteredKnowledgeFiles = useMemo(() => {
+    const q = searchQuery.toLowerCase()
+    return knowledgeFiles.filter((item) => {
+      if (!q) return true
+      return (
+        item.filename.toLowerCase().includes(q) ||
+        item.status.toLowerCase().includes(q) ||
+        String(item.parser_name || '').toLowerCase().includes(q)
+      )
+    })
+  }, [knowledgeFiles, searchQuery])
 
   const handleDelete = () => {
     if (!deleteId || !deleteType) return
@@ -93,6 +115,25 @@ export function Library({
 
   const isLoading = isHistoryLoading || isArtifactsLoading
 
+  const handleKnowledgeUpload = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return
+    try {
+      const uploaded = await uploadFiles(fileList)
+      const failed = uploaded.filter((item) => item.status === 'failed').length
+      if (failed > 0) {
+        toast.error(`Uploaded ${uploaded.length} files, ${failed} failed to index`)
+      } else {
+        toast.success(`Indexed ${uploaded.length} knowledge files`)
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to upload knowledge files')
+    } finally {
+      if (knowledgeInputRef.current) {
+        knowledgeInputRef.current.value = ''
+      }
+    }
+  }
+
   return (
     <div className="flex-1 h-full overflow-hidden flex flex-col bg-background">
       <div className="max-w-6xl mx-auto w-full h-full flex flex-col p-6 md:p-10 gap-8">
@@ -109,9 +150,28 @@ export function Library({
             </p>
           </div>
           <div className="flex items-center gap-2">
-             <Button variant="outline" size="sm" onClick={onNewChat}>
-                New Chat
-             </Button>
+            <input
+              ref={knowledgeInputRef}
+              type="file"
+              accept=".pdf,.docx,.md,.txt"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                void handleKnowledgeUpload(event.target.files)
+              }}
+            />
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => knowledgeInputRef.current?.click()}
+              disabled={isUploading}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              {isUploading ? 'Uploading...' : 'Upload Knowledge'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={onNewChat}>
+              New Chat
+            </Button>
           </div>
         </div>
 
@@ -134,6 +194,41 @@ export function Library({
         {/* Content */}
         <div className="flex-1 min-h-0">
           <ScrollArea className="h-full pr-4">
+            {(activeTab === 'all' || activeTab === 'artifacts') && (
+              <div className="space-y-4 pb-8">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold">Knowledge Base</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Uploaded files are stored in MinIO and indexed for researcher RAG retrieval.
+                    </p>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {knowledgeFiles.length} files
+                  </div>
+                </div>
+
+                {isKnowledgeLoading ? (
+                  <div className="flex items-center justify-center h-24 rounded-2xl border bg-muted/20 text-muted-foreground">
+                    Loading knowledge files...
+                  </div>
+                ) : filteredKnowledgeFiles.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredKnowledgeFiles.map((item) => (
+                      <KnowledgeFileItem key={item.id} file={item} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-40 border-2 border-dashed rounded-3xl bg-muted/30 text-center px-6">
+                    <h3 className="text-lg font-semibold">No knowledge files yet</h3>
+                    <p className="text-sm text-muted-foreground mt-1 max-w-md">
+                      Upload PDF, DOCX, MD, or TXT files here to make them searchable by researcher.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {isLoading ? (
               <div className="flex items-center justify-center h-40 text-muted-foreground">
                 Loading your library...

@@ -54,6 +54,8 @@ weasyprint>=60.0          # PDF export
 jinja2>=3.1.0             # HTML template rendering
 markdown>=3.5.0           # Markdown to HTML conversion
 openai>=1.0.0             # OpenAI embeddings API
+minio>=7.2.0             # MinIO object storage
+pymilvus>=2.4.0          # Milvus vector database
 
 # Real-time Feed Providers (optional)
 # Install for Twitter/Reddit/HackerNews search

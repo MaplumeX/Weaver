@@ -27,6 +27,10 @@ from agent.foundation.passages import split_into_passages
 logger = logging.getLogger(__name__)
 
 
+def _is_rag_result(item: dict[str, Any]) -> bool:
+    return str(item.get("provider") or "").strip() == "milvus_rag" or str(item.get("source_type") or "").strip() == "knowledge_file"
+
+
 def search_queries(
     search_func: Any,
     config: dict[str, Any],
@@ -120,7 +124,11 @@ def build_documents_and_sources(
     fetch_limit: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     selected_results = select_fetch_targets(ranked_results, limit=fetch_limit)
-    selected_urls = [str(item.get("url") or "").strip() for item in selected_results if item.get("url")]
+    selected_urls = [
+        str(item.get("url") or "").strip()
+        for item in selected_results
+        if item.get("url") and not _is_rag_result(item)
+    ]
     fetched_pages = {
         _canonical_url(page.url): page
         for page in fetcher.fetch_many(selected_urls)
@@ -133,11 +141,14 @@ def build_documents_and_sources(
         url = str(result.get("url") or "").strip()
         if not url:
             continue
-        fetched = fetched_pages.get(_canonical_url(url))
-        if fetched and str(fetched.markdown or fetched.text or "").strip():
-            document = document_from_page(task, result, fetched)
+        if _is_rag_result(result):
+            document = document_from_rag_result(task, result)
         else:
-            document = document_from_search_snippet(task, result)
+            fetched = fetched_pages.get(_canonical_url(url))
+            if fetched and str(fetched.markdown or fetched.text or "").strip():
+                document = document_from_page(task, result, fetched)
+            else:
+                document = document_from_search_snippet(task, result)
         documents.append(document)
         sources.append(
             {
@@ -163,6 +174,11 @@ def select_fetch_targets(ranked_results: list[dict[str, Any]], *, limit: int) ->
     for item in ranked_results:
         url = str(item.get("url") or "").strip()
         if not url:
+            continue
+        if _is_rag_result(item):
+            selected.append(item)
+            if len(selected) >= limit:
+                return selected[:limit]
             continue
         domain = _source_domain(url)
         if domain and domain not in seen_domains:
@@ -231,6 +247,34 @@ def document_from_search_snippet(
         "provider": result.get("provider", ""),
         "authoritative": False,
         "admissible": False,
+    }
+
+
+def document_from_rag_result(
+    task: ResearchTask,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    url = str(result.get("url") or result.get("raw_url") or "").strip()
+    content = str(result.get("content") or result.get("raw_excerpt") or result.get("summary") or "").strip()
+    chunk_id = str(result.get("chunk_id") or "").strip()
+    file_id = str(result.get("knowledge_file_id") or result.get("document_id") or "").strip()
+    digest_seed = chunk_id or f"{file_id}:{url}"
+    digest = hashlib.sha1(f"{task.id}:{digest_seed}:rag".encode()).hexdigest()[:12]
+    return {
+        "id": f"document_{digest}",
+        "url": url,
+        "raw_url": str(result.get("raw_url") or url).strip(),
+        "title": str(result.get("title") or file_id or url).strip(),
+        "excerpt": _clamp_text(content, 320),
+        "content": _clamp_text(content, 4_000),
+        "method": "milvus_rag",
+        "published_date": result.get("published_date"),
+        "retrieved_at": result.get("retrieved_at"),
+        "http_status": None,
+        "attempts": 1,
+        "provider": "milvus_rag",
+        "authoritative": True,
+        "admissible": True,
     }
 
 

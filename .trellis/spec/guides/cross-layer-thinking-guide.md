@@ -75,6 +75,14 @@ idempotency, or overwrite semantics
 
 **Good**: Match the framework's contract exactly and add a round-trip resume test
 
+### Mistake 5: Assuming A Managed Service Schema Matches Local Defaults
+
+**Bad**: Seeing a collection/bucket/table already exists and still writing code
+as if the app created it with local default field names
+
+**Good**: Read the live schema/contract first, then map local payload fields to
+the actual remote names before insert/search
+
 ---
 
 ## Checklist for Cross-Layer Features
@@ -91,6 +99,9 @@ After implementation:
 - [ ] Checked data survives round-trip
 - [ ] If mirroring a framework-owned persistence contract, verified ordering and
       overwrite semantics with a regression test
+- [ ] If integrating with an existing managed backend (vector DB, object store,
+      webhook, third-party API), verified the live remote schema/contract
+      instead of assuming local defaults
 
 ---
 

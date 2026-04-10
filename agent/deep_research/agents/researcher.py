@@ -19,6 +19,7 @@ from agent.deep_research.branch_research.shared import (
     dedupe_strings as _shared_dedupe_strings,
 )
 from agent.deep_research.schema import ResearchTask
+from tools.rag import get_knowledge_service
 from tools.research.content_fetcher import ContentFetcher
 
 logger = logging.getLogger(__name__)
@@ -72,11 +73,13 @@ class ResearchAgent:
         config: dict[str, Any] | None = None,
         *,
         fetcher: ContentFetcher | None = None,
+        knowledge_service: Any | None = None,
     ):
         self.llm = llm
         self.search_func = search_func
         self.config = config or {}
         self.fetcher = fetcher or ContentFetcher()
+        self.knowledge_service = knowledge_service or get_knowledge_service()
         self.query_planner = BranchQueryPlanner(llm, self.config)
 
     def research_branch(
@@ -124,12 +127,24 @@ class ResearchAgent:
         return outcome.to_dict()
 
     def _search(self, queries: list[str], *, max_results_per_query: int) -> list[dict[str, Any]]:
-        return research_pipeline.search_queries(
+        web_results = research_pipeline.search_queries(
             self.search_func,
             self.config,
             queries,
             max_results_per_query=max_results_per_query,
         )
+        rag_results: list[dict[str, Any]] = []
+        try:
+            for query in queries:
+                rag_results.extend(
+                    self.knowledge_service.search(
+                        query=query,
+                        limit=max_results_per_query,
+                    )
+                )
+        except Exception as exc:
+            logger.warning("[deep-research-researcher] rag search failed: %s", exc)
+        return [*web_results, *rag_results]
 
     def _rank_search_results(
         self,

@@ -368,6 +368,34 @@ class Settings(BaseSettings):
     research_fetch_render_min_chars: int = 200
     research_fetch_extract_markdown: bool = True
 
+    # Knowledge / RAG storage
+    knowledge_allowed_extensions: str = "pdf,docx,md,txt"
+    knowledge_registry_file: str = "knowledge_files.json"
+    knowledge_max_upload_bytes: int = 25_000_000
+    knowledge_chunk_max_chars: int = 1200
+    knowledge_search_top_k: int = 4
+    knowledge_milvus_collection: str = "knowledge_chunks"
+
+    # MinIO object storage
+    minio_endpoint: str = ""
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
+    minio_bucket: str = "weaver-knowledge"
+    minio_secure: bool = False
+
+    # Milvus vector store
+    milvus_uri: str = ""
+    milvus_token: str = ""
+    milvus_db_name: str = ""
+
+    # Dedicated embedding provider for RAG
+    rag_embedding_model: str = ""
+    rag_embedding_api_key: str = ""
+    rag_embedding_base_url: str = ""
+    rag_embedding_timeout: int = 60
+    rag_embedding_dimensions: int = 0
+    rag_embedding_batch_size: int = 64
+
     # Web search runtime config
     search_strategy: str = "fallback"  # fallback | parallel | round_robin | best_first
     search_enable_freshness_ranking: bool = True  # Apply freshness boost for time-sensitive queries
@@ -538,6 +566,14 @@ class Settings(BaseSettings):
             if cfg:
                 engines = [cfg.engine, *list(cfg.fallback_engines or [])]
         return engines or ["tavily"]
+
+    @property
+    def knowledge_allowed_extensions_list(self) -> list[str]:
+        return [
+            item.strip().lower().lstrip(".")
+            for item in (self.knowledge_allowed_extensions or "").split(",")
+            if item.strip()
+        ]
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent

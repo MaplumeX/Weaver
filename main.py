@@ -118,6 +118,7 @@ from tools.io.asr import get_asr_service, init_asr_service
 from tools.io.screenshot_service import get_screenshot_service
 from tools.io.tts import AVAILABLE_VOICES, get_tts_service, init_tts_service
 from tools.mcp import close_mcp_tools, init_mcp_tools, reload_mcp_tools
+from tools.rag import get_knowledge_service
 from tools.sandbox import sandbox_browser_sessions
 from tools.search.orchestrator import get_search_orchestrator
 from triggers import (
@@ -4825,6 +4826,44 @@ class EvidenceResponse(BaseModel):
     passages: list[EvidencePassageItem] = []
 
 
+class KnowledgeFileItem(BaseModel):
+    id: str
+    filename: str
+    content_type: str = ""
+    extension: str = ""
+    size_bytes: int = 0
+    bucket: str = ""
+    object_key: str = ""
+    download_path: str = ""
+    collection_name: str = ""
+    status: str = ""
+    parser_name: str = ""
+    chunk_count: int = 0
+    indexed_at: str | None = None
+    error: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class KnowledgeFilesResponse(BaseModel):
+    files: list[KnowledgeFileItem] = Field(default_factory=list)
+
+
+class KnowledgeFileIngestResponse(BaseModel):
+    files: list[KnowledgeFileItem] = Field(default_factory=list)
+
+
+def _serialize_knowledge_file(record: Any) -> dict[str, Any]:
+    if hasattr(record, "model_dump"):
+        payload = record.model_dump(mode="json")
+        if isinstance(payload, dict):
+            return payload
+    if isinstance(record, dict):
+        return dict(record)
+    return {}
+
+
 @app.get("/api/sessions", response_model=SessionsListResponse)
 async def list_sessions(
     request: Request,
@@ -5055,6 +5094,68 @@ async def get_session_evidence(thread_id: str, request: Request):
     except Exception as e:
         logger.error(f"Get session evidence error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/knowledge/files", response_model=KnowledgeFilesResponse)
+async def list_knowledge_files():
+    try:
+        records = await run_in_threadpool(get_knowledge_service().list_files)
+        return {"files": [_serialize_knowledge_file(item) for item in records]}
+    except Exception as e:
+        logger.error("[knowledge_api] list files failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/knowledge/files", response_model=KnowledgeFileIngestResponse)
+async def upload_knowledge_files(files: list[UploadFile] = File(...)):
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one knowledge file is required")
+
+    service = get_knowledge_service()
+    try:
+        records: list[dict[str, Any]] = []
+        for file in files:
+            payload = await file.read()
+            record = await run_in_threadpool(
+                service.ingest_file,
+                filename=file.filename or "upload.bin",
+                content_type=file.content_type or "application/octet-stream",
+                data=payload,
+            )
+            records.append(_serialize_knowledge_file(record))
+        return {"files": records}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.error("[knowledge_api] upload failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get(
+    "/api/knowledge/files/{file_id}/download",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"application/octet-stream": {}}}},
+)
+async def download_knowledge_file(file_id: str):
+    service = get_knowledge_service()
+    try:
+        record, payload = await run_in_threadpool(service.download_file, file_id)
+        filename = str(getattr(record, "filename", "") or "knowledge.bin")
+        content_type = str(getattr(record, "content_type", "") or "application/octet-stream")
+        return StreamingResponse(
+            iter([payload]),
+            media_type=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.error("[knowledge_api] download failed | file_id=%s | error=%s", file_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 class SessionResumeRequest(BaseModel):

@@ -446,6 +446,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/knowledge/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Knowledge Files */
+        get: operations["list_knowledge_files_api_knowledge_files_get"];
+        put?: never;
+        /** Upload Knowledge Files */
+        post: operations["upload_knowledge_files_api_knowledge_files_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/knowledge/files/{file_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Knowledge File */
+        get: operations["download_knowledge_file_api_knowledge_files__file_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/mcp/config": {
         parameters: {
             query?: never;
@@ -1656,6 +1691,11 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Body_upload_knowledge_files_api_knowledge_files_post */
+        Body_upload_knowledge_files_api_knowledge_files_post: {
+            /** Files */
+            files: string[];
+        };
         /**
          * CancelRequest
          * @description 鍙栨秷浠诲姟璇锋眰
@@ -2125,6 +2165,94 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** KnowledgeFileIngestResponse */
+        KnowledgeFileIngestResponse: {
+            /** Files */
+            files?: components["schemas"]["KnowledgeFileItem"][];
+        };
+        /** KnowledgeFileItem */
+        KnowledgeFileItem: {
+            /**
+             * Bucket
+             * @default
+             */
+            bucket: string;
+            /**
+             * Chunk Count
+             * @default 0
+             */
+            chunk_count: number;
+            /**
+             * Collection Name
+             * @default
+             */
+            collection_name: string;
+            /**
+             * Content Type
+             * @default
+             */
+            content_type: string;
+            /**
+             * Created At
+             * @default
+             */
+            created_at: string;
+            /**
+             * Download Path
+             * @default
+             */
+            download_path: string;
+            /**
+             * Error
+             * @default
+             */
+            error: string;
+            /**
+             * Extension
+             * @default
+             */
+            extension: string;
+            /** Filename */
+            filename: string;
+            /** Id */
+            id: string;
+            /** Indexed At */
+            indexed_at?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Object Key
+             * @default
+             */
+            object_key: string;
+            /**
+             * Parser Name
+             * @default
+             */
+            parser_name: string;
+            /**
+             * Size Bytes
+             * @default 0
+             */
+            size_bytes: number;
+            /**
+             * Status
+             * @default
+             */
+            status: string;
+            /**
+             * Updated At
+             * @default
+             */
+            updated_at: string;
+        };
+        /** KnowledgeFilesResponse */
+        KnowledgeFilesResponse: {
+            /** Files */
+            files?: components["schemas"]["KnowledgeFileItem"][];
+        };
         /** MCPConfigPayload */
         MCPConfigPayload: {
             /** Enable */
@@ -2577,6 +2705,10 @@ export interface components {
         };
         /** SessionSnapshotSessionPayload */
         SessionSnapshotSessionPayload: {
+            /** Context Snapshot */
+            context_snapshot?: {
+                [key: string]: unknown;
+            };
             /** Created At */
             created_at: string;
             /**
@@ -3459,6 +3591,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_knowledge_files_api_knowledge_files_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFilesResponse"];
+                };
+            };
+        };
+    };
+    upload_knowledge_files_api_knowledge_files_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_knowledge_files_api_knowledge_files_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFileIngestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_knowledge_file_api_knowledge_files__file_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
                 };
             };
             /** @description Validation Error */
