@@ -1126,6 +1126,20 @@ Research runtime contract:
    append.
 3. RAG-only documents are authoritative knowledge-file sources and must bypass
    HTTP refetch in `build_documents_and_sources(...)`.
+4. `KnowledgeService.search(...)` may perform internal query expansion,
+   widened recall, chunk-level dedupe, and lightweight rerank, but it must
+   preserve the public normalized result shape consumed by
+   `knowledge_search` and Deep Research.
+5. RAG chunk identity is `chunk_id`, not canonicalized download URL. Any
+   Deep Research ranking or source-count logic that dedupes knowledge hits must
+   preserve `chunk_id` uniqueness even when multiple hits share the same
+   `/api/knowledge/files/{file_id}/download` base URL.
+6. Normalized knowledge hits may include chunk metadata used by downstream
+   evidence rendering:
+   `heading`, `heading_path`, `start_char`, `end_char`, `parser_name`.
+7. `split_into_passages(...)` may be called with overlap to preserve local
+   context. Overlap must keep stable source offsets into the original text; do
+   not invent synthetic offsets that cannot be traced back to the file bytes.
 
 Registry/UI contract:
 
@@ -1154,6 +1168,9 @@ Registry/UI contract:
 | Embedding provider request limit exceeded | client splits into multiple requests via `rag_embedding_batch_size` | internal adapter behavior |
 | Existing Milvus collection uses `chunk_id` / `embedding` | adapter introspects schema and maps payload accordingly | internal adapter behavior |
 | Existing Milvus collection dimension differs from embedding output | stop ingest with clear runtime error | failed record / logs |
+| Query contains punctuation-heavy or verbose phrasing | service expands to a small internal query family before embedding/search | internal adapter behavior |
+| Same chunk is recalled by multiple query variants | service merges by `chunk_id` and reranks once | normalized search payload |
+| Multiple knowledge chunks share the same download path | Deep Research keeps them as distinct evidence items via `chunk_id` / `source_key` | branch runtime artifacts |
 | Reindex target is missing from registry | reject maintenance request | `404` HTTP |
 | Delete target is missing from registry | reject maintenance request | `404` HTTP |
 | Reindex target has no stored object location | keep registry record, fail request or record update clearly | `503` HTTP or failed record |
@@ -1206,6 +1223,16 @@ if existing is not None:
 Good because duplicate prevention happens before a new registry record or
 vector insert is created.
 
+Good:
+
+```python
+results = service.search(query="How to deploy AI chips for inference?", limit=2)
+assert [item["chunk_id"] for item in results] == ["kf_1:1", "kf_1:3"]
+```
+
+Good because internal query expansion may recall the same chunk multiple times,
+but the public result stays chunk-deduped and reranked.
+
 Bad:
 
 ```python
@@ -1235,6 +1262,16 @@ service.ingest_file(filename="guide-copy.txt", content_type="text/plain", data=d
 Bad when the same `data` already exists in the registry because it creates
 duplicate file records and duplicate Milvus chunks for identical content.
 
+Bad:
+
+```python
+url = canonical_url("/api/knowledge/files/kf_1/download#chunk=kf_1:2")
+deduped[url] = result
+```
+
+Bad because canonicalizing away the fragment collapses distinct knowledge
+chunks from the same file into one evidence item.
+
 ### 6. Tests Required
 
 - `tests/test_knowledge_service.py`
@@ -1247,11 +1284,17 @@ duplicate file records and duplicate Milvus chunks for identical content.
   - assert existing Milvus `chunk_id` / `embedding` schema is introspected and
     mapped correctly
   - assert dimension mismatch raises a clear runtime error
+  - assert query expansion can recall multiple candidates and returns
+    chunk-deduped reranked results
 - `tests/test_knowledge_api.py`
   - assert list/upload/download/delete/reindex endpoint contracts
   - assert duplicate upload returns `409`
 - `tests/test_deepsearch_researcher.py`
   - assert RAG hits merge into researcher documents without HTTP refetch
+  - assert two chunks from the same knowledge file remain distinct evidence
+    items in Deep Research
+- `tests/test_evidence_passages.py`
+  - assert overlap preserves stable offsets while expanding passage text
 - Assertion points:
   - `KnowledgeFileRecord.content_hash`
   - `KnowledgeFileRecord.bucket`
@@ -1261,6 +1304,8 @@ duplicate file records and duplicate Milvus chunks for identical content.
   - Milvus delete filter uses `file_id`
   - Milvus search `anns_field`
   - normalized result `chunk_id` / `url`
+  - reranked public result ordering
+  - Deep Research passage `locator["chunk_id"]`
 
 ### 7. Wrong vs Correct
 
@@ -1273,6 +1318,8 @@ duplicate file records and duplicate Milvus chunks for identical content.
   content.
 - Upload a file, index it, but keep the original bytes only in process memory
   or temp files instead of MinIO.
+- Deduplicate RAG evidence by canonicalized file download URL instead of
+  `chunk_id`.
 
 #### Correct
 

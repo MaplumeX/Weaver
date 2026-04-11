@@ -118,16 +118,13 @@ class BranchResearchRunner:
             latest_coverage = assess.evaluate_coverage(task, state.passages, state.documents)
             latest_quality = assess.evaluate_quality(task, sources, state.passages, latest_coverage)
             latest_contradiction = assess.evaluate_contradictions(sources, latest_quality)
-            new_source_urls = {
-                canonical_url(str(item.get("url") or "").strip())
+            current_source_keys = {
+                str(item.get("source_key") or "").strip() or canonical_url(str(item.get("url") or "").strip())
                 for item in sources
-                if canonical_url(str(item.get("url") or "").strip())
-            } - previous_source_urls
-            previous_source_urls = {
-                canonical_url(str(item.get("url") or "").strip())
-                for item in sources
-                if canonical_url(str(item.get("url") or "").strip())
+                if str(item.get("source_key") or "").strip() or canonical_url(str(item.get("url") or "").strip())
             }
+            new_source_urls = current_source_keys - previous_source_urls
+            previous_source_urls = current_source_keys
 
             state.query_rounds.append(
                 BranchQueryRoundArtifact(

@@ -22,7 +22,12 @@ def _paragraph_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
-def split_into_passages(text: str, *, max_chars: int = 1200) -> list[dict[str, object]]:
+def split_into_passages(
+    text: str,
+    *,
+    max_chars: int = 1200,
+    overlap_chars: int = 0,
+) -> list[dict[str, object]]:
     """
     Split a long text into passages with stable character offsets.
 
@@ -30,6 +35,10 @@ def split_into_passages(text: str, *, max_chars: int = 1200) -> list[dict[str, o
       - text: str
       - start_char: int (inclusive)
       - end_char: int (exclusive)
+
+    When `overlap_chars` is positive, each non-initial passage is expanded
+    backwards by up to that many characters to preserve local context across
+    adjacent chunks while keeping stable offsets into the original text.
     """
     if not text:
         return []
@@ -127,7 +136,26 @@ def split_into_passages(text: str, *, max_chars: int = 1200) -> list[dict[str, o
         chunk_heading_path = [t for _lvl, t in heading_stack] if heading_stack else None
 
     flush()
-    return passages
+    try:
+        overlap = max(0, int(overlap_chars or 0))
+    except Exception:
+        overlap = 0
+    if overlap <= 0 or len(passages) <= 1:
+        return passages
+
+    overlapped: list[dict[str, object]] = []
+    for index, item in enumerate(passages):
+        start = int(item.get("start_char") or 0)
+        end = int(item.get("end_char") or 0)
+        adjusted_start = max(0, start - overlap) if index > 0 else start
+        if adjusted_start >= end:
+            adjusted_start = start
+
+        updated = dict(item)
+        updated["start_char"] = adjusted_start
+        updated["text"] = text[adjusted_start:end]
+        overlapped.append(updated)
+    return overlapped
 
 
 def _extract_markdown_heading(paragraph: str) -> tuple[int, str]:

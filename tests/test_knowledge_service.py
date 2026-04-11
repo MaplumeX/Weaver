@@ -74,8 +74,10 @@ class _FakeMilvusStore:
         self.dimension: int | None = None
         self.inserted_chunks: list[dict[str, object]] = []
         self.search_hits: list[dict[str, object]] = []
+        self.search_responses: list[list[dict[str, object]]] = []
         self.deleted_file_ids: list[str] = []
         self.search_file_ids: list[str] | None = None
+        self.search_calls: list[dict[str, object]] = []
 
     def is_configured(self) -> bool:
         return True
@@ -94,6 +96,15 @@ class _FakeMilvusStore:
         file_ids: list[str] | None = None,
     ) -> list[dict[str, object]]:
         self.search_file_ids = list(file_ids or [])
+        self.search_calls.append(
+            {
+                "query_vector": list(query_vector),
+                "limit": limit,
+                "file_ids": list(file_ids or []),
+            }
+        )
+        if self.search_responses:
+            return list(self.search_responses.pop(0))
         return list(self.search_hits)
 
     def delete_file_chunks(self, *, file_id: str) -> None:
@@ -224,7 +235,7 @@ def test_ingest_file_uploads_original_bytes_to_object_storage_and_indexes_chunks
     monkeypatch.setattr(
         rag_service,
         "split_into_passages",
-        lambda text, max_chars: [
+        lambda text, max_chars, overlap_chars=0: [
             {"text": "Alpha paragraph with enough content.", "start_char": 0, "end_char": 36, "heading": "Alpha"},
             {"text": "Beta paragraph with enough content.", "start_char": 37, "end_char": 72, "heading": "Beta"},
         ],
@@ -287,7 +298,7 @@ def test_ingest_file_rejects_duplicate_content(tmp_path, monkeypatch):
     monkeypatch.setattr(
         rag_service,
         "split_into_passages",
-        lambda text, max_chars: [
+        lambda text, max_chars, overlap_chars=0: [
             {"text": "Alpha paragraph with enough content.", "start_char": 0, "end_char": 36, "heading": "Alpha"},
         ],
     )
@@ -343,7 +354,7 @@ def test_ingest_file_allows_same_content_for_different_owners(tmp_path, monkeypa
     monkeypatch.setattr(
         rag_service,
         "split_into_passages",
-        lambda text, max_chars: [
+        lambda text, max_chars, overlap_chars=0: [
             {"text": "Alpha paragraph with enough content.", "start_char": 0, "end_char": 36, "heading": "Alpha"},
         ],
     )
@@ -509,6 +520,127 @@ def test_search_filters_hits_to_scope_visible_file_ids(tmp_path, monkeypatch):
     assert [item["knowledge_file_id"] for item in results] == ["kf_1"]
 
 
+def test_search_expands_queries_and_reranks_duplicate_chunk_hits(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "knowledge_milvus_collection", "knowledge_chunks", raising=False)
+    monkeypatch.setattr(settings, "knowledge_search_top_k", 2, raising=False)
+
+    registry = KnowledgeRegistry(
+        KnowledgeRegistryPaths(root=tmp_path, file=Path(tmp_path) / "knowledge_files.json")
+    )
+    registry.upsert_record(
+        rag_service.KnowledgeFileRecord(
+            id="kf_1",
+            filename="deployment-guide.txt",
+            owner_user_id="user-1",
+            status="indexed",
+            download_path="/api/knowledge/files/kf_1/download",
+        )
+    )
+
+    class _SearchEmbeddingClient:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def is_configured(self) -> bool:
+            return True
+
+        def embed_texts(self, texts: list[str]) -> list[list[float]]:
+            self.calls.append(list(texts))
+            return [[float(index + 1), 0.0] for index, _ in enumerate(texts)]
+
+    embedding_client = _SearchEmbeddingClient()
+    milvus_store = _FakeMilvusStore()
+    milvus_store.search_responses = [
+        [
+            {
+                "distance": 0.62,
+                "entity": {
+                    "chunk_id": "kf_1:1",
+                    "file_id": "kf_1",
+                    "filename": "deployment-guide.txt",
+                    "text": "How to deploy AI chips for inference in production.",
+                    "download_url": "/api/knowledge/files/kf_1/download",
+                    "heading": "Inference Deployment",
+                },
+            },
+            {
+                "distance": 0.31,
+                "entity": {
+                    "chunk_id": "kf_1:2",
+                    "file_id": "kf_1",
+                    "filename": "deployment-guide.txt",
+                    "text": "Company background and founding history.",
+                    "download_url": "/api/knowledge/files/kf_1/download",
+                    "heading": "Company Overview",
+                },
+            },
+        ],
+        [
+            {
+                "distance": 0.78,
+                "entity": {
+                    "chunk_id": "kf_1:1",
+                    "file_id": "kf_1",
+                    "filename": "deployment-guide.txt",
+                    "text": "How to deploy AI chips for inference in production.",
+                    "download_url": "/api/knowledge/files/kf_1/download",
+                    "heading": "Inference Deployment",
+                },
+            },
+            {
+                "distance": 0.63,
+                "entity": {
+                    "chunk_id": "kf_1:3",
+                    "file_id": "kf_1",
+                    "filename": "deployment-guide.txt",
+                    "text": "Deployment checklist for AI chips inference rollout.",
+                    "download_url": "/api/knowledge/files/kf_1/download",
+                    "heading": "Deployment Checklist",
+                },
+            },
+        ],
+        [
+            {
+                "distance": 0.59,
+                "entity": {
+                    "chunk_id": "kf_1:3",
+                    "file_id": "kf_1",
+                    "filename": "deployment-guide.txt",
+                    "text": "Deployment checklist for AI chips inference rollout.",
+                    "download_url": "/api/knowledge/files/kf_1/download",
+                    "heading": "Deployment Checklist",
+                },
+            }
+        ],
+    ]
+
+    service = KnowledgeService(
+        registry=registry,
+        object_store=_FakeObjectStore(),
+        embedding_client=embedding_client,
+        milvus_store=milvus_store,
+    )
+
+    results = service.search(
+        query="How to deploy AI chips for inference?",
+        limit=2,
+        scope=KnowledgeSearchScope(user_id="user-1"),
+    )
+
+    assert embedding_client.calls == [
+        [
+            "How to deploy AI chips for inference?",
+            "How to deploy AI chips for inference",
+            "deploy ai chips inference",
+        ]
+    ]
+    assert len(milvus_store.search_calls) == 3
+    assert all(call["file_ids"] == ["kf_1"] for call in milvus_store.search_calls)
+    assert all(int(call["limit"]) > 2 for call in milvus_store.search_calls)
+    assert [item["chunk_id"] for item in results] == ["kf_1:1", "kf_1:3"]
+    assert results[0]["score"] > results[1]["score"]
+
+
 def test_milvus_store_adapts_to_existing_chunk_id_embedding_schema(monkeypatch):
     monkeypatch.setattr(settings, "knowledge_milvus_collection", "knowledge_chunks", raising=False)
 
@@ -624,7 +756,7 @@ def test_reindex_file_reuses_original_object_and_replaces_existing_chunks(tmp_pa
     monkeypatch.setattr(
         rag_service,
         "split_into_passages",
-        lambda text, max_chars: [
+        lambda text, max_chars, overlap_chars=0: [
             {"text": text, "start_char": 0, "end_char": len(text), "heading": "Main"},
         ],
     )
@@ -675,7 +807,7 @@ def test_delete_file_removes_registry_object_and_vectors(tmp_path, monkeypatch):
     monkeypatch.setattr(
         rag_service,
         "split_into_passages",
-        lambda text, max_chars: [
+        lambda text, max_chars, overlap_chars=0: [
             {"text": text, "start_char": 0, "end_char": len(text), "heading": "Main"},
         ],
     )

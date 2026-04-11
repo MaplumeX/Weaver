@@ -373,6 +373,7 @@ class Settings(BaseSettings):
     knowledge_registry_file: str = "knowledge_files.json"
     knowledge_max_upload_bytes: int = 25_000_000
     knowledge_chunk_max_chars: int = 1200
+    knowledge_chunk_overlap_chars: int = 120
     knowledge_search_top_k: int = 4
     knowledge_milvus_collection: str = "knowledge_chunks"
 

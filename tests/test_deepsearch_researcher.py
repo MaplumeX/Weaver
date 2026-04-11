@@ -213,6 +213,99 @@ def test_research_agent_merges_rag_results_into_documents_without_refetch():
     assert outcome["documents"][0]["authoritative"] is True
     assert outcome["sources"][0]["provider"] == "milvus_rag"
     assert outcome["passages"][0]["authoritative"] is True
+    assert outcome["passages"][0]["locator"] == {"chunk_id": "kf_1:1"}
+
+
+def test_research_agent_keeps_distinct_rag_chunks_from_same_file():
+    def fake_search(payload, config=None):
+        return []
+
+    class _NoFetch:
+        def fetch_many(self, urls):
+            return []
+
+    class _KnowledgeService:
+        def search(self, *, query: str, limit: int):
+            return [
+                {
+                    "title": "Private Knowledge",
+                    "url": "/api/knowledge/files/kf_1/download#chunk=kf_1:1",
+                    "raw_url": "/api/knowledge/files/kf_1/download",
+                    "summary": "Cloud training workload concentration evidence.",
+                    "raw_excerpt": "Cloud training workload concentration evidence.",
+                    "content": "Cloud training workload concentration evidence.",
+                    "score": 0.91,
+                    "provider": "milvus_rag",
+                    "knowledge_file_id": "kf_1",
+                    "chunk_id": "kf_1:1",
+                    "heading": "Cloud",
+                    "heading_path": ["Cloud"],
+                    "retrieved_at": "2026-04-10T00:00:00Z",
+                    "source_type": "knowledge_file",
+                },
+                {
+                    "title": "Private Knowledge",
+                    "url": "/api/knowledge/files/kf_1/download#chunk=kf_1:2",
+                    "raw_url": "/api/knowledge/files/kf_1/download",
+                    "summary": "Production inference serving expansion evidence.",
+                    "raw_excerpt": "Production inference serving expansion evidence.",
+                    "content": "Production inference serving expansion evidence.",
+                    "score": 0.89,
+                    "provider": "milvus_rag",
+                    "knowledge_file_id": "kf_1",
+                    "chunk_id": "kf_1:2",
+                    "heading": "Deployment",
+                    "heading_path": ["Deployment"],
+                    "retrieved_at": "2026-04-10T00:00:00Z",
+                    "source_type": "knowledge_file",
+                },
+            ]
+
+    llm = _StubLLM(
+        {
+            "summary": "Private knowledge covers both cloud training and inference deployment.",
+            "key_findings": [
+                "Cloud training workload concentration is covered.",
+                "Production inference serving expansion is covered.",
+            ],
+            "open_questions": [],
+            "confidence_note": "Grounded by two chunks from one uploaded file.",
+        }
+    )
+    task = ResearchTask(
+        id="task_rag_chunks",
+        goal="Research AI chips",
+        query="AI chips market share",
+        priority=1,
+        objective="Compare cloud training and inference deployment market share",
+        query_hints=["AI chips market share"],
+        acceptance_criteria=[
+            "Cloud training workload concentration",
+            "Production inference serving expansion",
+        ],
+        coverage_targets=[
+            "Cloud training workload concentration",
+            "Production inference serving expansion",
+        ],
+        title="AI chips market share comparison",
+    )
+
+    agent = ResearchAgent(
+        llm,
+        fake_search,
+        {"configurable": {"deep_research_branch_max_rounds": 1}},
+        fetcher=_NoFetch(),
+        knowledge_service=_KnowledgeService(),
+    )
+
+    outcome = agent.research_branch(task, topic="AI chips", max_results_per_query=2)
+
+    assert [document["chunk_id"] for document in outcome["documents"]] == ["kf_1:1", "kf_1:2"]
+    assert outcome["branch_artifacts"]["query_rounds"][0]["new_source_count"] == 2
+    assert [passage["locator"] for passage in outcome["passages"]] == [
+        {"chunk_id": "kf_1:1"},
+        {"chunk_id": "kf_1:2"},
+    ]
 
 
 def test_research_agent_runs_bounded_multi_round_loop_until_coverage_is_met():

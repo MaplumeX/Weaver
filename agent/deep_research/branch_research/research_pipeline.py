@@ -31,6 +31,25 @@ def _is_rag_result(item: dict[str, Any]) -> bool:
     return str(item.get("provider") or "").strip() == "milvus_rag" or str(item.get("source_type") or "").strip() == "knowledge_file"
 
 
+def _normalized_result_url(item: dict[str, Any]) -> str:
+    url = str(item.get("url") or "").strip()
+    if not url:
+        return ""
+    if _is_rag_result(item):
+        return url
+    return _canonical_url(url)
+
+
+def _result_dedupe_key(item: dict[str, Any]) -> str:
+    if _is_rag_result(item):
+        chunk_id = str(item.get("chunk_id") or "").strip()
+        if chunk_id:
+            return f"rag:{chunk_id}"
+        raw_url = str(item.get("url") or item.get("raw_url") or "").strip()
+        return f"rag:{raw_url}"
+    return _canonical_url(item.get("url") or "")
+
+
 def search_queries(
     search_func: Any,
     config: dict[str, Any],
@@ -55,11 +74,19 @@ def search_queries(
                 "query": query,
                 "title": str(item.get("title") or "").strip(),
                 "url": str(item.get("url") or "").strip(),
+                "raw_url": str(item.get("raw_url") or item.get("url") or "").strip(),
                 "summary": str(item.get("summary") or item.get("snippet") or "").strip(),
                 "raw_excerpt": str(item.get("raw_excerpt") or item.get("content") or "").strip(),
                 "score": float(item.get("score", 0.0) or 0.0),
                 "provider": str(item.get("provider") or "").strip(),
                 "published_date": item.get("published_date"),
+                "knowledge_file_id": str(item.get("knowledge_file_id") or "").strip(),
+                "chunk_id": str(item.get("chunk_id") or "").strip(),
+                "source_type": str(item.get("source_type") or "").strip(),
+                "heading": str(item.get("heading") or "").strip(),
+                "heading_path": list(item.get("heading_path") or []),
+                "start_char": item.get("start_char"),
+                "end_char": item.get("end_char"),
             }
             if normalized["url"]:
                 all_results.append(normalized)
@@ -78,9 +105,10 @@ def rank_search_results(
     ]
     deduped: dict[str, dict[str, Any]] = {}
     for item in results:
-        url = _canonical_url(item.get("url") or "")
+        url = _normalized_result_url(item)
         if not url:
             continue
+        dedupe_key = _result_dedupe_key(item)
         text = " ".join(
             [
                 str(item.get("title") or ""),
@@ -103,9 +131,9 @@ def rank_search_results(
             "rank_score": round(rank_score, 4),
             "overlap_tokens": overlap,
         }
-        previous = deduped.get(url)
+        previous = deduped.get(dedupe_key)
         if previous is None or candidate["rank_score"] > float(previous.get("rank_score", 0.0)):
-            deduped[url] = candidate
+            deduped[dedupe_key] = candidate
     return sorted(
         deduped.values(),
         key=lambda item: (
@@ -154,6 +182,8 @@ def build_documents_and_sources(
             {
                 "title": document.get("title") or url,
                 "url": url,
+                "source_key": str(result.get("chunk_id") or url).strip(),
+                "chunk_id": str(result.get("chunk_id") or "").strip(),
                 "provider": result.get("provider", ""),
                 "published_date": document.get("published_date") or result.get("published_date"),
                 "method": document.get("method"),
@@ -275,6 +305,12 @@ def document_from_rag_result(
         "provider": "milvus_rag",
         "authoritative": True,
         "admissible": True,
+        "chunk_id": chunk_id,
+        "knowledge_file_id": file_id,
+        "heading": str(result.get("heading") or "").strip(),
+        "heading_path": list(result.get("heading_path") or []),
+        "start_char": result.get("start_char"),
+        "end_char": result.get("end_char"),
     }
 
 
@@ -290,11 +326,22 @@ def build_passages(
         if not content:
             continue
         authoritative = bool(document.get("authoritative", False))
-        base_passages = (
-            split_into_passages(content, max_chars=900)
-            if authoritative
-            else [{"text": content, "start_char": 0, "end_char": len(content)}]
-        )
+        if str(document.get("method") or "").strip() == "milvus_rag":
+            base_passages = [
+                {
+                    "text": content,
+                    "start_char": int(document.get("start_char") or 0),
+                    "end_char": int(document.get("end_char") or len(content)),
+                    "heading": document.get("heading"),
+                    "heading_path": list(document.get("heading_path") or []),
+                }
+            ]
+        else:
+            base_passages = (
+                split_into_passages(content, max_chars=900)
+                if authoritative
+                else [{"text": content, "start_char": 0, "end_char": len(content)}]
+            )
         local_ranked: list[tuple[float, dict[str, Any]]] = []
         for item in base_passages:
             text = str(item.get("text") or "").strip()
@@ -322,7 +369,11 @@ def build_passages(
                 "end_char": item.get("end_char"),
                 "retrieved_at": document.get("retrieved_at"),
                 "method": document.get("method"),
-                "locator": {},
+                "locator": (
+                    {"chunk_id": str(document.get("chunk_id") or "").strip()}
+                    if str(document.get("chunk_id") or "").strip()
+                    else {}
+                ),
                 "source_published_date": document.get("published_date"),
                 "passage_kind": "quote" if authoritative else "search_snippet",
                 "admissible": bool(document.get("admissible", authoritative)),

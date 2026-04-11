@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -17,6 +18,30 @@ from common.knowledge_registry import KnowledgeFileRecord, KnowledgeRegistry
 from tools.rag.file_parser import parse_uploaded_file
 
 logger = logging.getLogger(__name__)
+
+_SEARCH_TOKEN_RE = re.compile(r"[a-z0-9]+|[\u4e00-\u9fff]{1,6}", re.I)
+_QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "for",
+    "from",
+    "how",
+    "in",
+    "into",
+    "is",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "what",
+    "when",
+    "where",
+    "which",
+    "with",
+}
 
 
 class KnowledgeFileNotFoundError(ValueError):
@@ -57,6 +82,75 @@ def _safe_filename(filename: str) -> str:
 
 def _content_hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _clean_query_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "").strip())
+
+
+def _tokenize_search_text(text: str) -> list[str]:
+    normalized = _clean_query_text(text).lower()
+    if not normalized:
+        return []
+    return [
+        token
+        for token in _SEARCH_TOKEN_RE.findall(normalized)
+        if len(token) >= 2 or re.fullmatch(r"[\u4e00-\u9fff]", token)
+    ]
+
+
+def _dedupe_strings(values: list[str], *, limit: int = 0) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        text = _clean_query_text(item)
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(text)
+        if limit > 0 and len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _expand_search_queries(query_text: str, *, limit: int = 3) -> list[str]:
+    normalized = _clean_query_text(query_text)
+    if not normalized:
+        return []
+
+    normalized_words = re.sub(r"[^\w\u4e00-\u9fff]+", " ", normalized)
+    normalized_words = _clean_query_text(normalized_words)
+    tokens = [
+        token
+        for token in _tokenize_search_text(normalized_words or normalized)
+        if token not in _QUERY_STOPWORDS
+    ]
+
+    candidates = [normalized]
+    if normalized_words and normalized_words.lower() != normalized.lower():
+        candidates.append(normalized_words)
+    if len(tokens) > 1:
+        candidates.append(" ".join(tokens[:6]))
+    if len(tokens) > 3:
+        candidates.append(" ".join([*tokens[:2], *tokens[-2:]]))
+    return _dedupe_strings(candidates, limit=limit)
+
+
+def _knowledge_candidate_limit(limit: int) -> int:
+    return max(limit, min(24, max(limit * 4, limit + 4)))
+
+
+def _knowledge_hit_key(item: dict[str, Any]) -> str:
+    return str(
+        item.get("chunk_id")
+        or item.get("url")
+        or item.get("raw_url")
+        or item.get("title")
+        or ""
+    ).strip()
 
 
 class KnowledgeObjectStore:
@@ -383,6 +477,7 @@ class KnowledgeMilvusStore:
             "start_char",
             "end_char",
             "heading",
+            "heading_path",
             "parser_name",
         ]
         if schema.enable_dynamic_field:
@@ -552,15 +647,42 @@ class KnowledgeService:
         object_key: str,
         parser_name: str,
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        base_chunks = split_into_passages(full_text, max_chars=int(settings.knowledge_chunk_max_chars or 1200))
+        base_chunks = split_into_passages(
+            full_text,
+            max_chars=int(settings.knowledge_chunk_max_chars or 1200),
+            overlap_chars=int(settings.knowledge_chunk_overlap_chars or 0),
+        )
         chunks_payload: list[dict[str, Any]] = []
         chunk_texts: list[str] = []
+        pending_heading_chunk: dict[str, object] | None = None
 
         for index, item in enumerate(base_chunks, 1):
-            text = str(item.get("text") or "").strip()
+            current = dict(item)
+            text = str(current.get("text") or "").strip()
+            if pending_heading_chunk is not None:
+                start_char = int(pending_heading_chunk.get("start_char") or 0)
+                end_char = int(current.get("end_char") or 0)
+                current["start_char"] = start_char
+                current["text"] = full_text[start_char:end_char]
+                text = str(current.get("text") or "").strip()
+                if pending_heading_chunk.get("heading") and not current.get("heading"):
+                    current["heading"] = pending_heading_chunk.get("heading")
+                if pending_heading_chunk.get("heading_path") and not current.get("heading_path"):
+                    current["heading_path"] = list(pending_heading_chunk.get("heading_path") or [])
+                pending_heading_chunk = None
+
+            heading_text = str(current.get("heading") or "").strip()
+            if (
+                heading_text
+                and len(text) <= max(20, len(heading_text) + 12)
+                and index < len(base_chunks)
+            ):
+                pending_heading_chunk = current
+                continue
+
             if len(text) < 20:
                 continue
-            chunk_id = f"{record.id}:{index}"
+            chunk_id = f"{record.id}:{len(chunks_payload) + 1}"
             chunk_texts.append(text)
             chunks_payload.append(
                 {
@@ -574,12 +696,38 @@ class KnowledgeService:
                     "object_key": object_key,
                     "uploaded_at": record.created_at,
                     "content_type": content_type,
-                    "start_char": int(item.get("start_char") or 0),
-                    "end_char": int(item.get("end_char") or 0),
-                    "heading": str(item.get("heading") or ""),
+                    "start_char": int(current.get("start_char") or 0),
+                    "end_char": int(current.get("end_char") or 0),
+                    "heading": str(current.get("heading") or ""),
+                    "heading_path": list(current.get("heading_path") or []),
                     "parser_name": parser_name,
                 }
             )
+
+        if pending_heading_chunk is not None:
+            text = str(pending_heading_chunk.get("text") or "").strip()
+            if len(text) >= 20:
+                chunk_id = f"{record.id}:{len(chunks_payload) + 1}"
+                chunk_texts.append(text)
+                chunks_payload.append(
+                    {
+                        "id": chunk_id,
+                        "chunk_id": chunk_id,
+                        "file_id": record.id,
+                        "filename": record.filename,
+                        "text": text,
+                        "download_url": record.download_path,
+                        "bucket": bucket,
+                        "object_key": object_key,
+                        "uploaded_at": record.created_at,
+                        "content_type": content_type,
+                        "start_char": int(pending_heading_chunk.get("start_char") or 0),
+                        "end_char": int(pending_heading_chunk.get("end_char") or 0),
+                        "heading": str(pending_heading_chunk.get("heading") or ""),
+                        "heading_path": list(pending_heading_chunk.get("heading_path") or []),
+                        "parser_name": parser_name,
+                    }
+                )
 
         if chunks_payload:
             return chunks_payload, chunk_texts
@@ -601,6 +749,7 @@ class KnowledgeService:
                     "start_char": 0,
                     "end_char": len(full_text),
                     "heading": "",
+                    "heading_path": [],
                     "parser_name": parser_name,
                 }
             ],
@@ -806,6 +955,144 @@ class KnowledgeService:
             logger.error("[knowledge_service] delete failed | file_id=%s | error=%s", file_id, exc, exc_info=True)
             raise
 
+    def _normalize_search_hit(
+        self,
+        *,
+        raw_hit: dict[str, Any],
+        matched_query: str,
+        visible_file_ids: set[str],
+    ) -> dict[str, Any] | None:
+        entity = raw_hit.get("entity") or {}
+        if not isinstance(entity, dict):
+            entity = {}
+        hit_id = str(
+            raw_hit.get("id")
+            or entity.get("chunk_id")
+            or entity.get("id")
+            or ""
+        ).strip()
+        file_id = str(entity.get("file_id") or "").strip()
+        if file_id and file_id not in visible_file_ids:
+            return None
+
+        base_url = str(entity.get("download_url") or f"/api/knowledge/files/{file_id}/download").strip()
+        text = str(entity.get("text") or "").strip()
+        url = f"{base_url}#chunk={hit_id}" if hit_id else base_url
+        return {
+            "title": str(entity.get("filename") or file_id or "Knowledge File").strip(),
+            "url": url,
+            "raw_url": base_url,
+            "summary": text[:240],
+            "raw_excerpt": text,
+            "content": text,
+            "score": float(raw_hit.get("distance", 0.0) or 0.0),
+            "provider": "milvus_rag",
+            "published_date": None,
+            "knowledge_file_id": file_id,
+            "chunk_id": hit_id,
+            "bucket": str(entity.get("bucket") or "").strip(),
+            "object_key": str(entity.get("object_key") or "").strip(),
+            "content_type": str(entity.get("content_type") or "").strip(),
+            "retrieved_at": str(entity.get("uploaded_at") or "").strip() or None,
+            "start_char": entity.get("start_char"),
+            "end_char": entity.get("end_char"),
+            "heading": str(entity.get("heading") or "").strip(),
+            "heading_path": list(entity.get("heading_path") or []),
+            "parser_name": str(entity.get("parser_name") or "").strip(),
+            "source_type": "knowledge_file",
+            "_matched_queries": {matched_query},
+            "_raw_score": float(raw_hit.get("distance", 0.0) or 0.0),
+        }
+
+    def _rerank_search_results(
+        self,
+        query_text: str,
+        candidates: list[dict[str, Any]],
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if not candidates:
+            return []
+
+        merged: dict[str, dict[str, Any]] = {}
+        for index, candidate in enumerate(candidates):
+            key = _knowledge_hit_key(candidate)
+            if not key:
+                continue
+            existing = merged.get(key)
+            if existing is None:
+                merged[key] = {
+                    **candidate,
+                    "_first_seen": index,
+                    "_matched_queries": set(candidate.get("_matched_queries") or set()),
+                }
+                continue
+
+            existing["_raw_score"] = max(
+                float(existing.get("_raw_score", 0.0) or 0.0),
+                float(candidate.get("_raw_score", 0.0) or 0.0),
+            )
+            existing["_matched_queries"] = set(existing.get("_matched_queries") or set()) | set(
+                candidate.get("_matched_queries") or set()
+            )
+            if len(str(candidate.get("content") or "")) > len(str(existing.get("content") or "")):
+                for field in (
+                    "summary",
+                    "raw_excerpt",
+                    "content",
+                    "heading",
+                    "heading_path",
+                    "start_char",
+                    "end_char",
+                ):
+                    existing[field] = candidate.get(field)
+
+        query_tokens = set(_tokenize_search_text(query_text))
+        ranked: list[dict[str, Any]] = []
+        normalized_query = _clean_query_text(query_text).lower()
+        for candidate in merged.values():
+            searchable_text = " ".join(
+                [
+                    str(candidate.get("title") or ""),
+                    str(candidate.get("heading") or ""),
+                    str(candidate.get("summary") or ""),
+                    str(candidate.get("content") or "")[:600],
+                ]
+            )
+            searchable_tokens = set(_tokenize_search_text(searchable_text))
+            heading_tokens = set(_tokenize_search_text(str(candidate.get("heading") or "")))
+            filename_tokens = set(_tokenize_search_text(str(candidate.get("title") or "")))
+            overlap = len(query_tokens & searchable_tokens)
+            heading_overlap = len(query_tokens & heading_tokens)
+            filename_overlap = len(query_tokens & filename_tokens)
+            matched_queries = set(candidate.get("_matched_queries") or set())
+            exact_match = normalized_query and normalized_query in _clean_query_text(searchable_text).lower()
+
+            rank_score = float(candidate.get("_raw_score", 0.0) or 0.0)
+            rank_score += overlap * 0.15
+            rank_score += heading_overlap * 0.08
+            rank_score += filename_overlap * 0.05
+            rank_score += max(0, len(matched_queries) - 1) * 0.07
+            if exact_match:
+                rank_score += 0.1
+
+            candidate["score"] = round(rank_score, 4)
+            candidate["_rank_score"] = rank_score
+            ranked.append(candidate)
+
+        ranked.sort(
+            key=lambda item: (
+                -float(item.get("_rank_score", 0.0) or 0.0),
+                -float(item.get("_raw_score", 0.0) or 0.0),
+                int(item.get("_first_seen", 0) or 0),
+            )
+        )
+
+        cleaned: list[dict[str, Any]] = []
+        for item in ranked[: max(1, limit)]:
+            cleaned.append({key: value for key, value in item.items() if not str(key).startswith("_")})
+        return cleaned
+
     def search(
         self,
         *,
@@ -831,55 +1118,30 @@ class KnowledgeService:
         visible_file_ids = [str(item.id).strip() for item in indexed if str(item.id).strip()]
         if not visible_file_ids:
             return []
-        query_embeddings = self.embedding_client.embed_texts([query_text])
+        final_limit = max(1, int(limit or settings.knowledge_search_top_k or 4))
+        query_variants = _expand_search_queries(query_text)
+        query_embeddings = self.embedding_client.embed_texts(query_variants)
         if not query_embeddings:
             return []
-        raw_hits = self.milvus_store.search(
-            query_vector=query_embeddings[0],
-            limit=int(limit or settings.knowledge_search_top_k or 4),
-            file_ids=visible_file_ids,
-        )
-
-        normalized: list[dict[str, Any]] = []
-        for item in raw_hits:
-            entity = item.get("entity") or {}
-            hit_id = str(
-                item.get("id")
-                or entity.get("chunk_id")
-                or entity.get("id")
-                or ""
-            ).strip()
-            file_id = str(entity.get("file_id") or "").strip()
-            if file_id and file_id not in visible_file_ids:
-                continue
-            base_url = str(entity.get("download_url") or f"/api/knowledge/files/{file_id}/download").strip()
-            text = str(entity.get("text") or "").strip()
-            url = f"{base_url}#chunk={hit_id}" if hit_id else base_url
-            normalized.append(
-                {
-                    "title": str(entity.get("filename") or file_id or "Knowledge File").strip(),
-                    "url": url,
-                    "raw_url": base_url,
-                    "summary": text[:240],
-                    "raw_excerpt": text,
-                    "content": text,
-                    "score": float(item.get("distance", 0.0) or 0.0),
-                    "provider": "milvus_rag",
-                    "published_date": None,
-                    "knowledge_file_id": file_id,
-                    "chunk_id": hit_id,
-                    "bucket": str(entity.get("bucket") or "").strip(),
-                    "object_key": str(entity.get("object_key") or "").strip(),
-                    "content_type": str(entity.get("content_type") or "").strip(),
-                    "retrieved_at": str(entity.get("uploaded_at") or "").strip() or None,
-                    "start_char": entity.get("start_char"),
-                    "end_char": entity.get("end_char"),
-                    "heading": str(entity.get("heading") or "").strip(),
-                    "parser_name": str(entity.get("parser_name") or "").strip(),
-                    "source_type": "knowledge_file",
-                }
+        visible_file_id_set = set(visible_file_ids)
+        candidates: list[dict[str, Any]] = []
+        candidate_limit = _knowledge_candidate_limit(final_limit)
+        for variant, query_vector in zip(query_variants, query_embeddings, strict=False):
+            raw_hits = self.milvus_store.search(
+                query_vector=query_vector,
+                limit=candidate_limit,
+                file_ids=visible_file_ids,
             )
-        return normalized
+            for item in raw_hits:
+                normalized = self._normalize_search_hit(
+                    raw_hit=item,
+                    matched_query=variant,
+                    visible_file_ids=visible_file_id_set,
+                )
+                if normalized is not None:
+                    candidates.append(normalized)
+
+        return self._rerank_search_results(query_text, candidates, limit=final_limit)
 
 
 @lru_cache(maxsize=1)
