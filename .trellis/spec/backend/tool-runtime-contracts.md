@@ -859,8 +859,17 @@ Reviewer/reporter consumption rules:
   - After `artifact_store.final_report.report_markdown` exists, runtime must go
     directly from `report` to `finalize`; there is no `final_claim_gate`
     stage.
+  - `MultiAgentDeepResearchRuntime._finalize_node(...)` must project the
+    finalized runtime snapshot into both `final_result["deep_runtime"]` and
+    public `deep_research_artifacts["runtime_state"]` with:
+    - `runtime_state["next_step"] == "completed"`
+    - `runtime_state["phase"] == "finalize"`
   - `deep_runtime["runtime_state"]` must not persist
     `final_claim_gate_summary`.
+  - If `report` reaches `finalize` without admitted sections or stored final
+    markdown, runtime must set a blocking terminal reason and return a
+    non-empty failure `final_report` fallback instead of an empty successful
+    payload.
   - `quality_summary(...)` must not emit `claim_verifier_total`,
     `claim_verifier_verified`, `claim_verifier_unsupported`, or
     `claim_verifier_contradicted`.
@@ -907,6 +916,8 @@ Reviewer/reporter consumption rules:
 | Runtime resumes from a legacy checkpoint with `next_step="final_claim_gate"` | checkpoint should still resume successfully | runtime jumps to `finalize` |
 | Runtime resumes from a legacy checkpoint with `active_agent="verifier"` | checkpoint should still resume successfully | runtime normalizes the role and continues |
 | Final report exists in artifact store | runtime does not run an extra post-report gate | next step is `finalize` |
+| Finalize emits the final response payload | returned runtime snapshot is already in completed terminal state | `deep_runtime.runtime_state.next_step == "completed"` and `phase == "finalize"` |
+| Report reaches finalize with no admitted sections or final markdown | runtime must not return an empty successful answer | set blocking terminal reason and emit a non-empty failure `final_report` |
 | `/api/runs/{thread_id}` evidence summary is rebuilt after the final-claim-gate removal | response contract stays stable without removed counters | `RunEvidenceSummary` omits all `claim_verifier_*` fields |
 | Final report is long but admitted `report_context` is available | executive summary uses admitted section summaries/findings first | avoids summary drift from truncated markdown |
 | Branch artifacts omitted from merge/public adapters | merge must not crash | empty plural lists / empty summary dicts |
@@ -1085,6 +1096,10 @@ sections just because the draft text is non-empty.
   - assert runtime mermaid/path no longer includes `final_claim_gate`
   - assert report generation excludes `low`/`insufficient` sections from the
     admitted reporter context
+  - assert finalize projects `next_step="completed"` while keeping
+    `phase="finalize"` in both `deep_runtime` and public artifacts
+  - assert report-without-admitted-sections returns a non-empty failure
+    `final_report`
   - assert materially conflicting sections are excluded from the admitted
     reporter context
   - assert admitted `medium` sections keep only the truncated reporter finding

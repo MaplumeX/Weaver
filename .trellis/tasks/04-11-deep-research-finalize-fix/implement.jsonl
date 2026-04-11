@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Deep Research runtime changes stay in owning backend module."}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "Deep Research runtime_state and public artifacts are cross-layer stable contracts."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Finalize fallback must return a deliberate failure reason instead of silent empty success."}

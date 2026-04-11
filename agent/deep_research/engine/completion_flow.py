@@ -65,6 +65,8 @@ def build_finalize_outputs(
     final_report = str(final_artifact.get("report_markdown") or "")
     if not final_report and runtime_state.get("terminal_reason"):
         final_report = f"Deep Research 未能完成：{runtime_state['terminal_reason']}"
+    if not final_report:
+        final_report = "Deep Research 未能完成：最终报告不可用"
 
     task_queue_snapshot = task_queue.snapshot()
     artifact_store_snapshot = artifact_store.snapshot()

@@ -1079,6 +1079,9 @@ class MultiAgentDeepResearchRuntime:
         record = self._start_agent_run(parts, role="reporter", phase="report", attempt=self.graph_attempt)
         report_sections = self._build_report_sections(parts.artifact_store)
         if not report_sections:
+            parts.runtime_state["terminal_status"] = "blocked"
+            if not str(parts.runtime_state.get("terminal_reason") or "").strip():
+                parts.runtime_state["terminal_reason"] = "no reportable sections available"
             self._finish_agent_run(parts, record, status="failed", summary="no reportable sections")
             return self._patch(parts, next_step="finalize")
 
@@ -1107,6 +1110,8 @@ class MultiAgentDeepResearchRuntime:
 
     def _finalize_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)
+        parts.runtime_state["phase"] = "finalize"
+        parts.runtime_state["next_step"] = "completed"
         quality_summary = self._quality_summary(parts.task_queue, parts.artifact_store, parts.runtime_state)
         research_topology = self._research_topology_snapshot(parts.task_queue, parts.artifact_store, parts.runtime_state)
         node_complete_payload, result = completion_flow.build_finalize_outputs(
@@ -1124,7 +1129,6 @@ class MultiAgentDeepResearchRuntime:
             ToolEventType.RESEARCH_NODE_COMPLETE,
             node_complete_payload,
         )
-        parts.runtime_state["next_step"] = "completed"
         return self._patch(parts, next_step="completed", final_result=result)
 
     def build_graph(self, *, checkpointer: Any = None, interrupt_before: Any = None):

@@ -676,6 +676,39 @@ def test_multi_agent_graph_can_resume_from_merge_checkpoint(monkeypatch):
     assert final_result["final_report"].startswith("# AI chips")
 
 
+def test_finalize_node_projects_completed_runtime_state(monkeypatch):
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(monkeypatch, emitter=emitter)
+
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_finalize_projection"}},
+    )
+    state = runtime.build_initial_graph_state()
+    state["artifact_store"] = {
+        "final_report": {
+            "id": "final_report_1",
+            "report_markdown": "# AI chips\n\nDone.",
+            "executive_summary": "Done.",
+        }
+    }
+    state["runtime_state"]["phase"] = "finalize"
+    state["runtime_state"]["next_step"] = "finalize"
+
+    finalized = runtime._finalize_node(state)
+    final_result = finalized["final_result"]
+    result_runtime_state = final_result["deep_runtime"]["runtime_state"]
+    public_runtime_state = final_result["deep_research_artifacts"]["runtime_state"]
+
+    assert finalized["next_step"] == "completed"
+    assert finalized["runtime_state"]["next_step"] == "completed"
+    assert finalized["runtime_state"]["phase"] == "finalize"
+    assert result_runtime_state["next_step"] == "completed"
+    assert result_runtime_state["phase"] == "finalize"
+    assert public_runtime_state["next_step"] == "completed"
+    assert public_runtime_state["phase"] == "finalize"
+
+
 def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
     emitter = _DummyEmitter()
     _patch_runtime_deps(monkeypatch, emitter=emitter, supervisor=_SingleTaskSupervisor)
@@ -778,6 +811,27 @@ def test_outline_plan_finalizes_when_manager_fails(monkeypatch):
     assert failed["next_step"] == "finalize"
     assert failed["runtime_state"]["terminal_status"] == "blocked"
     assert "tool-calling outline manager execution failed" in failed["runtime_state"]["terminal_reason"]
+
+
+def test_report_finalize_returns_failure_report_when_no_reportable_sections(monkeypatch):
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(monkeypatch, emitter=emitter)
+
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_report_empty"}},
+    )
+
+    report_state = runtime._report_node(runtime.build_initial_graph_state())
+    finalized = runtime._finalize_node(report_state)
+    final_result = finalized["final_result"]
+
+    assert report_state["next_step"] == "finalize"
+    assert report_state["runtime_state"]["terminal_status"] == "blocked"
+    assert report_state["runtime_state"]["terminal_reason"] == "no reportable sections available"
+    assert final_result["final_report"] == "Deep Research 未能完成：no reportable sections available"
+    assert len(final_result["messages"]) == 1
+    assert final_result["is_complete"] is True
 
 
 def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch):

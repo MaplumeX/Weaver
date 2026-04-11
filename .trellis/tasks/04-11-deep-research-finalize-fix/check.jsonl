@@ -1,0 +1,4 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Behavior changes require regression tests and targeted pytest validation."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Returned runtime snapshot feeds resume and frontend/public artifact consumers."}
