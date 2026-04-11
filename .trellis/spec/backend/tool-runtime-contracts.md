@@ -589,12 +589,18 @@ yield await format_stream_event(
 - File: `agent/deep_research/agents/supervisor.py`
   - `ResearchSupervisor.create_outline_plan(topic, *, approved_scope=None) -> dict[str, Any]`
   - `ResearchSupervisor.decide_section_action(outline, section_status_map, *, budget_stop_reason="", aggregate_summary=None, reportable_section_count=0, pending_replans=None) -> SupervisorDecision`
+- File: `agent/deep_research/agents/supervisor_tools.py`
+  - `build_supervisor_outline_tools(runtime) -> list[BaseTool]`
+  - `build_supervisor_control_tools(runtime) -> list[BaseTool]`
+  - `SupervisorToolRuntime.latest_call() -> dict[str, Any]`
 - File: `agent/deep_research/agents/researcher.py`
   - `ResearchAgent.research_branch(task, *, topic, existing_summary="", max_results_per_query=5) -> dict[str, Any]`
 - File: `agent/deep_research/branch_research/runner.py`
   - `BranchResearchRunner.run(task, *, topic, existing_summary, max_results_per_query) -> dict[str, Any]`
 - File: `agent/deep_research/engine/artifact_store.py`
   - `LightweightArtifactStore.snapshot() -> dict[str, Any]`
+- File: `agent/deep_research/engine/planning_flow.py`
+  - `run_outline_plan_step(...) -> dict[str, Any]`
 - File: `agent/deep_research/engine/review_cycle.py`
   - `review_section_drafts(...) -> None`
   - `decide_supervisor_next_step(...) -> tuple[str, dict[str, Any]]`
@@ -632,6 +638,48 @@ yield await format_stream_event(
 - `deliverable_constraints`
 - `constraints`
 - `time_boundary`
+
+Supervisor manager boundary:
+
+- Supervisor is a control-plane manager only. It must not search the web, read
+  sources, or write report prose directly.
+- `ResearchSupervisor.create_outline_plan(...)` must use only outline
+  control-plane tools:
+  - `submit_outline_plan(reason, sections)`
+  - `stop_planning(reason)`
+- `ResearchSupervisor.decide_section_action(...)` must use only decision
+  control-plane tools:
+  - `conduct_research(section_id, reason, queries, replan_kind, issue_ids)`
+  - `revise_section(section_id, reason, target_issue_ids)`
+  - `complete_report(reason)`
+  - `stop_research(reason)`
+- No deterministic supervisor fallback path is allowed in the active runtime
+  execution flow.
+
+Outline-manager contract:
+
+- `create_outline_plan(...)` must choose exactly one tool call.
+- `submit_outline_plan.sections[*]` must contain at least:
+  - `title`
+  - `objective`
+  - `core_question`
+- Runtime normalization owns these fields after tool output:
+  - generated `section.id`
+  - `section_order`
+  - `follow_up_policy="bounded"`
+  - `branch_stop_policy="coverage_or_budget"`
+  - fallback `source_requirements` when omitted
+  - shared `deliverable_constraints`, `constraints`, `time_boundary` copied
+    from approved scope
+- `question_section_map` must be rebuilt from normalized sections, not trusted
+  from raw tool output.
+- If outline manager execution fails, emits no tool call, emits
+  `stop_planning`, or emits malformed sections:
+  - `run_outline_plan_step(...)` must set
+    `runtime_state["terminal_status"] = "blocked"`
+  - `runtime_state["terminal_reason"]` must carry the manager failure reason
+  - next step must be `finalize`
+  - runtime must not synthesize a fallback outline
 
 `ResearchAgent.research_branch(...)` must return these top-level keys:
 
@@ -716,7 +764,8 @@ Reviewer/reporter consumption rules:
     - `section_id`
     - `section_order`
     - `task_kind` (`section_research` or `section_revision`)
-    - `replan_kind` (`follow_up_research`, `counterevidence`, or `revision`)
+    - `replan_kind` (`follow_up_research`, `counterevidence`,
+      `freshness_recheck`, or `revision`)
     - `reason`
     - `issue_types`
     - `issue_ids`
@@ -725,7 +774,14 @@ Reviewer/reporter consumption rules:
     - `core_question`
     - `reportability`
     - `quality_band`
+- Decision-manager failure contract:
+  - If decision manager execution fails, emits no tool call, or emits a
+    malformed tool call, `decide_section_action(...)` must return
+    `SupervisorDecision(action="stop", reasoning=...)`.
 - Runtime execution contract:
+  - `MultiAgentDeepResearchRuntime._outline_plan_node(...)` is the only node
+    that may translate `submit_outline_plan.sections[*]` into normalized
+    outline sections plus queued section `ResearchTask` records.
   - `MultiAgentDeepResearchRuntime._supervisor_decide_node(...)` is the only
     node that may translate `task_specs` into new queued `ResearchTask`
     records.
@@ -788,8 +844,11 @@ Reviewer/reporter consumption rules:
 | No new evidence and no follow-up queries | bounded stop | `stop_reason="evidence_stagnated"` or `no_follow_up_queries` |
 | Only weak snippet evidence exists | draft may still be produced | reviewer can mark section `reportability=low` and `needs_manual_review=true` |
 | Evidence dominated by one source domain | contradiction artifact requests counterevidence | advisory follow-up, not hard failure by itself |
+| Outline manager returns one valid `submit_outline_plan` tool call | runtime normalizes sections and enqueues initial section tasks | next step is `dispatch` |
+| Outline manager fails, emits no tool call, or emits `stop_planning` | outline planning is blocked | runtime finalizes with `terminal_status="blocked"` and manager reason |
 | Reviewer finds fixable section gaps and no budget stop is active | reviewer records `pending_replans`, supervisor emits `action="replan"` with `task_specs` | runtime enqueues new `section_research` / `section_revision` tasks |
 | Reviewer finds fixable section gaps but budget stop is active | no executable replan is emitted | runtime prefers `report_partial`, `outline_gate`, or `stop` |
+| Decision manager fails, emits no tool call, or emits malformed action | supervisor returns `action="stop"` | runtime finalizes unless admitted sections already allow partial report |
 | Draft has `reportability=low` or `insufficient` | reporter excludes it from final report context | `report_ready=false` when no admitted sections remain |
 | Draft has `reportability=medium` but `contradiction_summary.has_material_conflict=true` | reporter excludes it from final report context | final report omits the section |
 | Runtime resumes from a legacy checkpoint with `next_step="final_claim_gate"` | checkpoint should still resume successfully | runtime jumps to `finalize` |
@@ -958,12 +1017,14 @@ sections just because the draft text is non-empty.
   - assert bounded multi-round query refinement can cover missing criteria
 - `tests/test_deepsearch_supervisor.py`
   - assert outline sections propagate richer branch policy fields
+  - assert outline manager `stop_planning` raises and does not synthesize a fallback outline
   - assert supervisor maps `pending_replans` into `replan` task specs
   - assert counterevidence and revision replans are distinguished correctly
 - `tests/test_deepsearch_multi_agent_runtime.py`
   - assert artifact store/public payload expose `branch_*` snapshot keys
   - assert section drafts carry structured coverage/quality/grounding summaries
   - assert reviewer records `pending_replans` but does not enqueue tasks
+  - assert outline manager failure blocks runtime and finalizes without fallback
   - assert supervisor is the node that enqueues retry/revision tasks
   - assert budget stop prevents executable replans and falls back to
     partial-report behavior

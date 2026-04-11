@@ -461,26 +461,6 @@ class MultiAgentDeepResearchRuntime:
             domain_config=self.state.get("domain_config") or {},
         )
 
-    def _fallback_outline_plan(self, scope: dict[str, Any]) -> dict[str, Any]:
-        return planning.fallback_outline_plan(scope=scope, topic=self.topic)
-
-    def _fallback_section_decision(
-        self,
-        *,
-        outline: dict[str, Any],
-        section_status_map: dict[str, Any],
-        budget_stop_reason: str = "",
-        aggregate_summary: dict[str, Any] | None = None,
-        reportable_section_count: int = 0,
-    ) -> dict[str, Any]:
-        return planning.fallback_section_decision(
-            outline=outline,
-            section_status_map=section_status_map,
-            budget_stop_reason=budget_stop_reason,
-            aggregate_summary=aggregate_summary,
-            reportable_section_count=reportable_section_count,
-        )
-
     def _section_map(self, outline: dict[str, Any]) -> dict[str, dict[str, Any]]:
         return planning.section_map(outline)
 
@@ -610,6 +590,8 @@ class MultiAgentDeepResearchRuntime:
             task.title = (
                 f"补充对比研究: {task.title}"
                 if task_kind == "section_research" and str(spec.get("replan_kind") or "") == "counterevidence"
+                else f"时效复核: {task.title}"
+                if task_kind == "section_research" and str(spec.get("replan_kind") or "") == "freshness_recheck"
                 else f"补充研究: {task.title}"
                 if task_kind == "section_research"
                 else task.title
@@ -847,7 +829,6 @@ class MultiAgentDeepResearchRuntime:
             topic=self.topic,
             graph_attempt=self.graph_attempt,
             supervisor=self.supervisor,
-            fallback_outline_plan_fn=self._fallback_outline_plan,
             outline_sections_fn=self._outline_sections,
             build_outline_tasks_fn=self._build_outline_tasks,
             build_plan_artifact_fn=self._build_plan_artifact,
@@ -897,7 +878,7 @@ class MultiAgentDeepResearchRuntime:
         task_payload = payload.get("task") if isinstance(payload, dict) else None
         task = ResearchTask(**task_payload) if isinstance(task_payload, dict) else ResearchTask(**payload)
         parts = self._unpack(graph_state)
-        parts.runtime_state["active_agent"] = "supervisor"
+        parts.runtime_state["active_agent"] = "researcher"
         outline = parts.artifact_store.outline()
         section = self._section_map(outline).get(str(task.section_id or ""), {})
         record = self._start_agent_run(
@@ -931,7 +912,7 @@ class MultiAgentDeepResearchRuntime:
         task_payload = payload.get("task") if isinstance(payload, dict) else None
         task = ResearchTask(**task_payload) if isinstance(task_payload, dict) else ResearchTask(**payload)
         parts = self._unpack(graph_state)
-        parts.runtime_state["active_agent"] = "supervisor"
+        parts.runtime_state["active_agent"] = "revisor"
         outline = parts.artifact_store.outline()
         section = self._section_map(outline).get(str(task.section_id or ""), {})
         current_draft = parts.artifact_store.section_draft(str(task.section_id or ""))
@@ -1055,7 +1036,6 @@ class MultiAgentDeepResearchRuntime:
             current_iteration=parts.current_iteration,
             max_epochs=self.max_epochs,
             supervisor=self.supervisor,
-            fallback_section_decision_fn=self._fallback_section_decision,
             emit_decision=self._emit_decision,
         )
         if str(decision_payload.get("action") or "").strip().lower() == "replan":

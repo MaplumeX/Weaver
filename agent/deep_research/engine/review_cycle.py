@@ -17,7 +17,6 @@ BuildRevisionTaskFn = Callable[..., ResearchTask]
 EmitArtifactUpdateFn = Callable[..., None]
 EmitDecisionFn = Callable[..., None]
 EmitTaskUpdateFn = Callable[..., None]
-FallbackDecisionFn = Callable[..., dict[str, Any]]
 ReviewSectionDraftFn = Callable[..., tuple[dict[str, Any], dict[str, Any] | None]]
 
 
@@ -152,7 +151,6 @@ def decide_supervisor_next_step(
     current_iteration: int,
     max_epochs: int,
     supervisor: Any,
-    fallback_section_decision_fn: FallbackDecisionFn,
     emit_decision: EmitDecisionFn,
 ) -> tuple[str, dict[str, Any]]:
     previous_budget_stop_reason = str(runtime_state.get("budget_stop_reason") or "")
@@ -168,30 +166,18 @@ def decide_supervisor_next_step(
         emit_decision("budget_stop", budget_stop_reason, iteration=max(1, current_iteration or 1))
     if not pending_replans and task_queue.ready_count() > 0 and current_iteration < max_epochs and not budget_stop_reason:
         return "dispatch", {}
-    if hasattr(supervisor, "decide_section_action"):
-        decision = supervisor.decide_section_action(
-            outline=outline,
-            section_status_map=dict(runtime_state.get("section_status_map") or {}),
-            budget_stop_reason=budget_stop_reason,
-            aggregate_summary=aggregate,
-            reportable_section_count=len(reportable_sections),
-            pending_replans=pending_replans,
-        )
-        raw_action = getattr(decision, "action", "")
-        decision_action = str(getattr(raw_action, "value", raw_action) or "").strip().lower()
-        decision_reason = str(getattr(decision, "reasoning", "") or "").strip()
-        task_specs = copy.deepcopy(getattr(decision, "task_specs", []) or [])
-    else:
-        decision = fallback_section_decision_fn(
-            outline=outline,
-            section_status_map=dict(runtime_state.get("section_status_map") or {}),
-            budget_stop_reason=budget_stop_reason,
-            aggregate_summary=aggregate,
-            reportable_section_count=len(reportable_sections),
-        )
-        decision_action = str(decision.get("action") or "").strip().lower()
-        decision_reason = str(decision.get("reasoning") or "").strip()
-        task_specs = copy.deepcopy(decision.get("task_specs") or [])
+    decision = supervisor.decide_section_action(
+        outline=outline,
+        section_status_map=dict(runtime_state.get("section_status_map") or {}),
+        budget_stop_reason=budget_stop_reason,
+        aggregate_summary=aggregate,
+        reportable_section_count=len(reportable_sections),
+        pending_replans=pending_replans,
+    )
+    raw_action = getattr(decision, "action", "")
+    decision_action = str(getattr(raw_action, "value", raw_action) or "").strip().lower()
+    decision_reason = str(getattr(decision, "reasoning", "") or "").strip()
+    task_specs = copy.deepcopy(getattr(decision, "task_specs", []) or [])
     if decision_action == "replan" and task_specs and not budget_stop_reason:
         _clear_terminal_state(runtime_state)
         emit_decision(
@@ -235,7 +221,9 @@ def decide_supervisor_next_step(
         )
         return "outline_gate", {}
     runtime_state["terminal_status"] = "blocked"
-    if budget_stop_reason:
+    if decision_action == "stop" and decision_reason.startswith("tool-calling manager"):
+        runtime_state["terminal_reason"] = decision_reason
+    elif budget_stop_reason:
         runtime_state["terminal_reason"] = budget_stop_reason
     elif aggregate.get("blocked_section_count"):
         runtime_state["terminal_reason"] = "required sections remain blocked"

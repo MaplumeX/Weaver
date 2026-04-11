@@ -1,0 +1,7 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Verify new manager code stays in Deep Research owning modules."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify malformed tool-call and fallback paths degrade safely."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Verify any new logs stay structured and low-risk."}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "Verify runtime tool policy snapshots and artifacts remain compatible."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify regression tests and typed boundaries were added."}

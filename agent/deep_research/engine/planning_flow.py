@@ -13,7 +13,6 @@ def run_outline_plan_step(
     topic: str,
     graph_attempt: int,
     supervisor: Any,
-    fallback_outline_plan_fn: Any,
     outline_sections_fn: Any,
     build_outline_tasks_fn: Any,
     build_plan_artifact_fn: Any,
@@ -35,10 +34,16 @@ def run_outline_plan_step(
             return patch_fn(parts, next_step="dispatch")
         return patch_fn(parts, next_step="reviewer")
 
-    if hasattr(supervisor, "create_outline_plan"):
+    try:
         outline = supervisor.create_outline_plan(topic, approved_scope=scope)
-    else:
-        outline = fallback_outline_plan_fn(scope)
+    except Exception as exc:
+        reason = str(exc or "outline planning failed").strip() or "outline planning failed"
+        parts.runtime_state["terminal_status"] = "blocked"
+        parts.runtime_state["terminal_reason"] = reason
+        emit_decision_fn("stop", reason, iteration=max(1, parts.current_iteration or 1))
+        finish_agent_run_fn(parts, record, status="failed", summary=reason)
+        return patch_fn(parts, next_step="finalize")
+
     sections = outline_sections_fn(outline)
     tasks = build_outline_tasks_fn(outline=outline, scope=scope)
     if not tasks:

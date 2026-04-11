@@ -7,7 +7,7 @@ from typing import Any
 from agent.deep_research.engine.section_logic import _section_title
 from agent.deep_research.engine.text_analysis import _dedupe_texts
 from agent.deep_research.ids import _new_id
-from agent.deep_research.schema import OutlineArtifact, OutlineSection, ResearchTask
+from agent.deep_research.schema import ResearchTask
 
 
 def outline_sections(outline: dict[str, Any]) -> list[dict[str, Any]]:
@@ -86,92 +86,6 @@ def build_outline_tasks(
         )
         tasks.append(task)
     return tasks
-
-
-def fallback_outline_plan(*, scope: dict[str, Any], topic: str) -> dict[str, Any]:
-    questions = _dedupe_texts(scope.get("core_questions") or [scope.get("research_goal") or topic])
-    sections = [
-        OutlineSection(
-            id=_new_id("section"),
-            title=f"问题 {index}: {question}",
-            objective=question,
-            core_question=question,
-            acceptance_checks=[question],
-            source_requirements=[
-                "至少 1 个可引用来源",
-                "至少 1 段可定位 passage 支撑主结论",
-            ],
-            coverage_targets=[question],
-            source_preferences=_dedupe_texts(scope.get("source_preferences") or []),
-            authority_preferences=_dedupe_texts(scope.get("source_preferences") or []),
-            freshness_policy="default_advisory",
-            follow_up_policy="bounded",
-            branch_stop_policy="coverage_or_budget",
-            section_order=index,
-            status="planned",
-        ).to_dict()
-        for index, question in enumerate(questions, 1)
-    ]
-    return OutlineArtifact(
-        id=_new_id("outline"),
-        topic=topic,
-        outline_version=1,
-        sections=sections,
-        required_section_ids=[str(item.get("id") or "") for item in sections if str(item.get("id") or "")],
-        question_section_map={
-            str(item.get("core_question") or "").strip(): str(item.get("id") or "").strip()
-            for item in sections
-            if str(item.get("core_question") or "").strip() and str(item.get("id") or "").strip()
-        },
-    ).to_dict()
-
-
-def fallback_section_decision(
-    *,
-    outline: dict[str, Any],
-    section_status_map: dict[str, Any],
-    budget_stop_reason: str = "",
-    aggregate_summary: dict[str, Any] | None = None,
-    reportable_section_count: int = 0,
-) -> dict[str, Any]:
-    aggregate = aggregate_summary or {}
-    if budget_stop_reason and not reportable_section_count and not bool(aggregate.get("report_ready")):
-        return {"action": "stop", "reasoning": budget_stop_reason}
-    if reportable_section_count or bool(aggregate.get("report_ready")):
-        return {"action": "report", "reasoning": "已有可报告章节，可进入最佳努力报告生成"}
-    required_ids = [
-        str(item).strip()
-        for item in (outline.get("required_section_ids") or [])
-        if str(item).strip()
-    ]
-    if not required_ids:
-        required_ids = [
-            str(item.get("id") or "").strip()
-            for item in outline_sections(outline)
-            if str(item.get("id") or "").strip()
-        ]
-    if not required_ids:
-        required_ids = [
-            str(section_id).strip()
-            for section_id in dict(section_status_map or {}).keys()
-            if str(section_id).strip()
-        ]
-    blocked = [
-        section_id
-        for section_id in required_ids
-        if str((section_status_map or {}).get(section_id) or "").strip() == "blocked"
-    ]
-    if blocked and not reportable_section_count:
-        return {"action": "stop", "reasoning": "存在阻塞的 required section"}
-    pending = [
-        section_id
-        for section_id in required_ids
-        if str((section_status_map or {}).get(section_id) or "planned").strip()
-        not in {"certified", "blocked", "failed"}
-    ]
-    if pending:
-        return {"action": "dispatch", "reasoning": "仍有未认证的 section"}
-    return {"action": "report", "reasoning": "所有 required section 已认证"}
 
 
 def section_map(outline: dict[str, Any]) -> dict[str, dict[str, Any]]:

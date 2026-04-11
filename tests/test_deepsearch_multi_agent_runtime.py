@@ -2,6 +2,7 @@ import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
+import agent.deep_research.agents.supervisor as supervisor_module
 import agent.deep_research.engine.graph as multi_agent_runtime
 from agent.deep_research.entrypoints import run_deep_research
 from agent.foundation.state import build_deep_runtime_snapshot
@@ -14,6 +15,22 @@ class _DummyEmitter:
     def emit_sync(self, event_type, data):
         name = event_type.value if hasattr(event_type, "value") else str(event_type)
         self.emitted.append((name, data))
+
+
+class _FakeToolCallingAgent:
+    def __init__(self, tools, tool_name, tool_payload):
+        self.tools = {
+            getattr(tool, "name", ""): tool
+            for tool in tools
+            if getattr(tool, "name", "")
+        }
+        self.tool_name = tool_name
+        self.tool_payload = tool_payload
+
+    def invoke(self, payload, config=None):
+        del payload, config
+        self.tools[self.tool_name]._run(**self.tool_payload)
+        return {"messages": []}
 
 
 class _FakeSupervisor:
@@ -145,6 +162,12 @@ class _SingleTaskSupervisor(_FakeSupervisor):
             "question_section_map": {first_question: "section_1"},
             "status": "completed",
         }
+
+
+class _OutlinePlanningFailureSupervisor(_FakeSupervisor):
+    def create_outline_plan(self, topic, *, approved_scope=None):
+        del topic, approved_scope
+        raise RuntimeError("tool-calling outline manager execution failed: planning unavailable")
 
 
 class _FakeClarifyAgent:
@@ -741,6 +764,32 @@ def test_outline_plan_waits_for_scope_approval_before_dispatch(monkeypatch):
     assert dispatched["runtime_state"]["supervisor_phase"] == "outline_plan"
 
 
+def test_outline_plan_finalizes_when_manager_fails(monkeypatch):
+    emitter = _DummyEmitter()
+    _patch_runtime_deps(monkeypatch, emitter=emitter, supervisor=_OutlinePlanningFailureSupervisor)
+
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_plan_failure"}},
+    )
+
+    approved_state = runtime.build_initial_graph_state()
+    approved_state["runtime_state"]["approved_scope_draft"] = {
+        "id": "scope-1",
+        "version": 1,
+        "status": "approved",
+        "research_goal": "Research AI chips",
+        "core_questions": ["What matters most about AI chips?"],
+    }
+    brief_state = runtime._research_brief_node(approved_state)
+
+    failed = runtime._outline_plan_node(brief_state)
+
+    assert failed["next_step"] == "finalize"
+    assert failed["runtime_state"]["terminal_status"] == "blocked"
+    assert "tool-calling outline manager execution failed" in failed["runtime_state"]["terminal_reason"]
+
+
 def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch):
     emitter = _DummyEmitter()
     _patch_runtime_deps(
@@ -952,6 +1001,15 @@ def test_medium_section_report_uses_admitted_content_only(monkeypatch):
 
 def test_supervisor_decide_accepts_enum_report_action(monkeypatch):
     emitter = _DummyEmitter()
+    monkeypatch.setattr(
+        supervisor_module,
+        "create_agent",
+        lambda _llm, tools: _FakeToolCallingAgent(
+            tools,
+            "complete_report",
+            {"reason": "所有章节已认证，可以进入最终报告生成"},
+        ),
+    )
     monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
     monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
@@ -1095,6 +1153,205 @@ def test_reviewer_hands_replans_to_supervisor_before_enqueue(monkeypatch):
     decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
     assert "coverage_gap_detected" in decision_types
     assert "supervisor_replan" in decision_types
+
+
+def test_tool_calling_supervisor_replan_creates_counterevidence_task(monkeypatch):
+    emitter = _DummyEmitter()
+    monkeypatch.setattr(
+        supervisor_module,
+        "create_agent",
+        lambda _llm, tools: _FakeToolCallingAgent(
+            tools,
+            "conduct_research",
+            {
+                "section_id": "section_1",
+                "reason": "需要补充对比来源",
+                "queries": ["market share by vendor"],
+                "replan_kind": "counterevidence",
+                "issue_ids": ["issue-1"],
+            },
+        ),
+    )
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", supervisor_module.ResearchSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_tool_calling_replan"}},
+    )
+    state = runtime.build_initial_graph_state()
+    state["artifact_store"] = {
+        "scope": {"id": "scope-1"},
+        "outline": {
+            "id": "outline-1",
+            "required_section_ids": ["section_1"],
+            "sections": [
+                {
+                    "id": "section_1",
+                    "title": "问题 1",
+                    "objective": "What matters most about AI chips?",
+                    "core_question": "What matters most about AI chips?",
+                    "section_order": 1,
+                }
+            ],
+        },
+        "plan": {},
+        "evidence_bundles": [
+            {
+                "id": "bundle-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "sources": [],
+                "documents": [],
+                "passages": [],
+            }
+        ],
+        "section_drafts": [
+            {
+                "id": "draft-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "branch_id": "root",
+                "title": "问题 1",
+                "objective": "What matters most about AI chips?",
+                "core_question": "What matters most about AI chips?",
+                "summary": "AI chips matter.",
+                "key_findings": ["AI chips matter."],
+                "open_questions": ["Which sources disagree?"],
+                "source_urls": [],
+                "claim_units": [
+                    {
+                        "id": "claim-1",
+                        "text": "AI chips matter.",
+                        "importance": "primary",
+                        "grounded": False,
+                    }
+                ],
+                "coverage_summary": {"missing_topics": ["market share by vendor"]},
+                "quality_summary": {},
+                "contradiction_summary": {"needs_counterevidence_query": True},
+                "grounding_summary": {"primary_grounding_ratio": 0.0},
+                "section_order": 1,
+            }
+        ],
+        "section_reviews": [],
+        "section_certifications": [],
+        "final_report": {},
+    }
+    state["task_queue"] = {
+        "tasks": [],
+        "stats": {"total": 0, "ready": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0},
+    }
+    state["runtime_state"]["section_status_map"] = {"section_1": "drafted"}
+
+    reviewed = runtime._reviewer_node(state)
+    supervised = runtime._supervisor_decide_node(reviewed)
+
+    assert supervised["next_step"] == "dispatch"
+    assert supervised["task_queue"]["stats"]["ready"] == 1
+    queued_task = supervised["task_queue"]["tasks"][0]
+    assert queued_task["task_kind"] == "section_research"
+    assert queued_task["query"] == "market share by vendor"
+    assert queued_task["aspect"] == "counterevidence"
+    assert queued_task["title"].startswith("补充对比研究:")
+
+
+def test_tool_calling_supervisor_failure_stops_without_fallback_dispatch(monkeypatch):
+    emitter = _DummyEmitter()
+    monkeypatch.setattr(
+        supervisor_module,
+        "create_agent",
+        lambda _llm, _tools: (_ for _ in ()).throw(RuntimeError("manager unavailable")),
+    )
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", supervisor_module.ResearchSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_tool_calling_stop"}},
+    )
+    state = runtime.build_initial_graph_state()
+    state["artifact_store"] = {
+        "scope": {"id": "scope-1"},
+        "outline": {
+            "id": "outline-1",
+            "required_section_ids": ["section_1"],
+            "sections": [
+                {
+                    "id": "section_1",
+                    "title": "问题 1",
+                    "objective": "What matters most about AI chips?",
+                    "core_question": "What matters most about AI chips?",
+                    "section_order": 1,
+                }
+            ],
+        },
+        "plan": {},
+        "evidence_bundles": [
+            {
+                "id": "bundle-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "sources": [],
+                "documents": [],
+                "passages": [],
+            }
+        ],
+        "section_drafts": [
+            {
+                "id": "draft-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "branch_id": "root",
+                "title": "问题 1",
+                "objective": "What matters most about AI chips?",
+                "core_question": "What matters most about AI chips?",
+                "summary": "AI chips matter.",
+                "key_findings": ["AI chips matter."],
+                "open_questions": [],
+                "source_urls": [],
+                "claim_units": [
+                    {
+                        "id": "claim-1",
+                        "text": "AI chips matter.",
+                        "importance": "primary",
+                        "grounded": False,
+                    }
+                ],
+                "coverage_summary": {"missing_topics": ["market share by vendor"]},
+                "quality_summary": {},
+                "contradiction_summary": {"needs_counterevidence_query": True},
+                "grounding_summary": {"primary_grounding_ratio": 0.0},
+                "section_order": 1,
+            }
+        ],
+        "section_reviews": [],
+        "section_certifications": [],
+        "final_report": {},
+    }
+    state["task_queue"] = {
+        "tasks": [],
+        "stats": {"total": 0, "ready": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0},
+    }
+    state["runtime_state"]["section_status_map"] = {"section_1": "drafted"}
+
+    reviewed = runtime._reviewer_node(state)
+    supervised = runtime._supervisor_decide_node(reviewed)
+
+    assert supervised["next_step"] == "finalize"
+    assert supervised["task_queue"]["stats"]["ready"] == 0
+    assert supervised["runtime_state"]["terminal_status"] == "blocked"
+    assert "tool-calling manager execution failed" in supervised["runtime_state"]["terminal_reason"]
 
 
 def test_supervisor_replan_creates_revision_task(monkeypatch):

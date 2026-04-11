@@ -1,0 +1,11 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Any new diagnostics should follow shared logging patterns without leaking prompts or secrets."}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "Supervisor mode and tool-policy changes affect Deep Research runtime tool policy snapshots and artifacts."}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Deep Research runtime code must stay in owning backend packages."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Supervisor tool-calling fallback paths must fail safely and preserve wrapped errors or safe fallbacks."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing task-spec compilation and tool-agent helpers instead of duplicating orchestration logic."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Behavior change requires typed boundaries and regression tests."}
+{"file": "agent/deep_research/engine/graph.py", "reason": "Existing supervisor_decide and task-spec compilation path to preserve."}
+{"file": "agent/tooling/agents/factory.py", "reason": "Existing Deep Research tool-agent factory to reuse for manager mode."}
+{"file": "agent/deep_research/engine/review_cycle.py", "reason": "Current pending_replans and supervisor decision contract."}
