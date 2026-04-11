@@ -118,7 +118,7 @@ from tools.io.asr import get_asr_service, init_asr_service
 from tools.io.screenshot_service import get_screenshot_service
 from tools.io.tts import AVAILABLE_VOICES, get_tts_service, init_tts_service
 from tools.mcp import close_mcp_tools, init_mcp_tools, reload_mcp_tools
-from tools.rag import get_knowledge_service
+from tools.rag import DuplicateKnowledgeFileError, KnowledgeFileNotFoundError, get_knowledge_service
 from tools.sandbox import sandbox_browser_sessions
 from tools.search.orchestrator import get_search_orchestrator
 from triggers import (
@@ -4854,6 +4854,16 @@ class KnowledgeFileIngestResponse(BaseModel):
     files: list[KnowledgeFileItem] = Field(default_factory=list)
 
 
+class KnowledgeFileActionResponse(BaseModel):
+    file: KnowledgeFileItem
+
+
+class KnowledgeFileDeleteResponse(BaseModel):
+    file_id: str
+    filename: str = ""
+    deleted: bool = True
+
+
 def _serialize_knowledge_file(record: Any) -> dict[str, Any]:
     if hasattr(record, "model_dump"):
         payload = record.model_dump(mode="json")
@@ -5124,12 +5134,52 @@ async def upload_knowledge_files(files: list[UploadFile] = File(...)):
             )
             records.append(_serialize_knowledge_file(record))
         return {"files": records}
+    except DuplicateKnowledgeFileError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         logger.error("[knowledge_api] upload failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/knowledge/files/{file_id}/reindex", response_model=KnowledgeFileActionResponse)
+async def reindex_knowledge_file(file_id: str):
+    service = get_knowledge_service()
+    try:
+        record = await run_in_threadpool(service.reindex_file, file_id)
+        return {"file": _serialize_knowledge_file(record)}
+    except DuplicateKnowledgeFileError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except KnowledgeFileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.error("[knowledge_api] reindex failed | file_id=%s | error=%s", file_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.delete("/api/knowledge/files/{file_id}", response_model=KnowledgeFileDeleteResponse)
+async def delete_knowledge_file(file_id: str):
+    service = get_knowledge_service()
+    try:
+        record = await run_in_threadpool(service.delete_file, file_id)
+        return {
+            "file_id": record.id,
+            "filename": record.filename,
+            "deleted": True,
+        }
+    except KnowledgeFileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.error("[knowledge_api] delete failed | file_id=%s | error=%s", file_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -5149,7 +5199,7 @@ async def download_knowledge_file(file_id: str):
             media_type=content_type,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
-    except ValueError as e:
+    except KnowledgeFileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e

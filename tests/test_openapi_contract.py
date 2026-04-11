@@ -28,6 +28,10 @@ def test_openapi_has_key_paths_and_distinct_resume_schemas():
     assert "/api/sessions/{thread_id}/comments" in paths
     assert "/api/sessions/{thread_id}/versions" in paths
     assert "/api/sessions/{thread_id}/evidence" in paths
+    assert "/api/knowledge/files" in paths
+    assert "/api/knowledge/files/{file_id}" in paths
+    assert "/api/knowledge/files/{file_id}/reindex" in paths
+    assert "/api/knowledge/files/{file_id}/download" in paths
     assert "/api/chat/sse" in paths
     assert "/api/runs/{thread_id}" in paths
 

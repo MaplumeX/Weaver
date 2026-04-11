@@ -41,7 +41,15 @@ export function Library({
   onTogglePin,
 }: LibraryProps) {
   const { artifacts, deleteArtifact, isLoading: isArtifactsLoading } = useArtifacts()
-  const { files: knowledgeFiles, isLoading: isKnowledgeLoading, isUploading, uploadFiles } = useKnowledgeFiles()
+  const {
+    files: knowledgeFiles,
+    isLoading: isKnowledgeLoading,
+    isUploading,
+    isMutating: isKnowledgeMutating,
+    uploadFiles,
+    reindexFile,
+    deleteFile,
+  } = useKnowledgeFiles()
 
   const [activeTab, setActiveTab] = useState<LibraryTab>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -49,7 +57,7 @@ export function Library({
   
   // Dialog States
   const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [deleteType, setDeleteType] = useState<'session' | 'artifact' | null>(null)
+  const [deleteType, setDeleteType] = useState<'session' | 'artifact' | 'knowledge' | null>(null)
   const [editSession, setEditSession] = useState<{id: string, title: string} | null>(null)
 
   const filterOptions = [
@@ -99,11 +107,23 @@ export function Library({
     })
   }, [knowledgeFiles, searchQuery])
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId || !deleteType) return
-    if (deleteType === 'session') onDeleteSession(deleteId)
-    else deleteArtifact(deleteId)
-    setDeleteId(null)
+    try {
+      if (deleteType === 'session') {
+        onDeleteSession(deleteId)
+      } else if (deleteType === 'artifact') {
+        deleteArtifact(deleteId)
+      } else {
+        const deleted = await deleteFile(deleteId)
+        toast.success(`Deleted ${deleted.filename || 'knowledge file'}`)
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete knowledge file')
+    } finally {
+      setDeleteId(null)
+      setDeleteType(null)
+    }
   }
 
   const handleRename = (newTitle: string) => {
@@ -114,6 +134,7 @@ export function Library({
   }
 
   const isLoading = isHistoryLoading || isArtifactsLoading
+  const isKnowledgeBusy = isUploading || isKnowledgeMutating
 
   const handleKnowledgeUpload = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return
@@ -133,6 +154,29 @@ export function Library({
       }
     }
   }
+
+  const handleKnowledgeReindex = async (fileId: string) => {
+    try {
+      const file = await reindexFile(fileId)
+      if (!file) {
+        toast.error('Failed to reindex knowledge file')
+        return
+      }
+      if (file.status === 'indexed') {
+        toast.success(`Reindexed ${file.filename}`)
+        return
+      }
+      toast.error(file.error || `Failed to reindex ${file.filename}`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to reindex knowledge file')
+    }
+  }
+
+  const deleteDialogTitle = deleteType === 'knowledge' ? 'Delete Knowledge File' : 'Delete Item'
+  const deleteDialogDescription =
+    deleteType === 'knowledge'
+      ? 'Are you sure you want to delete this knowledge file? This removes both the original stored file and its indexed chunks.'
+      : 'Are you sure you want to delete this? This action cannot be undone.'
 
   return (
     <div className="flex-1 h-full overflow-hidden flex flex-col bg-background">
@@ -164,7 +208,7 @@ export function Library({
               variant="default"
               size="sm"
               onClick={() => knowledgeInputRef.current?.click()}
-              disabled={isUploading}
+              disabled={isKnowledgeBusy}
             >
               <Upload className="mr-2 h-4 w-4" />
               {isUploading ? 'Uploading...' : 'Upload Knowledge'}
@@ -215,7 +259,16 @@ export function Library({
                 ) : filteredKnowledgeFiles.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filteredKnowledgeFiles.map((item) => (
-                      <KnowledgeFileItem key={item.id} file={item} />
+                      <KnowledgeFileItem
+                        key={item.id}
+                        file={item}
+                        onReindex={handleKnowledgeReindex}
+                        onDelete={(id) => {
+                          setDeleteId(id)
+                          setDeleteType('knowledge')
+                        }}
+                        disabled={isKnowledgeBusy}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -272,10 +325,17 @@ export function Library({
       {/* Dialogs */}
       <ConfirmDialog 
         open={!!deleteId} 
-        onOpenChange={(open) => !open && setDeleteId(null)}
-        title="Delete Item"
-        description="Are you sure you want to delete this? This action cannot be undone."
-        onConfirm={handleDelete}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteId(null)
+            setDeleteType(null)
+          }
+        }}
+        title={deleteDialogTitle}
+        description={deleteDialogDescription}
+        onConfirm={() => {
+          void handleDelete()
+        }}
         variant="destructive"
       />
 

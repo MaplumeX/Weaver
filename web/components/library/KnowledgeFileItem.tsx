@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Clock, Download, FileText, HardDrive, MoreVertical } from 'lucide-react'
+import { Clock, Download, FileText, HardDrive, MoreVertical, RefreshCcw, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -15,6 +15,9 @@ import { KnowledgeFile } from '@/types/knowledge'
 
 interface KnowledgeFileItemProps {
   file: KnowledgeFile
+  onReindex?: (id: string) => void
+  onDelete?: (id: string) => void
+  disabled?: boolean
 }
 
 function statusLabel(status: string): string {
@@ -31,7 +34,7 @@ function statusClassName(status: string): string {
   return 'bg-amber-500/10 text-amber-700'
 }
 
-export function KnowledgeFileItem({ file }: KnowledgeFileItemProps) {
+export function KnowledgeFileItem({ file, onReindex, onDelete, disabled = false }: KnowledgeFileItemProps) {
   const downloadHref = `${getApiBaseUrl()}${file.download_path || `/api/knowledge/files/${file.id}/download`}`
 
   return (
@@ -77,15 +80,31 @@ export function KnowledgeFileItem({ file }: KnowledgeFileItemProps) {
         <div onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className="h-8 w-8" disabled={disabled}>
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-44 p-1" align="end">
+              <Button
+                variant="ghost"
+                className="w-full justify-start text-sm h-9"
+                onClick={() => onReindex?.(file.id)}
+                disabled={disabled}
+              >
+                <RefreshCcw className="mr-2 h-4 w-4" /> Reindex
+              </Button>
               <Button asChild variant="ghost" className="w-full justify-start text-sm h-9">
                 <a href={downloadHref} target="_blank" rel="noreferrer">
                   <Download className="mr-2 h-4 w-4" /> Download
                 </a>
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full justify-start text-sm h-9 text-destructive hover:text-destructive"
+                onClick={() => onDelete?.(file.id)}
+                disabled={disabled}
+              >
+                <Trash2 className="mr-2 h-4 w-4" /> Delete
               </Button>
             </PopoverContent>
           </Popover>

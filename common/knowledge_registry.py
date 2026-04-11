@@ -24,6 +24,7 @@ class KnowledgeFileRecord(BaseModel):
     content_type: str = ""
     extension: str = ""
     size_bytes: int = 0
+    content_hash: str = ""
     bucket: str = ""
     object_key: str = ""
     download_path: str = ""
@@ -95,6 +96,22 @@ class KnowledgeRegistry:
                 return item
         return None
 
+    def find_record_by_content_hash(
+        self,
+        content_hash: str,
+        *,
+        exclude_id: str | None = None,
+    ) -> KnowledgeFileRecord | None:
+        target = str(content_hash or "").strip()
+        if not target:
+            return None
+        for item in self.list_records():
+            if exclude_id and item.id == exclude_id:
+                continue
+            if str(item.content_hash or "").strip() == target:
+                return item
+        return None
+
     def upsert_record(self, record: KnowledgeFileRecord) -> KnowledgeFileRecord:
         now = _utc_now_iso()
         updated = record.model_copy(update={"updated_at": now})
@@ -113,6 +130,25 @@ class KnowledgeRegistry:
         with _LOCK:
             _atomic_write_json(self.paths.file, payload)
         return self.get_record(updated.id) or updated
+
+    def delete_record(self, record_id: str) -> KnowledgeFileRecord | None:
+        existing = self.list_records()
+        kept: list[KnowledgeFileRecord] = []
+        removed: KnowledgeFileRecord | None = None
+
+        for item in existing:
+            if item.id == record_id and removed is None:
+                removed = item
+                continue
+            kept.append(item)
+
+        if removed is None:
+            return None
+
+        payload = [item.model_dump(mode="json") for item in kept]
+        with _LOCK:
+            _atomic_write_json(self.paths.file, payload)
+        return removed
 
 
 __all__ = [

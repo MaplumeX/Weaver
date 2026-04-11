@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
 import uuid
@@ -15,6 +16,17 @@ from common.knowledge_registry import KnowledgeFileRecord, KnowledgeRegistry
 from tools.rag.file_parser import parse_uploaded_file
 
 logger = logging.getLogger(__name__)
+
+
+class KnowledgeFileNotFoundError(ValueError):
+    pass
+
+
+class DuplicateKnowledgeFileError(ValueError):
+    def __init__(self, existing: KnowledgeFileRecord) -> None:
+        self.existing = existing
+        message = f"Knowledge file already exists: {existing.filename} ({existing.id})"
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -33,6 +45,10 @@ def _now_iso() -> str:
 def _safe_filename(filename: str) -> str:
     value = Path(str(filename or "").strip()).name
     return value or f"knowledge-{uuid.uuid4().hex[:8]}.bin"
+
+
+def _content_hash_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 class KnowledgeObjectStore:
@@ -97,6 +113,9 @@ class KnowledgeObjectStore:
         finally:
             response.close()
             response.release_conn()
+
+    def delete_object(self, *, bucket: str, object_key: str) -> None:
+        self._client_or_raise().remove_object(bucket, object_key)
 
 
 class RagEmbeddingClient:
@@ -367,6 +386,25 @@ class KnowledgeMilvusStore:
             return [item for item in raw[0] if isinstance(item, dict)]
         return [item for item in raw or [] if isinstance(item, dict)]
 
+    def delete_file_chunks(self, *, file_id: str) -> None:
+        target = str(file_id or "").strip()
+        if not target:
+            return
+        collection_name = settings.knowledge_milvus_collection.strip()
+        client = self._client_or_raise()
+        if not client.has_collection(collection_name=collection_name):
+            return
+
+        schema = self._schema_or_raise()
+        if not schema.enable_dynamic_field and "file_id" not in schema.field_names:
+            raise RuntimeError("Milvus collection schema is missing file_id field required for deletion")
+
+        filter_text = f'file_id == "{target}"'
+        try:
+            client.delete(collection_name=collection_name, filter=filter_text)
+        except TypeError:
+            client.delete(collection_name=collection_name, expr=filter_text)
+
 
 class KnowledgeService:
     def __init__(
@@ -404,6 +442,7 @@ class KnowledgeService:
         content_type: str,
         extension: str,
         size_bytes: int,
+        content_hash: str,
     ) -> KnowledgeFileRecord:
         return KnowledgeFileRecord(
             id=file_id,
@@ -411,13 +450,140 @@ class KnowledgeService:
             content_type=content_type,
             extension=extension,
             size_bytes=size_bytes,
+            content_hash=content_hash,
             download_path=f"/api/knowledge/files/{file_id}/download",
             collection_name=settings.knowledge_milvus_collection.strip(),
             status="uploading",
         )
 
+    def _get_file_or_raise(self, file_id: str) -> KnowledgeFileRecord:
+        record = self.get_file(file_id)
+        if record is None:
+            raise KnowledgeFileNotFoundError("Knowledge file not found")
+        return record
+
+    def _ensure_not_duplicate(self, *, content_hash: str, exclude_id: str | None = None) -> None:
+        existing = self.registry.find_record_by_content_hash(content_hash, exclude_id=exclude_id)
+        if existing is not None:
+            raise DuplicateKnowledgeFileError(existing)
+
+    def _build_chunks_payload(
+        self,
+        *,
+        record: KnowledgeFileRecord,
+        full_text: str,
+        content_type: str,
+        bucket: str,
+        object_key: str,
+        parser_name: str,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        base_chunks = split_into_passages(full_text, max_chars=int(settings.knowledge_chunk_max_chars or 1200))
+        chunks_payload: list[dict[str, Any]] = []
+        chunk_texts: list[str] = []
+
+        for index, item in enumerate(base_chunks, 1):
+            text = str(item.get("text") or "").strip()
+            if len(text) < 20:
+                continue
+            chunk_id = f"{record.id}:{index}"
+            chunk_texts.append(text)
+            chunks_payload.append(
+                {
+                    "id": chunk_id,
+                    "chunk_id": chunk_id,
+                    "file_id": record.id,
+                    "filename": record.filename,
+                    "text": text,
+                    "download_url": record.download_path,
+                    "bucket": bucket,
+                    "object_key": object_key,
+                    "uploaded_at": record.created_at,
+                    "content_type": content_type,
+                    "start_char": int(item.get("start_char") or 0),
+                    "end_char": int(item.get("end_char") or 0),
+                    "heading": str(item.get("heading") or ""),
+                    "parser_name": parser_name,
+                }
+            )
+
+        if chunks_payload:
+            return chunks_payload, chunk_texts
+
+        chunk_id = f"{record.id}:1"
+        return (
+            [
+                {
+                    "id": chunk_id,
+                    "chunk_id": chunk_id,
+                    "file_id": record.id,
+                    "filename": record.filename,
+                    "text": full_text,
+                    "download_url": record.download_path,
+                    "bucket": bucket,
+                    "object_key": object_key,
+                    "uploaded_at": record.created_at,
+                    "content_type": content_type,
+                    "start_char": 0,
+                    "end_char": len(full_text),
+                    "heading": "",
+                    "parser_name": parser_name,
+                }
+            ],
+            [full_text],
+        )
+
+    def _index_record_from_bytes(
+        self,
+        *,
+        record: KnowledgeFileRecord,
+        data: bytes,
+        content_type: str,
+        bucket: str,
+        object_key: str,
+        replace_existing: bool,
+    ) -> KnowledgeFileRecord:
+        parsed = parse_uploaded_file(data, filename=record.filename, content_type=content_type)
+        full_text = str(parsed.text or "").strip()
+        if not full_text:
+            raise ValueError("Knowledge file has no extractable text")
+
+        chunks_payload, chunk_texts = self._build_chunks_payload(
+            record=record,
+            full_text=full_text,
+            content_type=content_type,
+            bucket=bucket,
+            object_key=object_key,
+            parser_name=parsed.parser_name,
+        )
+        embeddings = self.embedding_client.embed_texts(chunk_texts)
+        if len(embeddings) != len(chunks_payload):
+            raise RuntimeError("Embedding response count does not match chunk count")
+
+        dimension = int(settings.rag_embedding_dimensions or 0) or len(embeddings[0])
+        self.milvus_store.ensure_collection(dimension=dimension)
+
+        indexed_chunks: list[dict[str, Any]] = []
+        for chunk, embedding in zip(chunks_payload, embeddings, strict=False):
+            indexed_chunks.append({**chunk, "vector": embedding})
+
+        if replace_existing:
+            self.milvus_store.delete_file_chunks(file_id=record.id)
+        self.milvus_store.insert_chunks(indexed_chunks)
+
+        return self.registry.upsert_record(
+            record.model_copy(
+                update={
+                    "status": "indexed",
+                    "parser_name": parsed.parser_name,
+                    "chunk_count": len(indexed_chunks),
+                    "indexed_at": _now_iso(),
+                    "metadata": dict(parsed.metadata or {}),
+                    "error": "",
+                }
+            )
+        )
+
     def ingest_file(self, *, filename: str, content_type: str, data: bytes) -> KnowledgeFileRecord:
-        self._assert_upload_ready()
         safe_filename = _safe_filename(filename)
         extension = safe_filename.rsplit(".", 1)[-1].lower() if "." in safe_filename else ""
         allowed = set(settings.knowledge_allowed_extensions_list)
@@ -425,6 +591,9 @@ class KnowledgeService:
             raise ValueError(f"Unsupported knowledge file type: {extension or 'unknown'}")
         if len(data) > int(settings.knowledge_max_upload_bytes or 0):
             raise ValueError("Knowledge file exceeds upload size limit")
+        content_hash = _content_hash_bytes(data)
+        self._ensure_not_duplicate(content_hash=content_hash)
+        self._assert_upload_ready()
 
         file_id = f"kf_{uuid.uuid4().hex[:12]}"
         record = self._build_initial_record(
@@ -433,6 +602,7 @@ class KnowledgeService:
             content_type=content_type,
             extension=extension,
             size_bytes=len(data),
+            content_hash=content_hash,
         )
         self.registry.upsert_record(record)
 
@@ -452,84 +622,13 @@ class KnowledgeService:
                     }
                 )
             )
-
-            parsed = parse_uploaded_file(data, filename=safe_filename, content_type=content_type)
-            full_text = str(parsed.text or "").strip()
-            if not full_text:
-                raise ValueError("Knowledge file has no extractable text")
-
-            base_chunks = split_into_passages(full_text, max_chars=int(settings.knowledge_chunk_max_chars or 1200))
-            chunks_payload: list[dict[str, Any]] = []
-            chunk_texts: list[str] = []
-            for index, item in enumerate(base_chunks, 1):
-                text = str(item.get("text") or "").strip()
-                if len(text) < 20:
-                    continue
-                chunk_id = f"{file_id}:{index}"
-                chunk_texts.append(text)
-                chunks_payload.append(
-                    {
-                        "id": chunk_id,
-                        "chunk_id": chunk_id,
-                        "file_id": file_id,
-                        "filename": safe_filename,
-                        "text": text,
-                        "download_url": record.download_path,
-                        "bucket": bucket,
-                        "object_key": object_key,
-                        "uploaded_at": record.created_at,
-                        "content_type": content_type,
-                        "start_char": int(item.get("start_char") or 0),
-                        "end_char": int(item.get("end_char") or 0),
-                        "heading": str(item.get("heading") or ""),
-                        "parser_name": parsed.parser_name,
-                    }
-                )
-
-            if not chunks_payload:
-                chunks_payload = [
-                    {
-                        "id": f"{file_id}:1",
-                        "chunk_id": f"{file_id}:1",
-                        "file_id": file_id,
-                        "filename": safe_filename,
-                        "text": full_text,
-                        "download_url": record.download_path,
-                        "bucket": bucket,
-                        "object_key": object_key,
-                        "uploaded_at": record.created_at,
-                        "content_type": content_type,
-                        "start_char": 0,
-                        "end_char": len(full_text),
-                        "heading": "",
-                        "parser_name": parsed.parser_name,
-                    }
-                ]
-                chunk_texts = [full_text]
-
-            embeddings = self.embedding_client.embed_texts(chunk_texts)
-            if len(embeddings) != len(chunks_payload):
-                raise RuntimeError("Embedding response count does not match chunk count")
-            dimension = int(settings.rag_embedding_dimensions or 0) or len(embeddings[0])
-            self.milvus_store.ensure_collection(dimension=dimension)
-
-            indexed_chunks: list[dict[str, Any]] = []
-            for chunk, embedding in zip(chunks_payload, embeddings, strict=False):
-                indexed_chunks.append({**chunk, "vector": embedding})
-            self.milvus_store.insert_chunks(indexed_chunks)
-
-            return self.registry.upsert_record(
-                record.model_copy(
-                    update={
-                        "bucket": bucket,
-                        "object_key": object_key,
-                        "status": "indexed",
-                        "parser_name": parsed.parser_name,
-                        "chunk_count": len(indexed_chunks),
-                        "indexed_at": _now_iso(),
-                        "metadata": dict(parsed.metadata or {}),
-                    }
-                )
+            return self._index_record_from_bytes(
+                record=record,
+                data=data,
+                content_type=content_type,
+                bucket=bucket,
+                object_key=object_key,
+                replace_existing=False,
             )
         except Exception as exc:
             logger.error("[knowledge_service] ingest failed | file=%s | error=%s", safe_filename, exc, exc_info=True)
@@ -543,13 +642,74 @@ class KnowledgeService:
             )
 
     def download_file(self, file_id: str) -> tuple[KnowledgeFileRecord, bytes]:
-        record = self.get_file(file_id)
-        if record is None:
-            raise ValueError("Knowledge file not found")
+        record = self._get_file_or_raise(file_id)
         if not record.bucket or not record.object_key:
             raise RuntimeError("Knowledge file storage location is missing")
         payload = self.object_store.download_bytes(bucket=record.bucket, object_key=record.object_key)
         return record, payload
+
+    def reindex_file(self, file_id: str) -> KnowledgeFileRecord:
+        self._assert_upload_ready()
+        record = self._get_file_or_raise(file_id)
+        if not record.bucket or not record.object_key:
+            raise RuntimeError("Knowledge file storage location is missing")
+
+        working = self.registry.upsert_record(
+            record.model_copy(
+                update={
+                    "status": "reindexing",
+                    "error": "",
+                }
+            )
+        )
+        try:
+            payload = self.object_store.download_bytes(bucket=working.bucket, object_key=working.object_key)
+            working = self.registry.upsert_record(
+                working.model_copy(
+                    update={
+                        "content_hash": _content_hash_bytes(payload),
+                    }
+                )
+            )
+            return self._index_record_from_bytes(
+                record=working,
+                data=payload,
+                content_type=working.content_type,
+                bucket=working.bucket,
+                object_key=working.object_key,
+                replace_existing=True,
+            )
+        except Exception as exc:
+            logger.error("[knowledge_service] reindex failed | file_id=%s | error=%s", file_id, exc, exc_info=True)
+            return self.registry.upsert_record(
+                working.model_copy(
+                    update={
+                        "status": "failed",
+                        "error": str(exc),
+                    }
+                )
+            )
+
+    def delete_file(self, file_id: str) -> KnowledgeFileRecord:
+        record = self._get_file_or_raise(file_id)
+        if not record.bucket or not record.object_key:
+            raise RuntimeError("Knowledge file storage location is missing")
+
+        try:
+            self.milvus_store.delete_file_chunks(file_id=record.id)
+            self.object_store.delete_object(bucket=record.bucket, object_key=record.object_key)
+            removed = self.registry.delete_record(record.id)
+            if removed is None:
+                raise KnowledgeFileNotFoundError("Knowledge file not found")
+            logger.info(
+                "[knowledge_service] deleted knowledge file | file_id=%s | filename=%s",
+                removed.id,
+                removed.filename,
+            )
+            return removed
+        except Exception as exc:
+            logger.error("[knowledge_service] delete failed | file_id=%s | error=%s", file_id, exc, exc_info=True)
+            raise
 
     def search(self, *, query: str, limit: int | None = None) -> list[dict[str, Any]]:
         query_text = str(query or "").strip()
@@ -613,4 +773,9 @@ def get_knowledge_service() -> KnowledgeService:
     return KnowledgeService()
 
 
-__all__ = ["KnowledgeService", "get_knowledge_service"]
+__all__ = [
+    "DuplicateKnowledgeFileError",
+    "KnowledgeFileNotFoundError",
+    "KnowledgeService",
+    "get_knowledge_service",
+]

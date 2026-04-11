@@ -464,6 +464,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/knowledge/files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Knowledge File */
+        delete: operations["delete_knowledge_file_api_knowledge_files__file_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/knowledge/files/{file_id}/download": {
         parameters: {
             query?: never;
@@ -475,6 +492,23 @@ export interface paths {
         get: operations["download_knowledge_file_api_knowledge_files__file_id__download_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/knowledge/files/{file_id}/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reindex Knowledge File */
+        post: operations["reindex_knowledge_file_api_knowledge_files__file_id__reindex_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2165,6 +2199,25 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** KnowledgeFileActionResponse */
+        KnowledgeFileActionResponse: {
+            file: components["schemas"]["KnowledgeFileItem"];
+        };
+        /** KnowledgeFileDeleteResponse */
+        KnowledgeFileDeleteResponse: {
+            /**
+             * Deleted
+             * @default true
+             */
+            deleted: boolean;
+            /** File Id */
+            file_id: string;
+            /**
+             * Filename
+             * @default
+             */
+            filename: string;
+        };
         /** KnowledgeFileIngestResponse */
         KnowledgeFileIngestResponse: {
             /** Files */
@@ -3657,6 +3710,37 @@ export interface operations {
             };
         };
     };
+    delete_knowledge_file_api_knowledge_files__file_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFileDeleteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     download_knowledge_file_api_knowledge_files__file_id__download_get: {
         parameters: {
             query?: never;
@@ -3675,6 +3759,37 @@ export interface operations {
                 };
                 content: {
                     "application/octet-stream": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reindex_knowledge_file_api_knowledge_files__file_id__reindex_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFileActionResponse"];
                 };
             };
             /** @description Validation Error */

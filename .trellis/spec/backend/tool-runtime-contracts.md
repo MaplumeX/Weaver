@@ -1005,14 +1005,24 @@ strings must still degrade to settings-backed defaults.
 - File: `main.py`
   - `GET /api/knowledge/files`
   - `POST /api/knowledge/files`
+  - `POST /api/knowledge/files/{file_id}/reindex`
+  - `DELETE /api/knowledge/files/{file_id}`
   - `GET /api/knowledge/files/{file_id}/download`
+- File: `common/knowledge_registry.py`
+  - `KnowledgeFileRecord.content_hash: str`
+  - `KnowledgeRegistry.find_record_by_content_hash(content_hash, exclude_id=None) -> KnowledgeFileRecord | None`
+  - `KnowledgeRegistry.delete_record(record_id: str) -> KnowledgeFileRecord | None`
 - File: `tools/rag/service.py`
   - `KnowledgeObjectStore.upload_bytes(file_id, filename, content_type, data) -> tuple[str, str]`
+  - `KnowledgeObjectStore.delete_object(bucket: str, object_key: str) -> None`
   - `RagEmbeddingClient.embed_texts(texts: list[str]) -> list[list[float]]`
   - `KnowledgeMilvusStore.ensure_collection(dimension: int) -> None`
   - `KnowledgeMilvusStore.insert_chunks(chunks: list[dict[str, Any]]) -> None`
+  - `KnowledgeMilvusStore.delete_file_chunks(file_id: str) -> None`
   - `KnowledgeMilvusStore.search(query_vector: list[float], limit: int) -> list[dict[str, Any]]`
   - `KnowledgeService.ingest_file(filename, content_type, data) -> KnowledgeFileRecord`
+  - `KnowledgeService.reindex_file(file_id: str) -> KnowledgeFileRecord`
+  - `KnowledgeService.delete_file(file_id: str) -> KnowledgeFileRecord`
   - `KnowledgeService.download_file(file_id: str) -> tuple[KnowledgeFileRecord, bytes]`
   - `KnowledgeService.search(query: str, limit: int | None = None) -> list[dict[str, Any]]`
 - File: `common/config.py`
@@ -1041,6 +1051,15 @@ Knowledge upload contract:
    `bucket` / `object_key` must be persisted into `KnowledgeFileRecord`.
 4. `GET /api/knowledge/files/{file_id}/download` must stream the original file
    bytes from MinIO using the recorded storage location.
+5. Upload dedupe is content-based, not filename-based: the backend computes a
+   stable `content_hash` from raw bytes before ingest and rejects duplicate
+   uploads instead of creating a second record.
+6. `POST /api/knowledge/files/{file_id}/reindex` must rebuild chunks from the
+   original stored object for the same `file_id`; it is a maintenance action,
+   not a new upload.
+7. `DELETE /api/knowledge/files/{file_id}` must remove both the original
+   object-store payload and the Milvus chunks for that `file_id` before the
+   registry entry is deleted.
 
 Embedding-provider contract:
 
@@ -1069,6 +1088,8 @@ Milvus schema contract:
    request `chunk_id`-compatible output fields.
 6. Existing collection vector dimension and embedding output dimension must
    match; fail early if they differ.
+7. Maintenance deletes/reindexes must target chunks by `file_id`, not by
+   guessing chunk ids from filenames.
 
 Research runtime contract:
 
@@ -1087,7 +1108,10 @@ Registry/UI contract:
    layer without need.
 2. Library UI renders indexed/uploading/failed statuses from the backend
    registry payload and uses the API download path for file retrieval.
-3. OpenAPI-generated frontend types must stay in sync when these endpoints or
+3. Library UI triggers maintenance actions through the backend:
+   `Reindex` calls `POST /api/knowledge/files/{file_id}/reindex`, and `Delete`
+   calls `DELETE /api/knowledge/files/{file_id}` with destructive confirmation.
+4. OpenAPI-generated frontend types must stay in sync when these endpoints or
    response models change.
 
 ### 4. Validation & Error Matrix
@@ -1096,6 +1120,7 @@ Registry/UI contract:
 |------------------|-------------------|---------|
 | Unsupported extension | reject upload | `400` HTTP |
 | File exceeds `knowledge_max_upload_bytes` | reject upload | `400` HTTP |
+| Duplicate content hash matches an existing registry record | reject upload without new record creation | `409` HTTP |
 | MinIO not configured | fail upload before parse/index | `503` HTTP |
 | RAG embedding provider not configured | fail upload/search without falling back to LLM config | `503` HTTP or empty best-effort search |
 | Milvus not configured | fail upload before indexing | `503` HTTP |
@@ -1103,6 +1128,9 @@ Registry/UI contract:
 | Embedding provider request limit exceeded | client splits into multiple requests via `rag_embedding_batch_size` | internal adapter behavior |
 | Existing Milvus collection uses `chunk_id` / `embedding` | adapter introspects schema and maps payload accordingly | internal adapter behavior |
 | Existing Milvus collection dimension differs from embedding output | stop ingest with clear runtime error | failed record / logs |
+| Reindex target is missing from registry | reject maintenance request | `404` HTTP |
+| Delete target is missing from registry | reject maintenance request | `404` HTTP |
+| Reindex target has no stored object location | keep registry record, fail request or record update clearly | `503` HTTP or failed record |
 | Milvus unavailable during researcher query | RAG returns no hits and researcher continues with web search | best-effort runtime fallback |
 
 ### 5. Good / Base / Bad Cases
@@ -1140,6 +1168,18 @@ embeddings = RagEmbeddingClient().embed_texts(texts)
 Base because small requests still use the same dedicated provider path without
 special casing.
 
+Good:
+
+```python
+content_hash = hashlib.sha256(data).hexdigest()
+existing = registry.find_record_by_content_hash(content_hash)
+if existing is not None:
+    raise DuplicateKnowledgeFileError(existing)
+```
+
+Good because duplicate prevention happens before a new registry record or
+vector insert is created.
+
 Bad:
 
 ```python
@@ -1160,24 +1200,39 @@ if not settings.rag_embedding_api_key:
 Bad because knowledge retrieval must not silently reuse the primary LLM
 provider.
 
+Bad:
+
+```python
+service.ingest_file(filename="guide-copy.txt", content_type="text/plain", data=data)
+```
+
+Bad when the same `data` already exists in the registry because it creates
+duplicate file records and duplicate Milvus chunks for identical content.
+
 ### 6. Tests Required
 
 - `tests/test_knowledge_service.py`
   - assert original bytes are uploaded before indexing metadata is finalized
+  - assert duplicate content is rejected before a new record is created
+  - assert reindex rebuilds chunks from the stored object for the same `file_id`
+  - assert delete removes both object-store payload and Milvus chunks
   - assert dedicated embedding-provider config is used without LLM fallback
   - assert large embedding batches split according to `rag_embedding_batch_size`
   - assert existing Milvus `chunk_id` / `embedding` schema is introspected and
     mapped correctly
   - assert dimension mismatch raises a clear runtime error
 - `tests/test_knowledge_api.py`
-  - assert list/upload/download endpoint contracts
+  - assert list/upload/download/delete/reindex endpoint contracts
+  - assert duplicate upload returns `409`
 - `tests/test_deepsearch_researcher.py`
   - assert RAG hits merge into researcher documents without HTTP refetch
 - Assertion points:
+  - `KnowledgeFileRecord.content_hash`
   - `KnowledgeFileRecord.bucket`
   - `KnowledgeFileRecord.object_key`
   - `KnowledgeFileRecord.status`
   - Milvus insert payload field names
+  - Milvus delete filter uses `file_id`
   - Milvus search `anns_field`
   - normalized result `chunk_id` / `url`
 
@@ -1188,6 +1243,8 @@ provider.
 - Treat an external Milvus collection as if Weaver always created it.
 - Hard-code insert/search field names as `id` and `vector`.
 - Reuse primary LLM provider settings when `rag_embedding_*` is empty.
+- Detect duplicate uploads only by filename while ignoring byte-identical
+  content.
 - Upload a file, index it, but keep the original bytes only in process memory
   or temp files instead of MinIO.
 
