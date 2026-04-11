@@ -1285,3 +1285,43 @@ Added owner-scoped knowledge_search for tool agents, wired the knowledge capabil
 ### Next Steps
 
 - None - task complete
+
+
+## Session 29: Deep Research supervisor replanning P0
+
+**Date**: 2026-04-11
+**Task**: Deep Research supervisor replanning P0
+**Branch**: `main`
+
+### Summary
+
+完成 Deep Research P0：由 reviewer 仅做诊断、supervisor 统一负责 section-level replanning，并打通 reviewer -> supervisor -> dispatch 的运行时闭环。
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Runtime ownership | reviewer 不再直接入队 retry/revision；supervisor 现在输出 `task_specs` 并统一生成下一轮任务。 |
+| Replanning loop | 在 runtime state 中引入 `pending_replans`，把 section review 诊断信号显式传给 supervisor。 |
+| Task strategy | 支持 `revision`、`follow_up_research`、`counterevidence` 三类 section-level replanning，并在 budget stop / `max_epochs` 下阻止继续 replan。 |
+| Verification | `uv run pytest "tests/test_deepsearch_supervisor.py" "tests/test_deepsearch_multi_agent_runtime.py"` 通过，`uv run ruff check` 通过。 |
+| Residual risk | `make test` 未在观察窗口内完成；未做人工验证。 |
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2da7619` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 28
+- **Total Sessions**: 29
 - **Last Active**: 2026-04-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1287 | Active |
+| `journal-1.md` | ~1327 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 29 | 2026-04-11 | Deep Research supervisor replanning P0 | `2da7619` | `main` |
 | 28 | 2026-04-11 | RAG retrieval quality upgrade | `e297999` | `main` |
 | 27 | 2026-04-11 | Add scoped knowledge search tool | `10385ef` | `main` |
 | 26 | 2026-04-11 | RAG knowledge file maintenance workflow | `c40ddc4` | `main` |

@@ -1,0 +1,7 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Deep research runtime and API cleanup must stay in owning backend modules."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Behavior and contract cleanup requires regression coverage and stable public surfaces."}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "This change touches deep runtime artifacts, API projections, and frontend-consumed payloads."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "The change spans runtime graph, persisted artifacts, API metrics, and frontend timeline UI."}
