@@ -1240,3 +1240,48 @@ Added owner-scoped knowledge_search for tool agents, wired the knowledge capabil
 ### Next Steps
 
 - None - task complete
+
+
+## Session 28: RAG retrieval quality upgrade
+
+**Date**: 2026-04-11
+**Task**: RAG retrieval quality upgrade
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Retrieval | Upgraded `KnowledgeService.search()` with internal query expansion, widened recall, chunk-level dedupe, and lightweight rerank while keeping the public `knowledge_search` contract stable. |
+| Chunking | Added overlap-aware passage splitting and tightened low-signal heading-only chunk merging for knowledge ingestion. |
+| Deep Research | Stopped collapsing knowledge evidence by canonicalized file URL; Deep Research now preserves chunk identity via `chunk_id` and keeps chunk locators in passages. |
+| Tests | Added regression coverage for overlap offsets, reranked chunk-deduped search results, and multiple chunks from the same knowledge file remaining distinct in Deep Research. |
+| Spec | Updated `.trellis/spec/backend/tool-runtime-contracts.md` with the new retrieval, chunk identity, and assertion-point contracts. |
+
+**Verification**:
+- `uv run ruff check` on touched backend/test files passed
+- `uv run pytest tests/test_evidence_passages.py tests/test_knowledge_service.py tests/test_deepsearch_researcher.py` passed (`22 passed`)
+- Full `pytest -q` did not complete within the harness timeout, so only targeted regression coverage is confirmed here
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e297999` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

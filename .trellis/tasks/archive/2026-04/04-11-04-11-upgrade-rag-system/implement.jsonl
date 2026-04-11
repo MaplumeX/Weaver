@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "Knowledge search tool/runtime contract must stay compatible while internals change"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Service/runtime changes must keep backend error behavior consistent"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Prefer shared retrieval helpers instead of duplicating logic between knowledge search and deep research"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "RAG changes flow across service, tool runtime, and deep research evidence pipeline"}
