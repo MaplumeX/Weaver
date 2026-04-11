@@ -1325,3 +1325,92 @@ Added owner-scoped knowledge_search for tool agents, wired the knowledge capabil
 ### Next Steps
 
 - None - task complete
+
+
+## Session 30: Remove Deep Research Final Claim Gate
+
+**Date**: 2026-04-11
+**Task**: Remove Deep Research Final Claim Gate
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Runtime | Removed the `final_claim_gate` stage so multi-agent deep research now flows from `report` directly to `finalize`, while normalizing legacy checkpoints that still reference `final_claim_gate` / `verifier`. |
+| Contracts | Deleted the unused `ClaimVerifier` contract and removed related runtime/API quality summary fields, config knobs, and generated OpenAPI/TypeScript types. |
+| Frontend | Updated deep research timeline/progress state to remove the Final Claim Gate phase and related auto-status labels. |
+| Docs & Spec | Updated `docs/deep-research-runtime-flow.md` and `.trellis/spec/backend/tool-runtime-contracts.md` to reflect the new post-report contract and resume behavior. |
+| Verification | Ran targeted backend pytest, frontend tests, frontend lint/build, SDK build, and OpenAPI type regeneration; `make openapi-types` updated generated files as expected. |
+
+**Notes**:
+- Commit: `d1b95cb refactor(deep-research): remove final claim gate`
+- Archived tasks: `04-11-remove-final-claim-gate`, `04-11-deep-research-pipeline-doc`
+- Left unrelated workspace changes untouched: `.trellis/tasks/04-11-upgrade-long-term-memory-system/prd.md`, `data/knowledge_files.json`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d1b95cb` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 31: Upgrade explicit long-term memory ingestion
+
+**Date**: 2026-04-11
+**Task**: Upgrade explicit long-term memory ingestion
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Memory ingestion | Upgraded explicit long-term memory writes from rule-only extraction to rule gating plus structured LLM extraction with conservative skip behavior |
+| Runtime wiring | Added extractor wiring in `main.py` and moved async ingestion call sites onto `asyncio.to_thread(...)` |
+| Spec sync | Added executable backend code-spec for memory runtime contracts |
+| Verification | Passed targeted Ruff and 17 regression tests covering memory service, session ingestion, memory API, internal auth, and checkpointer config |
+
+**Key outcomes**:
+- Only explicit memory instructions trigger extraction in this phase.
+- Extractor failures or low-stability results no longer fall back to rule-based persistence; they are skipped and recorded via metadata/events.
+- No memory schema expansion was introduced in this iteration.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6d0f69b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

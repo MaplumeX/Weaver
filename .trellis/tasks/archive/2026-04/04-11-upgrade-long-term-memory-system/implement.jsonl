@@ -1,0 +1,7 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Place memory extraction logic in owning backend modules"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Memory extraction outcomes need high-signal logging without leaking user data"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Memory write path spans session service, memory service, API visibility, and tests"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Model extraction must degrade safely without breaking chat flows"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Behavior changes need regression tests"}
