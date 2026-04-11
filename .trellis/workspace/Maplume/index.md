@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 31
+- **Total Sessions**: 32
 - **Last Active**: 2026-04-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1416 | Active |
+| `journal-1.md` | ~1463 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 32 | 2026-04-11 | Deep Research 去除 control-plane handoff payload | `f139eac` | `main` |
 | 31 | 2026-04-11 | Upgrade explicit long-term memory ingestion | `6d0f69b` | `main` |
 | 30 | 2026-04-11 | Remove Deep Research Final Claim Gate | `d1b95cb` | `main` |
 | 29 | 2026-04-11 | Deep Research supervisor replanning P0 | `2da7619` | `main` |

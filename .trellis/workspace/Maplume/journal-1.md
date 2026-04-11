@@ -1414,3 +1414,50 @@ Added owner-scoped knowledge_search for tool agents, wired the knowledge capabil
 ### Next Steps
 
 - None - task complete
+
+
+## Session 32: Deep Research 去除 control-plane handoff payload
+
+**Date**: 2026-04-11
+**Task**: Deep Research 去除 control-plane handoff payload
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 项目 | 说明 |
+|------|------|
+| Deep Research 公共契约 | 删除 `deep_research_artifacts` 里的 `control_plane` 暴露，不再从 `runtime_state.handoff_envelope` / `handoff_history` 回填 handoff 语义 |
+| 回归测试 | 新增 `tests/test_deepsearch_public_artifacts.py`，覆盖 legacy `control_plane` 删除和 runtime handoff 不回填 |
+| 文档 | 更新 `docs/deep-research-runtime-flow.md`，把 handoff 叙事改成状态/工件流转 |
+
+**验证**
+- `uv run ruff check agent/deep_research/artifacts/public_payload.py tests/test_deepsearch_public_artifacts.py`
+- `uv run pytest tests/test_deepsearch_public_artifacts.py tests/test_checkpoint_runtime_artifacts.py tests/test_deepsearch_multi_agent_runtime.py`
+- `make test` 已尝试，但 120 秒超时，未记为通过
+
+**备注**
+- 仓库内未发现 `deep_research_artifacts.control_plane` 的实际消费方
+- 工作区仍有未提交文件：`data/knowledge_files.json`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f139eac` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
