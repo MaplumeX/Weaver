@@ -12,7 +12,7 @@ import agent.prompting as prompts_pkg
 import agent.tooling.agents as agents_pkg
 from agent.chat import route_node
 from agent.contracts.events import ToolEventType
-from agent.contracts.research import ClaimVerifier, extract_message_sources
+from agent.contracts.research import extract_message_sources
 from agent.contracts.search_cache import get_search_cache as get_public_search_cache
 from agent.contracts.source_registry import SourceRegistry
 from agent.deep_research import deep_research_node, entrypoints
@@ -300,7 +300,6 @@ def test_public_search_cache_contract_uses_core_singleton():
 def test_public_contracts_are_importable():
     assert ToolEventType.SEARCH.value == "search"
     assert isinstance(SourceRegistry(), SourceRegistry)
-    assert isinstance(ClaimVerifier(), ClaimVerifier)
     assert extract_message_sources([]) == []
 
 

@@ -77,7 +77,7 @@ class ToolEventType(str, Enum):
     RESEARCH_AGENT_COMPLETE = "research_agent_complete"  # Structured research agent lifecycle end
     RESEARCH_TASK_UPDATE = "research_task_update"  # Structured research task status update
     RESEARCH_ARTIFACT_UPDATE = "research_artifact_update"  # Structured artifact lifecycle update
-    RESEARCH_DECISION = "research_decision"  # Supervisor / verifier decision update
+    RESEARCH_DECISION = "research_decision"  # Supervisor / runtime decision update
 
     # System events
     ERROR = "error"  # General error

@@ -11,7 +11,7 @@ from typing import Any, Literal
 TaskStatus = Literal["ready", "in_progress", "blocked", "completed", "failed", "cancelled"]
 ArtifactStatus = Literal["created", "updated", "completed", "discarded"]
 ScopeDraftStatus = Literal["awaiting_review", "revision_requested", "approved"]
-AgentRole = Literal["clarify", "scope", "supervisor", "researcher", "reviewer", "revisor", "verifier", "reporter"]
+AgentRole = Literal["clarify", "scope", "supervisor", "researcher", "reviewer", "revisor", "reporter"]
 TaskStage = Literal[
     "planned",
     "dispatch",

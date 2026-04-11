@@ -289,6 +289,7 @@ class MultiAgentDeepResearchRuntime:
         artifact_store = LightweightArtifactStore(graph_state.get("artifact_store"))
         runtime_state = self._default_runtime_state()
         runtime_state.update(copy.deepcopy(graph_state.get("runtime_state") or {}))
+        # Normalize legacy checkpoint fields from the removed final claim gate.
         runtime_state.pop("final_claim_gate_summary", None)
         if str(runtime_state.get("next_step") or "").strip().lower() == "final_claim_gate":
             runtime_state["next_step"] = "finalize"

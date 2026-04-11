@@ -7,7 +7,6 @@ export type DeepResearchPhaseKey =
   | 'section_research'
   | 'section_review'
   | 'report'
-  | 'final_claim_gate'
 
 export interface DeepResearchSectionIterationSummary {
   iteration: number | null
@@ -121,7 +120,6 @@ const PHASE_ORDER: DeepResearchPhaseKey[] = [
   'section_research',
   'section_review',
   'report',
-  'final_claim_gate',
 ]
 
 const PHASE_TITLES: Record<DeepResearchPhaseKey, string> = {
@@ -131,7 +129,6 @@ const PHASE_TITLES: Record<DeepResearchPhaseKey, string> = {
   section_research: 'Section Research',
   section_review: 'Section Review',
   report: 'Report',
-  final_claim_gate: 'Final Claim Gate',
 }
 
 const CANONICAL_EVENT_TYPES = new Set<CanonicalEventType>([
@@ -153,7 +150,6 @@ const STAGE_ORDER = [
   'Revision',
   'Certified',
   'Report',
-  'Final Claim Gate',
   'Reported',
 ]
 
@@ -234,8 +230,6 @@ function formatStageLabel(stage: string): string {
       return 'Revision'
     case 'outline_gate':
       return 'Outline'
-    case 'final_claim_gate':
-      return 'Final Claim Gate'
     case 'reported':
       return 'Reported'
     default:
@@ -314,12 +308,6 @@ function describeDecision(decisionType: string, reason: string): string {
       return 'Preparing partial report'
     case 'outline_partial':
       return 'Outline gate advisory only'
-    case 'final_claim_gate_passed':
-      return 'Final claim gate passed'
-    case 'final_claim_gate_review_needed':
-      return 'Final claim gate needs review'
-    case 'final_claim_gate_blocked':
-      return 'Final claim gate blocked'
     case 'budget_stop':
       return 'Budget limit reached'
     case 'stop':
@@ -403,12 +391,6 @@ function describeAgentLifecycle(eventType: CanonicalEventType, payload: any): st
       ? 'Section revision complete'
       : 'Revising section draft'
   }
-  if (role === 'verifier') {
-    if (eventType === 'research_agent_complete' && status === 'completed') {
-      return stage ? `${formatStageLabel(stage)} complete` : 'Final claim gate complete'
-    }
-    return stage ? `${formatStageLabel(stage)} in progress` : 'Final claim gate running'
-  }
   if (role === 'reporter') {
     return eventType === 'research_agent_complete' && status === 'completed'
       ? 'Final report complete'
@@ -466,7 +448,6 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
     if (role === 'scope') return 'scope'
     if (role === 'researcher') return 'section_research'
     if (role === 'reviewer' || role === 'revisor') return 'section_review'
-    if (role === 'verifier') return 'final_claim_gate'
     if (role === 'reporter') return 'report'
     if (role === 'supervisor') {
       if (phase === 'outline_plan' || phase === 'research_brief') return 'outline'
@@ -476,7 +457,6 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
   }
 
   if (eventType === 'research_task_update') {
-    if (stage === 'final_claim_gate') return 'final_claim_gate'
     if (taskKind === 'section_revision' || stage === 'revision') return 'section_review'
     if (isPreExecutionTaskUpdate(payload)) {
       if (reason === 'review_research_retry') return 'section_review'
@@ -530,13 +510,6 @@ function resolvePhase(eventType: CanonicalEventType, payload: any): DeepResearch
       decisionType === 'stop'
     ) {
       return 'report'
-    }
-    if (
-      decisionType === 'final_claim_gate_passed' ||
-      decisionType === 'final_claim_gate_review_needed' ||
-      decisionType === 'final_claim_gate_blocked'
-    ) {
-      return 'final_claim_gate'
     }
     if (decisionType === 'synthesize' || decisionType === 'complete') return 'report'
     return 'outline'
@@ -652,7 +625,6 @@ function stageLabelForEvent(phase: DeepResearchPhaseKey, payload: any): string {
   if (phase === 'section_research') return 'Research'
   if (phase === 'section_review') return 'Review'
   if (phase === 'report') return 'Report'
-  if (phase === 'final_claim_gate') return 'Final Claim Gate'
   return ''
 }
 
@@ -710,12 +682,6 @@ function buildPhaseSummary(
 
   if (key === 'report' && sourceCount > 0) {
     metrics.push(formatCount(sourceCount, 'source', 'sources'))
-  }
-
-  if (key === 'final_claim_gate') {
-    const reviewNeeded = events.some((event) => text(event.payload?.decision_type) === 'final_claim_gate_review_needed')
-    const blocked = events.some((event) => text(event.payload?.decision_type) === 'final_claim_gate_blocked')
-    metrics.push(blocked ? 'Blocked' : reviewNeeded ? 'Review needed' : 'Passed')
   }
 
   const highlights = events
@@ -815,8 +781,7 @@ export function projectDeepResearchTimeline(events: ProcessEvent[]): DeepResearc
       iteration !== null &&
       (phase === 'section_research' ||
         phase === 'section_review' ||
-        phase === 'report' ||
-        phase === 'final_claim_gate')
+        phase === 'report')
     ) {
       latestIteration = Math.max(latestIteration ?? 0, iteration)
       if (taskId) taskIterationById.set(taskId, iteration)

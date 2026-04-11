@@ -24,32 +24,13 @@ from common.config import settings
 logger = logging.getLogger(__name__)
 
 DEEP_RESEARCH_CONTROL_PLANE_ROLES = frozenset({"clarify", "scope", "supervisor"})
-DEEP_RESEARCH_EXECUTION_ROLES = frozenset({"researcher", "verifier", "reporter"})
+DEEP_RESEARCH_EXECUTION_ROLES = frozenset({"researcher", "reporter"})
 
 _DEEP_RESEARCH_ROLE_TOOL_ALLOWLISTS = {
     "clarify": {"fabric"},
     "scope": {"fabric"},
     "supervisor": {"fabric"},
     "researcher": {
-        "fabric",
-        "web_search",
-        "browser_search",
-        "sandbox_web_search",
-        "sandbox_search_and_click",
-        "sandbox_extract_search_results",
-        "browser_navigate",
-        "browser_click",
-        "crawl_url",
-        "crawl_urls",
-        "sb_browser_navigate",
-        "sb_browser_click",
-        "sb_browser_type",
-        "sb_browser_press",
-        "sb_browser_scroll",
-        "sb_browser_extract_text",
-        "sb_browser_screenshot",
-    },
-    "verifier": {
         "fabric",
         "web_search",
         "browser_search",

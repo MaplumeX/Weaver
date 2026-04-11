@@ -260,8 +260,6 @@ def quality_summary(
         else 0.0
     )
     missing_section_ids = _dedupe_texts(aggregate.get("missing_section_ids") or [])
-    final_claim_gate_summary = runtime_state.get("final_claim_gate_summary")
-    claim_gate = final_claim_gate_summary if isinstance(final_claim_gate_summary, dict) else {}
     return {
         "section_count": required_section_count,
         "certified_section_count": certified_section_count,
@@ -294,10 +292,6 @@ def quality_summary(
         "citation_coverage": round(min(1.0, source_count / max(1, certified_section_count)), 3),
         "uncovered_questions_count": len(missing_section_ids),
         "budget_stop_reason": str(runtime_state.get("budget_stop_reason") or ""),
-        "claim_verifier_total": int(claim_gate.get("claim_verifier_total") or 0),
-        "claim_verifier_verified": int(claim_gate.get("claim_verifier_verified") or 0),
-        "claim_verifier_unsupported": int(claim_gate.get("claim_verifier_unsupported") or 0),
-        "claim_verifier_contradicted": int(claim_gate.get("claim_verifier_contradicted") or 0),
     }
 
 
@@ -353,14 +347,14 @@ def initial_next_step(
     existing = str(runtime_state_snapshot.get("next_step") or "").strip().lower()
     if existing == "completed":
         return "finalize"
+    if existing == "final_claim_gate":
+        # Legacy checkpoints may still point at the removed stage.
+        return "finalize"
     if existing:
         return existing
     final_report = artifact_store_snapshot.get("final_report")
     if isinstance(final_report, dict) and final_report.get("report_markdown"):
-        final_claim_gate_summary = runtime_state_snapshot.get("final_claim_gate_summary")
-        if isinstance(final_claim_gate_summary, dict) and final_claim_gate_summary:
-            return "finalize"
-        return "final_claim_gate"
+        return "finalize"
     approved_scope = runtime_state_snapshot.get("approved_scope_draft")
     current_scope = runtime_state_snapshot.get("current_scope_draft")
     intake_status = str(runtime_state_snapshot.get("intake_status") or "pending").strip().lower()

@@ -312,10 +312,7 @@ function resolveStageFromDecision(payload: ResearchPayload): UserFacingStage | n
     decisionType === 'review_updated' ||
     decisionType === 'review_passed' ||
     decisionType === 'coverage_gap_detected' ||
-    decisionType === 'verification_passed' ||
-    decisionType === 'final_claim_gate_passed' ||
-    decisionType === 'final_claim_gate_review_needed' ||
-    decisionType === 'final_claim_gate_blocked'
+    decisionType === 'verification_passed'
   ) {
     return 'reviewing'
   }
@@ -344,7 +341,7 @@ function resolveStageFromAgentLifecycle(payload: ResearchPayload): UserFacingSta
   if (role === 'scope') return 'scope'
   if (role === 'supervisor') return 'planning'
   if (role === 'reporter') return 'answering'
-  if (role === 'reviewer' || role === 'verifier') return 'reviewing'
+  if (role === 'reviewer') return 'reviewing'
   if (role === 'revisor') return 'drafting'
   if (role === 'researcher') {
     if (stage === 'synthesize') return 'drafting'
@@ -602,13 +599,10 @@ export function getDeepResearchAutoStatusText(eventType: string, payload: unknow
     if (
       decisionType === 'review_updated' ||
       decisionType === 'review_passed' ||
-      decisionType === 'verification_passed' ||
-      decisionType === 'final_claim_gate_review_needed'
+      decisionType === 'verification_passed'
     ) {
       return '多 Agent 调研：正在复核结论'
     }
-    if (decisionType === 'final_claim_gate_passed') return '多 Agent 调研：最终结论已复核'
-    if (decisionType === 'final_claim_gate_blocked') return '多 Agent 调研：最终结论存在冲突'
     if (
       decisionType === 'report' ||
       decisionType === 'report_partial' ||

@@ -195,8 +195,6 @@ class Settings(BaseSettings):
 
     # Quality gates (evaluation)
     citation_gate_min_coverage: float = Field(default=0.6, ge=0.0, le=1.0)
-    claim_verifier_gate_max_contradicted: int = Field(default=0, ge=0)
-    claim_verifier_gate_max_unsupported: int = Field(default=0, ge=0)
 
     # Environment
     app_env: str = "dev"  # dev | test | prod
@@ -346,9 +344,6 @@ class Settings(BaseSettings):
     deep_research_event_results_limit: int = 5  # max search results included in SSE event payloads
     deep_research_report_sources_limit: int = 20  # max sources exposed to writer + appended to report
     deep_research_visualize_browser: bool = True  # drive sandbox browser so Live view isn't blank
-    deep_research_claim_verifier_use_passages: bool = True  # use fetched passages for claim evidence
-    deep_research_claim_verifier_min_overlap_tokens: int = 2  # token overlap threshold for claim evidence
-    deep_research_claim_verifier_max_evidence_per_claim: int = 3  # max evidence passages/urls stored per claim
     deep_research_supervisor_allow_world_tools: bool = False  # allow supervisor spot-check tools
     deep_research_reporter_enable_python_tools: bool = True  # allow reporter formatting/export helpers
     deep_research_use_tool_agents: bool = True  # run bounded Deep Research tool agents before scripted fallback

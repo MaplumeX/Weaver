@@ -10,7 +10,6 @@ const KEY_AGENT_ROLES = new Set([
   'supervisor',
   'reviewer',
   'revisor',
-  'verifier',
   'reporter',
 ])
 
@@ -35,9 +34,6 @@ const KEY_DECISIONS = new Set([
   'report_partial',
   'outline_ready',
   'outline_partial',
-  'final_claim_gate_passed',
-  'final_claim_gate_review_needed',
-  'final_claim_gate_blocked',
   'synthesize',
   'complete',
   'budget_stop',

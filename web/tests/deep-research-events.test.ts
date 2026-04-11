@@ -69,15 +69,6 @@ test('maps resumed supervisor lifecycle to readable auto status', () => {
   assert.equal(text, '多 Agent 调研：正在制定研究计划')
 })
 
-test('maps verifier claim-check lifecycle to readable auto status', () => {
-  const text = getDeepResearchAutoStatus('research_agent_start', {
-    role: 'verifier',
-    validation_stage: 'claim_check',
-  })
-
-  assert.equal(text, '多 Agent 调研：正在复核结论')
-})
-
 test('maps section review artifact to readable auto status', () => {
   const text = getDeepResearchAutoStatus('research_artifact_update', {
     artifact_type: 'section_review',
@@ -87,14 +78,6 @@ test('maps section review artifact to readable auto status', () => {
   })
 
   assert.equal(text, '多 Agent 调研：章节已通过复核 · Supply chain resilience')
-})
-
-test('maps final claim gate decision to readable auto status', () => {
-  const text = getDeepResearchAutoStatus('research_decision', {
-    decision_type: 'final_claim_gate_passed',
-  })
-
-  assert.equal(text, '多 Agent 调研：最终结论已复核')
 })
 
 test('continuation message keeps resumed process events in order', () => {

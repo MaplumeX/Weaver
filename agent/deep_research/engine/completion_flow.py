@@ -49,34 +49,6 @@ def build_final_report_artifact(
         created_by=created_by,
     ).to_dict()
 
-
-def run_final_claim_gate(
-    *,
-    report: str,
-    scraped_content: list[dict[str, Any]],
-    passages: list[dict[str, Any]],
-) -> dict[str, Any]:
-    from agent.contracts.claim_verifier import ClaimStatus, ClaimVerifier
-
-    verifier = ClaimVerifier()
-    checks = verifier.verify_report(
-        report,
-        scraped_content,
-        passages=passages,
-    )
-    contradicted = [item for item in checks if item.status == ClaimStatus.CONTRADICTED]
-    unsupported = [item for item in checks if item.status == ClaimStatus.UNSUPPORTED]
-    verified = [item for item in checks if item.status == ClaimStatus.VERIFIED]
-    return {
-        "claim_verifier_total": len(checks),
-        "claim_verifier_verified": len(verified),
-        "claim_verifier_unsupported": len(unsupported),
-        "claim_verifier_contradicted": len(contradicted),
-        "passed": len(contradicted) == 0,
-        "review_needed": bool(contradicted or unsupported),
-    }
-
-
 def build_finalize_outputs(
     *,
     root_branch_id: str,

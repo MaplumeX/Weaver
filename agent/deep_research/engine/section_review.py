@@ -374,33 +374,10 @@ def build_report_sections(store: LightweightArtifactStore) -> list[ReportSection
         )
     return sections
 
-
-def normalize_passages_for_claim_gate(store: LightweightArtifactStore) -> list[dict[str, Any]]:
-    passages: list[dict[str, Any]] = []
-    for bundle in store.evidence_bundles():
-        task_id = str(bundle.get("task_id") or "").strip()
-        section_id = ""
-        draft = artifact_store_section_draft_by_task(store, task_id)
-        if draft:
-            section_id = str(draft.get("section_id") or "").strip()
-        for item in bundle.get("passages", []) or []:
-            if not isinstance(item, dict):
-                continue
-            passages.append(
-                {
-                    **copy.deepcopy(item),
-                    "task_id": task_id,
-                    "section_id": section_id,
-                }
-            )
-    return passages
-
-
 __all__ = [
     "artifact_store_section_draft_by_task",
     "build_report_sections",
     "build_review_issue",
     "build_section_draft",
-    "normalize_passages_for_claim_gate",
     "review_section_draft",
 ]

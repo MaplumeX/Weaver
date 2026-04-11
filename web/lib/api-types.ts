@@ -2500,14 +2500,6 @@ export interface components {
         RunEvidenceSummary: {
             /** Citation Coverage */
             citation_coverage?: number | null;
-            /** Claim Verifier Contradicted */
-            claim_verifier_contradicted?: number | null;
-            /** Claim Verifier Total */
-            claim_verifier_total?: number | null;
-            /** Claim Verifier Unsupported */
-            claim_verifier_unsupported?: number | null;
-            /** Claim Verifier Verified */
-            claim_verifier_verified?: number | null;
             /** Failed Branch Count */
             failed_branch_count?: number | null;
             /** Freshness Ratio 30D */

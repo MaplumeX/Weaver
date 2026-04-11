@@ -131,9 +131,6 @@ test('projects deep research events into stable phases and branch history', () =
       artifact_type: 'final_report',
       status: 'completed',
     }),
-    event('claim-gate', 'research_decision', 36, {
-      decision_type: 'final_claim_gate_passed',
-    }),
   ]
 
   const projection = projectDeepResearchTimeline(events)
@@ -141,9 +138,9 @@ test('projects deep research events into stable phases and branch history', () =
   assert.ok(projection)
   assert.deepEqual(
     projection.phases.map((phase) => phase.key),
-    ['intake', 'scope', 'outline', 'section_research', 'section_review', 'report', 'final_claim_gate'],
+    ['intake', 'scope', 'outline', 'section_research', 'section_review', 'report'],
   )
-  assert.ok(projection.headerMetrics.includes('7 phases'))
+  assert.ok(projection.headerMetrics.includes('6 phases'))
   assert.ok(projection.headerMetrics.includes('1 section'))
   assert.ok(projection.headerMetrics.includes('1 certified'))
   assert.ok(projection.headerMetrics.includes('2 sources'))

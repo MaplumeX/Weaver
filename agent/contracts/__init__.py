@@ -18,8 +18,6 @@ from agent.contracts.events import (
     remove_emitter,
 )
 from agent.contracts.research import (
-    ClaimStatus,
-    ClaimVerifier,
     extract_message_sources,
 )
 from agent.contracts.search_cache import (
@@ -31,8 +29,6 @@ from agent.contracts.search_cache import (
 from agent.contracts.source_registry import SourceRecord, SourceRegistry
 
 __all__ = [
-    "ClaimStatus",
-    "ClaimVerifier",
     "Event",
     "EventEmitter",
     "QueryDeduplicator",

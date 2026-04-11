@@ -598,6 +598,12 @@ yield await format_stream_event(
 - File: `agent/deep_research/engine/review_cycle.py`
   - `review_section_drafts(...) -> None`
   - `decide_supervisor_next_step(...) -> tuple[str, dict[str, Any]]`
+- File: `agent/deep_research/engine/runtime_artifacts.py`
+  - `quality_summary(queue, store, runtime_state, *, outline_sections_fn) -> dict[str, Any]`
+  - `initial_next_step(task_queue_snapshot, artifact_store_snapshot, runtime_state_snapshot, *, outline_sections_fn) -> str`
+- File: `main.py`
+  - `RunEvidenceSummary`
+  - `_build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary`
 - File: `agent/deep_research/artifacts/public_artifacts.py`
   - `build_public_deep_research_artifacts(...) -> dict[str, Any]`
 
@@ -742,6 +748,25 @@ Reviewer/reporter consumption rules:
   - `quality_summary.report_ready` / `outline_gate_summary.report_ready` mean
     "at least one admitted section is available for reporting", not merely
     "some section draft has non-empty text".
+- Finalization contract:
+  - After `artifact_store.final_report.report_markdown` exists, runtime must go
+    directly from `report` to `finalize`; there is no `final_claim_gate`
+    stage.
+  - `deep_runtime["runtime_state"]` must not persist
+    `final_claim_gate_summary`.
+  - `quality_summary(...)` must not emit `claim_verifier_total`,
+    `claim_verifier_verified`, `claim_verifier_unsupported`, or
+    `claim_verifier_contradicted`.
+  - `RunEvidenceSummary` must not expose those `claim_verifier_*` fields.
+  - `unsupported_claims_count` in `RunEvidenceSummary` may fall back from
+    `validation_summary.failed_branch_count`, but must not be synthesized from
+    a removed final-claim-gate pass.
+- Resume / legacy-checkpoint contract:
+  - If a stored checkpoint still contains `runtime_state.next_step ==
+    "final_claim_gate"`, `initial_next_step(...)` must normalize it to
+    `finalize`.
+  - If a stored checkpoint still contains `runtime_state.active_agent ==
+    "verifier"`, runtime unpack must normalize it before continuing.
 - Reporter prompt contract:
   - Reporter input may use `summary`, `key_findings`, and admitted
     `source_urls`.
@@ -767,6 +792,10 @@ Reviewer/reporter consumption rules:
 | Reviewer finds fixable section gaps but budget stop is active | no executable replan is emitted | runtime prefers `report_partial`, `outline_gate`, or `stop` |
 | Draft has `reportability=low` or `insufficient` | reporter excludes it from final report context | `report_ready=false` when no admitted sections remain |
 | Draft has `reportability=medium` but `contradiction_summary.has_material_conflict=true` | reporter excludes it from final report context | final report omits the section |
+| Runtime resumes from a legacy checkpoint with `next_step="final_claim_gate"` | checkpoint should still resume successfully | runtime jumps to `finalize` |
+| Runtime resumes from a legacy checkpoint with `active_agent="verifier"` | checkpoint should still resume successfully | runtime normalizes the role and continues |
+| Final report exists in artifact store | runtime does not run an extra post-report gate | next step is `finalize` |
+| `/api/runs/{thread_id}` evidence summary is rebuilt after the final-claim-gate removal | response contract stays stable without removed counters | `RunEvidenceSummary` omits all `claim_verifier_*` fields |
 | Final report is long but admitted `report_context` is available | executive summary uses admitted section summaries/findings first | avoids summary drift from truncated markdown |
 | Branch artifacts omitted from merge/public adapters | merge must not crash | empty plural lists / empty summary dicts |
 
@@ -822,6 +851,22 @@ review = {"reportability": "high"}
 certification = {"certified": True}
 ```
 
+Good finalization case:
+
+```python
+artifact_store = {"final_report": {"report_markdown": "# Report"}}
+runtime_state = {"next_step": "report", "active_agent": "reporter"}
+assert initial_next_step({}, artifact_store, runtime_state, outline_sections_fn=lambda _outline: []) == "finalize"
+```
+
+Base legacy-resume case:
+
+```python
+artifact_store = {"final_report": {"report_markdown": "# Report"}}
+runtime_state = {"next_step": "final_claim_gate", "active_agent": "verifier"}
+assert initial_next_step({}, artifact_store, runtime_state, outline_sections_fn=lambda _outline: []) == "finalize"
+```
+
 Bad:
 
 ```python
@@ -834,6 +879,22 @@ payload = {
 
 Bad because downstream merge/public adapters and reviewer logic are keyed on
 `branch_artifacts` plus the plural snapshot keys listed above.
+
+Bad finalization case:
+
+```python
+runtime_state = {
+    "next_step": "final_claim_gate",
+    "final_claim_gate_summary": {"passed": True},
+}
+quality = {
+    "claim_verifier_total": 3,
+    "claim_verifier_contradicted": 1,
+}
+```
+
+Bad because the runtime/output contract would still expose the removed stage
+and removed post-report counters after the pipeline simplification.
 
 Good replanning case:
 
@@ -906,12 +967,16 @@ sections just because the draft text is non-empty.
   - assert supervisor is the node that enqueues retry/revision tasks
   - assert budget stop prevents executable replans and falls back to
     partial-report behavior
+  - assert runtime mermaid/path no longer includes `final_claim_gate`
   - assert report generation excludes `low`/`insufficient` sections from the
     admitted reporter context
   - assert materially conflicting sections are excluded from the admitted
     reporter context
   - assert admitted `medium` sections keep only the truncated reporter finding
     set when the silent-denoise path is active
+- `agent/deep_research/engine/runtime_artifacts.py` resume assertions
+  - assert `initial_next_step(...)` maps legacy `final_claim_gate` checkpoints
+    to `finalize`
 - `tests/test_deepsearch_reporter.py`
   - assert reporter prompt omits risk/manual-review/limitation blocks in the
     silent-denoise path
@@ -920,6 +985,9 @@ sections just because the draft text is non-empty.
 - `tests/test_agent_runtime_public_contracts.py`
   - assert removed legacy `agent.runtime.*` / `agent.research.*` modules stay
     non-importable after the capability-package split
+- `main.py` / OpenAPI assertions
+  - assert `RunEvidenceSummary` and generated TypeScript types omit
+    `claim_verifier_*` fields after regeneration
 
 ### 7. Wrong vs Correct
 
@@ -929,6 +997,8 @@ sections just because the draft text is non-empty.
 - Recompute coverage/grounding later from free-form text only.
 - Introduce singular or ad-hoc artifact-store keys such as `branch_quality`.
 - Let reviewer enqueue follow-up tasks directly after section review.
+- Keep a post-report `final_claim_gate` stage or expose `claim_verifier_*`
+  metrics after the stage has been removed.
 
 #### Correct
 
@@ -938,6 +1008,8 @@ sections just because the draft text is non-empty.
   public `deep_research_artifacts` payload using the plural key names above.
 - Treat reviewer output as diagnosis plus `pending_replans`, and let
   supervisor own executable replanning decisions.
+- Treat `report -> finalize` as the only supported post-report path and strip
+  removed legacy fields during resume/output projection.
 
 ---
 

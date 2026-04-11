@@ -3935,10 +3935,6 @@ class RunEvidenceSummary(BaseModel):
     citation_coverage: float | None = None
     query_coverage_score: float | None = None
     freshness_warning: str | None = None
-    claim_verifier_total: int | None = None
-    claim_verifier_verified: int | None = None
-    claim_verifier_unsupported: int | None = None
-    claim_verifier_contradicted: int | None = None
 
 
 class RunMetricsResponse(BaseModel):
@@ -3966,10 +3962,6 @@ async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
     citation_coverage: float | None = None
     query_coverage_score: float | None = None
     freshness_warning: str | None = None
-    claim_verifier_total: int | None = None
-    claim_verifier_verified: int | None = None
-    claim_verifier_unsupported: int | None = None
-    claim_verifier_contradicted: int | None = None
 
     if not checkpointer:
         return RunEvidenceSummary(
@@ -3982,10 +3974,6 @@ async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
             citation_coverage=citation_coverage,
             query_coverage_score=query_coverage_score,
             freshness_warning=freshness_warning,
-            claim_verifier_total=claim_verifier_total,
-            claim_verifier_verified=claim_verifier_verified,
-            claim_verifier_unsupported=claim_verifier_unsupported,
-            claim_verifier_contradicted=claim_verifier_contradicted,
         )
 
     try:
@@ -4058,25 +4046,6 @@ async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
             if isinstance(freshness_warning_raw, str) and freshness_warning_raw.strip():
                 freshness_warning = freshness_warning_raw.strip()
 
-            def _maybe_int(value: Any) -> int | None:
-                if value is None:
-                    return None
-                try:
-                    return int(value)
-                except (TypeError, ValueError):
-                    return None
-
-            claim_verifier_total = _maybe_int(quality_summary.get("claim_verifier_total"))
-            claim_verifier_verified = _maybe_int(quality_summary.get("claim_verifier_verified"))
-            claim_verifier_unsupported = _maybe_int(quality_summary.get("claim_verifier_unsupported"))
-            claim_verifier_contradicted = _maybe_int(quality_summary.get("claim_verifier_contradicted"))
-
-            if unsupported_claims_count == 0:
-                unsupported_claims_count = max(
-                    0,
-                    int(claim_verifier_unsupported or 0) + int(claim_verifier_contradicted or 0),
-                )
-
     except Exception:
         # Evidence summary is best-effort; never fail the metrics endpoint for this.
         pass
@@ -4091,10 +4060,6 @@ async def _build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary:
         citation_coverage=citation_coverage,
         query_coverage_score=query_coverage_score,
         freshness_warning=freshness_warning,
-        claim_verifier_total=claim_verifier_total,
-        claim_verifier_verified=claim_verifier_verified,
-        claim_verifier_unsupported=claim_verifier_unsupported,
-        claim_verifier_contradicted=claim_verifier_contradicted,
     )
 
 
