@@ -1512,3 +1512,47 @@ Added owner-scoped knowledge_search for tool agents, wired the knowledge capabil
 ### Next Steps
 
 - None - task complete
+
+
+## Session 34: 清理 Deep Research runtime 配置与 readiness 投影
+
+**Date**: 2026-04-11
+**Task**: 清理 Deep Research runtime 配置与 readiness 投影
+**Branch**: `main`
+
+### Summary
+
+移除未接线的 Deep Research tool-agent 开关与工厂、删除死配置，并统一 runtime readiness 投影与相关契约。
+
+### Main Changes
+
+| 领域 | 记录 |
+|------|------|
+| Runtime 清理 | 删除 `deep_research_use_tool_agents` 配置和未接入运行链的 `build_deep_research_tool_agent()`，保留仍被 runtime 使用的 role tool policy 解析。 |
+| 配置收口 | 对 `deep_research_query_num` 与 `deep_research_clarify_round_limit` 改为 `2026-04-11` 起 fail-fast 拒绝，并移除 runtime 中对应的无效读取。 |
+| 投影统一 | 以 `runtime_state["readiness_summary"]` 作为 canonical readiness 快照，统一 reviewer / outline gate / resume / export 的读取路径，同时保留兼容镜像键。 |
+| 共享适配 | 新增共享 readiness 解析，`main.py` 的 export / resume 改为复用公共适配，减少重复 fallback 投影逻辑。 |
+| 规范与测试 | 更新 `tool-runtime-contracts.md`，补齐 role tool policy、canonical readiness、死配置 fail-fast 的执行契约，并补充对应回归测试。 |
+
+**验证**
+- `uv run pytest "tests/test_agent_factory_defaults.py" "tests/test_deepsearch_mode_selection.py" "tests/test_checkpoint_runtime_artifacts.py" "tests/test_deepsearch_multi_agent_runtime.py"`
+- `uv run ruff check "agent/deep_research/artifacts/public_artifacts.py" "agent/deep_research/artifacts/public_payload.py" "agent/deep_research/config.py" "agent/deep_research/engine/graph.py" "agent/deep_research/engine/runtime_artifacts.py" "agent/tooling/agents/__init__.py" "agent/tooling/agents/factory.py" "common/config.py" "main.py" "tests/test_agent_factory_defaults.py" "tests/test_checkpoint_runtime_artifacts.py" "tests/test_deepsearch_mode_selection.py" "tests/test_deepsearch_multi_agent_runtime.py"`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b97dcc2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

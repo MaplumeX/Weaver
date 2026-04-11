@@ -1,0 +1,7 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep runtime cleanup inside owning Deep Research/backend modules"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "Deep Research tool policy snapshots and public runtime artifacts are changing"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Behavior cleanup must preserve typed boundaries and regression coverage"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cleanup changes affect runtime state, resume/export payloads, and frontend timeline consumers"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Converge readiness/validation derivation into shared helpers instead of duplicated fallback logic"}

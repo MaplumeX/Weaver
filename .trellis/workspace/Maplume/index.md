@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 33
+- **Total Sessions**: 34
 - **Last Active**: 2026-04-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1514 | Active |
+| `journal-1.md` | ~1558 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 34 | 2026-04-11 | 清理 Deep Research runtime 配置与 readiness 投影 | `b97dcc2` | `main` |
 | 33 | 2026-04-11 | Deep Research supervisor 全量 tool-calling 化 | `0ed1f16` | `main` |
 | 32 | 2026-04-11 | Deep Research 去除 control-plane handoff payload | `f139eac` | `main` |
 | 31 | 2026-04-11 | Upgrade explicit long-term memory ingestion | `6d0f69b` | `main` |
