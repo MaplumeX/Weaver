@@ -30,7 +30,7 @@
 - `supervisor` 这个名字容易让人误以为它是一个强 LLM 规划者，但在当前实现里它基本是确定性控制器，主要负责：
   - 从 scope 生成 outline
   - 根据 section 状态决定继续 dispatch、进入 report，还是直接 stop
-- 角色级 tool policy 已经存在，但当前 multi-agent runtime 没有真正调用 `build_deep_research_tool_agent()` 构建每个角色的 LangChain tool agent；现阶段这些 policy 主要用于：
+- 角色级 tool policy 已经存在，但当前 multi-agent runtime 不会为每个角色装配独立的 LangChain tool agent；现阶段这些 policy 主要用于：
   - 记录允许工具快照
   - 发事件
   - 暴露到运行时状态/最终产物
@@ -128,7 +128,7 @@ flowchart LR
   - `clarify/scope/supervisor` 只有 `fabric`
   - `researcher` 允许 search/read/extract 类工具
   - `reporter` 允许 `fabric` 和 `execute_python_code`
-- 但当前 Deep Research runtime 本身没有调用 `build_deep_research_tool_agent()`。
+- 当前 Deep Research runtime 只保留角色级 tool policy 快照，不存在独立的 Deep Research tool-agent 装配入口。
 - 当前真实执行路径是：
   - `researcher` 通过注入的 `_search_with_tracking()` + `ContentFetcher` + RAG service 取证
   - `reporter` 直接调用 LLM 生成报告

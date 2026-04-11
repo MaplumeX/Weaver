@@ -69,7 +69,60 @@ def build_public_deep_research_artifacts_from_state(state: dict[str, Any]) -> di
     return {}
 
 
+def resolve_public_deep_research_readiness(artifacts: dict[str, Any] | None) -> dict[str, Any]:
+    payload = artifacts if isinstance(artifacts, dict) else {}
+    outline_gate_summary = (
+        dict(payload.get("outline_gate_summary"))
+        if isinstance(payload.get("outline_gate_summary"), dict)
+        else {}
+    )
+    validation_summary = (
+        dict(payload.get("validation_summary"))
+        if isinstance(payload.get("validation_summary"), dict)
+        else dict(outline_gate_summary)
+    )
+    quality_summary = (
+        dict(payload.get("quality_summary"))
+        if isinstance(payload.get("quality_summary"), dict)
+        else {}
+    )
+    query_coverage = (
+        dict(payload.get("query_coverage"))
+        if isinstance(payload.get("query_coverage"), dict)
+        else {}
+    )
+    freshness_summary = (
+        dict(payload.get("freshness_summary"))
+        if isinstance(payload.get("freshness_summary"), dict)
+        else {}
+    )
+
+    query_coverage_score = query_coverage.get("score")
+    if query_coverage_score is None:
+        nested_coverage = quality_summary.get("query_coverage")
+        if isinstance(nested_coverage, dict):
+            query_coverage_score = nested_coverage.get("score")
+        if query_coverage_score is None:
+            query_coverage_score = quality_summary.get("query_coverage_score")
+    if query_coverage_score is not None:
+        try:
+            query_coverage_score = float(query_coverage_score)
+        except (TypeError, ValueError):
+            query_coverage_score = None
+
+    return {
+        "outline_gate_summary": outline_gate_summary,
+        "validation_summary": validation_summary,
+        "quality_summary": quality_summary,
+        "query_coverage": query_coverage,
+        "query_coverage_score": query_coverage_score,
+        "freshness_summary": freshness_summary,
+        "freshness_warning": str(quality_summary.get("freshness_warning") or ""),
+    }
+
+
 __all__ = [
     "build_public_deep_research_artifacts",
     "build_public_deep_research_artifacts_from_state",
+    "resolve_public_deep_research_readiness",
 ]

@@ -64,6 +64,8 @@ def test_run_deep_research_dispatches_supported_runtime(monkeypatch):
         ({"deepsearch_mode": "linear"}, "deepsearch_mode"),
         ({"tree_parallel_branches": 1}, "tree_parallel_branches"),
         ({"deepsearch_tree_max_searches": 1}, "deepsearch_tree_max_searches"),
+        ({"deep_research_query_num": 2}, "deep_research_query_num"),
+        ({"deep_research_clarify_round_limit": 2}, "deep_research_clarify_round_limit"),
     ],
 )
 def test_run_deep_research_rejects_legacy_runtime_inputs(configurable, expected):

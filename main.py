@@ -51,6 +51,9 @@ from agent import (
 )
 from agent.contracts.research import extract_message_sources
 from agent.contracts.search_cache import clear_search_cache, get_search_cache
+from agent.deep_research.artifacts.public_artifacts import (
+    resolve_public_deep_research_readiness,
+)
 from agent.execution import (
     build_execution_request,
 )
@@ -4592,6 +4595,7 @@ async def export_report_endpoint(
             deep_research_artifacts = extract_deep_research_artifacts(state) or {}
             if not isinstance(deep_research_artifacts, dict):
                 deep_research_artifacts = {}
+            readiness = resolve_public_deep_research_readiness(deep_research_artifacts)
 
             sources_payload = deep_research_artifacts.get("sources")
             if not isinstance(sources_payload, list):
@@ -4613,23 +4617,9 @@ async def export_report_endpoint(
             if not isinstance(section_certifications_payload, list):
                 section_certifications_payload = []
 
-            outline_gate_payload = deep_research_artifacts.get("outline_gate_summary")
-            if not isinstance(outline_gate_payload, dict):
-                outline_gate_payload = {}
-
             branch_results_payload = deep_research_artifacts.get("branch_results")
             if not isinstance(branch_results_payload, list):
                 branch_results_payload = section_drafts_payload
-
-            validation_payload = deep_research_artifacts.get("validation_summary")
-            if not isinstance(validation_payload, dict):
-                validation_payload = outline_gate_payload
-
-            quality_payload = deep_research_artifacts.get("quality_summary")
-            if not isinstance(quality_payload, dict):
-                quality_payload = state.get("quality_summary", {}) or {}
-                if not isinstance(quality_payload, dict):
-                    quality_payload = {}
 
             return StarletteJSONResponse(
                 status_code=200,
@@ -4642,10 +4632,10 @@ async def export_report_endpoint(
                     "section_drafts": section_drafts_payload,
                     "section_reviews": section_reviews_payload,
                     "section_certifications": section_certifications_payload,
-                    "outline_gate_summary": outline_gate_payload,
+                    "outline_gate_summary": readiness["outline_gate_summary"],
                     "branch_results": branch_results_payload,
-                    "validation_summary": validation_payload,
-                    "quality": quality_payload,
+                    "validation_summary": readiness["validation_summary"],
+                    "quality": readiness["quality_summary"],
                     "exported_at": datetime.now().isoformat(),
                 },
                 headers={"Content-Disposition": f'attachment; filename="report_{thread_id}.json"'},
@@ -5288,42 +5278,14 @@ async def resume_session(
             raise HTTPException(status_code=404, detail=f"Session not found: {thread_id}")
 
         deep_research_artifacts = restored_state.get("deep_research_artifacts", {}) or {}
-        quality_summary = deep_research_artifacts.get("quality_summary", {}) if isinstance(
-            deep_research_artifacts, dict
-        ) else {}
+        readiness = resolve_public_deep_research_readiness(deep_research_artifacts)
+        quality_summary = readiness["quality_summary"]
         queries = deep_research_artifacts.get("queries", []) if isinstance(
             deep_research_artifacts, dict
         ) else []
-        query_coverage = deep_research_artifacts.get("query_coverage", {}) if isinstance(
-            deep_research_artifacts, dict
-        ) else {}
-        freshness_summary = deep_research_artifacts.get("freshness_summary", {}) if isinstance(
-            deep_research_artifacts, dict
-        ) else {}
-        if not isinstance(query_coverage, dict):
-            query_coverage = {}
-        if not isinstance(freshness_summary, dict):
-            freshness_summary = {}
-        query_coverage_score = query_coverage.get("score")
-        if query_coverage_score is not None:
-            try:
-                query_coverage_score = float(query_coverage_score)
-            except (TypeError, ValueError):
-                query_coverage_score = None
-        if query_coverage_score is None and isinstance(quality_summary, dict):
-            nested_coverage = quality_summary.get("query_coverage")
-            if isinstance(nested_coverage, dict):
-                query_coverage_score = nested_coverage.get("score")
-            if query_coverage_score is None:
-                query_coverage_score = quality_summary.get("query_coverage_score")
-            if query_coverage_score is not None:
-                try:
-                    query_coverage_score = float(query_coverage_score)
-                except (TypeError, ValueError):
-                    query_coverage_score = None
-        freshness_warning = ""
-        if isinstance(quality_summary, dict):
-            freshness_warning = str(quality_summary.get("freshness_warning") or "")
+        freshness_summary = readiness["freshness_summary"]
+        query_coverage_score = readiness["query_coverage_score"]
+        freshness_warning = readiness["freshness_warning"]
 
         # Resume the graph execution
         # Note: Actual resumption depends on the graph implementation

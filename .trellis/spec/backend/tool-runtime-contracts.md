@@ -164,7 +164,8 @@ Bad:
 
 - Trigger: changing `agent/tooling/runtime_context.py`,
   `agent/tooling/registry.py`, `agent/tooling/policy.py`,
-  `agent/tooling/assembly.py`, or capability/provider builders.
+  `agent/tooling/assembly.py`, `agent/tooling/agents/factory.py`, or
+  capability/provider builders.
 
 ### 2. Signatures
 
@@ -178,6 +179,9 @@ Bad:
   - `build_tool_inventory(config) -> list[BaseTool]`
   - `build_tools_for_names(config, tool_names) -> list[BaseTool]`
   - `build_agent_toolset(config) -> list[BaseTool]`
+- File: `agent/tooling/agents/factory.py`
+  - `resolve_deep_research_role_tool_names(role, *, allowed_tools=None, enable_supervisor_world_tools=False, enable_reporter_python_tools=True) -> set[str]`
+  - `resolve_deep_research_role_tool_policy(role, *, allowed_tools=None, enable_supervisor_world_tools=False, enable_reporter_python_tools=True) -> DeepResearchToolPolicy`
 - File: `tools/rag/knowledge_search_tool.py`
   - `build_knowledge_tools(thread_id, *, user_id, agent_id="") -> list[BaseTool]`
 - File: `tools/rag/service.py`
@@ -224,6 +228,22 @@ Resolution contract:
 4. Apply explicit `tools` override if present.
 5. Remove `blocked_capabilities`.
 6. Remove `blocked_tools`.
+
+Deep Research tool-policy contract:
+
+1. `resolve_deep_research_role_tool_names(...)` expands the role allowlist
+   plus alias groups such as `search` / `extract` into concrete tool names.
+2. `resolve_deep_research_role_tool_policy(...)` returns the Deep Research
+   runtime snapshot fields:
+   - `role`
+   - `requested_tools`
+   - `allowed_tool_names`
+3. Deep Research runtime uses those snapshots for diagnostics and runtime-state
+   projection only. It must instantiate `ResearchSupervisor`,
+   `ResearchAgent`, and `ResearchReporter` directly; do not reintroduce a
+   dedicated `build_deep_research_tool_agent(...)` execution path.
+4. `deep_research_use_tool_agents` is not a supported setting or runtime
+   switch.
 
 Search-tool contract:
 
@@ -313,6 +333,9 @@ profile = {
   - blocked capability filtering
 - `tests/test_tool_runtime_context.py`
   - context fields derived from config/profile
+- `tests/test_agent_factory_defaults.py`
+  - Deep Research role-policy helpers expand aliases and honor supervisor /
+    reporter restrictions without a dedicated tool-agent builder
 - `tests/test_tool_catalog_api.py`
   - catalog exposes `tool_id/capabilities/source/risk_level`
 - `tests/test_knowledge_tool.py`
@@ -607,11 +630,14 @@ yield await format_stream_event(
 - File: `agent/deep_research/engine/runtime_artifacts.py`
   - `quality_summary(queue, store, runtime_state, *, outline_sections_fn) -> dict[str, Any]`
   - `initial_next_step(task_queue_snapshot, artifact_store_snapshot, runtime_state_snapshot, *, outline_sections_fn) -> str`
+  - `resolve_readiness_summary(runtime_state) -> dict[str, Any]`
+  - `record_readiness_summary(runtime_state, summary) -> dict[str, Any]`
 - File: `main.py`
   - `RunEvidenceSummary`
   - `_build_run_evidence_summary(thread_id: str) -> RunEvidenceSummary`
 - File: `agent/deep_research/artifacts/public_artifacts.py`
   - `build_public_deep_research_artifacts(...) -> dict[str, Any]`
+  - `resolve_public_deep_research_readiness(artifacts) -> dict[str, Any]`
 
 ### 3. Contracts
 
@@ -727,6 +753,31 @@ Outline-manager contract:
 - `branch_contradictions`
 - `branch_groundings`
 - `branch_decisions`
+
+Runtime readiness projection contract:
+
+- `runtime_state["readiness_summary"]` is the canonical readiness snapshot for
+  reviewer / outline-gate output.
+- `runtime_state["last_review_summary"]` and
+  `runtime_state["outline_gate_summary"]` remain compatibility mirrors only.
+- New writers must call `record_readiness_summary(...)` so all three keys stay
+  aligned during the compatibility window.
+- Runtime and public readers must resolve readiness in this order:
+  - `readiness_summary`
+  - `outline_gate_summary`
+  - `last_review_summary`
+- `build_public_deep_research_artifacts(...)` may continue exposing
+  `outline_gate_summary` for response compatibility, but the source of truth is
+  the canonical readiness snapshot above.
+- `resolve_public_deep_research_readiness(...)` owns the shared projection used
+  by resume / export callers for:
+  - `outline_gate_summary`
+  - `validation_summary`
+  - `quality_summary`
+  - `query_coverage`
+  - `query_coverage_score`
+  - `freshness_summary`
+  - `freshness_warning`
 
 Reviewer/reporter consumption rules:
 
@@ -851,6 +902,8 @@ Reviewer/reporter consumption rules:
 | Decision manager fails, emits no tool call, or emits malformed action | supervisor returns `action="stop"` | runtime finalizes unless admitted sections already allow partial report |
 | Draft has `reportability=low` or `insufficient` | reporter excludes it from final report context | `report_ready=false` when no admitted sections remain |
 | Draft has `reportability=medium` but `contradiction_summary.has_material_conflict=true` | reporter excludes it from final report context | final report omits the section |
+| `runtime_state["readiness_summary"]` exists but legacy readiness keys disagree | runtime/public helpers prefer the canonical readiness snapshot | legacy keys are compatibility-only |
+| Stored checkpoint only has `outline_gate_summary` or `last_review_summary` | resume/export still derive readiness consistently | fallback to the legacy key order |
 | Runtime resumes from a legacy checkpoint with `next_step="final_claim_gate"` | checkpoint should still resume successfully | runtime jumps to `finalize` |
 | Runtime resumes from a legacy checkpoint with `active_agent="verifier"` | checkpoint should still resume successfully | runtime normalizes the role and continues |
 | Final report exists in artifact store | runtime does not run an extra post-report gate | next step is `finalize` |
@@ -1024,6 +1077,7 @@ sections just because the draft text is non-empty.
   - assert artifact store/public payload expose `branch_*` snapshot keys
   - assert section drafts carry structured coverage/quality/grounding summaries
   - assert reviewer records `pending_replans` but does not enqueue tasks
+  - assert reviewer / outline gate write the canonical readiness snapshot
   - assert outline manager failure blocks runtime and finalizes without fallback
   - assert supervisor is the node that enqueues retry/revision tasks
   - assert budget stop prevents executable replans and falls back to
@@ -1038,6 +1092,9 @@ sections just because the draft text is non-empty.
 - `agent/deep_research/engine/runtime_artifacts.py` resume assertions
   - assert `initial_next_step(...)` maps legacy `final_claim_gate` checkpoints
     to `finalize`
+- `tests/test_checkpoint_runtime_artifacts.py`
+  - canonical `readiness_summary` wins over legacy readiness mirrors
+  - resume/export helpers project readiness fields from the shared adapter
 - `tests/test_deepsearch_reporter.py`
   - assert reporter prompt omits risk/manual-review/limitation blocks in the
     silent-denoise path
@@ -1097,6 +1154,7 @@ Before finishing tool-system work:
   - `agent/foundation/multi_model.py`
   - `agent/execution/shared.py`
   - `agent/chat/prompting.py`
+  - `agent/deep_research/config.py`
   - `agent/deep_research/engine/runtime_context.py`
 
 ### 2. Signatures
@@ -1108,6 +1166,10 @@ Before finishing tool-system work:
   - `configurable_float(config, key, default) -> float`
 - File: `agent/foundation/multi_model.py`
   - `resolve_model_name(task_type: str, config: dict[str, Any] | None = None) -> str`
+- File: `agent/deep_research/config.py`
+  - `ensure_supported_runtime_inputs(config) -> None`
+  - `resolve_parallel_workers(config) -> int`
+  - `resolve_max_searches(config) -> int`
 - Runtime aliases:
   - `agent/execution/shared.py`
     - `_configurable = configurable_dict`
@@ -1129,6 +1191,21 @@ Runtime config contract:
    degrade to `{}` instead of raising.
 3. Integer/float readers must accept stringified numeric values and return the
    provided default on `None`, wrong types, or parse failure.
+4. `ensure_supported_runtime_inputs(...)` is the fail-fast gate for removed
+   Deep Research runtime knobs. It must reject these keys instead of silently
+   ignoring them:
+   - `deepsearch_engine`
+   - `deep_research_engine`
+   - `deepsearch_mode`
+   - `deep_research_mode`
+   - `tree_parallel_branches`
+   - `deepsearch_tree_max_searches`
+   - `deep_research_query_num`
+   - `deep_research_clarify_round_limit`
+5. `deep_research_query_num` was removed on `2026-04-11`. Query fan-out now
+   comes from the branch planner plus `deep_research_results_per_query`.
+6. `deep_research_clarify_round_limit` was removed on `2026-04-11`. Clarify
+   retries are runtime-owned and are not user-configurable.
 
 Model resolution contract:
 
@@ -1156,6 +1233,8 @@ Model resolution contract:
 | `config["configurable"]` is not a dict | ignore invalid payload | `{}` / default |
 | `configurable_int(..., "4", default)` | parse to `4` | n/a |
 | `configurable_int(..., "oops", default)` | ignore invalid override | return `default` |
+| `ensure_supported_runtime_inputs({"configurable": {"deep_research_query_num": 3}})` | reject removed knob | `ValueError` with `2026-04-11` removal guidance |
+| `ensure_supported_runtime_inputs({"configurable": {"deep_research_clarify_round_limit": 2}})` | reject removed knob | `ValueError` with `2026-04-11` removal guidance |
 | `resolve_model_name("planning", {"configurable": {"reasoning_model": "x"}})` | use reasoning override | `"x"` |
 | `resolve_model_name("writing", {"configurable": {"model": "y"}})` | use general model override | `"y"` |
 | `resolve_model_name("legacy_unknown_task", {"configurable": {"model": "z"}})` | do not raise on unknown task string | `"z"` |
@@ -1199,6 +1278,17 @@ return `3` instead of raising or preserving the malformed string.
 Bad:
 
 ```python
+ensure_supported_runtime_inputs(
+    {"configurable": {"deep_research_query_num": 4}}
+)
+```
+
+Bad because removed Deep Research knobs must fail fast instead of staying as
+dead configuration.
+
+Bad:
+
+```python
 resolve_model_name("legacy_unknown_task", {})
 ```
 
@@ -1216,6 +1306,8 @@ strings must still degrade to settings-backed defaults.
 - `tests/test_deepsearch_multi_agent_runtime.py`
   - assertion points that Deep Research runtime still accepts numeric config
     overrides and builds the multi-agent runtime successfully
+- `tests/test_deepsearch_mode_selection.py`
+  - removed Deep Research runtime knobs raise dated fail-fast errors
 - `tests/test_tool_runtime_context.py`
   - assert runtime config fallback fields still project through
     `ToolRuntimeContext`

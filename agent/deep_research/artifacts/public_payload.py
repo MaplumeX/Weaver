@@ -57,6 +57,14 @@ _PUBLIC_SIGNAL_KEYS = (
 )
 
 
+def _resolved_runtime_readiness(runtime_state: dict[str, Any]) -> dict[str, Any]:
+    for key in ("readiness_summary", "outline_gate_summary", "last_review_summary"):
+        value = runtime_state.get(key)
+        if isinstance(value, dict) and value:
+            return dict(value)
+    return {}
+
+
 def _build_query_coverage(
     quality_summary: dict[str, Any],
     explicit_query_coverage: dict[str, Any] | None,
@@ -194,9 +202,8 @@ def _build_lightweight_public_artifacts(
     validation_summary = _normalize_lightweight_validation(store_snapshot)
     merged_quality = dict(quality_summary or {})
     runtime_snapshot = runtime_state if isinstance(runtime_state, dict) else {}
-    runtime_validation = _normalize_validation_summary(
-        runtime_snapshot.get("outline_gate_summary") or runtime_snapshot.get("last_review_summary")
-    )
+    runtime_readiness = _resolved_runtime_readiness(runtime_snapshot)
+    runtime_validation = _normalize_validation_summary(runtime_readiness)
     if runtime_validation:
         validation_summary = {**validation_summary, **runtime_validation}
     if "query_coverage_score" not in merged_quality and queries:
@@ -237,11 +244,7 @@ def _build_lightweight_public_artifacts(
         branch_contradictions=list(store_snapshot.get("branch_contradictions") or []),
         branch_groundings=list(store_snapshot.get("branch_groundings") or []),
         branch_decisions=list(store_snapshot.get("branch_decisions") or []),
-        outline_gate_summary=(
-            dict(runtime_snapshot.get("outline_gate_summary"))
-            if isinstance(runtime_snapshot.get("outline_gate_summary"), dict)
-            else {}
-        ),
+        outline_gate_summary=runtime_readiness,
         branch_results=_normalize_lightweight_branch_results(store_snapshot),
         validation_summary=validation_summary,
         quality_summary=merged_quality,

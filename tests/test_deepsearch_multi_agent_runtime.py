@@ -1,4 +1,3 @@
-import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
@@ -437,12 +436,6 @@ def _patch_runtime_deps(
     monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", reporter)
     monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
 
-
-@pytest.fixture(autouse=True)
-def _disable_tool_agents_by_default(monkeypatch):
-    monkeypatch.setattr(multi_agent_runtime.settings, "deep_research_use_tool_agents", False, raising=False)
-
-
 def test_multi_agent_runtime_uses_default_max_epochs(monkeypatch):
     emitter = _DummyEmitter()
     _patch_runtime_deps(monkeypatch, emitter=emitter)
@@ -464,7 +457,6 @@ def test_run_deep_research_emits_section_artifacts_and_events(monkeypatch):
         {
             "configurable": {
                 "thread_id": "thread_test",
-                "deep_research_query_num": 2,
                 "deep_research_results_per_query": 2,
             }
         },
@@ -627,7 +619,7 @@ def test_multi_agent_section_events_include_iteration_metadata(monkeypatch):
 
     run_deep_research(
         {"input": "AI chips", "sub_agent_contexts": {}},
-        {"configurable": {"thread_id": "thread_iteration_metadata", "deep_research_query_num": 1}},
+        {"configurable": {"thread_id": "thread_iteration_metadata"}},
     )
 
     section_task_updates = [
@@ -658,7 +650,6 @@ def test_multi_agent_graph_can_resume_from_merge_checkpoint(monkeypatch):
     config = {
         "configurable": {
             "thread_id": "thread_resume",
-            "deep_research_query_num": 2,
             "deep_research_pause_before_merge": True,
         }
     }
@@ -693,7 +684,6 @@ def test_multi_agent_scope_review_supports_revision_then_approval(monkeypatch):
         "configurable": {
             "thread_id": "thread_scope_review",
             "allow_interrupts": True,
-            "deep_research_query_num": 1,
         }
     }
     runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
@@ -804,7 +794,6 @@ def test_multi_agent_runtime_retries_failed_task_without_new_task_id(monkeypatch
         {
             "configurable": {
                 "thread_id": "thread_retry_failure",
-                "deep_research_query_num": 1,
                 "deep_research_task_retry_limit": 2,
                 "deep_research_max_epochs": 3,
             }
@@ -841,7 +830,6 @@ def test_multi_agent_dispatch_records_budget_stop_reason_when_search_budget_exha
         {
             "configurable": {
                 "thread_id": "thread_budget_stop",
-                "deep_research_query_num": 2,
                 "deep_research_parallel_workers": 1,
                 "deep_research_max_searches": 1,
             }
@@ -877,7 +865,6 @@ def test_low_confidence_sections_do_not_generate_report(monkeypatch):
         {
             "configurable": {
                 "thread_id": "thread_low_confidence_report",
-                "deep_research_query_num": 1,
                 "deep_research_task_retry_limit": 0,
             }
         },
@@ -990,7 +977,6 @@ def test_medium_section_report_uses_admitted_content_only(monkeypatch):
         {
             "configurable": {
                 "thread_id": "thread_admitted_report",
-                "deep_research_query_num": 1,
             }
         },
     )
@@ -1661,7 +1647,6 @@ def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):
         "configurable": {
             "thread_id": "thread_resume_clarify_scope",
             "allow_interrupts": True,
-            "deep_research_query_num": 1,
         }
     }
     runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
@@ -1726,7 +1711,6 @@ def test_multi_agent_clarify_forces_scope_after_single_user_answer(monkeypatch):
         "configurable": {
             "thread_id": "thread_clarify_single_answer",
             "allow_interrupts": True,
-            "deep_research_query_num": 1,
         }
     }
     runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(

@@ -11,6 +11,7 @@ from common.config import settings
 
 SUPPORTED_DEEP_RESEARCH_RUNTIME = "multi_agent"
 REMOVAL_DATE = "2026-04-01"
+DEAD_KNOB_REMOVAL_DATE = "2026-04-11"
 
 _configurable = configurable_dict
 
@@ -56,6 +57,19 @@ def ensure_supported_runtime_inputs(config: dict[str, Any] | None) -> None:
         raise ValueError(
             "Deep Research config `deepsearch_tree_max_searches` was removed on "
             f"{REMOVAL_DATE}. Rename it to `deep_research_max_searches`."
+        )
+
+    if "deep_research_query_num" in cfg:
+        raise ValueError(
+            "Deep Research config `deep_research_query_num` was removed on "
+            f"{DEAD_KNOB_REMOVAL_DATE}. Query planning is now derived from the "
+            "branch planner and `deep_research_results_per_query`."
+        )
+
+    if "deep_research_clarify_round_limit" in cfg:
+        raise ValueError(
+            "Deep Research config `deep_research_clarify_round_limit` was removed on "
+            f"{DEAD_KNOB_REMOVAL_DATE}. Clarify retries are now runtime-owned."
         )
 
 

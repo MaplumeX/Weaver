@@ -335,7 +335,6 @@ class Settings(BaseSettings):
 
     # Deep Research Settings
     deep_research_max_epochs: int = 15
-    deep_research_query_num: int = 5
     deep_research_results_per_query: int = 5
     deep_research_max_seconds: float = 0.0  # 0 = disabled
     deep_research_max_tokens: int = 0  # 0 = disabled
@@ -346,8 +345,6 @@ class Settings(BaseSettings):
     deep_research_visualize_browser: bool = True  # drive sandbox browser so Live view isn't blank
     deep_research_supervisor_allow_world_tools: bool = False  # allow supervisor spot-check tools
     deep_research_reporter_enable_python_tools: bool = True  # allow reporter formatting/export helpers
-    deep_research_use_tool_agents: bool = True  # run bounded Deep Research tool agents before scripted fallback
-
     # Research Fetcher / Reader Settings
     reader_fallback_mode: str = "both"
     reader_public_base: str = "https://r.jina.ai"

@@ -7,7 +7,6 @@ from agent.tooling.agents.factory import (
     _build_todo_middleware,
     _tool_selector_always_include,
     _tool_selector_methods,
-    build_deep_research_tool_agent,
     build_tool_agent,
     resolve_deep_research_role_tool_names,
 )
@@ -21,7 +20,6 @@ __all__ = [
     "_build_todo_middleware",
     "_tool_selector_always_include",
     "_tool_selector_methods",
-    "build_deep_research_tool_agent",
     "build_tool_agent",
     "resolve_deep_research_role_tool_names",
 ]

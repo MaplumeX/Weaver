@@ -128,14 +128,6 @@ class MultiAgentDeepResearchRuntime:
                 settings.deep_research_max_epochs,
             ),
         )
-        self.query_num = max(
-            1,
-            runtime_context._configurable_int(
-                self.config,
-                "deep_research_query_num",
-                settings.deep_research_query_num,
-            ),
-        )
         self.results_per_query = max(
             1,
             runtime_context._configurable_int(
@@ -164,10 +156,6 @@ class MultiAgentDeepResearchRuntime:
         self.task_retry_limit = max(
             1,
             runtime_context._configurable_int(self.config, "deep_research_task_retry_limit", 2),
-        )
-        self.max_clarify_rounds = max(
-            1,
-            runtime_context._configurable_int(self.config, "deep_research_clarify_round_limit", 2),
         )
         self.pause_before_merge = bool(self.cfg.get("deep_research_pause_before_merge"))
         self.allow_interrupts = bool(self.cfg.get("allow_interrupts", False))
@@ -270,6 +258,7 @@ class MultiAgentDeepResearchRuntime:
             "scope_feedback_history": [],
             "outline_gate_summary": {},
             "last_review_summary": {},
+            "readiness_summary": {},
             "pending_replans": [],
             "section_status_map": {},
             "section_revision_counts": {},
@@ -992,8 +981,7 @@ class MultiAgentDeepResearchRuntime:
         )
 
         aggregate = self._aggregate_sections(parts.task_queue, parts.artifact_store, parts.runtime_state)
-        parts.runtime_state["last_review_summary"] = aggregate
-        parts.runtime_state["outline_gate_summary"] = copy.deepcopy(aggregate)
+        runtime_artifacts.record_readiness_summary(parts.runtime_state, aggregate)
         pending_replans = [
             item
             for item in list(parts.runtime_state.get("pending_replans") or [])
@@ -1074,7 +1062,7 @@ class MultiAgentDeepResearchRuntime:
     def _outline_gate_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
         parts = self._unpack(graph_state)
         aggregate = self._aggregate_sections(parts.task_queue, parts.artifact_store, parts.runtime_state)
-        parts.runtime_state["outline_gate_summary"] = aggregate
+        runtime_artifacts.record_readiness_summary(parts.runtime_state, aggregate)
         reportable_sections = self._build_report_sections(parts.artifact_store)
         next_step = review_cycle.decide_outline_gate_next_step(
             runtime_state=parts.runtime_state,

@@ -4,6 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from agent.deep_research.artifacts.public_artifacts import (
+    resolve_public_deep_research_readiness,
+)
 from common.checkpoint_runtime import build_resume_state, extract_deep_research_artifacts
 
 
@@ -179,3 +182,54 @@ async def test_build_resume_state_does_not_inject_empty_artifacts() -> None:
   restored = await build_resume_state(_fake_checkpointer(state), "thread-plain")
   assert restored is not None
   assert "deep_research_artifacts" not in restored
+
+
+def test_extract_deep_research_artifacts_prefers_canonical_readiness_summary() -> None:
+  state = {
+      "route": "deep",
+      "deep_runtime": {
+          "engine": "multi_agent",
+          "task_queue": {
+              "tasks": [
+                  {"id": "task_1", "query": "q1", "priority": 1, "created_at": "2026-04-02T00:00:00Z"},
+              ]
+          },
+          "artifact_store": {"final_report": {"report_markdown": ""}},
+          "runtime_state": {
+              "readiness_summary": {
+                  "outline_ready": True,
+                  "report_ready": True,
+                  "coverage_score": 0.8,
+              },
+              "outline_gate_summary": {
+                  "outline_ready": False,
+                  "report_ready": False,
+              },
+          },
+          "agent_runs": [],
+      },
+  }
+
+  artifacts = extract_deep_research_artifacts(state)
+  assert artifacts["outline_gate_summary"]["outline_ready"] is True
+  assert artifacts["validation_summary"]["report_ready"] is True
+
+
+def test_resolve_public_deep_research_readiness_projects_resume_fields() -> None:
+  readiness = resolve_public_deep_research_readiness(
+      {
+          "outline_gate_summary": {"outline_ready": True},
+          "validation_summary": {"report_ready": True},
+          "quality_summary": {
+              "query_coverage": {"score": 0.75},
+              "freshness_warning": "missing_dates",
+          },
+          "freshness_summary": {"known_count": 3},
+      }
+  )
+
+  assert readiness["outline_gate_summary"]["outline_ready"] is True
+  assert readiness["validation_summary"]["report_ready"] is True
+  assert readiness["query_coverage_score"] == 0.75
+  assert readiness["freshness_warning"] == "missing_dates"
+  assert readiness["freshness_summary"]["known_count"] == 3

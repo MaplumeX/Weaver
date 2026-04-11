@@ -167,6 +167,25 @@ def aggregate_sections(
     }
 
 
+def resolve_readiness_summary(runtime_state: dict[str, Any]) -> dict[str, Any]:
+    for key in ("readiness_summary", "outline_gate_summary", "last_review_summary"):
+        value = runtime_state.get(key)
+        if isinstance(value, dict) and value:
+            return copy.deepcopy(value)
+    return {}
+
+
+def record_readiness_summary(
+    runtime_state: dict[str, Any],
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    snapshot = copy.deepcopy(summary if isinstance(summary, dict) else {})
+    runtime_state["readiness_summary"] = copy.deepcopy(snapshot)
+    runtime_state["last_review_summary"] = copy.deepcopy(snapshot)
+    runtime_state["outline_gate_summary"] = copy.deepcopy(snapshot)
+    return snapshot
+
+
 def build_plan_artifact(
     scope: dict[str, Any],
     tasks: list[ResearchTask],
@@ -389,9 +408,9 @@ def initial_next_step(
             section_id = str(draft.get("section_id") or "").strip()
             if section_id and section_id not in certified_ids:
                 return "reviewer"
-    outline_gate_summary = runtime_state_snapshot.get("outline_gate_summary")
-    if isinstance(outline_gate_summary, dict) and bool(
-        outline_gate_summary.get("report_ready") or outline_gate_summary.get("outline_ready")
+    readiness_summary = resolve_readiness_summary(runtime_state_snapshot)
+    if readiness_summary and bool(
+        readiness_summary.get("report_ready") or readiness_summary.get("outline_ready")
     ):
         return "report"
     return "supervisor_decide"
@@ -403,5 +422,7 @@ __all__ = [
     "build_plan_artifact",
     "initial_next_step",
     "quality_summary",
+    "record_readiness_summary",
     "research_topology_snapshot",
+    "resolve_readiness_summary",
 ]

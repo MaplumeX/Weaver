@@ -17,7 +17,6 @@ from langchain.agents.middleware import (
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 
-from agent.tooling import build_tools_for_names
 from agent.tooling.agents.provider_safe_middleware import ProviderSafeToolSelectorMiddleware
 from common.config import settings
 
@@ -334,39 +333,3 @@ def resolve_deep_research_role_tool_policy(
         requested_tools=_dedupe_texts(requested),
         allowed_tool_names=tuple(sorted(_resolve_deep_research_tool_names(requested))),
     )
-
-
-def build_deep_research_tool_agent(
-    *,
-    model: str | None = None,
-    role: str | None = None,
-    allowed_tools: list[str] | None = None,
-    extra_tools: list[BaseTool] | None = None,
-    temperature: float = 0.1,
-) -> tuple[object, list[BaseTool]]:
-    """
-    Create a Deep Research-specific tool agent with a restricted toolset.
-    """
-    model_name = (model or settings.primary_model).strip()
-    if role:
-        policy = resolve_deep_research_role_tool_policy(
-            role,
-            allowed_tools=allowed_tools,
-            enable_supervisor_world_tools=bool(
-                getattr(settings, "deep_research_supervisor_allow_world_tools", False)
-            ),
-            enable_reporter_python_tools=bool(
-                getattr(settings, "deep_research_reporter_enable_python_tools", True)
-            ),
-        )
-        allowed_names = set(policy.allowed_tool_names)
-    else:
-        allowed_names = _resolve_deep_research_tool_names(allowed_tools)
-    tools = list(extra_tools or [])
-    existing_names = {tool.name for tool in tools if getattr(tool, "name", None)}
-    for tool in build_tools_for_names(allowed_names):
-        if tool.name in existing_names:
-            continue
-        tools.append(tool)
-    agent = build_tool_agent(model=model_name, tools=tools, temperature=temperature)
-    return agent, tools
