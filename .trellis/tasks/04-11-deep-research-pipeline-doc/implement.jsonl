@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "Document runtime artifacts, event payloads, and public deep_research_artifacts contract."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "The document spans runtime state, persistence, SSE events, and frontend consumers."}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Deep Research runtime and docs should follow backend module ownership."}
