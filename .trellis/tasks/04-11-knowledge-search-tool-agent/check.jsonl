@@ -1,0 +1,9 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/directory-structure.md", "reason": "Verify ownership boundaries after backend changes"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/database-guidelines.md", "reason": "Verify additive JSON-file persistence changes"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/error-handling.md", "reason": "Verify API/tool fallback behavior and boundary errors"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/logging-guidelines.md", "reason": "Verify scoped knowledge logging remains consistent"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify cross-layer data flow remains consistent"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/quality-guidelines.md", "reason": "Verify regression tests and backend quality expectations"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/tool-runtime-contracts.md", "reason": "Verify tool runtime and capability contracts"}

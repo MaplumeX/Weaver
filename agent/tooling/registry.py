@@ -10,7 +10,7 @@ from agent.tooling.providers import ProviderContext
 
 _PROVIDER_CAPABILITY_MAP: dict[str, tuple[str, ...]] = {
     "web_search": ("search",),
-    "rag": ("search", "knowledge"),
+    "knowledge": ("knowledge",),
     "crawl": ("search", "browser"),
     "browser": ("browser",),
     "browser_use": ("browser", "automation"),
@@ -92,7 +92,12 @@ def _tool_risk_level(tool_name: str, capabilities: tuple[str, ...]) -> str:
     name = str(tool_name or "").strip()
     if "shell" in capabilities or name in {"execute_python_code", "safe_bash"}:
         return "high"
-    if "files" in capabilities or "browser" in capabilities or "mcp" in capabilities:
+    if (
+        "files" in capabilities
+        or "browser" in capabilities
+        or "mcp" in capabilities
+        or "knowledge" in capabilities
+    ):
         return "medium"
     return "standard"
 

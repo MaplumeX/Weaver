@@ -35,6 +35,10 @@ def _needs_browser_hint(selected_tools: list[str] | None) -> bool:
     return False
 
 
+def _needs_knowledge_hint(selected_tools: list[str] | None) -> bool:
+    return any(str(name or "").strip() == "knowledge_search" for name in (selected_tools or []))
+
+
 def _resolve_deps(explicit_deps: Any = None) -> Any:
     if explicit_deps is not None:
         return explicit_deps
@@ -72,10 +76,14 @@ def tool_agent_node(
         include_browser_hint = _needs_browser_hint(
             [str(getattr(tool, "name", "")).strip() for tool in tools]
         )
+        include_knowledge_hint = _needs_knowledge_hint(
+            [str(getattr(tool, "name", "")).strip() for tool in tools]
+        )
         messages = build_chat_runtime_messages(
             state,
             config,
             include_browser_hint=include_browser_hint,
+            include_knowledge_hint=include_knowledge_hint,
         )
         response = agent.invoke({"messages": messages}, config=config)
 

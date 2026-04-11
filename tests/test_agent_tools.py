@@ -180,6 +180,35 @@ def test_build_agent_toolset_blocks_tools_via_blocked_capabilities(monkeypatch):
     assert names == ["alpha"]
 
 
+def test_build_agent_toolset_keeps_knowledge_capability_separate_from_search(monkeypatch):
+    monkeypatch.setattr(
+        "agent.tooling.assembly.build_tool_inventory",
+        lambda _config: [alpha, beta, gamma],
+    )
+    monkeypatch.setattr(
+        "agent.tooling.assembly.build_tool_registry",
+        lambda _config: {
+            "alpha": ToolSpec(tool_id="alpha", tool_name="alpha", capabilities=("search",)),
+            "beta": ToolSpec(tool_id="beta", tool_name="beta", capabilities=("knowledge",)),
+            "gamma": ToolSpec(tool_id="gamma", tool_name="gamma", capabilities=("browser",)),
+        },
+    )
+
+    cfg = {
+        "configurable": {
+            "thread_id": "tools-knowledge-1",
+            "agent_profile": {
+                "capabilities": ["search"],
+                "emit_tool_events": False,
+            },
+        }
+    }
+
+    names = _names(build_agent_toolset(cfg))
+
+    assert names == ["alpha"]
+
+
 def test_build_agent_toolset_ignores_removed_rag_tool_name():
     cfg = {
         "configurable": {

@@ -83,6 +83,7 @@ def build_chat_runtime_messages(
     config: dict[str, Any] | Any,
     *,
     include_browser_hint: bool = False,
+    include_knowledge_hint: bool = False,
 ) -> list[Any]:
     system_parts = [
         part
@@ -95,6 +96,13 @@ def build_chat_runtime_messages(
         browser_hint = build_browser_context_hint(thread_id)
         if browser_hint:
             system_parts.append(browser_hint)
+    if include_knowledge_hint:
+        system_parts.append(
+            "Knowledge tool guidance:\n"
+            "Use `knowledge_search` when the user asks about uploaded files, private documents, "
+            "or internal knowledge. Do not claim knowledge-base evidence unless you actually used "
+            "that tool in this turn."
+        )
 
     messages: list[Any] = []
     if system_parts:

@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import pytest
+from langgraph.types import Command
 
 import main
 from agent.foundation.events import EventEmitter, ToolEvent
@@ -118,3 +119,23 @@ async def test_stream_flushes_tool_progress_before_graph_completion(monkeypatch)
     remaining_payloads = [json.loads(chunk[2:]) for chunk in remaining if chunk.startswith("0:")]
     remaining_types = [payload["type"] for payload in remaining_payloads]
     assert "completion" in remaining_types
+
+
+@pytest.mark.asyncio
+async def test_format_stream_event_serializes_langgraph_command_payload():
+    payload = main._build_langchain_tool_stream_payload(
+        status="completed",
+        event_name="demo_search",
+        data={
+            "input": {"query": "agent observability"},
+            "output": Command(resume={"approved": True}),
+        },
+        run_id="tool-run-2",
+    )
+
+    chunk = await main.format_stream_event("tool", payload)
+    decoded = json.loads(chunk[2:])
+
+    assert decoded["type"] == "tool"
+    assert decoded["data"]["toolCallId"] == "tool-run-2"
+    assert decoded["data"]["payload"]["output"]["resume"] == {"approved": True}

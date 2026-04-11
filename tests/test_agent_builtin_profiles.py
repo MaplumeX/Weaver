@@ -27,6 +27,7 @@ def test_default_profile_keeps_legacy_default_tool_coverage() -> None:
 
     assert {
         "web_search",
+        "knowledge_search",
         "crawl_urls",
         "crawl4ai",
         "chart_visualize",
@@ -51,6 +52,7 @@ def test_manus_profile_keeps_legacy_full_tool_coverage() -> None:
 
     assert {
         "ask_human",
+        "knowledge_search",
         "plan_steps",
         "sandbox_delete_file",
         "sandbox_upload_file",
@@ -105,12 +107,14 @@ def test_builtin_profiles_include_new_role_capability_contract_fields() -> None:
     manus_profile = profiles["manus"]
 
     assert default_profile["roles"] == ["default_agent"]
-    assert {"search", "browser", "planning", "python"} <= set(default_profile["capabilities"])
+    assert {"search", "browser", "planning", "python", "knowledge"} <= set(
+        default_profile["capabilities"]
+    )
     assert default_profile["blocked_capabilities"] == []
     assert default_profile["policy"] == {}
 
     assert manus_profile["roles"] == ["default_agent"]
-    assert {"search", "browser", "shell", "presentation", "computer", "sandbox"} <= set(
+    assert {"search", "browser", "shell", "presentation", "computer", "sandbox", "knowledge"} <= set(
         manus_profile["capabilities"]
     )
     assert manus_profile["blocked_capabilities"] == []

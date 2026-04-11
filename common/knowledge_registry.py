@@ -18,9 +18,23 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _normalize_owner_user_id(value: str | None) -> str:
+    text = str(value or "").strip()
+    return text or "default_user"
+
+
+def _normalize_visibility(value: str | None) -> str:
+    text = str(value or "private").strip().lower()
+    if text in {"private", "shared"}:
+        return text
+    return "private"
+
+
 class KnowledgeFileRecord(BaseModel):
     id: str = Field(min_length=1)
     filename: str = Field(min_length=1)
+    owner_user_id: str = "default_user"
+    visibility: str = "private"
     content_type: str = ""
     extension: str = ""
     size_bytes: int = 0
@@ -72,7 +86,27 @@ class KnowledgeRegistry:
     def __init__(self, paths: KnowledgeRegistryPaths | None = None) -> None:
         self.paths = paths or default_registry_paths()
 
-    def list_records(self) -> list[KnowledgeFileRecord]:
+    def _record_visible_to_owner(
+        self,
+        record: KnowledgeFileRecord,
+        *,
+        owner_user_id: str | None,
+        include_shared: bool,
+    ) -> bool:
+        if owner_user_id is None:
+            return True
+        normalized_owner = _normalize_owner_user_id(owner_user_id)
+        record_owner = _normalize_owner_user_id(getattr(record, "owner_user_id", ""))
+        if record_owner == normalized_owner:
+            return True
+        return include_shared and _normalize_visibility(getattr(record, "visibility", "")) == "shared"
+
+    def list_records(
+        self,
+        *,
+        owner_user_id: str | None = None,
+        include_shared: bool = False,
+    ) -> list[KnowledgeFileRecord]:
         with _LOCK:
             if not self.paths.file.exists():
                 return []
@@ -84,14 +118,27 @@ class KnowledgeRegistry:
                 if not isinstance(item, dict):
                     continue
                 try:
-                    records.append(KnowledgeFileRecord.model_validate(item))
+                    record = KnowledgeFileRecord.model_validate(item)
                 except Exception:
                     continue
+                if not self._record_visible_to_owner(
+                    record,
+                    owner_user_id=owner_user_id,
+                    include_shared=include_shared,
+                ):
+                    continue
+                records.append(record)
             records.sort(key=lambda item: item.updated_at, reverse=True)
             return records
 
-    def get_record(self, record_id: str) -> KnowledgeFileRecord | None:
-        for item in self.list_records():
+    def get_record(
+        self,
+        record_id: str,
+        *,
+        owner_user_id: str | None = None,
+        include_shared: bool = False,
+    ) -> KnowledgeFileRecord | None:
+        for item in self.list_records(owner_user_id=owner_user_id, include_shared=include_shared):
             if item.id == record_id:
                 return item
         return None
@@ -100,12 +147,13 @@ class KnowledgeRegistry:
         self,
         content_hash: str,
         *,
+        owner_user_id: str | None = None,
         exclude_id: str | None = None,
     ) -> KnowledgeFileRecord | None:
         target = str(content_hash or "").strip()
         if not target:
             return None
-        for item in self.list_records():
+        for item in self.list_records(owner_user_id=owner_user_id):
             if exclude_id and item.id == exclude_id:
                 continue
             if str(item.content_hash or "").strip() == target:
@@ -114,7 +162,13 @@ class KnowledgeRegistry:
 
     def upsert_record(self, record: KnowledgeFileRecord) -> KnowledgeFileRecord:
         now = _utc_now_iso()
-        updated = record.model_copy(update={"updated_at": now})
+        updated = record.model_copy(
+            update={
+                "owner_user_id": _normalize_owner_user_id(record.owner_user_id),
+                "visibility": _normalize_visibility(record.visibility),
+                "updated_at": now,
+            }
+        )
         existing = self.list_records()
         merged: list[KnowledgeFileRecord] = []
         replaced = False
@@ -131,13 +185,24 @@ class KnowledgeRegistry:
             _atomic_write_json(self.paths.file, payload)
         return self.get_record(updated.id) or updated
 
-    def delete_record(self, record_id: str) -> KnowledgeFileRecord | None:
+    def delete_record(
+        self,
+        record_id: str,
+        *,
+        owner_user_id: str | None = None,
+        include_shared: bool = False,
+    ) -> KnowledgeFileRecord | None:
         existing = self.list_records()
         kept: list[KnowledgeFileRecord] = []
         removed: KnowledgeFileRecord | None = None
 
         for item in existing:
-            if item.id == record_id and removed is None:
+            visible = self._record_visible_to_owner(
+                item,
+                owner_user_id=owner_user_id,
+                include_shared=include_shared,
+            )
+            if item.id == record_id and visible and removed is None:
                 removed = item
                 continue
             kept.append(item)

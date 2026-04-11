@@ -93,6 +93,7 @@
       "add_watermark",
       "overlay_images",
       "create_thumbnail",
+      "knowledge_search",
       "computer_move_mouse",
       "computer_click",
       "computer_type",
@@ -121,6 +122,7 @@
       "computer",
       "web_dev",
       "human",
+      "knowledge",
       "sandbox"
     ],
     "blocked_capabilities": [],
@@ -159,7 +161,8 @@
       "get_next_task",
       "ask_human",
       "str_replace",
-      "plan_steps"
+      "plan_steps",
+      "knowledge_search"
     ],
     "blocked_tools": [],
     "roles": [
@@ -171,7 +174,8 @@
       "planning",
       "python",
       "files",
-      "human"
+      "human",
+      "knowledge"
     ],
     "blocked_capabilities": [],
     "mcp_servers": null,

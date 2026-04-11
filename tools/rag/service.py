@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -36,6 +37,13 @@ class KnowledgeMilvusSchema:
     vector_dim: int | None
     enable_dynamic_field: bool
     field_names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class KnowledgeSearchScope:
+    user_id: str
+    agent_id: str = ""
+    include_shared: bool = True
 
 
 def _now_iso() -> str:
@@ -351,7 +359,13 @@ class KnowledgeMilvusStore:
             data=payloads,
         )
 
-    def search(self, *, query_vector: list[float], limit: int) -> list[dict[str, Any]]:
+    def search(
+        self,
+        *,
+        query_vector: list[float],
+        limit: int,
+        file_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         if not query_vector:
             return []
         schema = self._schema_or_raise()
@@ -375,13 +389,29 @@ class KnowledgeMilvusStore:
             output_fields = list(dict.fromkeys(desired_output_fields))
         else:
             output_fields = [name for name in dict.fromkeys(desired_output_fields) if name in schema.field_names]
-        raw = self._client_or_raise().search(
-            collection_name=settings.knowledge_milvus_collection.strip(),
-            data=[query_vector],
-            limit=max(1, limit),
-            output_fields=output_fields,
-            anns_field=schema.vector_field,
-        )
+        kwargs: dict[str, Any] = {
+            "collection_name": settings.knowledge_milvus_collection.strip(),
+            "data": [query_vector],
+            "limit": max(1, limit),
+            "output_fields": output_fields,
+            "anns_field": schema.vector_field,
+        }
+        visible_file_ids = [str(item or "").strip() for item in (file_ids or []) if str(item or "").strip()]
+        if visible_file_ids:
+            filter_text = (
+                f'file_id == "{visible_file_ids[0]}"'
+                if len(visible_file_ids) == 1
+                else f"file_id in {json.dumps(visible_file_ids, ensure_ascii=False)}"
+            )
+            kwargs["filter"] = filter_text
+        try:
+            raw = self._client_or_raise().search(**kwargs)
+        except TypeError:
+            if "filter" not in kwargs:
+                raise
+            legacy_kwargs = dict(kwargs)
+            legacy_kwargs["expr"] = legacy_kwargs.pop("filter")
+            raw = self._client_or_raise().search(**legacy_kwargs)
         if isinstance(raw, list) and raw and isinstance(raw[0], list):
             return [item for item in raw[0] if isinstance(item, dict)]
         return [item for item in raw or [] if isinstance(item, dict)]
@@ -420,11 +450,32 @@ class KnowledgeService:
         self.embedding_client = embedding_client or RagEmbeddingClient()
         self.milvus_store = milvus_store or KnowledgeMilvusStore()
 
-    def list_files(self) -> list[KnowledgeFileRecord]:
-        return self.registry.list_records()
+    def list_files(
+        self,
+        *,
+        owner_user_id: str | None = None,
+        include_shared: bool = False,
+    ) -> list[KnowledgeFileRecord]:
+        return self.registry.list_records(
+            owner_user_id=owner_user_id,
+            include_shared=include_shared,
+        )
 
-    def get_file(self, file_id: str) -> KnowledgeFileRecord | None:
-        return self.registry.get_record(file_id)
+    def get_file(
+        self,
+        file_id: str,
+        *,
+        owner_user_id: str | None = None,
+        include_shared: bool = False,
+    ) -> KnowledgeFileRecord | None:
+        return self.registry.get_record(
+            file_id,
+            owner_user_id=owner_user_id,
+            include_shared=include_shared,
+        )
+
+    def is_search_ready(self) -> bool:
+        return self.embedding_client.is_configured() and self.milvus_store.is_configured()
 
     def _assert_upload_ready(self) -> None:
         if not self.object_store.is_configured():
@@ -439,6 +490,8 @@ class KnowledgeService:
         *,
         file_id: str,
         filename: str,
+        owner_user_id: str,
+        visibility: str,
         content_type: str,
         extension: str,
         size_bytes: int,
@@ -447,6 +500,8 @@ class KnowledgeService:
         return KnowledgeFileRecord(
             id=file_id,
             filename=filename,
+            owner_user_id=owner_user_id,
+            visibility=visibility,
             content_type=content_type,
             extension=extension,
             size_bytes=size_bytes,
@@ -456,14 +511,34 @@ class KnowledgeService:
             status="uploading",
         )
 
-    def _get_file_or_raise(self, file_id: str) -> KnowledgeFileRecord:
-        record = self.get_file(file_id)
+    def _get_file_or_raise(
+        self,
+        file_id: str,
+        *,
+        owner_user_id: str | None = None,
+        include_shared: bool = False,
+    ) -> KnowledgeFileRecord:
+        record = self.get_file(
+            file_id,
+            owner_user_id=owner_user_id,
+            include_shared=include_shared,
+        )
         if record is None:
             raise KnowledgeFileNotFoundError("Knowledge file not found")
         return record
 
-    def _ensure_not_duplicate(self, *, content_hash: str, exclude_id: str | None = None) -> None:
-        existing = self.registry.find_record_by_content_hash(content_hash, exclude_id=exclude_id)
+    def _ensure_not_duplicate(
+        self,
+        *,
+        content_hash: str,
+        owner_user_id: str,
+        exclude_id: str | None = None,
+    ) -> None:
+        existing = self.registry.find_record_by_content_hash(
+            content_hash,
+            owner_user_id=owner_user_id,
+            exclude_id=exclude_id,
+        )
         if existing is not None:
             raise DuplicateKnowledgeFileError(existing)
 
@@ -583,7 +658,15 @@ class KnowledgeService:
             )
         )
 
-    def ingest_file(self, *, filename: str, content_type: str, data: bytes) -> KnowledgeFileRecord:
+    def ingest_file(
+        self,
+        *,
+        filename: str,
+        content_type: str,
+        data: bytes,
+        owner_user_id: str,
+        visibility: str = "private",
+    ) -> KnowledgeFileRecord:
         safe_filename = _safe_filename(filename)
         extension = safe_filename.rsplit(".", 1)[-1].lower() if "." in safe_filename else ""
         allowed = set(settings.knowledge_allowed_extensions_list)
@@ -592,13 +675,15 @@ class KnowledgeService:
         if len(data) > int(settings.knowledge_max_upload_bytes or 0):
             raise ValueError("Knowledge file exceeds upload size limit")
         content_hash = _content_hash_bytes(data)
-        self._ensure_not_duplicate(content_hash=content_hash)
+        self._ensure_not_duplicate(content_hash=content_hash, owner_user_id=owner_user_id)
         self._assert_upload_ready()
 
         file_id = f"kf_{uuid.uuid4().hex[:12]}"
         record = self._build_initial_record(
             file_id=file_id,
             filename=safe_filename,
+            owner_user_id=owner_user_id,
+            visibility=visibility,
             content_type=content_type,
             extension=extension,
             size_bytes=len(data),
@@ -641,16 +726,26 @@ class KnowledgeService:
                 )
             )
 
-    def download_file(self, file_id: str) -> tuple[KnowledgeFileRecord, bytes]:
-        record = self._get_file_or_raise(file_id)
+    def download_file(
+        self,
+        file_id: str,
+        *,
+        owner_user_id: str | None = None,
+        include_shared: bool = False,
+    ) -> tuple[KnowledgeFileRecord, bytes]:
+        record = self._get_file_or_raise(
+            file_id,
+            owner_user_id=owner_user_id,
+            include_shared=include_shared,
+        )
         if not record.bucket or not record.object_key:
             raise RuntimeError("Knowledge file storage location is missing")
         payload = self.object_store.download_bytes(bucket=record.bucket, object_key=record.object_key)
         return record, payload
 
-    def reindex_file(self, file_id: str) -> KnowledgeFileRecord:
+    def reindex_file(self, file_id: str, *, owner_user_id: str | None = None) -> KnowledgeFileRecord:
         self._assert_upload_ready()
-        record = self._get_file_or_raise(file_id)
+        record = self._get_file_or_raise(file_id, owner_user_id=owner_user_id)
         if not record.bucket or not record.object_key:
             raise RuntimeError("Knowledge file storage location is missing")
 
@@ -690,15 +785,15 @@ class KnowledgeService:
                 )
             )
 
-    def delete_file(self, file_id: str) -> KnowledgeFileRecord:
-        record = self._get_file_or_raise(file_id)
+    def delete_file(self, file_id: str, *, owner_user_id: str | None = None) -> KnowledgeFileRecord:
+        record = self._get_file_or_raise(file_id, owner_user_id=owner_user_id)
         if not record.bucket or not record.object_key:
             raise RuntimeError("Knowledge file storage location is missing")
 
         try:
             self.milvus_store.delete_file_chunks(file_id=record.id)
             self.object_store.delete_object(bucket=record.bucket, object_key=record.object_key)
-            removed = self.registry.delete_record(record.id)
+            removed = self.registry.delete_record(record.id, owner_user_id=owner_user_id)
             if removed is None:
                 raise KnowledgeFileNotFoundError("Knowledge file not found")
             logger.info(
@@ -711,14 +806,30 @@ class KnowledgeService:
             logger.error("[knowledge_service] delete failed | file_id=%s | error=%s", file_id, exc, exc_info=True)
             raise
 
-    def search(self, *, query: str, limit: int | None = None) -> list[dict[str, Any]]:
+    def search(
+        self,
+        *,
+        query: str,
+        limit: int | None = None,
+        scope: KnowledgeSearchScope | None = None,
+    ) -> list[dict[str, Any]]:
         query_text = str(query or "").strip()
         if not query_text:
             return []
-        indexed = [item for item in self.registry.list_records() if item.status == "indexed"]
+        indexed = [
+            item
+            for item in self.registry.list_records(
+                owner_user_id=(scope.user_id if scope is not None else None),
+                include_shared=bool(scope.include_shared) if scope is not None else False,
+            )
+            if item.status == "indexed"
+        ]
         if not indexed:
             return []
-        if not self.embedding_client.is_configured() or not self.milvus_store.is_configured():
+        if not self.is_search_ready():
+            return []
+        visible_file_ids = [str(item.id).strip() for item in indexed if str(item.id).strip()]
+        if not visible_file_ids:
             return []
         query_embeddings = self.embedding_client.embed_texts([query_text])
         if not query_embeddings:
@@ -726,6 +837,7 @@ class KnowledgeService:
         raw_hits = self.milvus_store.search(
             query_vector=query_embeddings[0],
             limit=int(limit or settings.knowledge_search_top_k or 4),
+            file_ids=visible_file_ids,
         )
 
         normalized: list[dict[str, Any]] = []
@@ -738,6 +850,8 @@ class KnowledgeService:
                 or ""
             ).strip()
             file_id = str(entity.get("file_id") or "").strip()
+            if file_id and file_id not in visible_file_ids:
+                continue
             base_url = str(entity.get("download_url") or f"/api/knowledge/files/{file_id}/download").strip()
             text = str(entity.get("text") or "").strip()
             url = f"{base_url}#chunk={hit_id}" if hit_id else base_url
@@ -776,6 +890,7 @@ def get_knowledge_service() -> KnowledgeService:
 __all__ = [
     "DuplicateKnowledgeFileError",
     "KnowledgeFileNotFoundError",
+    "KnowledgeSearchScope",
     "KnowledgeService",
     "get_knowledge_service",
 ]

@@ -178,6 +178,10 @@ Bad:
   - `build_tool_inventory(config) -> list[BaseTool]`
   - `build_tools_for_names(config, tool_names) -> list[BaseTool]`
   - `build_agent_toolset(config) -> list[BaseTool]`
+- File: `tools/rag/knowledge_search_tool.py`
+  - `build_knowledge_tools(thread_id, *, user_id, agent_id="") -> list[BaseTool]`
+- File: `tools/rag/service.py`
+  - `KnowledgeService.search(*, query, limit=None, scope=None) -> list[dict[str, Any]]`
 - File: `tools/search/contracts.py`
   - `SearchStrategy`
   - `SearchResult.to_dict() -> dict[str, Any]`
@@ -226,6 +230,10 @@ Search-tool contract:
 - The only public API search tool name is `web_search`.
 - `fallback_search` and `tavily_search` are not valid public tool names after
   the A2 search-runtime consolidation.
+- `knowledge_search` is a separate public tool for user-scoped knowledge-file
+  retrieval; it is not an alias of `web_search`.
+- `knowledge` is a separate capability. `search` must not implicitly grant
+  `knowledge_search`.
 - `tools/search/orchestrator.py` is the internal runtime module that owns
   provider fan-out, reliability, cache lookup, and ranking.
 - Do not add a second public API such as `multi_search(...)`; runtime callers
@@ -245,6 +253,16 @@ Search-tool contract:
 - `web_search` / `run_web_search` return normalized result items with:
   `title`, `url`, `summary`, `snippet`, `raw_excerpt`, `content`, `score`,
   `published_date`, `provider`.
+- `knowledge_search` returns a wrapper object with:
+  `query`, `available`, `results`, `result_count`.
+- `knowledge_search.results[*]` reuse the normalized knowledge-hit payload
+  shape from `KnowledgeService.search(...)`, including:
+  `title`, `url`, `raw_url`, `summary`, `raw_excerpt`, `content`, `score`,
+  `provider`, `knowledge_file_id`, `chunk_id`, `retrieved_at`, `source_type`.
+- Knowledge-file retrieval is owner-scoped. `KnowledgeService.search(...)`
+  must only search file IDs visible to `scope.user_id` (plus shared files when
+  enabled by scope), and API file operations must resolve owner from request
+  context before list/upload/download/reindex/delete.
 
 ### 4. Validation & Error Matrix
 
@@ -255,6 +273,8 @@ Search-tool contract:
 | Duplicate tool names | Deduped in registry/policy | keep first semantic entry |
 | Provider tool missing `name` | Skip from registry | safe no-op |
 | Missing `user_id` with `principal_user_id` or `memory_user_id` present | `ToolRuntimeContext.user_id` uses the first available fallback | `"default_user"` if none are provided |
+| `knowledge_search` with no visible knowledge files | Return zero results | `{"available": true, "results": []}` |
+| `knowledge_search` with embeddings/Milvus unavailable | Return zero results without crashing tool agent path | `{"available": false, "results": []}` |
 | Unknown provider name in `search_engines` / `provider_profile` | Treat as preference only; keep available providers | safe fallback to remaining providers |
 | `run_web_search(...)` provider failure | provider logs warning/error; orchestrator keeps trying based on strategy | return `[]` only after all paths fail |
 
@@ -265,7 +285,7 @@ Good:
 ```python
 profile = {
     "roles": ["default_agent"],
-    "capabilities": ["search"],
+    "capabilities": ["search", "knowledge"],
     "blocked_capabilities": ["shell"],
     "tools": ["web_search"],
     "blocked_tools": [],
@@ -295,10 +315,16 @@ profile = {
   - context fields derived from config/profile
 - `tests/test_tool_catalog_api.py`
   - catalog exposes `tool_id/capabilities/source/risk_level`
+- `tests/test_knowledge_tool.py`
+  - `knowledge_search` binds runtime `user_id/agent_id` into service scope
+- `tests/test_knowledge_service.py`
+  - scoped knowledge search only returns visible file hits
+- `tests/test_knowledge_api.py`
+  - knowledge-file endpoints resolve owner from request context
 - `tests/test_web_search.py`
   - `run_web_search(...)` respects provider preference and returns normalized payloads from `SearchResult.to_dict()`
 - `tests/test_agent_builtin_profiles.py`
-  - built-in profiles expose `web_search` instead of removed legacy API search tools
+  - built-in profiles expose `web_search` plus `knowledge_search` when default tool agents should search uploaded knowledge
 - `tests/test_deepsearch_web_search.py`
   - Deep Research runtime uses `run_web_search(...)`, does not add an extra outer cache, and returns `[]` on total failure
 

@@ -9,6 +9,7 @@ import time
 import uuid
 from collections import OrderedDict
 from contextlib import asynccontextmanager, suppress
+from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -1875,7 +1876,45 @@ async def format_stream_event(event_type: str, data: Any) -> str:
     Format: {type}:{json_data}\n
     """
     payload = {"type": event_type, "data": data}
-    return f"0:{json.dumps(payload)}\n"
+    return f"0:{json.dumps(payload, default=_json_default)}\n"
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (set, frozenset)):
+        return list(value)
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return base64.b64encode(value).decode("ascii")
+    if isinstance(value, Command):
+        command_payload = {
+            "graph": value.graph,
+            "update": value.update,
+            "resume": value.resume,
+            "goto": value.goto,
+        }
+        return {
+            key: nested_value
+            for key, nested_value in command_payload.items()
+            if nested_value not in (None, "", (), [], {})
+        }
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
+    if hasattr(value, "_asdict"):
+        return value._asdict()
+    if hasattr(value, "model_dump"):
+        try:
+            return value.model_dump(mode="json")
+        except TypeError:
+            return value.model_dump()
+    return str(value)
 
 
 def _should_emit_main_text_for_node(node_name: str) -> bool:
@@ -4864,6 +4903,10 @@ class KnowledgeFileDeleteResponse(BaseModel):
     deleted: bool = True
 
 
+def _resolve_knowledge_owner(request: Request) -> str:
+    return _resolve_memory_user_id(request)
+
+
 def _serialize_knowledge_file(record: Any) -> dict[str, Any]:
     if hasattr(record, "model_dump"):
         payload = record.model_dump(mode="json")
@@ -5107,9 +5150,13 @@ async def get_session_evidence(thread_id: str, request: Request):
 
 
 @app.get("/api/knowledge/files", response_model=KnowledgeFilesResponse)
-async def list_knowledge_files():
+async def list_knowledge_files(request: Request):
     try:
-        records = await run_in_threadpool(get_knowledge_service().list_files)
+        owner = _resolve_knowledge_owner(request)
+        records = await run_in_threadpool(
+            get_knowledge_service().list_files,
+            owner_user_id=owner,
+        )
         return {"files": [_serialize_knowledge_file(item) for item in records]}
     except Exception as e:
         logger.error("[knowledge_api] list files failed: %s", e, exc_info=True)
@@ -5117,11 +5164,12 @@ async def list_knowledge_files():
 
 
 @app.post("/api/knowledge/files", response_model=KnowledgeFileIngestResponse)
-async def upload_knowledge_files(files: list[UploadFile] = File(...)):
+async def upload_knowledge_files(request: Request, files: list[UploadFile] = File(...)):
     if not files:
         raise HTTPException(status_code=400, detail="At least one knowledge file is required")
 
     service = get_knowledge_service()
+    owner = _resolve_knowledge_owner(request)
     try:
         records: list[dict[str, Any]] = []
         for file in files:
@@ -5131,6 +5179,7 @@ async def upload_knowledge_files(files: list[UploadFile] = File(...)):
                 filename=file.filename or "upload.bin",
                 content_type=file.content_type or "application/octet-stream",
                 data=payload,
+                owner_user_id=owner,
             )
             records.append(_serialize_knowledge_file(record))
         return {"files": records}
@@ -5146,10 +5195,11 @@ async def upload_knowledge_files(files: list[UploadFile] = File(...)):
 
 
 @app.post("/api/knowledge/files/{file_id}/reindex", response_model=KnowledgeFileActionResponse)
-async def reindex_knowledge_file(file_id: str):
+async def reindex_knowledge_file(file_id: str, request: Request):
     service = get_knowledge_service()
     try:
-        record = await run_in_threadpool(service.reindex_file, file_id)
+        owner = _resolve_knowledge_owner(request)
+        record = await run_in_threadpool(service.reindex_file, file_id, owner_user_id=owner)
         return {"file": _serialize_knowledge_file(record)}
     except DuplicateKnowledgeFileError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
@@ -5165,10 +5215,11 @@ async def reindex_knowledge_file(file_id: str):
 
 
 @app.delete("/api/knowledge/files/{file_id}", response_model=KnowledgeFileDeleteResponse)
-async def delete_knowledge_file(file_id: str):
+async def delete_knowledge_file(file_id: str, request: Request):
     service = get_knowledge_service()
     try:
-        record = await run_in_threadpool(service.delete_file, file_id)
+        owner = _resolve_knowledge_owner(request)
+        record = await run_in_threadpool(service.delete_file, file_id, owner_user_id=owner)
         return {
             "file_id": record.id,
             "filename": record.filename,
@@ -5188,10 +5239,11 @@ async def delete_knowledge_file(file_id: str):
     response_class=StreamingResponse,
     responses={200: {"content": {"application/octet-stream": {}}}},
 )
-async def download_knowledge_file(file_id: str):
+async def download_knowledge_file(file_id: str, request: Request):
     service = get_knowledge_service()
     try:
-        record, payload = await run_in_threadpool(service.download_file, file_id)
+        owner = _resolve_knowledge_owner(request)
+        record, payload = await run_in_threadpool(service.download_file, file_id, owner_user_id=owner)
         filename = str(getattr(record, "filename", "") or "knowledge.bin")
         content_type = str(getattr(record, "content_type", "") or "application/octet-stream")
         return StreamingResponse(

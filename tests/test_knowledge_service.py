@@ -11,7 +11,12 @@ import tools.rag.service as rag_service
 from common.config import settings
 from common.knowledge_registry import KnowledgeRegistry, KnowledgeRegistryPaths
 from tools.rag.file_parser import ParsedKnowledgeDocument
-from tools.rag.service import KnowledgeMilvusStore, KnowledgeService, RagEmbeddingClient
+from tools.rag.service import (
+    KnowledgeMilvusStore,
+    KnowledgeSearchScope,
+    KnowledgeService,
+    RagEmbeddingClient,
+)
 
 
 class _FakeObjectStore:
@@ -70,6 +75,7 @@ class _FakeMilvusStore:
         self.inserted_chunks: list[dict[str, object]] = []
         self.search_hits: list[dict[str, object]] = []
         self.deleted_file_ids: list[str] = []
+        self.search_file_ids: list[str] | None = None
 
     def is_configured(self) -> bool:
         return True
@@ -80,7 +86,14 @@ class _FakeMilvusStore:
     def insert_chunks(self, chunks: list[dict[str, object]]) -> None:
         self.inserted_chunks = list(chunks)
 
-    def search(self, *, query_vector: list[float], limit: int) -> list[dict[str, object]]:
+    def search(
+        self,
+        *,
+        query_vector: list[float],
+        limit: int,
+        file_ids: list[str] | None = None,
+    ) -> list[dict[str, object]]:
+        self.search_file_ids = list(file_ids or [])
         return list(self.search_hits)
 
     def delete_file_chunks(self, *, file_id: str) -> None:
@@ -163,13 +176,25 @@ class _FakeMilvusClient:
     def insert(self, *, collection_name: str, data: list[dict[str, object]]) -> None:
         self.insert_payload = list(data)
 
-    def search(self, *, collection_name: str, data: list[list[float]], limit: int, output_fields: list[str], anns_field: str):
+    def search(
+        self,
+        *,
+        collection_name: str,
+        data: list[list[float]],
+        limit: int,
+        output_fields: list[str],
+        anns_field: str,
+        filter: str | None = None,
+        expr: str | None = None,
+    ):
         self.search_kwargs = {
             "collection_name": collection_name,
             "data": data,
             "limit": limit,
             "output_fields": output_fields,
             "anns_field": anns_field,
+            "filter": filter,
+            "expr": expr,
         }
         return [[{"id": "kf_1:1", "distance": 0.9, "entity": {"chunk_id": "kf_1:1", "text": "result"}}]]
 
@@ -217,6 +242,7 @@ def test_ingest_file_uploads_original_bytes_to_object_storage_and_indexes_chunks
         filename="../../private/guide.txt",
         content_type="text/plain",
         data=payload,
+        owner_user_id="user-1",
     )
 
     assert object_store.uploaded is not None
@@ -228,6 +254,8 @@ def test_ingest_file_uploads_original_bytes_to_object_storage_and_indexes_chunks
     assert record.content_hash == hashlib.sha256(payload).hexdigest()
     assert record.status == "indexed"
     assert record.chunk_count == 2
+    assert record.owner_user_id == "user-1"
+    assert record.visibility == "private"
     assert record.metadata == {"source": "unit-test"}
     assert embedding_client.calls == [["Alpha paragraph with enough content.", "Beta paragraph with enough content."]]
     assert milvus_store.dimension == 2
@@ -276,6 +304,7 @@ def test_ingest_file_rejects_duplicate_content(tmp_path, monkeypatch):
         filename="guide.txt",
         content_type="text/plain",
         data=payload,
+        owner_user_id="user-1",
     )
 
     try:
@@ -283,12 +312,65 @@ def test_ingest_file_rejects_duplicate_content(tmp_path, monkeypatch):
             filename="guide-copy.txt",
             content_type="text/plain",
             data=payload,
+            owner_user_id="user-1",
         )
     except rag_service.DuplicateKnowledgeFileError as exc:
         assert exc.existing.id == first.id
         assert exc.existing.filename == "guide.txt"
     else:
         raise AssertionError("expected duplicate upload to be rejected")
+
+
+def test_ingest_file_allows_same_content_for_different_owners(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "knowledge_milvus_collection", "knowledge_chunks", raising=False)
+
+    registry = KnowledgeRegistry(
+        KnowledgeRegistryPaths(root=tmp_path, file=Path(tmp_path) / "knowledge_files.json")
+    )
+    object_store = _FakeObjectStore()
+    embedding_client = _FakeEmbeddingClient()
+    milvus_store = _FakeMilvusStore()
+
+    monkeypatch.setattr(
+        rag_service,
+        "parse_uploaded_file",
+        lambda data, filename, content_type="": ParsedKnowledgeDocument(
+            text="Alpha paragraph with enough content.",
+            parser_name="txt",
+            metadata={},
+        ),
+    )
+    monkeypatch.setattr(
+        rag_service,
+        "split_into_passages",
+        lambda text, max_chars: [
+            {"text": "Alpha paragraph with enough content.", "start_char": 0, "end_char": 36, "heading": "Alpha"},
+        ],
+    )
+
+    service = KnowledgeService(
+        registry=registry,
+        object_store=object_store,
+        embedding_client=embedding_client,
+        milvus_store=milvus_store,
+    )
+    payload = b"same knowledge payload"
+
+    first = service.ingest_file(
+        filename="guide.txt",
+        content_type="text/plain",
+        data=payload,
+        owner_user_id="user-1",
+    )
+    second = service.ingest_file(
+        filename="guide-copy.txt",
+        content_type="text/plain",
+        data=payload,
+        owner_user_id="user-2",
+    )
+
+    assert first.id != second.id
+    assert second.owner_user_id == "user-2"
 
 
 def test_search_prefers_entity_chunk_id_when_hit_id_is_missing(tmp_path, monkeypatch):
@@ -302,6 +384,7 @@ def test_search_prefers_entity_chunk_id_when_hit_id_is_missing(tmp_path, monkeyp
         rag_service.KnowledgeFileRecord(
             id="kf_1",
             filename="guide.txt",
+            owner_user_id="user-1",
             status="indexed",
             download_path="/api/knowledge/files/kf_1/download",
         )
@@ -343,10 +426,87 @@ def test_search_prefers_entity_chunk_id_when_hit_id_is_missing(tmp_path, monkeyp
         milvus_store=milvus_store,
     )
 
-    results = service.search(query="knowledge", limit=2)
+    results = service.search(
+        query="knowledge",
+        limit=2,
+        scope=KnowledgeSearchScope(user_id="user-1"),
+    )
 
     assert results[0]["chunk_id"] == "kf_1:7"
     assert results[0]["url"] == "/api/knowledge/files/kf_1/download#chunk=kf_1:7"
+    assert milvus_store.search_file_ids == ["kf_1"]
+
+
+def test_search_filters_hits_to_scope_visible_file_ids(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "knowledge_milvus_collection", "knowledge_chunks", raising=False)
+
+    registry = KnowledgeRegistry(
+        KnowledgeRegistryPaths(root=tmp_path, file=Path(tmp_path) / "knowledge_files.json")
+    )
+    registry.upsert_record(
+        rag_service.KnowledgeFileRecord(
+            id="kf_1",
+            filename="guide.txt",
+            owner_user_id="user-1",
+            status="indexed",
+            download_path="/api/knowledge/files/kf_1/download",
+        )
+    )
+    registry.upsert_record(
+        rag_service.KnowledgeFileRecord(
+            id="kf_2",
+            filename="other.txt",
+            owner_user_id="user-2",
+            status="indexed",
+            download_path="/api/knowledge/files/kf_2/download",
+        )
+    )
+
+    class _SearchEmbeddingClient:
+        def is_configured(self) -> bool:
+            return True
+
+        def embed_texts(self, texts: list[str]) -> list[list[float]]:
+            return [[0.1, 0.2]]
+
+    milvus_store = _FakeMilvusStore()
+    milvus_store.search_hits = [
+        {
+            "distance": 0.91,
+            "entity": {
+                "chunk_id": "kf_1:1",
+                "file_id": "kf_1",
+                "filename": "guide.txt",
+                "text": "Visible knowledge.",
+                "download_url": "/api/knowledge/files/kf_1/download",
+            },
+        },
+        {
+            "distance": 0.95,
+            "entity": {
+                "chunk_id": "kf_2:1",
+                "file_id": "kf_2",
+                "filename": "other.txt",
+                "text": "Hidden knowledge.",
+                "download_url": "/api/knowledge/files/kf_2/download",
+            },
+        },
+    ]
+
+    service = KnowledgeService(
+        registry=registry,
+        object_store=_FakeObjectStore(),
+        embedding_client=_SearchEmbeddingClient(),
+        milvus_store=milvus_store,
+    )
+
+    results = service.search(
+        query="knowledge",
+        limit=2,
+        scope=KnowledgeSearchScope(user_id="user-1"),
+    )
+
+    assert [item["knowledge_file_id"] for item in results] == ["kf_1"]
 
 
 def test_milvus_store_adapts_to_existing_chunk_id_embedding_schema(monkeypatch):
@@ -369,7 +529,7 @@ def test_milvus_store_adapts_to_existing_chunk_id_embedding_schema(monkeypatch):
             }
         ]
     )
-    store.search(query_vector=[0.3, 0.4], limit=2)
+    store.search(query_vector=[0.3, 0.4], limit=2, file_ids=["kf_1"])
 
     assert client.insert_payload == [
         {
@@ -383,6 +543,7 @@ def test_milvus_store_adapts_to_existing_chunk_id_embedding_schema(monkeypatch):
     assert client.search_kwargs is not None
     assert client.search_kwargs["anns_field"] == "embedding"
     assert "chunk_id" in client.search_kwargs["output_fields"]
+    assert client.search_kwargs["filter"] == 'file_id == "kf_1"'
 
 
 def test_milvus_store_deletes_chunks_by_file_id(monkeypatch):
@@ -478,9 +639,10 @@ def test_reindex_file_reuses_original_object_and_replaces_existing_chunks(tmp_pa
         filename="guide.txt",
         content_type="text/plain",
         data=b"original knowledge payload",
+        owner_user_id="user-1",
     )
 
-    reindexed = service.reindex_file(record.id)
+    reindexed = service.reindex_file(record.id, owner_user_id="user-1")
 
     assert object_store.upload_calls == 1
     assert milvus_store.deleted_file_ids == [record.id]
@@ -528,9 +690,10 @@ def test_delete_file_removes_registry_object_and_vectors(tmp_path, monkeypatch):
         filename="guide.txt",
         content_type="text/plain",
         data=b"knowledge payload",
+        owner_user_id="user-1",
     )
 
-    deleted = service.delete_file(record.id)
+    deleted = service.delete_file(record.id, owner_user_id="user-1")
 
     assert deleted.id == record.id
     assert milvus_store.deleted_file_ids == [record.id]

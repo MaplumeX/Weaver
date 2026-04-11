@@ -26,6 +26,7 @@ from tools.crawl.crawl4ai_tool import crawl4ai
 from tools.crawl.crawl_tools import build_crawl_tools
 from tools.mcp import get_live_mcp_tools
 from tools.planning.planning_tool import plan_steps
+from tools.rag import build_knowledge_tools
 from tools.sandbox import (
     build_image_edit_tools,
     build_presentation_outline_tools,
@@ -63,6 +64,8 @@ def _configurable(config: RunnableConfig) -> dict[str, Any]:
         if isinstance(cfg, dict):
             return cfg
     return {}
+
+
 @dataclass(frozen=True)
 class ToolBuildContext:
     config: RunnableConfig
@@ -198,6 +201,14 @@ def _build_mcp_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
     return list(get_live_mcp_tools())
 
 
+def _build_knowledge_tools_for_agent(ctx: ToolBuildContext) -> list[BaseTool]:
+    return build_knowledge_tools(
+        ctx.thread_id,
+        user_id=ctx.runtime.user_id,
+        agent_id=ctx.runtime.agent_id,
+    )
+
+
 def _build_daytona_tools(_ctx: ToolBuildContext) -> list[BaseTool]:
     if settings.sandbox_mode != "daytona":
         return []
@@ -230,6 +241,7 @@ TOOL_PROVIDER_SPECS: tuple[ToolProviderSpec, ...] = (
     ToolProviderSpec(key="bash", factory=_build_bash_tools),
     ToolProviderSpec(key="planning", factory=_build_planning_tools),
     ToolProviderSpec(key="mcp", factory=_build_mcp_tools),
+    ToolProviderSpec(key="knowledge", factory=_build_knowledge_tools_for_agent),
     ToolProviderSpec(key="sandbox_daytona", factory=_build_daytona_tools),
 )
 
@@ -248,6 +260,7 @@ def build_tool_context(config: RunnableConfig) -> ToolBuildContext:
         e2b_ready=e2b_ready,
         runtime=build_tool_runtime_context(config, e2b_ready=e2b_ready),
     )
+
 
 def _tool_context_from_provider_context(context: ProviderContext) -> ToolBuildContext:
     return ToolBuildContext(

@@ -19,7 +19,7 @@ from agent.deep_research.branch_research.shared import (
     dedupe_strings as _shared_dedupe_strings,
 )
 from agent.deep_research.schema import ResearchTask
-from tools.rag import get_knowledge_service
+from tools.rag import KnowledgeSearchScope, get_knowledge_service
 from tools.research.content_fetcher import ContentFetcher
 
 logger = logging.getLogger(__name__)
@@ -134,14 +134,29 @@ class ResearchAgent:
             max_results_per_query=max_results_per_query,
         )
         rag_results: list[dict[str, Any]] = []
+        configurable = self.config.get("configurable") if isinstance(self.config, dict) else {}
+        if not isinstance(configurable, dict):
+            configurable = {}
+        user_id = str(configurable.get("user_id") or "").strip()
+        agent_profile = configurable.get("agent_profile") or {}
+        if not isinstance(agent_profile, dict):
+            agent_profile = {}
+        agent_id = str(agent_profile.get("id") or configurable.get("agent_id") or "").strip()
+        scope = KnowledgeSearchScope(user_id=user_id, agent_id=agent_id) if user_id else None
         try:
             for query in queries:
-                rag_results.extend(
-                    self.knowledge_service.search(
+                try:
+                    results = self.knowledge_service.search(
+                        query=query,
+                        limit=max_results_per_query,
+                        scope=scope,
+                    )
+                except TypeError:
+                    results = self.knowledge_service.search(
                         query=query,
                         limit=max_results_per_query,
                     )
-                )
+                rag_results.extend(results)
         except Exception as exc:
             logger.warning("[deep-research-researcher] rag search failed: %s", exc)
         return [*web_results, *rag_results]

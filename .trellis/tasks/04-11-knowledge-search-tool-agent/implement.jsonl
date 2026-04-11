@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/directory-structure.md", "reason": "Module ownership for backend persistence, tools, and API changes"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/error-handling.md", "reason": "Consistent HTTPException and fallback behavior for knowledge API/tool changes"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/tool-runtime-contracts.md", "reason": "Tool registry/runtime capability contract for knowledge_search"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer data flow for API, service, registry, and tool runtime"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/quality-guidelines.md", "reason": "Regression-test requirements for persistence and tool runtime changes"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/database-guidelines.md", "reason": "JSON-file persistence and additive storage changes for knowledge records"}
+{"file": "/home/maplume/projects/Weaver/.trellis/spec/backend/logging-guidelines.md", "reason": "Logging expectations for scoped knowledge retrieval failures"}
