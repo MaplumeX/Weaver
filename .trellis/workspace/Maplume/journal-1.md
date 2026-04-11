@@ -1556,3 +1556,50 @@ Added owner-scoped knowledge_search for tool agents, wired the knowledge capabil
 ### Next Steps
 
 - None - task complete
+
+
+## Session 35: Fix Deep Research Finalize Runtime Output
+
+**Date**: 2026-04-11
+**Task**: Fix Deep Research Finalize Runtime Output
+**Branch**: `main`
+
+### Summary
+
+Fixed Deep Research finalize state projection, added failure fallback for empty report output, and added regression coverage plus runtime contract notes.
+
+### Main Changes
+
+| Area | Details |
+|------|---------|
+| Runtime finalize | Updated Deep Research finalize flow so returned `deep_runtime.runtime_state` and public artifact runtime state project the terminal completed snapshot while keeping `phase="finalize"`. |
+| Failure fallback | Ensured `report -> finalize` without admitted sections records a blocking terminal reason and returns a non-empty failure `final_report` instead of an empty successful payload. |
+| Regression coverage | Added runtime tests for finalize state projection and the empty-report finalize path. |
+| Spec sync | Updated backend tool runtime contracts with finalize completion-state and empty-report fallback requirements. |
+
+**Verification**:
+- `uv run pytest tests/test_deepsearch_multi_agent_runtime.py`
+- `uv run pytest tests/test_checkpoint_runtime_artifacts.py tests/test_deepsearch_public_artifacts.py`
+- `uv run ruff check agent/deep_research/engine/graph.py agent/deep_research/engine/completion_flow.py tests/test_deepsearch_multi_agent_runtime.py`
+
+**Committed Code**:
+- `954750f fix(deep-research): normalize finalize runtime output`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `954750f72fd1d3dfaa3c37ffc38186ee5d557f60` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

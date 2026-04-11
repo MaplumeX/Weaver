@@ -1,0 +1,8 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep runtime state helpers inside deep_research engine ownership"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "Preserve deep runtime state and artifact contracts consumed by downstream systems"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Keep resume normalization and legacy compatibility failures boundary-safe"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Require typed boundaries and regression tests for runtime contract changes"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Centralize duplicated routing and normalization logic"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Runtime state shape is consumed by resume flow and public artifact projection"}

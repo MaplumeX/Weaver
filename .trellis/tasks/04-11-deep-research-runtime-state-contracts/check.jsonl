@@ -1,0 +1,8 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Verify new runtime contract helpers stay in owning deep_research modules"}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "Verify deep runtime and public artifact compatibility"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Check legacy payload normalization and failures stay deliberate"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review typed boundaries and regression coverage"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Review whether duplicated step routing was removed"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Review resume and public projection boundary consistency"}
