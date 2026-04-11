@@ -1461,3 +1461,54 @@ Added owner-scoped knowledge_search for tool agents, wired the knowledge capabil
 ### Next Steps
 
 - None - task complete
+
+
+## Session 33: Deep Research supervisor 全量 tool-calling 化
+
+**Date**: 2026-04-11
+**Task**: Deep Research supervisor 全量 tool-calling 化
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 模块 | 变更 |
+|------|------|
+| Supervisor | 去掉 deterministic 入口，`create_outline_plan()` 与 `decide_section_action()` 都只保留 tool-calling manager |
+| Control Tools | 新增 `submit_outline_plan`、`stop_planning`，保留 research / revise / report / stop 控制面工具 |
+| Runtime | 去掉 outline / decision fallback，manager 失败时显式阻断或停止，不再隐式兜底 |
+| Tests | 补充 outline manager 成功/失败、replan、runtime failure 路径回归 |
+| Spec | 更新 Deep Research tool runtime 合同，补齐 manager-only 执行规则和失败矩阵 |
+
+**验证**:
+- `uv run ruff check agent/deep_research/agents/supervisor.py agent/deep_research/agents/supervisor_tools.py agent/deep_research/engine/graph.py agent/deep_research/engine/planning.py agent/deep_research/engine/planning_flow.py agent/deep_research/engine/review_cycle.py tests/test_deepsearch_supervisor.py tests/test_deepsearch_multi_agent_runtime.py`
+- `uv run pytest tests/test_deepsearch_supervisor.py tests/test_deepsearch_multi_agent_runtime.py -q`
+
+**关键文件**:
+- `agent/deep_research/agents/supervisor.py`
+- `agent/deep_research/agents/supervisor_tools.py`
+- `agent/deep_research/engine/planning_flow.py`
+- `agent/deep_research/engine/review_cycle.py`
+- `.trellis/spec/backend/tool-runtime-contracts.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0ed1f16` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
