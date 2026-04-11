@@ -63,6 +63,7 @@ from agent.foundation.chat_context import (
     normalize_short_term_context,
     short_term_context_fetch_limit,
 )
+from agent.foundation.multi_model import TaskType, get_model_router
 from agent.tooling import (
     build_tool_catalog_snapshot,
     build_tool_inventory,
@@ -100,7 +101,7 @@ from common.langsmith import (
     with_langsmith_context,
 )
 from common.logger import get_logger, setup_logging
-from common.memory_service import MemoryService
+from common.memory_service import MemoryService, ModelBackedMemoryExtractor
 from common.memory_store import create_memory_store
 from common.metrics import metrics_registry
 from common.proxy_env import normalize_socks_proxy_env
@@ -488,6 +489,26 @@ def _init_store():
     return store_obj
 
 
+def _build_memory_extractor():
+    if not (
+        settings.openai_api_key.strip()
+        or settings.anthropic_api_key.strip()
+        or settings.openai_base_url.strip()
+        or settings.use_azure
+    ):
+        logger.info("Memory extractor disabled: no LLM provider configuration available")
+        return None
+
+    try:
+        router = get_model_router()
+        model = router.build_model(TaskType.ROUTING, temperature_override=0.0)
+        model_name = router.get_model_name(TaskType.ROUTING)
+        return ModelBackedMemoryExtractor(model=model, model_name=model_name)
+    except Exception as exc:
+        logger.warning("Memory extractor initialization failed: %s", exc)
+        return None
+
+
 def _memory_store_backend_name() -> str:
     backend = settings.memory_store_backend.lower().strip()
     if backend in {"memory", "postgres"}:
@@ -571,7 +592,7 @@ async def _initialize_runtime_state() -> None:
             _store_status = "ready"
             runtime_changed = True
 
-        memory_service = MemoryService(store=store)
+        memory_service = MemoryService(store=store, extractor=_build_memory_extractor())
         if session_store is not None:
             session_service = SessionService(
                 store=session_store,
@@ -598,7 +619,7 @@ async def _initialize_runtime_state() -> None:
             _checkpointer_error = "DATABASE_URL is required for session persistence"
 
         store = None
-        memory_service = MemoryService(store=None)
+        memory_service = MemoryService(store=None, extractor=None)
         if settings.memory_store_backend.lower().strip() == "memory":
             _store_status = "disabled"
             _store_error = ""
@@ -3081,7 +3102,7 @@ async def _stream_graph_execution(
                     except Exception:
                         pass
 
-def _ingest_explicit_memory_if_needed(
+async def _ingest_explicit_memory_if_needed(
     *,
     user_id: str,
     text: str,
@@ -3091,7 +3112,8 @@ def _ingest_explicit_memory_if_needed(
     if memory_service is None or not str(text or "").strip():
         return
     try:
-        memory_service.ingest_user_message(
+        await asyncio.to_thread(
+            memory_service.ingest_user_message,
             user_id=user_id,
             text=text,
             source_kind=source_kind,
@@ -3112,7 +3134,7 @@ async def support_chat(request: Request, payload: SupportChatRequest):
             if internal_key and principal_id
             else (payload.user_id or "default_user")
         )
-        _ingest_explicit_memory_if_needed(
+        await _ingest_explicit_memory_if_needed(
             user_id=user_id,
             text=payload.message,
             source_kind="support",
@@ -3415,7 +3437,7 @@ async def chat(request: Request, payload: ChatRequest):
                     initial_user_message=last_message,
                 )
             else:
-                _ingest_explicit_memory_if_needed(
+                await _ingest_explicit_memory_if_needed(
                     user_id=user_id,
                     text=last_message,
                     source_kind="chat",
@@ -3506,7 +3528,7 @@ async def chat(request: Request, payload: ChatRequest):
                     initial_user_message=last_message,
                 )
             else:
-                _ingest_explicit_memory_if_needed(
+                await _ingest_explicit_memory_if_needed(
                     user_id=user_id,
                     text=last_message,
                     source_kind="chat",
@@ -3624,7 +3646,7 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
                     content=user_text,
                 )
             elif user_text:
-                _ingest_explicit_memory_if_needed(
+                await _ingest_explicit_memory_if_needed(
                     user_id=user_id,
                     text=user_text,
                     source_kind="chat_resume",
@@ -3680,7 +3702,7 @@ async def resume_interrupt(request: Request, payload: GraphInterruptResumeReques
             content=user_text,
         )
     elif user_text:
-        _ingest_explicit_memory_if_needed(
+        await _ingest_explicit_memory_if_needed(
             user_id=user_id,
             text=user_text,
             source_kind="chat_resume",

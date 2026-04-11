@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -138,7 +139,8 @@ class SessionService:
         )
         await self._refresh_context_snapshot(thread_id)
         if self.memory_service is not None:
-            self.memory_service.ingest_user_message(
+            await asyncio.to_thread(
+                self.memory_service.ingest_user_message,
                 user_id=user_id,
                 text=initial_user_message,
                 source_kind="chat",
@@ -164,7 +166,8 @@ class SessionService:
         await self._refresh_context_snapshot(thread_id)
         owner = str((session or {}).get("user_id") or "").strip()
         if self.memory_service is not None and owner:
-            self.memory_service.ingest_user_message(
+            await asyncio.to_thread(
+                self.memory_service.ingest_user_message,
                 user_id=owner,
                 text=content,
                 source_kind="chat_resume",

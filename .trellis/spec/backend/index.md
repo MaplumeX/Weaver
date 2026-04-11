@@ -32,6 +32,7 @@ Match these documents to the current codebase instead of introducing generic
 | [Error Handling](./error-handling.md) | Boundary errors, safe fallbacks, and API response shape | Filled |
 | [Quality Guidelines](./quality-guidelines.md) | Lint, testing, review expectations, and forbidden patterns | Filled |
 | [Logging Guidelines](./logging-guidelines.md) | Standard logging bootstrap, levels, and redaction rules | Filled |
+| [Memory Runtime Contracts](./memory-runtime-contracts.md) | Executable contracts for explicit long-term memory ingestion, extractor gating, metadata/events, and async runtime wiring | Filled |
 | [Tool Runtime Contracts](./tool-runtime-contracts.md) | Executable contracts for profiles, tool registry, MCP, event streaming, and Deep Research runtime artifacts | Filled |
 
 ---
@@ -47,10 +48,13 @@ Read the relevant files before changing backend code:
 3. Read [Error Handling](./error-handling.md) and
    [Logging Guidelines](./logging-guidelines.md) for any request-path or
    integration changes.
-4. Read [Tool Runtime Contracts](./tool-runtime-contracts.md) for agent
+4. Read [Memory Runtime Contracts](./memory-runtime-contracts.md) for
+   long-term memory extraction, metadata/event behavior, or runtime wiring
+   changes.
+5. Read [Tool Runtime Contracts](./tool-runtime-contracts.md) for agent
    profile, tool registry, MCP, streaming event, or Deep Research runtime
    artifact changes.
-5. Read [Quality Guidelines](./quality-guidelines.md) before finishing work.
+6. Read [Quality Guidelines](./quality-guidelines.md) before finishing work.
 
 ---
 
