@@ -1152,3 +1152,58 @@ Reorganized the agent module into capability-owned packages, split Deep Research
 ### Next Steps
 
 - None - task complete
+
+
+## Session 26: RAG knowledge file maintenance workflow
+
+**Date**: 2026-04-11
+**Task**: RAG knowledge file maintenance workflow
+**Branch**: `main`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Feature | Description |
+|---------|-------------|
+| Strict dedupe | Added content-hash based duplicate upload rejection for knowledge files |
+| Maintenance APIs | Added knowledge file delete and reindex endpoints backed by MinIO + Milvus cleanup/rebuild |
+| Library UI | Added Reindex/Delete actions in Library knowledge items with destructive confirmation and better API error handling |
+| Contracts | Updated OpenAPI-generated TypeScript types and backend tool-runtime contract for knowledge file maintenance |
+| Regression coverage | Added service/API/OpenAPI tests and re-ran researcher regression coverage |
+
+**Verification**:
+- `uv run pytest tests/test_knowledge_service.py tests/test_knowledge_api.py tests/test_openapi_contract.py`
+- `uv run pytest tests/test_deepsearch_researcher.py`
+- `pnpm -C web lint`
+- `pnpm -C web build`
+
+**Updated Areas**:
+- `tools/rag/service.py`
+- `common/knowledge_registry.py`
+- `main.py`
+- `web/hooks/useKnowledgeFiles.ts`
+- `web/components/views/Library.tsx`
+- `web/components/library/KnowledgeFileItem.tsx`
+- `.trellis/spec/backend/tool-runtime-contracts.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c40ddc4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

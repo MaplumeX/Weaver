@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Place API glue in main.py, shared infra in common/, and concrete RAG integrations in tools/."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Keep delete/reindex/dedupe failures boundary-safe with HTTPException/ValueError/RuntimeError separation."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Behavior and persistence changes require focused regression tests and stable API boundaries."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This task changes API, service, registry, vector/object storage interactions, and frontend UI together."}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Use stable subsystem-prefixed logs for knowledge operations without leaking secrets."}
+{"file": ".trellis/spec/backend/tool-runtime-contracts.md", "reason": "Knowledge file ingestion/retrieval contracts already live here and must stay compatible across API and Deep Research."}
