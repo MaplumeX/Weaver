@@ -60,10 +60,48 @@ class _FakeSupervisor:
         budget_stop_reason="",
         aggregate_summary=None,
         reportable_section_count=0,
+        pending_replans=None,
     ):
         aggregate = aggregate_summary or {}
         if budget_stop_reason and not reportable_section_count and not aggregate.get("report_ready"):
             return type("Decision", (), {"action": "stop", "reasoning": budget_stop_reason})()
+        pending_replans = [item for item in (pending_replans or []) if isinstance(item, dict)]
+        if pending_replans:
+            task_specs = []
+            for item in pending_replans:
+                preferred_action = str(item.get("preferred_action") or "").strip()
+                if preferred_action == "revise_section":
+                    task_kind = "section_revision"
+                    replan_kind = "revision"
+                else:
+                    task_kind = "section_research"
+                    replan_kind = (
+                        "counterevidence"
+                        if bool(item.get("needs_counterevidence_query"))
+                        else "follow_up_research"
+                    )
+                task_specs.append(
+                    {
+                        "section_id": str(item.get("section_id") or "").strip(),
+                        "section_order": int(item.get("section_order", 0) or 0),
+                        "task_kind": task_kind,
+                        "replan_kind": replan_kind,
+                        "reason": str(item.get("reason") or "").strip(),
+                        "issue_ids": list(item.get("issue_ids") or []),
+                        "follow_up_queries": list(item.get("follow_up_queries") or []),
+                        "objective": str(item.get("objective") or "").strip(),
+                        "core_question": str(item.get("core_question") or "").strip(),
+                    }
+                )
+            return type(
+                "Decision",
+                (),
+                {
+                    "action": "replan",
+                    "reasoning": "需要补充研究计划",
+                    "task_specs": task_specs,
+                },
+            )()
         if reportable_section_count or aggregate.get("report_ready"):
             return type("Decision", (), {"action": "report", "reasoning": "已有可报告章节"})()
         required = list(outline.get("required_section_ids") or [])
@@ -999,6 +1037,334 @@ def test_supervisor_decide_accepts_enum_report_action(monkeypatch):
     result = runtime._supervisor_decide_node(state)
 
     assert result["next_step"] == "outline_gate"
+
+
+def test_reviewer_hands_replans_to_supervisor_before_enqueue(monkeypatch):
+    emitter = _DummyEmitter()
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_supervisor_replan"}},
+    )
+    state = runtime.build_initial_graph_state()
+    state["artifact_store"] = {
+        "scope": {"id": "scope-1"},
+        "outline": {
+            "id": "outline-1",
+            "required_section_ids": ["section_1"],
+            "sections": [
+                {
+                    "id": "section_1",
+                    "title": "问题 1",
+                    "objective": "What matters most about AI chips?",
+                    "core_question": "What matters most about AI chips?",
+                    "section_order": 1,
+                }
+            ],
+        },
+        "plan": {},
+        "evidence_bundles": [
+            {
+                "id": "bundle-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "sources": [],
+                "documents": [],
+                "passages": [],
+            }
+        ],
+        "section_drafts": [
+            {
+                "id": "draft-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "branch_id": "root",
+                "title": "问题 1",
+                "objective": "What matters most about AI chips?",
+                "core_question": "What matters most about AI chips?",
+                "summary": "AI chips matter.",
+                "key_findings": ["AI chips matter."],
+                "open_questions": ["Which sources disagree?"],
+                "source_urls": [],
+                "claim_units": [
+                    {
+                        "id": "claim-1",
+                        "text": "AI chips matter.",
+                        "importance": "primary",
+                        "grounded": False,
+                    }
+                ],
+                "coverage_summary": {"missing_topics": ["market share by vendor"]},
+                "quality_summary": {},
+                "contradiction_summary": {"needs_counterevidence_query": True},
+                "grounding_summary": {"primary_grounding_ratio": 0.0},
+                "section_order": 1,
+            }
+        ],
+        "section_reviews": [],
+        "section_certifications": [],
+        "final_report": {},
+    }
+    state["task_queue"] = {
+        "tasks": [],
+        "stats": {"total": 0, "ready": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0},
+    }
+    state["runtime_state"]["section_status_map"] = {"section_1": "drafted"}
+
+    reviewed = runtime._reviewer_node(state)
+
+    assert reviewed["task_queue"]["stats"]["ready"] == 0
+    assert reviewed["runtime_state"]["pending_replans"]
+
+    supervised = runtime._supervisor_decide_node(reviewed)
+
+    assert supervised["next_step"] == "dispatch"
+    assert supervised["task_queue"]["stats"]["ready"] == 1
+    queued_task = supervised["task_queue"]["tasks"][0]
+    assert queued_task["task_kind"] == "section_research"
+    assert queued_task["query"] == "market share by vendor"
+    assert queued_task["query_hints"][0] == "market share by vendor"
+    assert queued_task["aspect"] == "counterevidence"
+    assert supervised["runtime_state"]["pending_replans"] == []
+    assert supervised["runtime_state"]["section_research_retry_counts"]["section_1"] == 1
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    assert "coverage_gap_detected" in decision_types
+    assert "supervisor_replan" in decision_types
+
+
+def test_supervisor_replan_creates_revision_task(monkeypatch):
+    emitter = _DummyEmitter()
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_revision_replan"}},
+    )
+    state = runtime.build_initial_graph_state()
+    state["artifact_store"] = {
+        "scope": {"id": "scope-1"},
+        "outline": {
+            "id": "outline-1",
+            "required_section_ids": ["section_1"],
+            "sections": [
+                {
+                    "id": "section_1",
+                    "title": "问题 1",
+                    "objective": "What matters most about AI chips?",
+                    "core_question": "What matters most about AI chips?",
+                    "section_order": 1,
+                }
+            ],
+        },
+        "plan": {},
+        "evidence_bundles": [
+            {
+                "id": "bundle-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "sources": [{"url": "https://example.com/a"}],
+                "documents": [{"id": "doc-1"}],
+                "passages": [{"id": "passage-1"}],
+            }
+        ],
+        "section_drafts": [
+            {
+                "id": "draft-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "branch_id": "root",
+                "title": "问题 1",
+                "objective": "What matters most about AI chips?",
+                "core_question": "What matters most about AI chips?",
+                "summary": "AI chips matter.",
+                "key_findings": ["AI chips matter."],
+                "open_questions": [],
+                "source_urls": ["https://example.com/a"],
+                "claim_units": [
+                    {
+                        "id": "claim-1",
+                        "text": "AI chips matter.",
+                        "importance": "primary",
+                        "grounded": True,
+                    }
+                ],
+                "coverage_summary": {"coverage_ready": True},
+                "quality_summary": {"quality_ready": True},
+                "contradiction_summary": {"needs_counterevidence_query": False},
+                "grounding_summary": {"primary_grounding_ratio": 0.8},
+                "section_order": 1,
+            }
+        ],
+        "section_reviews": [
+            {
+                "id": "review-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "verdict": "revise_section",
+                "reportability": "medium",
+                "quality_band": "usable_with_limitations",
+                "blocking_issues": [],
+                "advisory_issues": [
+                    {"id": "issue-1", "issue_type": "secondary_claim_ungrounded", "message": "tighten wording"}
+                ],
+                "follow_up_queries": [],
+                "notes": "tighten wording",
+            }
+        ],
+        "section_certifications": [],
+        "final_report": {},
+    }
+    state["task_queue"] = {
+        "tasks": [],
+        "stats": {"total": 0, "ready": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0},
+    }
+    state["runtime_state"]["pending_replans"] = [
+        {
+            "section_id": "section_1",
+            "section_order": 1,
+            "preferred_action": "revise_section",
+            "reason": "tighten wording",
+            "issue_ids": ["issue-1"],
+            "issue_types": ["secondary_claim_ungrounded"],
+            "follow_up_queries": [],
+            "objective": "What matters most about AI chips?",
+            "core_question": "What matters most about AI chips?",
+            "reportability": "medium",
+            "quality_band": "usable_with_limitations",
+        }
+    ]
+    state["runtime_state"]["section_status_map"] = {"section_1": "revising"}
+
+    supervised = runtime._supervisor_decide_node(state)
+
+    queued_task = supervised["task_queue"]["tasks"][0]
+    assert supervised["next_step"] == "dispatch"
+    assert queued_task["task_kind"] == "section_revision"
+    assert queued_task["revision_kind"] == "revision"
+    assert queued_task["target_issue_ids"] == ["issue-1"]
+    assert supervised["runtime_state"]["section_revision_counts"]["section_1"] == 1
+
+
+def test_budget_stop_prevents_supervisor_replan_and_reports_partial(monkeypatch):
+    emitter = _DummyEmitter()
+    monkeypatch.setattr(multi_agent_runtime, "create_chat_model", lambda *args, **kwargs: object())
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchClarifyAgent", _FakeClarifyAgent)
+    monkeypatch.setattr(multi_agent_runtime, "DeepResearchScopeAgent", _FakeScopeAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchSupervisor", _FakeSupervisor)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchAgent", _FakeResearchAgent)
+    monkeypatch.setattr(multi_agent_runtime, "ResearchReporter", _FakeReporter)
+    monkeypatch.setattr(multi_agent_runtime, "get_emitter_sync", lambda _thread_id: emitter)
+
+    runtime = multi_agent_runtime.MultiAgentDeepResearchRuntime(
+        {"input": "AI chips", "sub_agent_contexts": {}},
+        {"configurable": {"thread_id": "thread_budget_report_partial", "deep_research_max_epochs": 1}},
+    )
+    state = runtime.build_initial_graph_state()
+    state["current_iteration"] = 1
+    state["artifact_store"] = {
+        "scope": {"id": "scope-1"},
+        "outline": {
+            "id": "outline-1",
+            "required_section_ids": ["section_1", "section_2"],
+            "sections": [
+                {
+                    "id": "section_1",
+                    "title": "问题 1",
+                    "objective": "Question one",
+                    "core_question": "Question one",
+                    "section_order": 1,
+                },
+                {
+                    "id": "section_2",
+                    "title": "问题 2",
+                    "objective": "Question two",
+                    "core_question": "Question two",
+                    "section_order": 2,
+                },
+            ],
+        },
+        "plan": {},
+        "evidence_bundles": [],
+        "section_drafts": [
+            {
+                "id": "draft-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "title": "问题 1",
+                "summary": "Supported section",
+                "key_findings": ["Supported finding"],
+                "source_urls": ["https://example.com/a"],
+                "certified": True,
+                "section_order": 1,
+            }
+        ],
+        "section_reviews": [
+            {
+                "id": "review-1",
+                "task_id": "task_1",
+                "section_id": "section_1",
+                "verdict": "accept_section",
+                "reportability": "high",
+                "quality_band": "strong",
+                "blocking_issues": [],
+                "advisory_issues": [],
+                "follow_up_queries": [],
+                "notes": "",
+            }
+        ],
+        "section_certifications": [
+            {
+                "id": "cert-1",
+                "section_id": "section_1",
+                "certified": True,
+                "reportability": "high",
+                "quality_band": "strong",
+            }
+        ],
+        "final_report": {},
+    }
+    state["task_queue"] = {
+        "tasks": [],
+        "stats": {"total": 0, "ready": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0},
+    }
+    state["runtime_state"]["current_iteration"] = 1
+    state["runtime_state"]["section_status_map"] = {"section_1": "certified", "section_2": "research_retry"}
+    state["runtime_state"]["pending_replans"] = [
+        {
+            "section_id": "section_2",
+            "section_order": 2,
+            "preferred_action": "request_research",
+            "reason": "need more evidence",
+            "issue_ids": ["issue-2"],
+            "issue_types": ["insufficient_sources"],
+            "follow_up_queries": ["Question two official data"],
+            "objective": "Question two",
+            "core_question": "Question two",
+            "reportability": "low",
+            "quality_band": "needs_follow_up",
+        }
+    ]
+
+    supervised = runtime._supervisor_decide_node(state)
+
+    assert supervised["next_step"] == "outline_gate"
+    assert supervised["task_queue"]["stats"]["ready"] == 0
+    decision_types = [data["decision_type"] for name, data in emitter.emitted if name == "research_decision"]
+    assert "supervisor_replan" not in decision_types
+    assert "report_partial" in decision_types
 
 
 def test_multi_agent_resume_preserves_clarify_history_into_scope(monkeypatch):

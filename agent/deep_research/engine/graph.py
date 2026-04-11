@@ -6,7 +6,7 @@ number of persisted runtime artifacts. The loop is intentionally compact:
 
 clarify -> scope -> scope_review -> research_brief -> outline_plan
 -> dispatch -> researcher/revisor -> merge -> reviewer -> supervisor_decide
--> outline_gate -> report -> final_claim_gate -> finalize
+-> outline_gate -> report -> finalize
 """
 
 from __future__ import annotations
@@ -270,7 +270,7 @@ class MultiAgentDeepResearchRuntime:
             "scope_feedback_history": [],
             "outline_gate_summary": {},
             "last_review_summary": {},
-            "final_claim_gate_summary": {},
+            "pending_replans": [],
             "section_status_map": {},
             "section_revision_counts": {},
             "section_research_retry_counts": {},
@@ -289,6 +289,11 @@ class MultiAgentDeepResearchRuntime:
         artifact_store = LightweightArtifactStore(graph_state.get("artifact_store"))
         runtime_state = self._default_runtime_state()
         runtime_state.update(copy.deepcopy(graph_state.get("runtime_state") or {}))
+        runtime_state.pop("final_claim_gate_summary", None)
+        if str(runtime_state.get("next_step") or "").strip().lower() == "final_claim_gate":
+            runtime_state["next_step"] = "finalize"
+        if str(runtime_state.get("active_agent") or "").strip().lower() == "verifier":
+            runtime_state["active_agent"] = "reporter"
         current_iteration = int(
             graph_state.get("current_iteration")
             or runtime_state.get("current_iteration")
@@ -540,6 +545,81 @@ class MultiAgentDeepResearchRuntime:
             scope=scope,
         )
 
+    def _build_supervisor_replan_tasks(
+        self,
+        *,
+        parts: _RuntimeParts,
+        outline: dict[str, Any],
+        task_specs: list[dict[str, Any]],
+    ) -> list[ResearchTask]:
+        tasks: list[ResearchTask] = []
+        scope = parts.artifact_store.scope()
+        section_map = self._section_map(outline)
+        revision_counts = dict(parts.runtime_state.get("section_revision_counts") or {})
+        research_retry_counts = dict(parts.runtime_state.get("section_research_retry_counts") or {})
+        for spec in task_specs:
+            if not isinstance(spec, dict):
+                continue
+            section_id = str(spec.get("section_id") or "").strip()
+            if not section_id:
+                continue
+            section = section_map.get(section_id, {})
+            if not section:
+                continue
+            draft = parts.artifact_store.section_draft(section_id)
+            review = parts.artifact_store.section_review(section_id)
+            task_kind = str(spec.get("task_kind") or "").strip()
+            if task_kind == "section_revision":
+                revision_count = int(revision_counts.get(section_id, 0) or 0)
+                task = self._build_revision_task(
+                    section=section,
+                    draft=draft,
+                    review=review,
+                    scope=scope,
+                    revision_count=revision_count,
+                )
+                revision_counts[section_id] = revision_count + 1
+            elif task_kind == "section_research":
+                research_retry_count = int(research_retry_counts.get(section_id, 0) or 0)
+                task = self._build_research_retry_task(
+                    section=section,
+                    draft=draft,
+                    review=review,
+                    scope=scope,
+                )
+                research_retry_counts[section_id] = research_retry_count + 1
+                follow_up_queries = [
+                    str(item).strip()
+                    for item in spec.get("follow_up_queries", []) or []
+                    if str(item).strip()
+                ]
+                if follow_up_queries:
+                    task.query = follow_up_queries[0]
+                    task.query_hints = follow_up_queries
+                replan_kind = str(spec.get("replan_kind") or "").strip()
+                if replan_kind:
+                    task.aspect = replan_kind
+            else:
+                continue
+            task.target_issue_ids = [
+                str(item).strip()
+                for item in spec.get("issue_ids", []) or []
+                if str(item).strip()
+            ]
+            task.title = (
+                f"补充对比研究: {task.title}"
+                if task_kind == "section_research" and str(spec.get("replan_kind") or "") == "counterevidence"
+                else f"补充研究: {task.title}"
+                if task_kind == "section_research"
+                else task.title
+            )
+            if task_kind == "section_revision":
+                task.revision_kind = str(spec.get("replan_kind") or "revision").strip()
+            tasks.append(task)
+        parts.runtime_state["section_revision_counts"] = revision_counts
+        parts.runtime_state["section_research_retry_counts"] = research_retry_counts
+        return tasks
+
     def _aggregate_sections(
         self,
         queue: ResearchTaskQueue,
@@ -555,9 +635,6 @@ class MultiAgentDeepResearchRuntime:
 
     def _build_report_sections(self, store: LightweightArtifactStore) -> list[ReportSectionContext]:
         return section_review.build_report_sections(store)
-
-    def _normalize_passages_for_claim_gate(self, store: LightweightArtifactStore) -> list[dict[str, Any]]:
-        return section_review.normalize_passages_for_claim_gate(store)
 
     def artifact_store_section_draft_by_task(self, store: LightweightArtifactStore, task_id: str) -> dict[str, Any]:
         return section_review.artifact_store_section_draft_by_task(store, task_id)
@@ -674,7 +751,6 @@ class MultiAgentDeepResearchRuntime:
             "supervisor_decide",
             "outline_gate",
             "report",
-            "final_claim_gate",
             "finalize",
         }:
             return next_step
@@ -936,6 +1012,26 @@ class MultiAgentDeepResearchRuntime:
         aggregate = self._aggregate_sections(parts.task_queue, parts.artifact_store, parts.runtime_state)
         parts.runtime_state["last_review_summary"] = aggregate
         parts.runtime_state["outline_gate_summary"] = copy.deepcopy(aggregate)
+        pending_replans = [
+            item
+            for item in list(parts.runtime_state.get("pending_replans") or [])
+            if isinstance(item, dict) and str(item.get("section_id") or "").strip()
+        ]
+        if pending_replans:
+            self._emit_decision(
+                "coverage_gap_detected",
+                f"detected {len(pending_replans)} sections requiring more evidence or revision",
+                iteration=max(1, parts.current_iteration or 1),
+                extra={
+                    **aggregate,
+                    "replan_count": len(pending_replans),
+                    "section_ids": [
+                        str(item.get("section_id") or "").strip()
+                        for item in pending_replans
+                        if str(item.get("section_id") or "").strip()
+                    ],
+                },
+            )
         decision_type = "review_passed" if aggregate.get("outline_ready") else "review_updated"
         self._emit_decision(decision_type, "section review updated", iteration=max(1, parts.current_iteration or 1), extra=aggregate)
         self._emit(ToolEventType.QUALITY_UPDATE, self._quality_summary(parts.task_queue, parts.artifact_store, parts.runtime_state))
@@ -948,7 +1044,7 @@ class MultiAgentDeepResearchRuntime:
         aggregate = self._aggregate_sections(parts.task_queue, parts.artifact_store, parts.runtime_state)
         reportable_sections = self._build_report_sections(parts.artifact_store)
         budget_stop_reason = self._budget_stop_reason(parts.runtime_state)
-        next_step = review_cycle.decide_supervisor_next_step(
+        next_step, decision_payload = review_cycle.decide_supervisor_next_step(
             task_queue=parts.task_queue,
             outline=parts.artifact_store.outline(),
             runtime_state=parts.runtime_state,
@@ -961,6 +1057,31 @@ class MultiAgentDeepResearchRuntime:
             fallback_section_decision_fn=self._fallback_section_decision,
             emit_decision=self._emit_decision,
         )
+        if str(decision_payload.get("action") or "").strip().lower() == "replan":
+            tasks = self._build_supervisor_replan_tasks(
+                parts=parts,
+                outline=parts.artifact_store.outline(),
+                task_specs=list(decision_payload.get("task_specs") or []),
+            )
+            if not tasks:
+                parts.runtime_state["pending_replans"] = []
+                parts.runtime_state["terminal_status"] = "blocked"
+                parts.runtime_state["terminal_reason"] = "supervisor replan produced no executable tasks"
+                self._emit_decision(
+                    "stop",
+                    parts.runtime_state["terminal_reason"],
+                    iteration=max(1, parts.current_iteration or 1),
+                )
+                return self._patch(parts, next_step="finalize")
+            parts.task_queue.enqueue(tasks)
+            parts.runtime_state["pending_replans"] = []
+            for task in tasks:
+                self._emit_task_update(
+                    task,
+                    task.status,
+                    iteration=max(1, parts.current_iteration or 1),
+                    reason="supervisor_replan",
+                )
         return self._patch(parts, next_step=next_step)
 
     def _route_after_supervisor_decide(self, graph_state: MultiAgentGraphState) -> str:
@@ -1013,44 +1134,6 @@ class MultiAgentDeepResearchRuntime:
             status="completed",
             summary=str(final_report.get("executive_summary") or "final report ready"),
         )
-        return self._patch(parts, next_step="final_claim_gate")
-
-    def _final_claim_gate_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
-        parts = self._unpack(graph_state)
-        parts.runtime_state["active_agent"] = "verifier"
-        record = self._start_agent_run(parts, role="verifier", phase="final_claim_gate", attempt=self.graph_attempt)
-        final_artifact = parts.artifact_store.final_report()
-        report = str(final_artifact.get("report_markdown") or "")
-        if not report.strip():
-            self._finish_agent_run(parts, record, status="completed", summary="no final report to verify")
-            return self._patch(parts, next_step="finalize")
-
-        try:
-            gate_summary = completion_flow.run_final_claim_gate(
-                report=report,
-                scraped_content=list(parts.shared_state.get("scraped_content") or []),
-                passages=[
-                item
-                for item in self._normalize_passages_for_claim_gate(parts.artifact_store)
-                if isinstance(item, dict)
-                ],
-            )
-            parts.runtime_state["final_claim_gate_summary"] = gate_summary
-            parts.runtime_state["terminal_status"] = ""
-            parts.runtime_state["terminal_reason"] = ""
-            if gate_summary.get("review_needed"):
-                self._emit_decision(
-                    "final_claim_gate_review_needed",
-                    "final claim gate found claims that need manual review",
-                    iteration=max(1, parts.current_iteration or 1),
-                    extra=gate_summary,
-                )
-            else:
-                self._emit_decision("final_claim_gate_passed", "final claim gate passed", iteration=max(1, parts.current_iteration or 1), extra=gate_summary)
-            self._finish_agent_run(parts, record, status="completed", summary="final claim gate completed")
-        except Exception as exc:
-            parts.runtime_state["final_claim_gate_summary"] = {"error": str(exc), "passed": False}
-            self._finish_agent_run(parts, record, status="failed", summary=str(exc))
         return self._patch(parts, next_step="finalize")
 
     def _finalize_node(self, graph_state: MultiAgentGraphState) -> dict[str, Any]:
@@ -1091,7 +1174,6 @@ class MultiAgentDeepResearchRuntime:
         workflow.add_node("supervisor_decide", self._supervisor_decide_node)
         workflow.add_node("outline_gate", self._outline_gate_node)
         workflow.add_node("report", self._report_node)
-        workflow.add_node("final_claim_gate", self._final_claim_gate_node)
         workflow.add_node("finalize", self._finalize_node)
 
         workflow.set_entry_point("bootstrap")
@@ -1109,7 +1191,6 @@ class MultiAgentDeepResearchRuntime:
                 "supervisor_decide",
                 "outline_gate",
                 "report",
-                "final_claim_gate",
                 "finalize",
             ],
         )
@@ -1133,8 +1214,7 @@ class MultiAgentDeepResearchRuntime:
             ["dispatch", "outline_gate", "report", "finalize"],
         )
         workflow.add_edge("outline_gate", "report")
-        workflow.add_edge("report", "final_claim_gate")
-        workflow.add_edge("final_claim_gate", "finalize")
+        workflow.add_edge("report", "finalize")
         workflow.add_edge("finalize", END)
         return workflow.compile(checkpointer=checkpointer, interrupt_before=interrupt_before)
 

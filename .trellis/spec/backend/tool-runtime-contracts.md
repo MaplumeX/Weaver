@@ -588,12 +588,16 @@ yield await format_stream_event(
 
 - File: `agent/deep_research/agents/supervisor.py`
   - `ResearchSupervisor.create_outline_plan(topic, *, approved_scope=None) -> dict[str, Any]`
+  - `ResearchSupervisor.decide_section_action(outline, section_status_map, *, budget_stop_reason="", aggregate_summary=None, reportable_section_count=0, pending_replans=None) -> SupervisorDecision`
 - File: `agent/deep_research/agents/researcher.py`
   - `ResearchAgent.research_branch(task, *, topic, existing_summary="", max_results_per_query=5) -> dict[str, Any]`
 - File: `agent/deep_research/branch_research/runner.py`
   - `BranchResearchRunner.run(task, *, topic, existing_summary, max_results_per_query) -> dict[str, Any]`
 - File: `agent/deep_research/engine/artifact_store.py`
   - `LightweightArtifactStore.snapshot() -> dict[str, Any]`
+- File: `agent/deep_research/engine/review_cycle.py`
+  - `review_section_drafts(...) -> None`
+  - `decide_supervisor_next_step(...) -> tuple[str, dict[str, Any]]`
 - File: `agent/deep_research/artifacts/public_artifacts.py`
   - `build_public_deep_research_artifacts(...) -> dict[str, Any]`
 
@@ -675,8 +679,53 @@ Reviewer/reporter consumption rules:
 - Reviewer should prefer `coverage_summary`, `quality_summary`,
   `contradiction_summary`, and `grounding_summary` from the draft instead of
   recomputing all branch quality from raw text only.
+- Reviewer owns diagnosis, not replanning. `review_section_drafts(...)` may set
+  section status and collect `runtime_state["pending_replans"]`, but it must
+  not enqueue retry/revision tasks directly.
 - `grounding_summary.primary_grounding_ratio` is the primary hard-gate input
   for claim grounding.
+- `runtime_state["pending_replans"]` is the control-plane handoff from
+  reviewer to supervisor. Each item must be a dict containing:
+  - `section_id`
+  - `section_order`
+  - `task_id`
+  - `draft_id`
+  - `review_id`
+  - `preferred_action`
+  - `reason`
+  - `issue_types`
+  - `issue_ids`
+  - `follow_up_queries`
+  - `open_questions`
+  - `missing_topics`
+  - `needs_counterevidence_query`
+  - `objective`
+  - `core_question`
+  - `reportability`
+  - `quality_band`
+- `SupervisorDecision` replan contract:
+  - `action="replan"` means supervisor is responsible for generating the next
+    executable task set.
+  - `task_specs[*]` must contain:
+    - `section_id`
+    - `section_order`
+    - `task_kind` (`section_research` or `section_revision`)
+    - `replan_kind` (`follow_up_research`, `counterevidence`, or `revision`)
+    - `reason`
+    - `issue_types`
+    - `issue_ids`
+    - `follow_up_queries`
+    - `objective`
+    - `core_question`
+    - `reportability`
+    - `quality_band`
+- Runtime execution contract:
+  - `MultiAgentDeepResearchRuntime._supervisor_decide_node(...)` is the only
+    node that may translate `task_specs` into new queued `ResearchTask`
+    records.
+  - When `budget_stop_reason` is present, supervisor must not emit executable
+    `replan` tasks; runtime should prefer `report_partial`, `outline_gate`, or
+    `stop`.
 - File: `agent/deep_research/engine/graph.py`
   - `MultiAgentDeepResearchRuntime._build_report_sections(store) -> list[ReportSectionContext]`
   - `MultiAgentDeepResearchRuntime._aggregate_sections(queue, store, runtime_state) -> dict[str, Any]`
@@ -714,6 +763,8 @@ Reviewer/reporter consumption rules:
 | No new evidence and no follow-up queries | bounded stop | `stop_reason="evidence_stagnated"` or `no_follow_up_queries` |
 | Only weak snippet evidence exists | draft may still be produced | reviewer can mark section `reportability=low` and `needs_manual_review=true` |
 | Evidence dominated by one source domain | contradiction artifact requests counterevidence | advisory follow-up, not hard failure by itself |
+| Reviewer finds fixable section gaps and no budget stop is active | reviewer records `pending_replans`, supervisor emits `action="replan"` with `task_specs` | runtime enqueues new `section_research` / `section_revision` tasks |
+| Reviewer finds fixable section gaps but budget stop is active | no executable replan is emitted | runtime prefers `report_partial`, `outline_gate`, or `stop` |
 | Draft has `reportability=low` or `insufficient` | reporter excludes it from final report context | `report_ready=false` when no admitted sections remain |
 | Draft has `reportability=medium` but `contradiction_summary.has_material_conflict=true` | reporter excludes it from final report context | final report omits the section |
 | Final report is long but admitted `report_context` is available | executive summary uses admitted section summaries/findings first | avoids summary drift from truncated markdown |
@@ -784,6 +835,47 @@ payload = {
 Bad because downstream merge/public adapters and reviewer logic are keyed on
 `branch_artifacts` plus the plural snapshot keys listed above.
 
+Good replanning case:
+
+```python
+pending_replans = [
+    {
+        "section_id": "section_2",
+        "preferred_action": "request_research",
+        "issue_types": ["insufficient_sources", "limited_source_diversity"],
+        "follow_up_queries": ["Question two official data", "Question two opposing view official source"],
+        "needs_counterevidence_query": True,
+    }
+]
+decision = {
+    "action": "replan",
+    "task_specs": [
+        {
+            "section_id": "section_2",
+            "task_kind": "section_research",
+            "replan_kind": "counterevidence",
+        }
+    ],
+}
+```
+
+Base replanning case:
+
+```python
+pending_replans = []
+decision = {"action": "dispatch", "task_specs": []}
+```
+
+Bad replanning case:
+
+```python
+pending_replans = [{"section_id": "section_2", "preferred_action": "request_research"}]
+decision = {"action": "replan", "task_specs": []}
+```
+
+Bad because supervisor signaled replanning without producing executable task
+specs for the runtime queue.
+
 Bad reporter-admission case:
 
 ```python
@@ -805,9 +897,15 @@ sections just because the draft text is non-empty.
   - assert bounded multi-round query refinement can cover missing criteria
 - `tests/test_deepsearch_supervisor.py`
   - assert outline sections propagate richer branch policy fields
+  - assert supervisor maps `pending_replans` into `replan` task specs
+  - assert counterevidence and revision replans are distinguished correctly
 - `tests/test_deepsearch_multi_agent_runtime.py`
   - assert artifact store/public payload expose `branch_*` snapshot keys
   - assert section drafts carry structured coverage/quality/grounding summaries
+  - assert reviewer records `pending_replans` but does not enqueue tasks
+  - assert supervisor is the node that enqueues retry/revision tasks
+  - assert budget stop prevents executable replans and falls back to
+    partial-report behavior
   - assert report generation excludes `low`/`insufficient` sections from the
     admitted reporter context
   - assert materially conflicting sections are excluded from the admitted
@@ -830,6 +928,7 @@ sections just because the draft text is non-empty.
 - Return only branch summary text from `research_branch(...)`.
 - Recompute coverage/grounding later from free-form text only.
 - Introduce singular or ad-hoc artifact-store keys such as `branch_quality`.
+- Let reviewer enqueue follow-up tasks directly after section review.
 
 #### Correct
 
@@ -837,6 +936,8 @@ sections just because the draft text is non-empty.
 - Persist branch summaries into `SectionDraftArtifact`.
 - Mirror branch artifact lists through `artifact_store.snapshot()` and the
   public `deep_research_artifacts` payload using the plural key names above.
+- Treat reviewer output as diagnosis plus `pending_replans`, and let
+  supervisor own executable replanning decisions.
 
 ---
 
