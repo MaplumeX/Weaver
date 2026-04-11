@@ -1207,3 +1207,36 @@ Reorganized the agent module into capability-owned packages, split Deep Research
 ### Next Steps
 
 - None - task complete
+
+
+## Session 27: Add scoped knowledge search tool
+
+**Date**: 2026-04-11
+**Task**: Add scoped knowledge search tool
+**Branch**: `main`
+
+### Summary
+
+Added owner-scoped knowledge_search for tool agents, wired the knowledge capability through runtime and knowledge APIs, updated Deep Research compatibility, and fixed streamed tool payload serialization for LangGraph Command objects.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `10385ef` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
