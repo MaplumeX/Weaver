@@ -72,28 +72,6 @@ def _build_query_coverage(
     return {}
 
 
-def _normalize_control_plane(
-    runtime_state: dict[str, Any],
-    payload: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    control_plane = dict(payload or {})
-    latest_handoff = control_plane.get("latest_handoff")
-    if not isinstance(latest_handoff, dict):
-        runtime_handoff = runtime_state.get("handoff_envelope")
-        latest_handoff = dict(runtime_handoff) if isinstance(runtime_handoff, dict) else {}
-
-    handoff_history = control_plane.get("handoff_history")
-    if not isinstance(handoff_history, list):
-        raw_history = runtime_state.get("handoff_history")
-        handoff_history = [item for item in raw_history if isinstance(item, dict)] if isinstance(raw_history, list) else []
-
-    return {
-        "active_agent": str(control_plane.get("active_agent") or runtime_state.get("active_agent") or ""),
-        "latest_handoff": dict(latest_handoff),
-        "handoff_history": list(handoff_history),
-    }
-
-
 def _build_public_payload(
     *,
     mode: str,
@@ -125,7 +103,6 @@ def _build_public_payload(
     passages: list[dict[str, Any]] | None = None,
     query_coverage: dict[str, Any] | None = None,
     freshness_summary: dict[str, Any] | None = None,
-    control_plane: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     validation_summary = dict(validation_summary or {})
     quality_summary = dict(quality_summary or {})
@@ -143,10 +120,18 @@ def _build_public_payload(
     coverage_summary = dict(quality_summary.get("coverage_summary") or {})
     if not coverage_summary:
         coverage_summary = {
-            "ready": bool(validation_summary.get("coverage_ready", quality_summary.get("coverage_ready", False))),
+            "ready": bool(
+                validation_summary.get(
+                    "coverage_ready", quality_summary.get("coverage_ready", False)
+                )
+            ),
             "score": validation_summary.get("coverage_score", resolved_query_coverage.get("score")),
-            "covered_count": validation_summary.get("covered_question_count", resolved_query_coverage.get("covered")),
-            "target_count": validation_summary.get("coverage_target_count", resolved_query_coverage.get("total")),
+            "covered_count": validation_summary.get(
+                "covered_question_count", resolved_query_coverage.get("covered")
+            ),
+            "target_count": validation_summary.get(
+                "coverage_target_count", resolved_query_coverage.get("total")
+            ),
         }
     uncovered_questions = [
         str(item).strip()
@@ -186,7 +171,6 @@ def _build_public_payload(
         "executive_summary": executive_summary,
         "runtime_state": dict(runtime_state),
         "terminal_status": str(runtime_state.get("terminal_status") or ""),
-        "control_plane": _normalize_control_plane(runtime_state, control_plane),
         "fetched_pages": list(fetched_pages),
         "passages": list(passages),
         "query_coverage": resolved_query_coverage,
@@ -217,7 +201,9 @@ def _build_lightweight_public_artifacts(
         validation_summary = {**validation_summary, **runtime_validation}
     if "query_coverage_score" not in merged_quality and queries:
         if validation_summary.get("coverage_score") is not None:
-            merged_quality["query_coverage_score"] = float(validation_summary.get("coverage_score") or 0.0)
+            merged_quality["query_coverage_score"] = float(
+                validation_summary.get("coverage_score") or 0.0
+            )
         else:
             passed = int(validation_summary.get("passed_branch_count") or 0)
             merged_quality["query_coverage_score"] = round(passed / max(1, len(queries)), 3)
@@ -228,15 +214,23 @@ def _build_lightweight_public_artifacts(
         mode=mode,
         engine=engine,
         queries=queries,
-        scope=dict(store_snapshot.get("scope")) if isinstance(store_snapshot.get("scope"), dict) else {},
-        outline=dict(store_snapshot.get("outline")) if isinstance(store_snapshot.get("outline"), dict) else {},
-        plan=dict(store_snapshot.get("plan")) if isinstance(store_snapshot.get("plan"), dict) else {},
+        scope=dict(store_snapshot.get("scope"))
+        if isinstance(store_snapshot.get("scope"), dict)
+        else {},
+        outline=dict(store_snapshot.get("outline"))
+        if isinstance(store_snapshot.get("outline"), dict)
+        else {},
+        plan=dict(store_snapshot.get("plan"))
+        if isinstance(store_snapshot.get("plan"), dict)
+        else {},
         tasks=_sorted_tasks(queue_snapshot),
         research_topology=research_topology if isinstance(research_topology, dict) else {},
         sources=_normalize_lightweight_sources(store_snapshot),
         section_drafts=_normalize_public_section_drafts(store_snapshot.get("section_drafts")),
         section_reviews=_normalize_public_section_reviews(store_snapshot.get("section_reviews")),
-        section_certifications=_normalize_public_section_certifications(store_snapshot.get("section_certifications")),
+        section_certifications=_normalize_public_section_certifications(
+            store_snapshot.get("section_certifications")
+        ),
         branch_query_rounds=list(store_snapshot.get("branch_query_rounds") or []),
         branch_coverages=list(store_snapshot.get("branch_coverages") or []),
         branch_qualities=list(store_snapshot.get("branch_qualities") or []),
@@ -265,8 +259,16 @@ def _filter_public_artifacts(
     default_mode: str,
     default_engine: str,
 ) -> dict[str, Any]:
-    quality_summary = dict(artifacts.get("quality_summary") or {}) if isinstance(artifacts.get("quality_summary"), dict) else {}
-    runtime_state = dict(artifacts.get("runtime_state") or {}) if isinstance(artifacts.get("runtime_state"), dict) else {}
+    quality_summary = (
+        dict(artifacts.get("quality_summary") or {})
+        if isinstance(artifacts.get("quality_summary"), dict)
+        else {}
+    )
+    runtime_state = (
+        dict(artifacts.get("runtime_state") or {})
+        if isinstance(artifacts.get("runtime_state"), dict)
+        else {}
+    )
     from agent.deep_research.artifacts.public_sources import _coerce_queries
 
     queries = _coerce_queries(artifacts.get("queries"))
@@ -275,22 +277,40 @@ def _filter_public_artifacts(
 
     payload = _build_public_payload(
         mode=str(artifacts.get("mode") or default_mode or "multi_agent"),
-        engine=str(artifacts.get("engine") or artifacts.get("mode") or default_engine or default_mode or "multi_agent"),
+        engine=str(
+            artifacts.get("engine")
+            or artifacts.get("mode")
+            or default_engine
+            or default_mode
+            or "multi_agent"
+        ),
         queries=queries,
         scope=dict(artifacts.get("scope")) if isinstance(artifacts.get("scope"), dict) else {},
-        outline=dict(artifacts.get("outline")) if isinstance(artifacts.get("outline"), dict) else {},
+        outline=dict(artifacts.get("outline"))
+        if isinstance(artifacts.get("outline"), dict)
+        else {},
         plan=dict(artifacts.get("plan")) if isinstance(artifacts.get("plan"), dict) else {},
-        tasks=_sorted_tasks({"tasks": artifacts.get("tasks")}) if isinstance(artifacts.get("tasks"), list) else [],
-        research_topology=dict(artifacts.get("research_topology")) if isinstance(artifacts.get("research_topology"), dict) else {},
+        tasks=_sorted_tasks({"tasks": artifacts.get("tasks")})
+        if isinstance(artifacts.get("tasks"), list)
+        else [],
+        research_topology=dict(artifacts.get("research_topology"))
+        if isinstance(artifacts.get("research_topology"), dict)
+        else {},
         sources=_normalize_public_sources(artifacts.get("sources")),
         section_drafts=_normalize_public_section_drafts(
-            artifacts.get("section_drafts") if isinstance(artifacts.get("section_drafts"), list) else []
+            artifacts.get("section_drafts")
+            if isinstance(artifacts.get("section_drafts"), list)
+            else []
         ),
         section_reviews=_normalize_public_section_reviews(
-            artifacts.get("section_reviews") if isinstance(artifacts.get("section_reviews"), list) else []
+            artifacts.get("section_reviews")
+            if isinstance(artifacts.get("section_reviews"), list)
+            else []
         ),
         section_certifications=_normalize_public_section_certifications(
-            artifacts.get("section_certifications") if isinstance(artifacts.get("section_certifications"), list) else []
+            artifacts.get("section_certifications")
+            if isinstance(artifacts.get("section_certifications"), list)
+            else []
         ),
         branch_query_rounds=list(artifacts.get("branch_query_rounds") or []),
         branch_coverages=list(artifacts.get("branch_coverages") or []),
@@ -298,9 +318,13 @@ def _filter_public_artifacts(
         branch_contradictions=list(artifacts.get("branch_contradictions") or []),
         branch_groundings=list(artifacts.get("branch_groundings") or []),
         branch_decisions=list(artifacts.get("branch_decisions") or []),
-        outline_gate_summary=dict(artifacts.get("outline_gate_summary")) if isinstance(artifacts.get("outline_gate_summary"), dict) else {},
+        outline_gate_summary=dict(artifacts.get("outline_gate_summary"))
+        if isinstance(artifacts.get("outline_gate_summary"), dict)
+        else {},
         branch_results=_normalize_public_branch_results(
-            artifacts.get("branch_results") if isinstance(artifacts.get("branch_results"), list) else artifacts.get("section_drafts")
+            artifacts.get("branch_results")
+            if isinstance(artifacts.get("branch_results"), list)
+            else artifacts.get("section_drafts")
         ),
         validation_summary=_normalize_validation_summary(artifacts.get("validation_summary")),
         quality_summary=quality_summary,
@@ -309,13 +333,14 @@ def _filter_public_artifacts(
         runtime_state=runtime_state,
         fetched_pages=_normalize_public_fetched_pages(artifacts.get("fetched_pages")),
         passages=_normalize_public_passages(artifacts.get("passages")),
-        query_coverage=dict(artifacts.get("query_coverage")) if isinstance(artifacts.get("query_coverage"), dict) else None,
+        query_coverage=dict(artifacts.get("query_coverage"))
+        if isinstance(artifacts.get("query_coverage"), dict)
+        else None,
         freshness_summary=(
             dict(artifacts.get("freshness_summary"))
             if isinstance(artifacts.get("freshness_summary"), dict)
             else None
         ),
-        control_plane=dict(artifacts.get("control_plane")) if isinstance(artifacts.get("control_plane"), dict) else None,
     )
     if any(payload.get(key) for key in _PUBLIC_SIGNAL_KEYS):
         return payload
